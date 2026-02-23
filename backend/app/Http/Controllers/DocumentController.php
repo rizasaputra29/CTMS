@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Document;
+use App\Models\Group;
 use App\Models\GroupMember;
+use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -11,8 +13,27 @@ use Illuminate\Validation\Rule;
 
 class DocumentController extends Controller
 {
+    protected GroupStateMachine $stateMachine;
+
+    public function __construct(GroupStateMachine $stateMachine)
+    {
+        $this->stateMachine = $stateMachine;
+    }
+
     // Workflow phase order
     const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'SIDANG', 'EXPO'];
+
+    // Valid document sub-types per phase
+    const PHASE_DOCUMENT_TYPES = [
+        'PDC1' => ['C100', 'C200', 'C300'],
+        'PDC2' => ['C400', 'C500'],
+    ];
+
+    // Required document types to complete a phase
+    const REQUIRED_DOCUMENT_TYPES = [
+        'PDC1' => ['C100', 'C200', 'C300'],
+        'PDC2' => ['C400', 'C500'],
+    ];
 
     // Unlock rules: phase => prerequisite phase that must be APPROVED
     const UNLOCK_RULES = [
@@ -136,10 +157,19 @@ class DocumentController extends Controller
      */
     public function store(Request $request)
     {
-        $request->validate([
+        $validationRules = [
             'phase' => ['required', 'string', Rule::in(self::PHASES)],
             'file' => ['required', 'file', 'mimes:pdf,doc,docx', 'max:10240'],
-        ]);
+        ];
+
+        // Add document_type validation if phase has sub-types
+        if ($request->phase && isset(self::PHASE_DOCUMENT_TYPES[$request->phase])) {
+            $validationRules['document_type'] = ['required', 'string', Rule::in(self::PHASE_DOCUMENT_TYPES[$request->phase])];
+        } else {
+            $validationRules['document_type'] = ['nullable', 'string'];
+        }
+
+        $request->validate($validationRules);
 
         $user = Auth::user();
         $groupMember = GroupMember::where('student_id', $user->id)->first();
@@ -168,6 +198,7 @@ class DocumentController extends Controller
         // Determine version
         $latestDoc = Document::where('group_id', $groupMember->group_id)
             ->where('phase', $request->phase)
+            ->when($request->document_type, fn($q) => $q->where('document_type', $request->document_type))
             ->orderBy('version', 'desc')
             ->first();
 
@@ -177,6 +208,7 @@ class DocumentController extends Controller
             'group_id' => $groupMember->group_id,
             'student_id' => $user->id,
             'phase' => $request->phase,
+            'document_type' => $request->document_type ?? 'GENERAL',
             'file_path' => $path,
             'version' => $version,
             'status' => 'SUBMITTED',
@@ -215,7 +247,46 @@ class DocumentController extends Controller
             'reviewed_by' => $user->id,
         ]);
 
+        // Auto-transition: if all required document subtypes for phase are APPROVED
+        if ($request->status === 'APPROVED' && isset(self::REQUIRED_DOCUMENT_TYPES[$document->phase])) {
+            $this->checkPhaseCompletion($document->group_id, $document->phase);
+        }
+
         return response()->json(['message' => 'Document review updated', 'data' => $document]);
+    }
+
+    /**
+     * Check if all required document types for a phase are approved, and auto-transition.
+     */
+    private function checkPhaseCompletion(int $groupId, string $phase): void
+    {
+        $requiredTypes = self::REQUIRED_DOCUMENT_TYPES[$phase] ?? [];
+        if (empty($requiredTypes))
+            return;
+
+        $group = Group::findOrFail($groupId);
+
+        foreach ($requiredTypes as $type) {
+            $hasApproved = Document::where('group_id', $groupId)
+                ->where('phase', $phase)
+                ->where('document_type', $type)
+                ->where('status', 'APPROVED')
+                ->exists();
+
+            if (!$hasApproved)
+                return; // Not all types approved yet
+        }
+
+        // All required types approved — trigger transition
+        try {
+            if ($phase === 'PDC1' && $group->status === 'PDC1_ACTIVE') {
+                $this->stateMachine->transition($group, 'READY_FOR_SEMPRO');
+            } elseif ($phase === 'PDC2' && $group->status === 'PDC2_ACTIVE') {
+                $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+            }
+        } catch (\InvalidArgumentException $e) {
+            // Transition not valid from current state — ignore
+        }
     }
 
     /**

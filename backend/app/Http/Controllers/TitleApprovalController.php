@@ -49,6 +49,11 @@ class TitleApprovalController extends Controller
 
     /**
      * Approve a student title proposal.
+     *
+     * GOVERNANCE: This method ONLY validates the proposal.
+     * It does NOT assign title_id, supervisors, or transition group state.
+     * Title assignment and state transitions are EXCLUSIVELY handled by
+     * FinalizationService (admin-only).
      */
     public function approve(Request $request, $id)
     {
@@ -64,61 +69,48 @@ class TitleApprovalController extends Controller
             return response()->json(['message' => 'Proposal not found or already processed.'], 404);
         }
 
+        // Guard: prevent double-approval race condition
+        if ($title->supervisor_approval_status === 'APPROVED') {
+            return response()->json(['message' => 'Proposal already approved.'], 409);
+        }
+
         $group = Group::find($title->proposed_by_group_id);
 
         if (!$group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
         }
 
-        // Check lecturer quota: count existing supervised groups
-        $existingSupervised = Group::whereHas('title', function ($q) use ($user) {
-            $q->where('lecturer_id', $user->id);
-        })->where('status', 'APPROVED')->count();
-
-        // If you want a quota limit, you can add it here. For now, we proceed.
-
         DB::beginTransaction();
         try {
-            // Approve the title
+            // Approve the title — proposal validation ONLY
             $title->update([
                 'supervisor_approval_status' => 'APPROVED',
                 'status' => 'open',
             ]);
 
-            // Set group to final
-            $group->update([
-                'title_id' => $title->id,
-                'status' => 'APPROVED',
-                'assignment_type' => 'STUDENT_PROPOSAL',
-            ]);
-
-            // Cancel all other active bids (PENDING groups) for this group's members
-            $memberIds = $group->members()->pluck('student_id');
-
-            // Find other groups these members are in (shouldn't happen normally, but safety)
-            $otherGroupIds = \App\Models\GroupMember::whereIn('student_id', $memberIds)
-                ->where('group_id', '!=', $group->id)
-                ->pluck('group_id')
-                ->unique();
-
-            if ($otherGroupIds->isNotEmpty()) {
-                Group::whereIn('id', $otherGroupIds)
-                    ->where('status', 'PENDING')
-                    ->update(['status' => 'REJECTED']);
+            // Return group to READY_FOR_BIDDING (from WAITING_SUPERVISOR_APPROVAL)
+            // Guard: only transition if currently waiting for approval
+            if ($group->status === 'WAITING_SUPERVISOR_APPROVAL') {
+                $group->update(['status' => 'READY_FOR_BIDDING']);
             }
+
+            // NO title_id assignment — admin finalization only
+            // NO assignment_type write — admin finalization only
+            // NO cancel other groups — admin finalization only
+            // NO supervisor assignment — admin finalization only
 
             // Notify all group members
             foreach ($group->members()->with('student')->get() as $member) {
                 Notification::create([
                     'user_id' => $member->student_id,
-                    'message' => "Your title proposal \"{$title->title}\" has been approved!",
+                    'message' => "Your title proposal \"{$title->title}\" has been approved by the supervisor! Await admin finalization.",
                 ]);
             }
 
             DB::commit();
 
             return response()->json([
-                'message' => 'Proposal approved successfully.',
+                'message' => 'Proposal approved successfully. Awaiting admin finalization.',
                 'title' => $title->load('proposedByGroup.members.student'),
             ]);
         } catch (\Exception $e) {
