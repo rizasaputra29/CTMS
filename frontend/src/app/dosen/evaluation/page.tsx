@@ -2,241 +2,236 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, Calendar, Clock, MapPin, ClipboardCheck, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog"
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
-import { toast } from "sonner";
-import { User } from 'lucide-react';
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
+    Tabs, TabsContent, TabsList, TabsTrigger,
+} from '@/components/ui/tabs';
+import { toast } from 'sonner';
+import axios from 'axios';
 
-interface Group {
+interface EvalItem {
     id: number;
-    title: {
-        title: string;
-    } | null;
-    members: {
-        id: number;
-        student: {
-            id: number;
-            name: string;
-            email: string;
-        }
-    }[];
+    status: string;
+    score: number | null;
+    rubric_json: Record<string, unknown> | null;
+    examiner: { id: number; name: string };
 }
 
-interface Evaluation {
+interface SeminarSchedule {
     id: number;
-    student_id: number;
     type: string;
-    score: number;
-    feedback: string | null;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string | null;
+    status: string;
+    group: { id: number; title?: { title: string } };
+    evaluations: EvalItem[];
+}
+
+interface TaDefenseSchedule {
+    id: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string | null;
+    status: string;
+    student: { id: number; name: string };
+    group: { id: number; title?: { title: string } };
+    evaluations: EvalItem[];
 }
 
 export default function DosenEvaluationPage() {
-    const [groups, setGroups] = useState<Group[]>([]);
-    const [selectedGroupId, setSelectedGroupId] = useState<string>('');
-    const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
-    
-    // Grading State
-    const [gradingOpen, setGradingOpen] = useState(false);
-    const [selectedStudent, setSelectedStudent] = useState<{id: number, name: string} | null>(null);
-    const [gradeType, setGradeType] = useState('bimbingan');
+    const [seminars, setSeminars] = useState<SeminarSchedule[]>([]);
+    const [taDefenses, setTaDefenses] = useState<TaDefenseSchedule[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const [evalOpen, setEvalOpen] = useState(false);
+    const [evalEndpoint, setEvalEndpoint] = useState('');
+    const [rubricNotes, setRubricNotes] = useState('');
     const [score, setScore] = useState('');
-    const [feedback, setFeedback] = useState('');
-    const [saving, setSaving] = useState(false);
+    const [result, setResult] = useState('PASS');
+    const [submitting, setSubmitting] = useState(false);
 
-    const fetchGroups = useCallback(async () => {
+    const fetchData = useCallback(async () => {
         try {
-            const response = await api.get('/dosen/groups');
-            setGroups(response.data.data);
-            if (response.data.data.length > 0) {
-                // Select first group by default? Or let user select.
-                // setSelectedGroupId(response.data.data[0].id.toString());
-            }
-        } catch (error) {
-            console.error('Failed to fetch groups', error);
-        }
-    }, []);
-
-    const fetchEvaluations = useCallback(async (groupId: string) => {
-        if (!groupId) return;
-        try {
-            const response = await api.get('/evaluations', { params: { group_id: groupId } });
-            setEvaluations(response.data.data);
-        } catch (error) {
-            console.error('Failed to fetch evaluations', error);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchGroups();
-    }, [fetchGroups]);
-
-    useEffect(() => {
-        if (selectedGroupId) {
-            fetchEvaluations(selectedGroupId);
-        } else {
-            setEvaluations([]);
-        }
-    }, [selectedGroupId, fetchEvaluations]);
-
-    const handleGrade = (student: {id: number, name: string}, type: string) => {
-        setSelectedStudent(student);
-        setGradeType(type);
-        // Find existing grade
-        const existing = evaluations.find(e => e.student_id === student.id && e.type === type);
-        setScore(existing ? existing.score.toString() : '');
-        setFeedback(existing?.feedback || '');
-        setGradingOpen(true);
-    };
-
-    const submitGrade = async () => {
-        if (!selectedStudent || !selectedGroupId) return;
-        setSaving(true);
-        try {
-            await api.post('/evaluations', {
-                group_id: selectedGroupId,
-                student_id: selectedStudent.id,
-                type: gradeType,
-                score: score,
-                feedback: feedback,
-            });
-            toast.success('Grade saved successfully');
-            setGradingOpen(false);
-            fetchEvaluations(selectedGroupId);
-        } catch (error) {
-            console.error('Failed to save grade', error);
-            toast.error('Failed to save grade');
+            const res = await api.get('/dosen/seminar-schedules/examiner');
+            setSeminars(res.data.data?.seminars || []);
+            setTaDefenses(res.data.data?.ta_defenses || []);
+        } catch (err) {
+            console.error(err);
         } finally {
-            setSaving(false);
+            setLoading(false);
         }
+    }, []);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const openEvalForm = (type: 'seminar' | 'ta_defense', scheduleId: number, seminarType?: string) => {
+        if (type === 'seminar') {
+            setEvalEndpoint(seminarType === 'EXPO' ? `/dosen/expo/${scheduleId}/evaluate` : `/dosen/sempro/${scheduleId}/evaluate`);
+        } else {
+            setEvalEndpoint(`/dosen/ta-defense/${scheduleId}/evaluate`);
+        }
+        setRubricNotes(''); setScore(''); setResult('PASS');
+        setEvalOpen(true);
     };
 
-    const getScore = (studentId: number, type: string) => {
-        const evaluation = evaluations.find(e => e.student_id === studentId && e.type === type);
-        return evaluation ? (
-            <div className="text-center">
-                <div className="text-lg font-bold">{evaluation.score}</div>
-                {evaluation.feedback && <div className="text-xs text-muted-foreground truncate max-w-[100px]">{evaluation.feedback}</div>}
-            </div>
-        ) : <span className="text-muted-foreground">-</span>;
+    const handleSubmitEval = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSubmitting(true);
+        try {
+            await api.post(evalEndpoint, {
+                rubric_json: { notes: rubricNotes },
+                score: Number(score),
+                result,
+            });
+            toast.success('Evaluation submitted!');
+            setEvalOpen(false);
+            fetchData();
+        } catch (error) {
+            if (axios.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Submission failed.');
+            } else { toast.error('Submission failed.'); }
+        } finally { setSubmitting(false); }
     };
 
-    const selectedGroup = groups.find(g => g.id.toString() === selectedGroupId);
+    if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+
+    const pendingSeminars = seminars.filter(s => s.evaluations?.some(e => e.status === 'PENDING'));
+    const completedSeminars = seminars.filter(s => s.evaluations?.every(e => e.status === 'SUBMITTED'));
+    const pendingTa = taDefenses.filter(s => s.evaluations?.some(e => e.status === 'PENDING'));
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Evaluations</h1>
-                    <p className="text-muted-foreground">Grade students based on Bimbingan, Proposal, and Skripsi.</p>
-                </div>
-                 <div className="w-[300px]">
-                    <Select value={selectedGroupId} onValueChange={setSelectedGroupId}>
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select Group to Grade" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {groups.map((group) => (
-                                <SelectItem key={group.id} value={group.id.toString()}>
-                                    {group.title?.title || `Group #${group.id}`}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
+            <div>
+                <h1 className="text-3xl font-bold tracking-tight">My Evaluations</h1>
+                <p className="text-muted-foreground">Review and submit rubric evaluations for assigned schedules.</p>
             </div>
 
-            {!selectedGroupId ? (
-                <div className="text-center py-20 text-muted-foreground border rounded-lg border-dashed">
-                    Please select a group to start grading.
-                </div>
-            ) : !selectedGroup ? (
-                 <div className="text-center py-20 text-muted-foreground">
-                    Group not found.
-                </div>
-            ) : (
-                <div className="grid gap-6">
-                    {selectedGroup.members.map((member) => (
-                        <Card key={member.id}>
-                            <CardHeader className="flex flex-row items-center gap-4 py-4">
-                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                    <User className="h-5 w-5 text-primary" />
-                                </div>
-                                <div className="flex-1">
-                                    <CardTitle className="text-lg">{member.student.name}</CardTitle>
-                                    <CardDescription>{member.student.email}</CardDescription>
+            <Tabs defaultValue="pending">
+                <TabsList>
+                    <TabsTrigger value="pending">Pending ({pendingSeminars.length + pendingTa.length})</TabsTrigger>
+                    <TabsTrigger value="completed">Completed ({completedSeminars.length})</TabsTrigger>
+                </TabsList>
+                <TabsContent value="pending" className="space-y-3">
+                    {pendingSeminars.length === 0 && pendingTa.length === 0 && (
+                        <div className="text-center py-12 border rounded-lg border-dashed">
+                            <ClipboardCheck className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
+                            <h2 className="text-xl font-bold mb-2">All Caught Up!</h2>
+                            <p className="text-muted-foreground">No pending evaluations.</p>
+                        </div>
+                    )}
+                    {pendingSeminars.map(s => (
+                        <Card key={`sem-${s.id}`}>
+                            <CardHeader className="pb-2">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <Badge variant="outline" className="mb-1">{s.type}</Badge>
+                                        <CardTitle className="text-sm font-medium">{s.group?.title?.title || `Group #${s.group?.id}`}</CardTitle>
+                                    </div>
+                                    <Badge variant="secondary">PENDING</Badge>
                                 </div>
                             </CardHeader>
-                            <CardContent>
-                                <div className="grid grid-cols-3 gap-4">
-                                    {['bimbingan', 'proposal', 'skripsi'].map((type) => (
-                                        <div key={type} className="border rounded-md p-4 flex flex-col items-center justify-between gap-2">
-                                            <div className="font-semibold capitalize text-sm">{type}</div>
-                                            {getScore(member.student.id, type)}
-                                            <Button variant="outline" size="sm" onClick={() => handleGrade(member.student, type)}>
-                                                Grade
-                                            </Button>
-                                        </div>
-                                    ))}
+                            <CardContent className="space-y-2 text-sm">
+                                <div className="flex items-center gap-4 text-muted-foreground">
+                                    <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {s.date}</span>
+                                    <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.start_time} - {s.end_time}</span>
+                                    {s.room && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {s.room}</span>}
                                 </div>
+                                <Button size="sm" onClick={() => openEvalForm('seminar', s.id, s.type)}>
+                                    <Send className="mr-1 h-3.5 w-3.5" /> Submit Evaluation
+                                </Button>
                             </CardContent>
                         </Card>
                     ))}
-                </div>
-            )}
+                    {pendingTa.map(s => (
+                        <Card key={`ta-${s.id}`}>
+                            <CardHeader className="pb-2">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <Badge variant="outline" className="mb-1">TA Defense</Badge>
+                                        <CardTitle className="text-sm font-medium">{s.student?.name}</CardTitle>
+                                        <p className="text-xs text-muted-foreground">{s.group?.title?.title}</p>
+                                    </div>
+                                    <Badge variant="secondary">PENDING</Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-2 text-sm">
+                                <div className="flex items-center gap-4 text-muted-foreground">
+                                    <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {s.date}</span>
+                                    <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.start_time} - {s.end_time}</span>
+                                    {s.room && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {s.room}</span>}
+                                </div>
+                                <Button size="sm" onClick={() => openEvalForm('ta_defense', s.id)}>
+                                    <Send className="mr-1 h-3.5 w-3.5" /> Submit Evaluation
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </TabsContent>
+                <TabsContent value="completed" className="space-y-3">
+                    {completedSeminars.length === 0 && <p className="text-muted-foreground text-center py-8">No completed evaluations.</p>}
+                    {completedSeminars.map(s => (
+                        <Card key={s.id}>
+                            <CardHeader className="pb-2">
+                                <div className="flex justify-between items-start">
+                                    <CardTitle className="text-sm font-medium">{s.type}: {s.group?.title?.title || `Group #${s.group?.id}`}</CardTitle>
+                                    <Badge variant="default">SUBMITTED</Badge>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="text-sm text-muted-foreground">
+                                Score: {s.evaluations?.[0]?.score ?? '-'}
+                            </CardContent>
+                        </Card>
+                    ))}
+                </TabsContent>
+            </Tabs>
 
-            <Dialog open={gradingOpen} onOpenChange={setGradingOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Grade {selectedStudent?.name}</DialogTitle>
-                        <DialogDescription>
-                            Enter score for <span className="font-semibold capitalize">{gradeType}</span>
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                            <Label htmlFor="score">Score (0-100)</Label>
-                            <Input
-                                id="score"
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={score}
-                                onChange={(e) => setScore(e.target.value)}
-                            />
+            <Dialog open={evalOpen} onOpenChange={setEvalOpen}>
+                <DialogContent className="sm:max-w-[480px]">
+                    <form onSubmit={handleSubmitEval}>
+                        <DialogHeader>
+                            <DialogTitle>Submit Evaluation</DialogTitle>
+                            <DialogDescription>Fill in the rubric and submit your score.</DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label>Rubric Notes</Label>
+                                <Textarea value={rubricNotes} onChange={e => setRubricNotes(e.target.value)} placeholder="Evaluation notes..." rows={4} />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Score (0-100)</Label>
+                                <Input type="number" min={0} max={100} step={0.01} value={score} onChange={e => setScore(e.target.value)} required />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Result</Label>
+                                <Select value={result} onValueChange={setResult}>
+                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="PASS">PASS</SelectItem>
+                                        <SelectItem value="FAIL">FAIL</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="feedback">Feedback</Label>
-                            <Textarea
-                                id="feedback"
-                                placeholder="Optional feedback..."
-                                value={feedback}
-                                onChange={(e) => setFeedback(e.target.value)}
-                            />
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button onClick={submitGrade} disabled={saving}>
-                            {saving ? 'Saving...' : 'Save Grade'}
-                        </Button>
-                    </DialogFooter>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setEvalOpen(false)}>Cancel</Button>
+                            <Button type="submit" disabled={submitting || !score}>{submitting ? 'Submitting...' : 'Submit'}</Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
         </div>
