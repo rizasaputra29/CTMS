@@ -37,6 +37,11 @@ class Title extends Model
         return $this->hasMany(Group::class);
     }
 
+    public function bids()
+    {
+        return $this->hasMany(Bid::class);
+    }
+
     public function proposedByGroup()
     {
         return $this->belongsTo(Group::class, 'proposed_by_group_id');
