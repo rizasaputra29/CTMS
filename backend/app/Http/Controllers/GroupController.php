@@ -4,20 +4,29 @@ namespace App\Http\Controllers;
 
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\GroupSupervisorProposal;
 use App\Models\Title;
 use App\Models\Period;
 use App\Models\User;
+use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class GroupController extends Controller
 {
+    protected GroupStateMachine $stateMachine;
+
+    public function __construct(GroupStateMachine $stateMachine)
+    {
+        $this->stateMachine = $stateMachine;
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
         $membership = GroupMember::where('student_id', $user->id)
             ->whereHas('group', function ($q) {
-                $q->where('status', '!=', 'REJECTED');
+                $q->whereNotIn('status', ['CLOSED']);
             })
             ->first();
 
@@ -25,30 +34,41 @@ class GroupController extends Controller
             return response()->json(['group' => null]);
         }
 
-        $group = Group::with(['members.student', 'title.lecturer', 'period'])->find($membership->group_id);
+        $group = Group::with([
+            'members.student',
+            'title.lecturer',
+            'period',
+            'bids.title',
+            'supervisorProposals.supervisor1',
+            'supervisorProposals.supervisor2',
+            'supervisions.supervisor',
+            'supervisor1',
+            'supervisor2',
+        ])->find($membership->group_id);
+
         return response()->json(['group' => $group]);
     }
 
     public function listGroups(Request $request)
     {
-        $groups = Group::with(['title', 'members.student'])
-            ->where('status', 'APPROVED')
+        $groups = Group::with(['title', 'members.student', 'supervisor1', 'supervisor2'])
+            ->whereNotIn('status', ['FORMING', 'CLOSED'])
             ->get();
 
         return response()->json(['data' => $groups]);
     }
 
     /**
-     * Create a new group (no title yet). Student becomes leader.
+     * Create a new group. Student becomes leader. Status = FORMING.
      */
     public function store(Request $request)
     {
         $user = $request->user();
 
-        // Block if student already in a non-rejected group
+        // Block if student already in an active group in the current period
         $existingMembership = GroupMember::where('student_id', $user->id)
             ->whereHas('group', function ($q) {
-                $q->where('status', '!=', 'REJECTED');
+                $q->whereNotIn('status', ['CLOSED']);
             })
             ->exists();
 
@@ -56,10 +76,7 @@ class GroupController extends Controller
             return response()->json(['message' => 'You are already in a group.'], 400);
         }
 
-        $period = Period::whereRaw('is_active = true')->latest()->first();
-        if (!$period) {
-            $period = Period::latest()->first();
-        }
+        $period = Period::where('is_active', true)->latest()->first();
         if (!$period) {
             return response()->json(['message' => 'No active academic period found.'], 400);
         }
@@ -69,14 +86,17 @@ class GroupController extends Controller
             $group = Group::create([
                 'title_id' => null,
                 'period_id' => $period->id,
-                'status' => 'READY_FOR_BIDDING',
+                'status' => 'FORMING',
             ]);
 
             GroupMember::create([
                 'group_id' => $group->id,
                 'student_id' => $user->id,
-                'is_leader' => DB::raw('true'),
+                'is_leader' => true,
             ]);
+
+            // Auto-transition if 1 member meets min_group_size (unlikely but handle)
+            $this->checkAndTransitionToReady($group, $period);
 
             DB::commit();
             return response()->json([
@@ -90,7 +110,7 @@ class GroupController extends Controller
     }
 
     /**
-     * Delete/disband a group (leader only, only if no active bid/proposal).
+     * Delete/disband a group (leader only, only before finalization).
      */
     public function deleteGroup(Request $request)
     {
@@ -98,7 +118,7 @@ class GroupController extends Controller
 
         $membership = GroupMember::where('student_id', $user->id)
             ->whereHas('group', function ($q) {
-                $q->where('status', '!=', 'REJECTED');
+                $q->whereNotIn('status', ['CLOSED']);
             })
             ->first();
 
@@ -112,17 +132,23 @@ class GroupController extends Controller
 
         $group = Group::find($membership->group_id);
 
-        // Only allow deletion when group has no active bid or approved title
-        if (in_array($group->status, ['PENDING', 'APPROVED', 'WAITING_SUPERVISOR_APPROVAL'])) {
-            return response()->json(['message' => 'Cannot delete group with an active bid or proposal. Wait for it to be resolved first.'], 400);
+        // Only allow deletion before KELOMPOK_FINAL
+        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+            return response()->json(['message' => 'Cannot delete group after finalization.'], 400);
         }
 
         DB::beginTransaction();
         try {
-            // Delete any rejected/student proposals tied to this group
+            // Delete any student proposals tied to this group
             Title::where('proposed_by_group_id', $group->id)
                 ->where('title_source', 'STUDENT')
                 ->delete();
+
+            // Delete bids
+            $group->bids()->delete();
+
+            // Delete supervisor proposals
+            $group->supervisorProposals()->delete();
 
             // Delete all members
             GroupMember::where('group_id', $group->id)->delete();
@@ -139,83 +165,7 @@ class GroupController extends Controller
     }
 
     /**
-     * Bid on a title — assigns a title to the student's existing group.
-     */
-    public function bidTitle(Request $request)
-    {
-        $request->validate([
-            'title_id' => 'required|exists:titles,id',
-        ]);
-
-        $user = $request->user();
-
-        // Must be in a group
-        $membership = GroupMember::where('student_id', $user->id)
-            ->whereHas('group', function ($q) {
-                $q->where('status', '!=', 'REJECTED');
-            })
-            ->first();
-
-        if (!$membership) {
-            return response()->json(['message' => 'You must create a group first before bidding.'], 400);
-        }
-
-        if (!$membership->is_leader) {
-            return response()->json(['message' => 'Only the group leader can bid on titles.'], 403);
-        }
-
-        $group = Group::find($membership->group_id);
-
-        // Check minimum 3 members
-        $memberCount = GroupMember::where('group_id', $group->id)->count();
-        if ($memberCount < 3) {
-            return response()->json(['message' => 'Your group must have at least 3 members before bidding.'], 400);
-        }
-
-        // Block if group already has an approved title
-        if ($group->title_id && $group->status === 'APPROVED') {
-            return response()->json(['message' => 'Your group already has an approved title.'], 400);
-        }
-
-        // Block if group already has a pending bid
-        if ($group->title_id && $group->status === 'PENDING') {
-            return response()->json(['message' => 'Your group already has a pending bid.'], 400);
-        }
-
-        // Block if group has a pending proposal
-        $hasPendingProposal = Title::where('proposed_by_group_id', $group->id)
-            ->where('supervisor_approval_status', 'PENDING')
-            ->exists();
-
-        if ($hasPendingProposal) {
-            return response()->json(['message' => 'You have a pending title proposal. Cannot bid while proposal is pending.'], 400);
-        }
-
-        // Check quota (number of non-rejected groups for this title)
-        $title = Title::find($request->title_id);
-        $currentGroups = Group::where('title_id', $title->id)
-            ->where('status', '!=', 'REJECTED')
-            ->count();
-
-        if ($currentGroups >= $title->quota) {
-            return response()->json(['message' => 'Quota for this title is full.'], 400);
-        }
-
-        $group->update([
-            'title_id' => $request->title_id,
-            'status' => 'PENDING',
-            'assignment_type' => 'BIDDING',
-        ]);
-
-        return response()->json([
-            'message' => 'Bid submitted successfully.',
-            'group' => $group->load(['members.student', 'title.lecturer']),
-        ]);
-    }
-
-    /**
      * Add a member to the current user's group (leader only).
-     * Member limit is checked against a fixed max (e.g. 4), not title quota.
      */
     public function addMember(Request $request)
     {
@@ -225,7 +175,6 @@ class GroupController extends Controller
 
         $user = $request->user();
 
-        // Find leader's group
         $leaderMembership = GroupMember::where('student_id', $user->id)->first();
         if (!$leaderMembership) {
             return response()->json(['message' => 'You are not in a group.'], 400);
@@ -235,13 +184,18 @@ class GroupController extends Controller
             return response()->json(['message' => 'Only the group leader can add members.'], 403);
         }
 
-        $group = Group::find($leaderMembership->group_id);
+        $group = Group::with('period')->find($leaderMembership->group_id);
 
-        // Fixed member limit (not tied to title quota)
-        $maxMembers = 4;
+        // Only allow adding members before KELOMPOK_FINAL
+        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+            return response()->json(['message' => 'Cannot add members after finalization.'], 400);
+        }
+
+        // Member limit from period config
+        $maxMembers = $group->period->max_group_size ?? 4;
         $memberCount = GroupMember::where('group_id', $group->id)->count();
         if ($memberCount >= $maxMembers) {
-            return response()->json(['message' => 'Group is full. Maximum ' . $maxMembers . ' members allowed.'], 400);
+            return response()->json(['message' => "Group is full. Maximum {$maxMembers} members allowed."], 400);
         }
 
         // Find the student to add
@@ -254,26 +208,36 @@ class GroupController extends Controller
             return response()->json(['message' => 'You are already in this group.'], 400);
         }
 
-        // Check if student is already in a non-rejected group
+        // Check if student is already in an active group
         $inActiveGroup = GroupMember::where('student_id', $student->id)
             ->whereHas('group', function ($q) {
-                $q->where('status', '!=', 'REJECTED');
+                $q->whereNotIn('status', ['CLOSED']);
             })
             ->exists();
         if ($inActiveGroup) {
             return response()->json(['message' => 'This student is already in a group.'], 400);
         }
 
-        GroupMember::create([
-            'group_id' => $group->id,
-            'student_id' => $student->id,
-            'is_leader' => DB::raw('false'),
-        ]);
+        DB::beginTransaction();
+        try {
+            GroupMember::create([
+                'group_id' => $group->id,
+                'student_id' => $student->id,
+                'is_leader' => false,
+            ]);
 
-        return response()->json([
-            'message' => 'Member added successfully',
-            'group' => $group->load('members.student'),
-        ]);
+            // Auto-transition FORMING → READY_FOR_BIDDING if member count >= min size
+            $this->checkAndTransitionToReady($group, $group->period);
+
+            DB::commit();
+            return response()->json([
+                'message' => 'Member added successfully',
+                'group' => $group->fresh()->load('members.student'),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to add member: ' . $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -304,20 +268,103 @@ class GroupController extends Controller
             return response()->json(['message' => 'You cannot remove yourself.'], 400);
         }
 
-        $member->delete();
+        $group = Group::with('period')->find($leaderMembership->group_id);
 
-        $group = Group::with('members.student')->find($leaderMembership->group_id);
-        return response()->json(['message' => 'Member removed', 'group' => $group]);
+        // After KELOMPOK_FINAL: require admin approval (handled separately)
+        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+            return response()->json([
+                'message' => 'Cannot remove members after finalization. Request admin approval.',
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $member->delete();
+
+            // If members drop below min size, revert to FORMING
+            $memberCount = GroupMember::where('group_id', $group->id)->count();
+            $minSize = $group->period->min_group_size ?? 2;
+
+            if ($memberCount < $minSize && $group->status === 'READY_FOR_BIDDING') {
+                $this->stateMachine->transition($group, 'FORMING');
+            }
+
+            DB::commit();
+
+            $group = Group::with('members.student')->find($leaderMembership->group_id);
+            return response()->json(['message' => 'Member removed', 'group' => $group]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to remove member: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Propose preferred supervisors (group leader only, when READY_FOR_BIDDING).
+     */
+    public function proposeSupervisors(Request $request)
+    {
+        $request->validate([
+            'proposed_supervisor_1_id' => 'required|exists:users,id',
+            'proposed_supervisor_2_id' => 'nullable|exists:users,id|different:proposed_supervisor_1_id',
+        ]);
+
+        $user = $request->user();
+
+        $leaderMembership = GroupMember::where('student_id', $user->id)
+            ->where('is_leader', true)
+            ->first();
+
+        if (!$leaderMembership) {
+            return response()->json(['message' => 'Only the group leader can propose supervisors.'], 403);
+        }
+
+        $group = Group::with('period')->find($leaderMembership->group_id);
+
+        if ($group->status !== 'READY_FOR_BIDDING') {
+            return response()->json(['message' => 'Supervisors can only be proposed when group is READY_FOR_BIDDING.'], 400);
+        }
+
+        // Check bidding lock
+        if ($group->period->isBiddingLocked()) {
+            return response()->json(['message' => 'Bidding is locked. Cannot propose supervisors.'], 400);
+        }
+
+        // Validate supervisors are dosen
+        $sup1 = User::find($request->proposed_supervisor_1_id);
+        if ($sup1->role !== 'dosen') {
+            return response()->json(['message' => 'Proposed supervisor 1 must be a lecturer.'], 400);
+        }
+        if ($request->proposed_supervisor_2_id) {
+            $sup2 = User::find($request->proposed_supervisor_2_id);
+            if ($sup2->role !== 'dosen') {
+                return response()->json(['message' => 'Proposed supervisor 2 must be a lecturer.'], 400);
+            }
+        }
+
+        // Upsert proposal
+        $proposal = GroupSupervisorProposal::updateOrCreate(
+            ['group_id' => $group->id],
+            [
+                'proposed_supervisor_1_id' => $request->proposed_supervisor_1_id,
+                'proposed_supervisor_2_id' => $request->proposed_supervisor_2_id,
+                'status' => 'PENDING',
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Supervisor proposal submitted.',
+            'proposal' => $proposal->load(['supervisor1', 'supervisor2']),
+        ]);
     }
 
     public function supervisedGroups(Request $request)
     {
         $user = $request->user();
-        $groups = Group::with(['title', 'members.student', 'period'])
-            ->whereHas('title', function ($query) use ($user) {
-                $query->where('lecturer_id', $user->id);
+        $groups = Group::with(['title', 'members.student', 'period', 'supervisions.supervisor'])
+            ->whereHas('supervisions', function ($query) use ($user) {
+                $query->where('supervisor_id', $user->id);
             })
-            ->where('status', 'APPROVED')
             ->get();
 
         return response()->json(['data' => $groups]);
@@ -330,33 +377,26 @@ class GroupController extends Controller
             ->whereHas('title', function ($query) use ($user) {
                 $query->where('lecturer_id', $user->id);
             })
-            ->where('status', 'PENDING')
+            ->where('status', 'READY_FOR_BIDDING')
             ->get();
 
         return response()->json(['data' => $groups]);
     }
 
-    public function approve(Request $request, Group $group)
+    /**
+     * Auto-transition FORMING → READY_FOR_BIDDING if member count >= min_group_size.
+     */
+    private function checkAndTransitionToReady(Group $group, Period $period): void
     {
-        if ($group->title->lecturer_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($group->status !== 'FORMING') {
+            return;
         }
 
-        $group->update(['status' => 'APPROVED']);
-        return response()->json(['message' => 'Group approved', 'group' => $group]);
-    }
+        $memberCount = GroupMember::where('group_id', $group->id)->count();
+        $minSize = $period->min_group_size ?? 2;
 
-    public function reject(Request $request, Group $group)
-    {
-        if ($group->title->lecturer_id !== $request->user()->id) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($memberCount >= $minSize) {
+            $this->stateMachine->transition($group, 'READY_FOR_BIDDING');
         }
-
-        $group->update([
-            'status' => 'REJECTED',
-            'title_id' => null,
-            'assignment_type' => null,
-        ]);
-        return response()->json(['message' => 'Group rejected', 'group' => $group]);
     }
 }

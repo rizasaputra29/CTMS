@@ -1,17 +1,17 @@
 'use client';
 
 import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-  SidebarRail,
+    Sidebar,
+    SidebarContent,
+    SidebarFooter,
+    SidebarGroup,
+    SidebarGroupContent,
+    SidebarGroupLabel,
+    SidebarHeader,
+    SidebarMenu,
+    SidebarMenuButton,
+    SidebarMenuItem,
+    SidebarRail,
 } from '@/components/ui/sidebar';
 import {
     DropdownMenu,
@@ -22,7 +22,7 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings, GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine, ClipboardCheck } from 'lucide-react';
+import { BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings, GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine, ClipboardCheck, Gavel, ShieldCheck, FileCheck } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -35,6 +35,7 @@ export function AppSidebar() {
     const navItems = {
         admin: [
             { title: 'Dashboard', url: '/admin/dashboard', icon: LayoutDashboard },
+            { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
             { title: 'Users', url: '/admin/users', icon: Users },
             { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
             { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
@@ -43,18 +44,23 @@ export function AppSidebar() {
         mahasiswa: [
             { title: 'Dashboard', url: '/mahasiswa/dashboard', icon: LayoutDashboard },
             { title: 'My Group', url: '/mahasiswa/group', icon: Users },
+            { title: 'Bidding', url: '/mahasiswa/bidding', icon: Gavel },
             { title: 'Propose Title', url: '/mahasiswa/propose-title', icon: PenLine },
             { title: 'Titles & Group', url: '/mahasiswa/titles', icon: BookOpen },
             { title: 'Documents', url: '/mahasiswa/documents', icon: FileText },
+            { title: 'TA Submission', url: '/mahasiswa/ta', icon: FileCheck },
             { title: 'Schedule', url: '/mahasiswa/schedule', icon: CalendarIcon },
+            { title: 'Seminar & TA', url: '/mahasiswa/schedules', icon: ClipboardCheck },
             { title: 'Grades', url: '/mahasiswa/grades', icon: GraduationCap },
         ],
         dosen: [
             { title: 'Dashboard', url: '/dosen/dashboard', icon: LayoutDashboard },
             { title: 'Titles', url: '/dosen/titles', icon: BookOpen },
             { title: 'Title Approvals', url: '/dosen/title-approvals', icon: ClipboardCheck },
+            { title: 'Bid Review', url: '/dosen/bids', icon: Gavel },
             { title: 'Requests', url: '/dosen/requests', icon: Users },
             { title: 'Bimbingan', url: '/dosen/bimbingan', icon: FileText },
+            { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
             { title: 'Schedule', url: '/dosen/schedule', icon: CalendarIcon },
             { title: 'Evaluation', url: '/dosen/evaluation', icon: GraduationCap },
         ],
@@ -67,16 +73,16 @@ export function AppSidebar() {
         <Sidebar collapsible="icon">
             <SidebarHeader>
                 <div className="flex items-center gap-2 px-2 py-2">
-                    <Image 
+                    <Image
                         src="/logo.png"
                         alt="Logo"
                         width={32}
                         height={32}
                     />
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">CTMS</span>
-                    <span className="truncate text-xs">Academic System</span>
-                </div>
+                    <div className="grid flex-1 text-left text-sm leading-tight">
+                        <span className="truncate font-semibold">CTMS</span>
+                        <span className="truncate text-xs">Academic System</span>
+                    </div>
                 </div>
             </SidebarHeader>
             <SidebarContent>
@@ -140,8 +146,8 @@ export function AppSidebar() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem asChild>
                                     <Link href="/profile">
-                                         <User className="mr-2 h-4 w-4" />
-                                         Account
+                                        <User className="mr-2 h-4 w-4" />
+                                        Account
                                     </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />

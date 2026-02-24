@@ -8,7 +8,7 @@ use App\Models\User;
 
 class Document extends Model
 {
-    protected $fillable = ['group_id', 'student_id', 'phase', 'file_path', 'version', 'status', 'feedback', 'reviewed_by'];
+    protected $fillable = ['group_id', 'student_id', 'phase', 'document_type', 'file_path', 'version', 'status', 'feedback', 'reviewed_by'];
 
     public function group()
     {

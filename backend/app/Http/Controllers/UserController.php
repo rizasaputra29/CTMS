@@ -25,7 +25,7 @@ class UserController extends Controller
             });
         }
 
-        return $query->orderBy('name')->paginate(10);
+        return $query->orderBy('name')->paginate(100);
     }
 
     public function store(Request $request)
