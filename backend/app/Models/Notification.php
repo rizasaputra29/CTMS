@@ -6,14 +6,30 @@ use Illuminate\Database\Eloquent\Model;
 
 class Notification extends Model
 {
-    protected $fillable = ['user_id', 'message', 'read_at'];
+    protected $fillable = [
+        'user_id',
+        'type',
+        'title',
+        'message',
+        'related_type',
+        'related_id',
+        'is_read',
+    ];
 
     protected $casts = [
-        'read_at' => 'datetime',
+        'is_read' => 'boolean',
     ];
 
     public function user()
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope for unread notifications.
+     */
+    public function scopeUnread($query)
+    {
+        return $query->where('is_read', false);
     }
 }
