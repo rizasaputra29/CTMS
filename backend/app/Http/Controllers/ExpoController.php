@@ -162,6 +162,15 @@ class ExpoController extends Controller
      */
     public function approve(Request $request, $id)
     {
+        $request->validate([
+            'date' => 'required|date',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'room' => 'nullable|string',
+            'examiner_1_id' => 'required|exists:users,id',
+            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+        ]);
+
         $schedule = SeminarSchedule::where('id', $id)
             ->where('type', 'EXPO')
             ->where('status', 'PENDING_APPROVAL')
@@ -170,7 +179,7 @@ class ExpoController extends Controller
         $group = Group::findOrFail($schedule->group_id);
 
         // Double guard: examiner constraints
-        $examinerIds = [$schedule->examiner_1_id, $schedule->examiner_2_id];
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
             return response()->json(['message' => $constraintError], 400);
@@ -179,17 +188,25 @@ class ExpoController extends Controller
         // Conflict check (authoritative)
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
-            $schedule->date->format('Y-m-d'),
-            $schedule->start_time,
-            $schedule->end_time,
-            $schedule->room
+            $request->date,
+            $request->start_time,
+            $request->end_time,
+            $request->room
         );
 
         if (!empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
-        $schedule->update(['status' => 'SCHEDULED']);
+        $schedule->update([
+            'date' => $request->date,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'room' => $request->room,
+            'examiner_1_id' => $request->examiner_1_id,
+            'examiner_2_id' => $request->examiner_2_id,
+            'status' => 'SCHEDULED'
+        ]);
         $this->schedulingService->autoGenerateSeminarEvaluations($schedule);
 
         AuditLog::create([
