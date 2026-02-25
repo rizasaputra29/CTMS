@@ -212,4 +212,118 @@ class FinalizationService
 
         return $loadData;
     }
+
+    /**
+     * V4: Batch finalize all eligible groups in a period.
+     * ⚠ Atomic transaction — all-or-nothing.
+     */
+    public function finalizePeriod(int $periodId, int $adminId): array
+    {
+        return DB::transaction(function () use ($periodId, $adminId) {
+            // Lock the period row to prevent concurrent finalization
+            $period = \App\Models\Period::lockForUpdate()->findOrFail($periodId);
+
+            // Fetch all ACCEPT bids for this period, grouped by title, ordered by priority
+            $acceptBids = Bid::where('lecturer_recommendation', 'ACCEPT')
+                ->whereHas('group', function ($q) use ($periodId) {
+                    $q->where('period_id', $periodId)
+                        ->where('status', 'READY_FOR_BIDDING');
+                })
+                ->with(['group', 'proposedSupervisor1', 'proposedSupervisor2'])
+                ->orderBy('priority')
+                ->get();
+
+            $allocated = [];
+            $skipped = [];
+            $titleQuotaUsed = [];
+
+            foreach ($acceptBids as $bid) {
+                $titleId = $bid->title_id;
+                $group = $bid->group;
+
+                // Skip if group already allocated (by a higher-priority bid)
+                if ($group->status !== 'READY_FOR_BIDDING') {
+                    continue;
+                }
+
+                // Check quota
+                if (!isset($titleQuotaUsed[$titleId])) {
+                    $titleQuotaUsed[$titleId] = Group::where('title_id', $titleId)
+                        ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
+                        ->count();
+                }
+
+                $title = Title::find($titleId);
+                if (!$title || $titleQuotaUsed[$titleId] >= $title->quota) {
+                    $skipped[] = ['bid_id' => $bid->id, 'reason' => 'Quota full', 'group_id' => $group->id];
+                    continue;
+                }
+
+                // Allocate: accept bid, reject others
+                $bid->update(['status' => 'ACCEPTED']);
+                Bid::where('group_id', $group->id)->where('id', '!=', $bid->id)->update(['status' => 'REJECTED']);
+
+                // Assign title
+                $group->assignTitleFromFinalization($titleId);
+                $group->assignTypeFromFinalization('BIDDING');
+                $group->save();
+
+                // Transition READY_FOR_BIDDING → KELOMPOK_FINAL
+                $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
+
+                // Assign supervisors
+                $sup1Id = $bid->proposed_supervisor_1_id ?? $title->lecturer_id;
+                $sup2Id = $bid->proposed_supervisor_2_id;
+
+                Supervision::create([
+                    'group_id' => $group->id,
+                    'supervisor_id' => $sup1Id,
+                    'role' => 'SUPERVISOR_1',
+                    'assigned_by' => $adminId,
+                ]);
+                $group->supervisor_1_id = $sup1Id;
+
+                if ($sup2Id) {
+                    Supervision::create([
+                        'group_id' => $group->id,
+                        'supervisor_id' => $sup2Id,
+                        'role' => 'SUPERVISOR_2',
+                        'assigned_by' => $adminId,
+                    ]);
+                    $group->supervisor_2_id = $sup2Id;
+                }
+                $group->save();
+
+                // Transition KELOMPOK_FINAL → PDC1_ACTIVE
+                $this->stateMachine->transition($group, 'PDC1_ACTIVE');
+
+                $titleQuotaUsed[$titleId]++;
+                $allocated[] = [
+                    'group_id' => $group->id,
+                    'title_id' => $titleId,
+                    'bid_id' => $bid->id,
+                ];
+            }
+
+            // Audit
+            AuditLog::create([
+                'user_id' => $adminId,
+                'action' => 'BATCH_FINALIZATION',
+                'target_type' => 'Period',
+                'target_id' => $periodId,
+                'payload' => [
+                    'allocated_count' => count($allocated),
+                    'skipped_count' => count($skipped),
+                ],
+            ]);
+
+            return [
+                'allocated' => $allocated,
+                'skipped' => $skipped,
+                'total_allocated' => count($allocated),
+                'total_skipped' => count($skipped),
+            ];
+        });
+    }
 }
+

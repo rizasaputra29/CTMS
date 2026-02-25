@@ -8,7 +8,7 @@ use App\Models\User;
 
 class GroupMember extends Model
 {
-    protected $fillable = ['group_id', 'student_id', 'is_leader'];
+    protected $fillable = ['group_id', 'student_id', 'is_leader', 'period_id'];
 
     protected $casts = [
         'is_leader' => 'boolean',

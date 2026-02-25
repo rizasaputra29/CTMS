@@ -47,8 +47,9 @@ type SortKey = 'title' | 'quota' | 'status' | 'active_groups_count';
 type SortDir = 'asc' | 'desc';
 
 export default function DosenTitlesPage() {
+    // Manage Titles State
     const [titles, setTitles] = useState<Title[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [titlesLoading, setTitlesLoading] = useState(true);
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
     const [search, setSearch] = useState('');
@@ -66,6 +67,7 @@ export default function DosenTitlesPage() {
     });
 
     const fetchTitles = async () => {
+        setTitlesLoading(true);
         try {
             const response = await api.get('/dosen/titles');
             setTitles(response.data);
@@ -73,7 +75,7 @@ export default function DosenTitlesPage() {
             console.error('Failed to fetch titles', error);
             toast.error('Failed to load titles');
         } finally {
-            setLoading(false);
+            setTitlesLoading(false);
         }
     };
 
@@ -81,6 +83,7 @@ export default function DosenTitlesPage() {
         fetchTitles();
     }, []);
 
+    // --- Manage Titles Handlers ---
     const handleEdit = (title: Title) => {
         setFormData({
             title: title.title,
@@ -314,7 +317,7 @@ export default function DosenTitlesPage() {
             </div>
 
             {/* Table */}
-            {loading ? (
+            {titlesLoading ? (
                 <div className="flex justify-center items-center h-64">
                     <Loader2 className="h-8 w-8 animate-spin" />
                 </div>

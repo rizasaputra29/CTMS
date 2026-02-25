@@ -65,20 +65,28 @@ class GroupController extends Controller
     {
         $user = $request->user();
 
-        // Block if student already in an active group in the current period
+        // V4: Accept explicit period_id or resolve from active periods
+        $period = null;
+        if ($request->has('period_id')) {
+            $period = Period::where('is_active', true)->findOrFail($request->period_id);
+        } else {
+            $activePeriods = Period::where('is_active', true)->get();
+            if ($activePeriods->count() === 0) {
+                return response()->json(['message' => 'No active academic period found.'], 400);
+            }
+            if ($activePeriods->count() > 1) {
+                return response()->json(['message' => 'Multiple active periods exist. Please specify period_id.'], 400);
+            }
+            $period = $activePeriods->first();
+        }
+
+        // ⚠ V4: Check student not already in a group for this specific period
         $existingMembership = GroupMember::where('student_id', $user->id)
-            ->whereHas('group', function ($q) {
-                $q->whereNotIn('status', ['CLOSED']);
-            })
+            ->where('period_id', $period->id)
             ->exists();
 
         if ($existingMembership) {
-            return response()->json(['message' => 'You are already in a group.'], 400);
-        }
-
-        $period = Period::where('is_active', true)->latest()->first();
-        if (!$period) {
-            return response()->json(['message' => 'No active academic period found.'], 400);
+            return response()->json(['message' => 'You are already in a group for this period.'], 400);
         }
 
         DB::beginTransaction();
@@ -93,6 +101,7 @@ class GroupController extends Controller
                 'group_id' => $group->id,
                 'student_id' => $user->id,
                 'is_leader' => true,
+                'period_id' => $period->id, // V4: denormalized for unique constraint
             ]);
 
             // Auto-transition if 1 member meets min_group_size (unlikely but handle)
@@ -208,14 +217,12 @@ class GroupController extends Controller
             return response()->json(['message' => 'You are already in this group.'], 400);
         }
 
-        // Check if student is already in an active group
-        $inActiveGroup = GroupMember::where('student_id', $student->id)
-            ->whereHas('group', function ($q) {
-                $q->whereNotIn('status', ['CLOSED']);
-            })
+        // V4: Check if student is already in a group for THIS period
+        $inPeriodGroup = GroupMember::where('student_id', $student->id)
+            ->where('period_id', $group->period_id)
             ->exists();
-        if ($inActiveGroup) {
-            return response()->json(['message' => 'This student is already in a group.'], 400);
+        if ($inPeriodGroup) {
+            return response()->json(['message' => 'This student is already in a group for this period.'], 400);
         }
 
         DB::beginTransaction();
@@ -224,6 +231,7 @@ class GroupController extends Controller
                 'group_id' => $group->id,
                 'student_id' => $student->id,
                 'is_leader' => false,
+                'period_id' => $group->period_id, // V4: denormalized
             ]);
 
             // Auto-transition FORMING → READY_FOR_BIDDING if member count >= min size

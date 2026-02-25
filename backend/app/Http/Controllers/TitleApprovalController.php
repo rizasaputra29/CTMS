@@ -103,7 +103,11 @@ class TitleApprovalController extends Controller
             foreach ($group->members()->with('student')->get() as $member) {
                 Notification::create([
                     'user_id' => $member->student_id,
+                    'type' => 'PROPOSAL_APPROVED',
+                    'title' => 'Title Proposal Approved',
                     'message' => "Your title proposal \"{$title->title}\" has been approved by the supervisor! Await admin finalization.",
+                    'related_type' => 'Title',
+                    'related_id' => $title->id,
                 ]);
             }
 
@@ -161,7 +165,11 @@ class TitleApprovalController extends Controller
             foreach ($group->members()->with('student')->get() as $member) {
                 Notification::create([
                     'user_id' => $member->student_id,
+                    'type' => 'PROPOSAL_REJECTED',
+                    'title' => 'Title Proposal Rejected',
                     'message' => "Your title proposal \"{$title->title}\" was rejected. Reason: {$validated['rejection_reason']}",
+                    'related_type' => 'Title',
+                    'related_id' => $title->id,
                 ]);
             }
 
