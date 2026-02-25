@@ -26,6 +26,7 @@ interface Document {
     phase: string;
     file_path: string;
     version: number;
+    document_type?: string;
     status: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
     feedback: string | null;
     created_at: string;
@@ -34,10 +35,17 @@ interface Document {
     } | null;
 }
 
+interface PhaseDocumentType {
+    type: string;
+    status: string;
+    latest_document: Document | null;
+}
+
 interface PhaseInfo {
     phase: string;
     status: 'locked' | 'unlocked' | 'submitted' | 'draft' | 'revision' | 'completed';
-    latest_document: Document | null;
+    documents: PhaseDocumentType[];
+    required_types: string[];
     document_count: number;
 }
 
@@ -63,6 +71,8 @@ export default function MahasiswaDocumentsPage() {
     const [uploadOpen, setUploadOpen] = useState(false);
     const [uploading, setUploading] = useState(false);
     const [uploadPhase, setUploadPhase] = useState('');
+    const [uploadType, setUploadType] = useState('GENERAL');
+    const [requiredTypesForUpload, setRequiredTypesForUpload] = useState<string[]>([]);
     const [file, setFile] = useState<File | null>(null);
     const [groupStatus, setGroupStatus] = useState<string | null>(null);
     const [hasGroup, setHasGroup] = useState(false);
@@ -77,7 +87,14 @@ export default function MahasiswaDocumentsPage() {
             setGroupStatus(group?.status || null);
 
             // Only fetch workflow/docs if group is approved
-            if (group && group.status === 'APPROVED') {
+            const isApproved = group && ![
+                'FORMING',
+                'READY_FOR_BIDDING',
+                'WAITING_SUPERVISOR_APPROVAL',
+                'REJECTED'
+            ].includes(group.status);
+
+            if (isApproved) {
                 const [workflowRes, docsRes] = await Promise.all([
                     api.get('/mahasiswa/workflow'),
                     api.get('/mahasiswa/documents'),
@@ -102,8 +119,9 @@ export default function MahasiswaDocumentsPage() {
         }
     };
 
-    const openUploadDialog = (phase: string) => {
+    const openUploadDialog = (phase: string, docType: string) => {
         setUploadPhase(phase);
+        setUploadType(docType);
         setFile(null);
         setUploadOpen(true);
     };
@@ -119,6 +137,7 @@ export default function MahasiswaDocumentsPage() {
         const formData = new FormData();
         formData.append('file', file);
         formData.append('phase', uploadPhase);
+        formData.append('document_type', uploadType);
 
         try {
             await api.post('/mahasiswa/documents', formData, {
@@ -176,8 +195,15 @@ export default function MahasiswaDocumentsPage() {
         );
     }
 
+    const isGroupApproved = groupStatus && ![
+        'FORMING',
+        'READY_FOR_BIDDING',
+        'WAITING_SUPERVISOR_APPROVAL',
+        'REJECTED'
+    ].includes(groupStatus);
+
     // Lock documents if student doesn't have an approved group
-    if (!hasGroup || groupStatus !== 'APPROVED') {
+    if (!hasGroup || !isGroupApproved) {
         return (
             <div className="space-y-6">
                 <div>
@@ -194,8 +220,8 @@ export default function MahasiswaDocumentsPage() {
                             {!hasGroup
                                 ? 'You need to select a title and form a group before you can upload documents.'
                                 : groupStatus === 'PENDING'
-                                ? 'Your group is pending approval from your lecturer. Documents will be available once approved.'
-                                : 'Your group needs to be approved before you can access documents.'}
+                                    ? 'Your group is pending approval from your lecturer. Documents will be available once approved.'
+                                    : 'Your group needs to be approved before you can access documents.'}
                         </p>
                         {!hasGroup ? (
                             <Button asChild>
@@ -227,7 +253,7 @@ export default function MahasiswaDocumentsPage() {
                             <h2 className="text-xl font-bold text-green-600">🎓 Congratulations! All phases completed.</h2>
                         </div>
                     )}
-                    
+
                     {/* Horizontal stepper on desktop, vertical on mobile */}
                     <div className="relative">
                         <div className="hidden md:block absolute top-6 left-[calc(100%/12)] right-[calc(100%/12)] h-0.5 bg-muted z-0" />
@@ -249,9 +275,40 @@ export default function MahasiswaDocumentsPage() {
                                         )}>
                                             {PHASE_LABELS[phaseInfo.phase] || phaseInfo.phase}
                                         </h3>
-                                        <p className="text-xs text-muted-foreground capitalize mt-0.5">{phaseInfo.status}</p>
-                                        {canUpload && (
-                                            <Button size="sm" className="mt-2 text-xs h-7" onClick={() => openUploadDialog(phaseInfo.phase)}>
+                                        {/* Show breakdown of required docs if multiple */}
+                                        {phaseInfo.required_types.length > 1 && (
+                                            <div className="flex flex-col gap-1 mt-2 w-full px-2">
+                                                {phaseInfo.documents.map(d => {
+                                                    const canUploadType = phaseInfo.status !== 'locked' && d.status !== 'APPROVED';
+                                                    return (
+                                                        <div key={d.type} className="flex flex-col items-center justify-center p-1 border rounded bg-muted/30">
+                                                            <span className={cn(
+                                                                "text-[10px] font-medium leading-none mb-1",
+                                                                d.status === 'APPROVED' ? 'text-green-600' : d.status === 'missing' ? 'text-red-500' : 'text-primary'
+                                                            )}>
+                                                                {d.type}: {d.status === 'missing' ? 'Missing' : d.status}
+                                                            </span>
+                                                            {canUploadType && (
+                                                                <Button
+                                                                    variant="outline"
+                                                                    size="sm"
+                                                                    className="h-6 text-[10px] px-2"
+                                                                    onClick={() => openUploadDialog(phaseInfo.phase, d.type)}
+                                                                >
+                                                                    {d.status === 'missing' ? 'Upload' : 'Re-upload'}
+                                                                </Button>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                        {phaseInfo.required_types.length <= 1 && (
+                                            <p className="text-xs text-muted-foreground capitalize mt-0.5">{phaseInfo.status}</p>
+                                        )}
+                                        {/* Single document phase upload button */}
+                                        {phaseInfo.required_types.length <= 1 && phaseInfo.status !== 'locked' && phaseInfo.status !== 'completed' && (
+                                            <Button size="sm" className="mt-2 text-xs h-7" onClick={() => openUploadDialog(phaseInfo.phase, phaseInfo.required_types[0] || 'GENERAL')}>
                                                 <Upload className="mr-1 h-3 w-3" /> Upload
                                             </Button>
                                         )}
@@ -278,7 +335,7 @@ export default function MahasiswaDocumentsPage() {
                                     <div>
                                         <CardTitle className="text-base font-bold flex items-center gap-2">
                                             <FileText className="h-4 w-4" />
-                                            {PHASE_LABELS[doc.phase] || doc.phase}
+                                            {PHASE_LABELS[doc.phase] || doc.phase} {doc.document_type && doc.document_type !== 'GENERAL' ? `- ${doc.document_type}` : ''}
                                             <span className="text-xs font-normal text-muted-foreground">v{doc.version}</span>
                                         </CardTitle>
                                         <CardDescription className="text-xs mt-1">
@@ -322,6 +379,12 @@ export default function MahasiswaDocumentsPage() {
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
+                            {uploadType !== 'GENERAL' && (
+                                <div className="grid gap-2">
+                                    <Label>Document Type</Label>
+                                    <Input value={uploadType} disabled />
+                                </div>
+                            )}
                             <div className="grid gap-2">
                                 <Label htmlFor="file">File</Label>
                                 <Input id="file" type="file" onChange={handleFileChange} accept=".pdf,.doc,.docx" required />

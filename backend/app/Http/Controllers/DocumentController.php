@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use App\Models\PhaseDocumentRequirement;
 
 class DocumentController extends Controller
 {
@@ -21,28 +22,16 @@ class DocumentController extends Controller
     }
 
     // Workflow phase order
-    const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'SIDANG', 'EXPO'];
-
-    // Valid document sub-types per phase
-    const PHASE_DOCUMENT_TYPES = [
-        'PDC1' => ['C100', 'C200', 'C300'],
-        'PDC2' => ['C400', 'C500'],
-    ];
-
-    // Required document types to complete a phase
-    const REQUIRED_DOCUMENT_TYPES = [
-        'PDC1' => ['C100', 'C200', 'C300'],
-        'PDC2' => ['C400', 'C500'],
-    ];
+    const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'EXPO', 'SIDANG'];
 
     // Unlock rules: phase => prerequisite phase that must be APPROVED
     const UNLOCK_RULES = [
         'PDC1' => null,          // Always unlocked if group is APPROVED
         'SEMPRO' => 'PDC1',        // PDC1 approved → unlock Sempro
         'PDC2' => 'SEMPRO',      // Sempro approved → unlock PDC2
+        'EXPO' => 'PDC2',          // PDC2 approved -> unlock EXPO
         'TA' => 'PDC2',        // PDC2 approved → unlock TA
-        'SIDANG' => 'TA',          // TA approved → unlock Sidang
-        'EXPO' => 'TA',          // Min 1 TA approved → allow Expo (same prereq as SIDANG)
+        'SIDANG' => 'EXPO',          // EXPO approved → unlock Sidang
     ];
 
     /**
@@ -51,51 +40,120 @@ class DocumentController extends Controller
     public function workflow(Request $request)
     {
         $user = Auth::user();
-        $groupMember = GroupMember::where('student_id', $user->id)->first();
+        $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
 
-        if (!$groupMember) {
+        if (!$groupMember || !$groupMember->group) {
             return response()->json(['phases' => [], 'current_phase' => null]);
         }
 
+        $periodId = $groupMember->group->period_id;
+        $allRequirements = PhaseDocumentRequirement::where('period_id', $periodId)->get();
         $documents = Document::where('group_id', $groupMember->group_id)->get();
         $phases = [];
 
         foreach (self::PHASES as $phase) {
             $phaseDocs = $documents->where('phase', $phase);
-            $latestDoc = $phaseDocs->sortByDesc('version')->first();
 
-            $status = 'locked';
+            // Get required document types for this phase
+            $reqs = $allRequirements->where('phase', $phase)->where('is_required', true);
+            $requiredTypes = $reqs->pluck('name')->toArray();
+            if (empty($requiredTypes)) {
+                $requiredTypes = ['GENERAL']; // Fallback if no specific requirements
+            }
+
+            $typesStatus = [];
+            $allApproved = true;
+            $anyRejected = false;
+            $anySubmitted = false;
+            $uploadedCount = 0;
+
+            foreach ($requiredTypes as $type) {
+                // Find latest document for this specific type
+                $latestForType = $phaseDocs->where('document_type', $type)->sortByDesc('version')->first();
+                // If it's the fallback 'GENERAL', we might just look at the first doc without a specific type
+                if ($type === 'GENERAL' && empty($allRequirements->where('phase', $phase)->toArray())) {
+                    $latestForType = $phaseDocs->sortByDesc('version')->first();
+                }
+
+                $status = 'missing';
+                if ($latestForType) {
+                    $status = $latestForType->status;
+                    $uploadedCount++;
+                    if ($status === 'REJECTED')
+                        $anyRejected = true;
+                    if ($status === 'SUBMITTED')
+                        $anySubmitted = true;
+                    if ($status !== 'APPROVED')
+                        $allApproved = false;
+                } else {
+                    $allApproved = false;
+                }
+
+                $typesStatus[] = [
+                    'type' => $type,
+                    'status' => $status,
+                    'latest_document' => $latestForType
+                ];
+            }
+
+
+            $phaseStatus = 'locked';
             $prereq = self::UNLOCK_RULES[$phase];
 
-            // Check if unlocked
+            // Check if unlocked based on prereq
             if ($prereq === null) {
-                $status = 'unlocked';
+                $phaseStatus = 'unlocked';
             } else {
-                $prereqApproved = $documents->where('phase', $prereq)
-                    ->where('status', 'APPROVED')
-                    ->isNotEmpty();
-                if ($prereqApproved) {
-                    $status = 'unlocked';
+                // Prerequisite must be fully approved based on its own requirements
+                $prereqReqs = $allRequirements->where('phase', $prereq)->where('is_required', true)->pluck('name')->toArray();
+                if (empty($prereqReqs))
+                    $prereqReqs = ['GENERAL'];
+
+                $prereqAllApproved = true;
+                foreach ($prereqReqs as $pType) {
+                    $pDoc = $documents->where('phase', $prereq)->where('document_type', $pType)->where('status', 'APPROVED')->first();
+                    if ($pType === 'GENERAL' && empty($allRequirements->where('phase', $prereq)->toArray())) {
+                        $pDoc = $documents->where('phase', $prereq)->where('status', 'APPROVED')->first();
+                    }
+                    if (!$pDoc) {
+                        $prereqAllApproved = false;
+                        break;
+                    }
+                }
+
+                if ($prereqAllApproved) {
+                    $phaseStatus = 'unlocked';
                 }
             }
 
-            // If there are documents, determine status from latest
-            if ($latestDoc) {
-                if ($latestDoc->status === 'APPROVED') {
-                    $status = 'completed';
-                } elseif ($latestDoc->status === 'REJECTED') {
-                    $status = 'revision';
-                } elseif ($latestDoc->status === 'SUBMITTED') {
-                    $status = 'submitted';
-                } else {
-                    $status = 'draft';
+            // Determine overall phase status if unlocked
+            if ($phaseStatus === 'unlocked') {
+                if ($phase === 'EXPO') {
+                    // Custom rule for EXPO: requires at least 1 TA draft submitted by any member
+                    $hasTaDraft = \App\Models\TaSubmission::where('group_id', $groupMember->group_id)->exists();
+                    if (!$hasTaDraft) {
+                        $phaseStatus = 'locked';
+                    }
+                }
+
+                if ($phaseStatus === 'unlocked') {
+                    if ($allApproved) {
+                        $phaseStatus = 'completed';
+                    } elseif ($anyRejected) {
+                        $phaseStatus = 'revision';
+                    } elseif ($anySubmitted) {
+                        $phaseStatus = 'submitted';
+                    } elseif ($uploadedCount > 0) {
+                        $phaseStatus = 'draft';
+                    }
                 }
             }
 
             $phases[] = [
                 'phase' => $phase,
-                'status' => $status,
-                'latest_document' => $latestDoc,
+                'status' => $phaseStatus,
+                'documents' => $typesStatus,
+                'required_types' => $requiredTypes,
                 'document_count' => $phaseDocs->count(),
             ];
         }
@@ -139,14 +197,19 @@ class DocumentController extends Controller
         }
 
         if ($user->role === 'dosen') {
+            $query = Document::with(['student', 'group.title']);
+
             if ($request->has('group_id')) {
-                $documents = Document::where('group_id', $request->group_id)
-                    ->with('student')
-                    ->orderBy('created_at', 'desc')
-                    ->get();
-                return response()->json(['data' => $documents]);
+                $query->where('group_id', $request->group_id);
+            } else {
+                $supervisedGroupIds = Group::whereHas('supervisions', function ($q) use ($user) {
+                    $q->where('supervisor_id', $user->id);
+                })->pluck('id');
+                $query->whereIn('group_id', $supervisedGroupIds);
             }
-            return response()->json(['data' => []]);
+
+            $documents = $query->orderBy('created_at', 'desc')->get();
+            return response()->json(['data' => $documents]);
         }
 
         return response()->json(['message' => 'Unauthorized'], 403);
@@ -162,21 +225,28 @@ class DocumentController extends Controller
             'file' => ['required', 'file', 'mimes:pdf,doc,docx', 'max:10240'],
         ];
 
-        // Add document_type validation if phase has sub-types
-        if ($request->phase && isset(self::PHASE_DOCUMENT_TYPES[$request->phase])) {
-            $validationRules['document_type'] = ['required', 'string', Rule::in(self::PHASE_DOCUMENT_TYPES[$request->phase])];
-        } else {
-            $validationRules['document_type'] = ['nullable', 'string'];
-        }
-
-        $request->validate($validationRules);
-
         $user = Auth::user();
-        $groupMember = GroupMember::where('student_id', $user->id)->first();
+        $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
 
         if (!$groupMember) {
             return response()->json(['message' => 'You are not in any group.'], 400);
         }
+
+        // Add document_type validation if phase has dynamic sub-types from DB
+        if ($request->phase) {
+            $periodId = $groupMember->group->period_id;
+            $requirements = PhaseDocumentRequirement::where('period_id', $periodId)
+                ->where('phase', $request->phase)
+                ->pluck('name')->toArray();
+
+            if (!empty($requirements)) {
+                $validationRules['document_type'] = ['required', 'string', Rule::in($requirements)];
+            } else {
+                $validationRules['document_type'] = ['nullable', 'string'];
+            }
+        }
+
+        $request->validate($validationRules);
 
         // Check workflow unlock rules
         $prereq = self::UNLOCK_RULES[$request->phase];
@@ -248,7 +318,13 @@ class DocumentController extends Controller
         ]);
 
         // Auto-transition: if all required document subtypes for phase are APPROVED
-        if ($request->status === 'APPROVED' && isset(self::REQUIRED_DOCUMENT_TYPES[$document->phase])) {
+        $group = Group::findOrFail($document->group_id);
+        $hasRequirements = PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', $document->phase)
+            ->where('is_required', true)
+            ->exists();
+
+        if ($request->status === 'APPROVED' && $hasRequirements) {
             $this->checkPhaseCompletion($document->group_id, $document->phase);
         }
 
@@ -260,11 +336,14 @@ class DocumentController extends Controller
      */
     private function checkPhaseCompletion(int $groupId, string $phase): void
     {
-        $requiredTypes = self::REQUIRED_DOCUMENT_TYPES[$phase] ?? [];
+        $group = Group::findOrFail($groupId);
+        $requiredTypes = PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', $phase)
+            ->where('is_required', true)
+            ->pluck('name')->toArray();
+
         if (empty($requiredTypes))
             return;
-
-        $group = Group::findOrFail($groupId);
 
         foreach ($requiredTypes as $type) {
             $hasApproved = Document::where('group_id', $groupId)
