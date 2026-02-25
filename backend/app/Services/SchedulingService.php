@@ -287,15 +287,16 @@ class SchedulingService
 
                 if ($schedule->type === 'SEMPRO') {
                     if ($result === 'PASS') {
-                        $this->stateMachine->transition($group, 'PDC2_ACTIVE');
+                        $this->stateMachine->transition($group, 'SEMPRO_DONE');
                     } else {
                         $this->stateMachine->transition($group, 'PDC1_ACTIVE');
                     }
                 } elseif ($schedule->type === 'EXPO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'EXPO_DONE');
+                    } else {
+                        $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     }
-                    // FAIL: stays at current status for re-evaluation
                 }
 
                 AuditLog::create([

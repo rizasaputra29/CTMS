@@ -48,7 +48,7 @@ export default function StudentSchedulesPage() {
 
     // Request form
     const [requestOpen, setRequestOpen] = useState(false);
-    const [requestType, setRequestType] = useState<'SEMPRO' | 'EXPO' | 'TA_DEFENSE'>('SEMPRO');
+    const [requestType, setRequestType] = useState<'SEMPRO' | 'TA_DEFENSE'>('SEMPRO');
     const [formDate, setFormDate] = useState('');
     const [formStartTime, setFormStartTime] = useState('');
     const [formEndTime, setFormEndTime] = useState('');
@@ -88,9 +88,7 @@ export default function StudentSchedulesPage() {
         try {
             const endpoint = requestType === 'TA_DEFENSE'
                 ? '/mahasiswa/schedule-request/ta-defense'
-                : requestType === 'SEMPRO'
-                    ? '/mahasiswa/schedule-request/sempro'
-                    : '/mahasiswa/schedule-request/expo';
+                : '/mahasiswa/schedule-request/sempro';
 
             await api.post(endpoint, {
                 date: formDate,
@@ -119,13 +117,12 @@ export default function StudentSchedulesPage() {
     if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>;
 
     const sempro = seminars.filter(s => s.type === 'SEMPRO');
-    const expo = seminars.filter(s => s.type === 'EXPO');
 
     const ScheduleCard = ({ s }: { s: SeminarSchedule }) => (
         <Card>
             <CardHeader className="pb-2">
                 <div className="flex justify-between items-start">
-                    <CardTitle className="text-sm font-medium">{s.type === 'SEMPRO' ? 'Seminar Proposal' : 'Expo Presentation'}</CardTitle>
+                    <CardTitle className="text-sm font-medium">Seminar Proposal</CardTitle>
                     <Badge variant={statusColor(s.status)}>{s.status === 'PENDING_APPROVAL' ? '⏳ Pending Approval' : s.status}</Badge>
                 </div>
             </CardHeader>
@@ -170,7 +167,6 @@ export default function StudentSchedulesPage() {
             <Tabs defaultValue="sempro">
                 <TabsList>
                     <TabsTrigger value="sempro">SEMPRO ({sempro.length})</TabsTrigger>
-                    <TabsTrigger value="expo">EXPO ({expo.length})</TabsTrigger>
                     <TabsTrigger value="ta">TA Defense</TabsTrigger>
                 </TabsList>
 
@@ -182,16 +178,6 @@ export default function StudentSchedulesPage() {
                             <Button variant="outline" className="mt-3" onClick={() => { setRequestType('SEMPRO'); setRequestOpen(true); }}>Request SEMPRO</Button>
                         </div>
                     ) : sempro.map(s => <ScheduleCard key={s.id} s={s} />)}
-                </TabsContent>
-
-                <TabsContent value="expo" className="space-y-3">
-                    {expo.length === 0 ? (
-                        <div className="text-center py-12 border rounded-lg border-dashed">
-                            <GraduationCap className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                            <p className="text-muted-foreground">No EXPO schedule yet.</p>
-                            <Button variant="outline" className="mt-3" onClick={() => { setRequestType('EXPO'); setRequestOpen(true); }}>Request EXPO</Button>
-                        </div>
-                    ) : expo.map(s => <ScheduleCard key={s.id} s={s} />)}
                 </TabsContent>
 
                 <TabsContent value="ta" className="space-y-3">
@@ -251,11 +237,10 @@ export default function StudentSchedulesPage() {
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
                                 <Label>Schedule Type</Label>
-                                <Select value={requestType} onValueChange={(v) => setRequestType(v as 'SEMPRO' | 'EXPO' | 'TA_DEFENSE')}>
+                                <Select value={requestType} onValueChange={(v) => setRequestType(v as 'SEMPRO' | 'TA_DEFENSE')}>
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="SEMPRO">SEMPRO</SelectItem>
-                                        <SelectItem value="EXPO">EXPO</SelectItem>
                                         <SelectItem value="TA_DEFENSE">TA Defense</SelectItem>
                                     </SelectContent>
                                 </Select>

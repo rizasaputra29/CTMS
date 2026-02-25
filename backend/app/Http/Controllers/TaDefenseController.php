@@ -228,6 +228,15 @@ class TaDefenseController extends Controller
      */
     public function approve(Request $request, $id)
     {
+        $request->validate([
+            'date' => 'required|date',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'room' => 'nullable|string',
+            'examiner_1_id' => 'required|exists:users,id',
+            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+        ]);
+
         $schedule = TaDefenseSchedule::where('id', $id)
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
@@ -239,8 +248,7 @@ class TaDefenseController extends Controller
         $supervisor2 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_2')->first();
 
         // Double guard: examiner constraints
-        $examiners = TaDefenseExaminer::where('schedule_id', $schedule->id)->get();
-        $examinerIds = $examiners->pluck('examiner_id')->toArray();
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
             return response()->json(['message' => $constraintError], 400);
@@ -255,15 +263,36 @@ class TaDefenseController extends Controller
         // Conflict check (authoritative)
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $allParticipantIds,
-            $schedule->date->format('Y-m-d'),
-            $schedule->start_time,
-            $schedule->end_time,
-            $schedule->room
+            $request->date,
+            $request->start_time,
+            $request->end_time,
+            $request->room
         );
 
         if (!empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
+
+        $schedule->update([
+            'date' => $request->date,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'room' => $request->room,
+            'status' => 'SCHEDULED'
+        ]);
+
+        // Recreate examiners based on request
+        TaDefenseExaminer::where('schedule_id', $schedule->id)->delete();
+        TaDefenseExaminer::create([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $request->examiner_1_id,
+            'role' => 'EXAMINER_1',
+        ]);
+        TaDefenseExaminer::create([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $request->examiner_2_id,
+            'role' => 'EXAMINER_2',
+        ]);
 
         // Auto-attach supervisors (if not already attached)
         if ($supervisor1 && !TaDefenseExaminer::where('schedule_id', $schedule->id)->where('examiner_id', $supervisor1->supervisor_id)->exists()) {
@@ -280,8 +309,6 @@ class TaDefenseController extends Controller
                 'role' => 'SUPERVISOR_2',
             ]);
         }
-
-        $schedule->update(['status' => 'SCHEDULED']);
 
         // Auto-generate evaluation rows for all examiners
         $this->schedulingService->autoGenerateTaDefenseEvaluations($schedule);

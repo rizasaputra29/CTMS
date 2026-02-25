@@ -70,11 +70,11 @@ class GroupStateMachineTest extends TestCase
         $this->assertEquals('READY_FOR_SEMPRO', $group->fresh()->status);
     }
 
-    public function test_ready_for_sempro_to_pdc2_active(): void
+    public function test_ready_for_sempro_to_sempro_done(): void
     {
         $group = $this->makeGroup('READY_FOR_SEMPRO');
-        $this->sm->transition($group, 'PDC2_ACTIVE');
-        $this->assertEquals('PDC2_ACTIVE', $group->fresh()->status);
+        $this->sm->transition($group, 'SEMPRO_DONE');
+        $this->assertEquals('SEMPRO_DONE', $group->fresh()->status);
     }
 
     public function test_sempro_fail_returns_to_pdc1(): void
@@ -91,9 +91,9 @@ class GroupStateMachineTest extends TestCase
         $this->assertEquals('PDC2_READY_FOR_EXPO', $group->fresh()->status);
     }
 
-    public function test_expo_pass_to_expo_done(): void
+    public function test_expo_registered_to_expo_done(): void
     {
-        $group = $this->makeGroup('PDC2_READY_FOR_EXPO');
+        $group = $this->makeGroup('EXPO_REGISTERED');
         $this->sm->transition($group, 'EXPO_DONE');
         $this->assertEquals('EXPO_DONE', $group->fresh()->status);
     }

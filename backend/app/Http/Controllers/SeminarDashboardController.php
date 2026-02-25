@@ -82,6 +82,7 @@ class SeminarDashboardController extends Controller
 
         $seminars = SeminarSchedule::with([
             'group.title',
+            'group.members.student',
             'examiner1',
             'examiner2',
             'evaluations' => function ($q) use ($user) {
@@ -99,6 +100,7 @@ class SeminarDashboardController extends Controller
         $taDefenses = TaDefenseSchedule::with([
             'student',
             'group.title',
+            'group.members.student',
             'examiners.examiner',
             'evaluations' => function ($q) use ($user) {
                 $q->where('examiner_id', $user->id);
