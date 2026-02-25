@@ -22,6 +22,8 @@ use App\Http\Controllers\TaSubmissionController;
 use App\Http\Controllers\TaDefenseController;
 use App\Http\Controllers\SeminarDashboardController;
 use App\Http\Controllers\ScheduleRequestController;
+use App\Http\Controllers\ExpoEventController;
+use App\Http\Controllers\NotificationController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
@@ -32,6 +34,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
     });
 
     Route::put('/profile', [ProfileController::class, 'update']);
+
+    // ────────────────────────────────
+    // Shared: Notifications (all roles)
+    // ────────────────────────────────
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::put('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+    Route::put('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
 
     // ────────────────────────────────
     // Admin Routes
@@ -48,7 +58,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/finalization/dosen-load', [FinalizationController::class, 'dosenLoad']);
         Route::post('/finalization/allocate', [FinalizationController::class, 'allocate']);
         Route::post('/finalization/allocate-student-proposed', [FinalizationController::class, 'allocateStudentProposed']);
+        Route::post('/finalization/finalize-period', [FinalizationController::class, 'finalizePeriod']);
         Route::post('/finalization/lock', [FinalizationController::class, 'lock']);
+
+        // V4: Expo Event Management
+        Route::apiResource('expo-events', ExpoEventController::class);
+        Route::put('/expo-events/{expoEvent}/publish', [ExpoEventController::class, 'publish']);
 
         // SEMPRO scheduling
         Route::get('/sempro/schedules', [SemproController::class, 'index']);
@@ -56,9 +71,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/sempro/schedules/{id}/approve', [SemproController::class, 'approve']);
         Route::put('/sempro/schedules/{id}/reject', [SemproController::class, 'reject']);
 
-        // Expo scheduling
+        // Expo scheduling (legacy — kept for backward compat)
         Route::get('/expo/schedules', [ExpoController::class, 'index']);
-        Route::post('/expo/schedule', [ExpoController::class, 'schedule']);
         Route::put('/expo/schedules/{id}/approve', [ExpoController::class, 'approve']);
         Route::put('/expo/schedules/{id}/reject', [ExpoController::class, 'reject']);
 
@@ -154,11 +168,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/seminar-schedules', [SeminarDashboardController::class, 'studentSchedules']);
         Route::get('/ta-defense', [TaDefenseController::class, 'myDefense']);
 
-        // Schedule requests (student-initiated)
+        // Schedule requests (student-initiated) — V4: SEMPRO + TA only
         Route::post('/schedule-request/sempro', [ScheduleRequestController::class, 'requestSempro']);
-        Route::post('/schedule-request/expo', [ScheduleRequestController::class, 'requestExpo']);
         Route::post('/schedule-request/ta-defense', [ScheduleRequestController::class, 'requestTaDefense']);
         Route::get('/schedule-requests', [ScheduleRequestController::class, 'myRequests']);
+
+        // V4: Expo events (replaces schedule-request/expo)
+        Route::get('/expo-events', [ExpoEventController::class, 'studentEvents']);
+        Route::post('/expo-events/{expoEvent}/register', [ExpoEventController::class, 'register']);
 
         // Student Proposals
         Route::get('/lecturers', [StudentProposalController::class, 'lecturers']);
