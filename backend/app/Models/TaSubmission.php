@@ -25,6 +25,9 @@ class TaSubmission extends Model
         'group_id',
         'status',
         'file_path',
+        'draft_report_path',
+        'paper_path',
+        'publication_link',
         'feedback',
         'reviewed_by',
     ];

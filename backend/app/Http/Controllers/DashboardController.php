@@ -18,7 +18,7 @@ class DashboardController extends Controller
             'total_users' => User::count(),
             'total_students' => User::where('role', 'mahasiswa')->count(),
             'total_lecturers' => User::where('role', 'dosen')->count(),
-            'active_periods' => Period::where('is_active', true)->get(),
+            'active_periods' => Period::where('is_active', 'true')->get(),
         ]);
     }
 
@@ -89,7 +89,7 @@ class DashboardController extends Controller
             'group_status' => $group ? $group->status : null,
             'title' => $group && $group->title ? $group->title->title : null,
             'group_period' => $group ? $group->period : null,
-            'active_periods' => Period::where('is_active', true)->get(),
+            'active_periods' => Period::where('is_active', 'true')->get(),
             'steps' => $steps,
             'is_graduated' => $isGraduated,
             'pending_proposal' => $pendingProposal,

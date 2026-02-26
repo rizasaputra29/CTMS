@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\GroupSupervisorProposal;
+use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\Period;
 use App\Models\User;
@@ -68,9 +69,9 @@ class GroupController extends Controller
         // V4: Accept explicit period_id or resolve from active periods
         $period = null;
         if ($request->has('period_id')) {
-            $period = Period::where('is_active', true)->findOrFail($request->period_id);
+            $period = Period::where('is_active', 'true')->findOrFail($request->period_id);
         } else {
-            $activePeriods = Period::where('is_active', true)->get();
+            $activePeriods = Period::where('is_active', 'true')->get();
             if ($activePeriods->count() === 0) {
                 return response()->json(['message' => 'No active academic period found.'], 400);
             }
@@ -95,6 +96,8 @@ class GroupController extends Controller
                 'title_id' => null,
                 'period_id' => $period->id,
                 'status' => 'FORMING',
+                'group_mode' => $request->input('group_mode', 'GROUP'),
+                'has_existing_group' => $request->boolean('has_existing_group', false),
             ]);
 
             GroupMember::create([
@@ -393,6 +396,7 @@ class GroupController extends Controller
 
     /**
      * Auto-transition FORMING → READY_FOR_BIDDING if member count >= min_group_size.
+     * For INDIVIDUAL mode, min_group_size = 1.
      */
     private function checkAndTransitionToReady(Group $group, Period $period): void
     {
@@ -401,10 +405,58 @@ class GroupController extends Controller
         }
 
         $memberCount = GroupMember::where('group_id', $group->id)->count();
-        $minSize = $period->min_group_size ?? 2;
+
+        // INDIVIDUAL mode: 1 member is enough
+        $minSize = $group->group_mode === 'INDIVIDUAL' ? 1 : ($period->min_group_size ?? 2);
 
         if ($memberCount >= $minSize) {
             $this->stateMachine->transition($group, 'READY_FOR_BIDDING');
+        }
+    }
+
+    /**
+     * [Admin] Assign Supervisor 2 (Dosbing 2) to a group. Admin exclusive.
+     */
+    public function assignSupervisor2(Request $request, Group $group)
+    {
+        $request->validate([
+            'supervisor_2_id' => 'required|exists:users,id',
+        ]);
+
+        $supervisor = User::findOrFail($request->supervisor_2_id);
+
+        if ($supervisor->role !== 'dosen') {
+            return response()->json(['message' => 'Supervisor 2 must be a lecturer.'], 400);
+        }
+
+        // Check not same as Supervisor 1
+        if ($group->supervisor_1_id && $group->supervisor_1_id === $supervisor->id) {
+            return response()->json(['message' => 'Supervisor 2 cannot be the same as Supervisor 1.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Update supervisions table
+            Supervision::updateOrCreate(
+                ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
+                [
+                    'supervisor_id' => $supervisor->id,
+                    'assigned_by' => $request->user()->id,
+                ]
+            );
+
+            // Update cache on groups table
+            $group->update(['supervisor_2_id' => $supervisor->id]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Supervisor 2 assigned successfully.',
+                'group' => $group->fresh()->load(['supervisor1', 'supervisor2', 'supervisions.supervisor']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed: ' . $e->getMessage()], 500);
         }
     }
 }

@@ -31,7 +31,7 @@ class FinalizationController extends Controller
             return Period::findOrFail($request->period_id);
         }
 
-        $activePeriods = Period::where('is_active', true)->get();
+        $activePeriods = Period::where('is_active', 'true')->get();
 
         if ($activePeriods->count() === 0) {
             abort(400, 'No active period found.');

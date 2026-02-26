@@ -24,6 +24,13 @@ use App\Http\Controllers\SeminarDashboardController;
 use App\Http\Controllers\ScheduleRequestController;
 use App\Http\Controllers\ExpoEventController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\AssessmentComponentController;
+use App\Http\Controllers\AssessmentScoreController;
+use App\Http\Controllers\PeerReviewController;
+use App\Http\Controllers\GradeConsistencyController;
+use App\Http\Controllers\DocumentTypeController;
+use App\Http\Controllers\DigitalSignatureController;
+use App\Http\Controllers\ReportExportController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
@@ -84,6 +91,40 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Exception: approve member leave
         Route::post('/groups/{group}/approve-member-leave', [GroupController::class, 'approveMemberLeave']);
+
+        // Assessment Components (dynamic CPMK/CPL)
+        Route::get('/assessment-components', [AssessmentComponentController::class, 'index']);
+        Route::post('/assessment-components', [AssessmentComponentController::class, 'store']);
+        Route::post('/assessment-components/bulk', [AssessmentComponentController::class, 'bulkStore']);
+        Route::put('/assessment-components/{id}', [AssessmentComponentController::class, 'update']);
+        Route::delete('/assessment-components/{id}', [AssessmentComponentController::class, 'destroy']);
+
+        // Assessment Scores Summary (admin view)
+        Route::get('/assessment-scores/summary', [AssessmentScoreController::class, 'summary']);
+
+        // Peer Review Indicators (admin)
+        Route::get('/peer-review/indicators', [PeerReviewController::class, 'indicators']);
+        Route::post('/peer-review/indicators', [PeerReviewController::class, 'storeIndicator']);
+        Route::put('/peer-review/indicators/{id}', [PeerReviewController::class, 'updateIndicator']);
+        Route::delete('/peer-review/indicators/{id}', [PeerReviewController::class, 'destroyIndicator']);
+
+        // Grade Consistency (admin)
+        Route::get('/grade-consistency', [GradeConsistencyController::class, 'index']);
+        Route::post('/grade-consistency/generate', [GradeConsistencyController::class, 'generate']);
+        Route::put('/grade-consistency/{id}', [GradeConsistencyController::class, 'update']);
+
+        // Document Types (admin)
+        Route::apiResource('document-types', DocumentTypeController::class);
+
+        // Digital Signatures (admin)
+        Route::post('/digital-signatures/sign', [DigitalSignatureController::class, 'sign']);
+        Route::get('/digital-signatures/verify/{hash}', [DigitalSignatureController::class, 'verify']);
+
+        // Report Export (admin)
+        Route::get('/reports/{type}/export', [ReportExportController::class, 'export']);
+
+        // Assign Supervisor 2 (admin only)
+        Route::post('/groups/{group}/assign-supervisor-2', [GroupController::class, 'assignSupervisor2']);
     });
 
     // ────────────────────────────────
@@ -133,6 +174,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Seminar dashboard (supervisor + examiner views)
         Route::get('/seminar-schedules/supervisor', [SeminarDashboardController::class, 'supervisorSchedules']);
         Route::get('/seminar-schedules/examiner', [SeminarDashboardController::class, 'examinerSchedules']);
+
+        // Assessment Scores (dosen submits evaluations)
+        Route::get('/assessment-scores', [AssessmentScoreController::class, 'index']);
+        Route::post('/assessment-scores', [AssessmentScoreController::class, 'store']);
+
+        // Peer Review (dosen views)
+        Route::get('/peer-review', [PeerReviewController::class, 'groupReviews']);
+
+        // Digital Signatures (dosen)
+        Route::get('/digital-signatures', [DigitalSignatureController::class, 'mySignatures']);
     });
 
     // ────────────────────────────────
@@ -168,10 +219,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/seminar-schedules', [SeminarDashboardController::class, 'studentSchedules']);
         Route::get('/ta-defense', [TaDefenseController::class, 'myDefense']);
 
-        // Schedule requests (student-initiated) — V4: SEMPRO + TA only
-        Route::post('/schedule-request/sempro', [ScheduleRequestController::class, 'requestSempro']);
-        Route::post('/schedule-request/ta-defense', [ScheduleRequestController::class, 'requestTaDefense']);
-        Route::get('/schedule-requests', [ScheduleRequestController::class, 'myRequests']);
+        // NOTE: Student schedule requests removed — Admin handles all scheduling
 
         // V4: Expo events (replaces schedule-request/expo)
         Route::get('/expo-events', [ExpoEventController::class, 'studentEvents']);
@@ -182,6 +230,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/propose-title', [StudentProposalController::class, 'store']);
         Route::get('/my-proposal', [StudentProposalController::class, 'myProposal']);
         Route::put('/my-proposal', [StudentProposalController::class, 'update']);
+
+        // Peer Review (mahasiswa)
+        Route::get('/peer-review', [PeerReviewController::class, 'index']);
+        Route::post('/peer-review', [PeerReviewController::class, 'store']);
 
         // TA Submissions
         Route::get('/ta', [TaSubmissionController::class, 'index']);
