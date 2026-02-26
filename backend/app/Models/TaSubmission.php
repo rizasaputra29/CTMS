@@ -16,7 +16,8 @@ class TaSubmission extends Model
         'TA_REVISED' => 2,
         'TA_READY' => 3,
         'TA_REGISTERED' => 4,
-        'TA_DEFENDED' => 5,
+        'TA_SCHEDULED' => 5,
+        'TA_DEFENDED' => 6,
     ];
 
     protected $fillable = [

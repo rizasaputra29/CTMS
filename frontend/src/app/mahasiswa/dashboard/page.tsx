@@ -5,8 +5,8 @@ import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-    ArrowRight, Calendar, CheckCircle, BookOpen, 
+import {
+    ArrowRight, Calendar, CheckCircle, BookOpen,
     Clock, Upload, Check, XCircle, Lock, GraduationCap, Zap
 } from 'lucide-react';
 import Link from 'next/link';
@@ -18,7 +18,8 @@ interface MahasiswaStats {
     has_group: boolean;
     group_status: string | null;
     title: string | null;
-    active_period: { name: string } | null;
+    group_period: { name: string } | null;
+    active_periods: { id: number; name: string }[];
     steps: Record<string, boolean>;
     is_graduated: boolean;
 }
@@ -29,8 +30,8 @@ const WORKFLOW_STEPS = [
     { key: 'PDC1', label: 'PDC 1' },
     { key: 'SEMPRO', label: 'Sempro' },
     { key: 'PDC2', label: 'PDC 2' },
-    { key: 'SIDANG', label: 'Sidang' },
     { key: 'EXPO', label: 'Expo' },
+    { key: 'SIDANG', label: 'Sidang' },
 ];
 
 export default function MahasiswaDashboard() {
@@ -60,20 +61,27 @@ export default function MahasiswaDashboard() {
         return <div className="p-4">Failed to load dashboard data.</div>;
     }
 
+    const isGroupApproved = stats.group_status && ![
+        'FORMING',
+        'READY_FOR_BIDDING',
+        'WAITING_SUPERVISOR_APPROVAL',
+        'REJECTED'
+    ].includes(stats.group_status);
+
     const getStepStatus = (stepKey: string): 'completed' | 'current' | 'error' | 'upcoming' => {
         if (stepKey === 'BIDDING') {
             return stats.has_group ? 'completed' : 'current';
         }
         if (stepKey === 'APPROVAL') {
             if (!stats.has_group) return 'upcoming';
-            if (stats.group_status === 'APPROVED') return 'completed';
+            if (isGroupApproved) return 'completed';
             if (stats.group_status === 'REJECTED') return 'error';
             return 'current';
         }
-        if (stats.group_status !== 'APPROVED') return 'upcoming';
+        if (!isGroupApproved) return 'upcoming';
         if (stats.steps[stepKey]) return 'completed';
-        
-        const docPhases = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'SIDANG', 'EXPO'];
+
+        const docPhases = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
         for (const phase of docPhases) {
             if (!stats.steps[phase]) {
                 return stepKey === phase ? 'current' : 'upcoming';
@@ -83,13 +91,13 @@ export default function MahasiswaDashboard() {
     };
 
     const currentPhase = WORKFLOW_STEPS.find(step => getStepStatus(step.key) === 'current');
-    const completedCount = Object.values(stats.steps).filter(Boolean).length + (stats.has_group ? 1 : 0) + (stats.group_status === 'APPROVED' ? 1 : 0);
+    const completedCount = Object.values(stats.steps).filter(Boolean).length + (stats.has_group ? 1 : 0) + (isGroupApproved ? 1 : 0);
     const totalSteps = WORKFLOW_STEPS.length;
     const progressPercent = Math.round((completedCount / totalSteps) * 100);
 
     return (
         <div className="flex flex-col space-y-6">
-            
+
             <div className="text-2xl font-bold tracking-tight">
                 Welcome back, {user?.name || 'Student'}
             </div>
@@ -110,9 +118,9 @@ export default function MahasiswaDashboard() {
                                     status === 'upcoming' && "border-muted-foreground/30 bg-muted text-muted-foreground"
                                 )}>
                                     {status === 'completed' ? <Check className="h-5 w-5" /> :
-                                     status === 'error' ? <XCircle className="h-5 w-5" /> :
-                                     status === 'current' ? <Clock className="h-5 w-5" /> :
-                                     <Lock className="h-4 w-4" />}
+                                        status === 'error' ? <XCircle className="h-5 w-5" /> :
+                                            status === 'current' ? <Clock className="h-5 w-5" /> :
+                                                <Lock className="h-4 w-4" />}
                                 </div>
                                 <h3 className={cn(
                                     "font-medium text-[10px] md:text-xs uppercase tracking-tight",
@@ -135,23 +143,23 @@ export default function MahasiswaDashboard() {
                             <span>Overall Progress</span>
                         </div>
                         <div className="text-3xl font-bold tracking-tight">
-                            {stats.active_period?.name || 'No Active Period'}
+                            {stats.group_period?.name || (stats.active_periods?.length > 0 ? stats.active_periods[0].name : 'No Active Period')}
                         </div>
                         <div className="flex items-center gap-2 mt-3">
                             <Badge variant={stats.is_graduated ? 'default' : 'secondary'}>
-                                 {stats.is_graduated ? '🎓 Graduated' : currentPhase?.label || 'In Progress'}
+                                {stats.is_graduated ? '🎓 Graduated' : currentPhase?.label || 'In Progress'}
                             </Badge>
                             {stats.group_status === 'APPROVED' && (
-                                 <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-900">
+                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-900">
                                     <CheckCircle className="w-3 h-3 mr-1" /> Approved
-                                 </Badge>
+                                </Badge>
                             )}
                         </div>
                     </div>
 
                     {/* Circular Progress */}
                     <div className="h-32 w-32 relative flex items-center justify-center shrink-0 mr-4">
-                         <div className="absolute inset-0 flex items-center justify-center flex-col">
+                        <div className="absolute inset-0 flex items-center justify-center flex-col">
                             <span className="text-2xl font-bold">{progressPercent}%</span>
                             <span className="text-[10px] text-muted-foreground uppercase">Complete</span>
                         </div>
@@ -181,27 +189,27 @@ export default function MahasiswaDashboard() {
 
                 {/* Quick Actions */}
                 <Card className="col-span-1 flex flex-col justify-between">
-                     <CardHeader className="pb-2">
+                    <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
                             <Zap className="h-4 w-4" /> Quick Actions
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3 pt-2">
                         {!stats.has_group ? (
-                             <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                            <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
                                 <Link href="/mahasiswa/titles">
                                     Browse Titles <ArrowRight className="h-4 w-4" />
                                 </Link>
                             </Button>
-                        ) : stats.group_status === 'APPROVED' ? (
-                             <Button size="sm" className="w-full justify-between" variant="default" asChild>
+                        ) : isGroupApproved ? (
+                            <Button size="sm" className="w-full justify-between" variant="default" asChild>
                                 <Link href="/mahasiswa/documents">
                                     Upload Docs <Upload className="h-4 w-4" />
                                 </Link>
                             </Button>
                         ) : (
                             <Button size="sm" className="w-full" variant="secondary" disabled>
-                                 <Clock className="mr-2 h-4 w-4" /> Waiting Approval
+                                <Clock className="mr-2 h-4 w-4" /> Waiting Approval
                             </Button>
                         )}
                         <Button size="sm" className="w-full justify-start shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
@@ -217,7 +225,7 @@ export default function MahasiswaDashboard() {
                     </CardContent>
                 </Card>
 
-                 {/* Project Details */}
+                {/* Project Details */}
                 <Card className="col-span-1 flex flex-col">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
@@ -225,20 +233,20 @@ export default function MahasiswaDashboard() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="flex flex-col gap-4">
-                         <div>
+                        <div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Title</div>
                             <div className="font-medium text-sm line-clamp-2 leading-snug" title={stats.title || 'No Title Selected'}>
                                 {stats.title || 'No Title Selected'}
                             </div>
                         </div>
-                         
-                         <div>
+
+                        <div>
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Group Status</div>
                             <div className="flex items-center gap-2">
                                 <span className={cn(
                                     "text-sm font-medium",
-                                    stats.group_status === 'APPROVED' ? "text-green-600" :
-                                    stats.group_status === 'REJECTED' ? "text-red-600" : "text-muted-foreground"
+                                    isGroupApproved ? "text-green-600" :
+                                        stats.group_status === 'REJECTED' ? "text-red-600" : "text-muted-foreground"
                                 )}>
                                     {stats.group_status || 'Not Joined'}
                                 </span>

@@ -66,8 +66,16 @@ interface Lecturer {
     is_overloaded: boolean;
 }
 
+interface Period {
+    id: number;
+    name: string;
+    is_active: boolean;
+}
+
 export default function FinalizationPage() {
     const [titles, setTitles] = useState<TitleWithBids[]>([]);
+    const [periods, setPeriods] = useState<Period[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [lecturers, setLecturers] = useState<Lecturer[]>([]);
     const [isLocked, setIsLocked] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -77,11 +85,26 @@ export default function FinalizationPage() {
     const [sup2, setSup2] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (periodId?: string) => {
+        setLoading(true);
         try {
+            let currentPeriodId = periodId || selectedPeriod;
+            if (!currentPeriodId) {
+                const perRes = await api.get('/admin/periods');
+                setPeriods(perRes.data || []);
+                const active = (perRes.data || []).find((p: Period) => p.is_active);
+                if (active) currentPeriodId = active.id.toString();
+                setSelectedPeriod(currentPeriodId);
+            }
+
+            if (!currentPeriodId) {
+                setLoading(false);
+                return;
+            }
+
             const [finRes, loadRes] = await Promise.all([
-                api.get('/admin/finalization'),
-                api.get('/admin/finalization/dosen-load'),
+                api.get(`/admin/finalization?period_id=${currentPeriodId}`),
+                api.get(`/admin/finalization/dosen-load?period_id=${currentPeriodId}`),
             ]);
             setTitles(finRes.data.data || []);
             setIsLocked(finRes.data.is_locked || false);
@@ -91,21 +114,42 @@ export default function FinalizationPage() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedPeriod]);
 
     useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+        // Initial fetch handled gracefully by the dependency injection
+        if (!selectedPeriod) fetchData();
+    }, [fetchData, selectedPeriod]);
+
+    const handlePeriodChange = (val: string) => {
+        setSelectedPeriod(val);
+        fetchData(val);
+    };
 
     const handleLockBidding = async () => {
         if (!confirm('Lock bidding? No more bids can be submitted after locking.')) return;
         try {
-            await api.post('/admin/finalization/lock');
+            await api.post(`/admin/finalization/lock?period_id=${selectedPeriod}`);
             toast.success('Bidding locked.');
             setIsLocked(true);
         } catch (error) {
             if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to lock');
             else toast.error('Failed to lock');
+        }
+    };
+
+    const handleBatchFinalize = async () => {
+        if (!confirm('Run batch finalization? This will automatically allocate ACCEPTED bids based on priority and lock bidding if not already locked.')) return;
+        setSubmitting(true);
+        try {
+            const res = await api.post(`/admin/finalization/finalize-period`, { period_id: Number(selectedPeriod) });
+            toast.success(`Batch finalization complete. Assigned ${res.data.assigned_count} groups.`);
+            fetchData(selectedPeriod);
+        } catch (error) {
+            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to sequence');
+            else toast.error('Failed to finalize');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -150,21 +194,37 @@ export default function FinalizationPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Finalization Dashboard</h1>
                     <p className="text-muted-foreground">Allocate groups to titles, assign supervisors, and lock bidding.</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <Select value={selectedPeriod} onValueChange={handlePeriodChange} disabled={loading}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Select period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {periods.map(p => (
+                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
                     {isLocked ? (
-                        <Badge variant="destructive" className="px-3 py-1.5">
-                            <Lock className="mr-1 h-3 w-3" /> Bidding Locked
+                        <Badge variant="destructive" className="px-3 py-1.5 h-10">
+                            <Lock className="mr-1 h-3 w-3" /> Locked
                         </Badge>
                     ) : (
-                        <Button variant="destructive" size="sm" onClick={handleLockBidding}>
+                        <Button variant="outline" size="sm" onClick={handleLockBidding} className="h-10">
                             <Lock className="mr-2 h-4 w-4" /> Lock Bidding
                         </Button>
                     )}
+
+                    <Button variant="default" size="sm" onClick={handleBatchFinalize} disabled={submitting || !selectedPeriod} className="h-10">
+                        {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+                        Batch Finalize
+                    </Button>
                 </div>
             </div>
 

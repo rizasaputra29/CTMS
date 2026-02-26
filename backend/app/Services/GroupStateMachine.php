@@ -15,9 +15,11 @@ class GroupStateMachine
         'READY_FOR_BIDDING' => ['KELOMPOK_FINAL', 'FORMING'], // FORMING if members drop below min
         'KELOMPOK_FINAL' => ['PDC1_ACTIVE'],
         'PDC1_ACTIVE' => ['READY_FOR_SEMPRO'],
-        'READY_FOR_SEMPRO' => ['PDC2_ACTIVE', 'PDC1_ACTIVE'], // PDC1_ACTIVE on sempro fail
+        'READY_FOR_SEMPRO' => ['SEMPRO_DONE', 'PDC1_ACTIVE'], // PDC1_ACTIVE on sempro fail
+        'SEMPRO_DONE' => ['PDC2_ACTIVE'],
         'PDC2_ACTIVE' => ['PDC2_READY_FOR_EXPO'],
-        'PDC2_READY_FOR_EXPO' => ['EXPO_DONE', 'PDC2_ACTIVE'], // PDC2_ACTIVE on expo fail
+        'PDC2_READY_FOR_EXPO' => ['EXPO_REGISTERED'],
+        'EXPO_REGISTERED' => ['EXPO_DONE', 'PDC2_ACTIVE'], // PDC2_ACTIVE on expo fail
         'EXPO_DONE' => ['PDC2_COMPLETED'],
         'PDC2_COMPLETED' => ['CLOSED'],
         'CLOSED' => [],
@@ -32,8 +34,10 @@ class GroupStateMachine
         'KELOMPOK_FINAL',
         'PDC1_ACTIVE',
         'READY_FOR_SEMPRO',
+        'SEMPRO_DONE',
         'PDC2_ACTIVE',
         'PDC2_READY_FOR_EXPO',
+        'EXPO_REGISTERED',
         'EXPO_DONE',
         'PDC2_COMPLETED',
         'CLOSED',

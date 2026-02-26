@@ -22,20 +22,44 @@ import {
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings, GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine, ClipboardCheck, Gavel, ShieldCheck, FileCheck } from 'lucide-react';
+import {
+    BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
+    GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
+    ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
+import api from '@/lib/api';
 
 export function AppSidebar() {
     const { user, logout } = useAuth();
     const pathname = usePathname();
+    const [unreadCount, setUnreadCount] = useState(0);
+
+    // Fetch unread notification count
+    useEffect(() => {
+        if (!user) return;
+        const fetchUnread = async () => {
+            try {
+                const res = await api.get('/notifications/unread-count');
+                setUnreadCount(res.data.count || 0);
+            } catch {
+                // Silently fail
+            }
+        };
+        fetchUnread();
+        const interval = setInterval(fetchUnread, 30000); // Poll every 30s
+        return () => clearInterval(interval);
+    }, [user]);
 
     const navItems = {
         admin: [
             { title: 'Dashboard', url: '/admin/dashboard', icon: LayoutDashboard },
             { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
+            { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
             { title: 'Users', url: '/admin/users', icon: Users },
             { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
             { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
@@ -49,20 +73,21 @@ export function AppSidebar() {
             { title: 'Titles & Group', url: '/mahasiswa/titles', icon: BookOpen },
             { title: 'Documents', url: '/mahasiswa/documents', icon: FileText },
             { title: 'TA Submission', url: '/mahasiswa/ta', icon: FileCheck },
-            { title: 'Schedule', url: '/mahasiswa/schedule', icon: CalendarIcon },
+            { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
             { title: 'Seminar & TA', url: '/mahasiswa/schedules', icon: ClipboardCheck },
             { title: 'Grades', url: '/mahasiswa/grades', icon: GraduationCap },
         ],
         dosen: [
             { title: 'Dashboard', url: '/dosen/dashboard', icon: LayoutDashboard },
             { title: 'Titles', url: '/dosen/titles', icon: BookOpen },
+            { title: 'Supervised Groups', url: '/dosen/supervised-groups', icon: Users },
             { title: 'Title Approvals', url: '/dosen/title-approvals', icon: ClipboardCheck },
             { title: 'Bid Review', url: '/dosen/bids', icon: Gavel },
             { title: 'Requests', url: '/dosen/requests', icon: Users },
             { title: 'Bimbingan', url: '/dosen/bimbingan', icon: FileText },
             { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
             { title: 'Schedule', url: '/dosen/schedule', icon: CalendarIcon },
-            { title: 'Evaluation', url: '/dosen/evaluation', icon: GraduationCap },
+            { title: 'Examiner', url: '/dosen/evaluation', icon: GraduationCap },
         ],
     };
 
@@ -100,6 +125,28 @@ export function AppSidebar() {
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
                             ))}
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                </SidebarGroup>
+
+                {/* Notifications — shared across all roles */}
+                <SidebarGroup>
+                    <SidebarGroupLabel>System</SidebarGroupLabel>
+                    <SidebarGroupContent>
+                        <SidebarMenu>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton asChild isActive={pathname === '/notifications'} tooltip="Notifications">
+                                    <Link href="/notifications" className="relative">
+                                        <Bell />
+                                        <span>Notifications</span>
+                                        {unreadCount > 0 && (
+                                            <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
+                                                {unreadCount > 99 ? '99+' : unreadCount}
+                                            </span>
+                                        )}
+                                    </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>

@@ -22,48 +22,61 @@ class FinalizationController extends Controller
     }
 
     /**
+     * Resolve which period to use.
+     * V4: accept explicit period_id; fallback to single active period.
+     */
+    private function resolvePeriod(Request $request): Period
+    {
+        if ($request->has('period_id')) {
+            return Period::findOrFail($request->period_id);
+        }
+
+        $activePeriods = Period::where('is_active', true)->get();
+
+        if ($activePeriods->count() === 0) {
+            abort(400, 'No active period found.');
+        }
+
+        if ($activePeriods->count() > 1) {
+            abort(400, 'Multiple active periods exist. Please specify period_id.');
+        }
+
+        return $activePeriods->first();
+    }
+
+    /**
      * Title-centric finalization dashboard.
      */
     public function index(Request $request)
     {
-        $period = Period::where('is_active', true)->latest()->first();
-        if (!$period) {
-            return response()->json(['message' => 'No active period.'], 400);
-        }
+        $period = $this->resolvePeriod($request);
 
         // 2-LEVEL GOVERNANCE: Only show titles ready for admin finalization
-        // - Student-proposed: supervisor must have approved
-        // - Bidding: at least one bid must be lecturer-recommended ACCEPT
-        // NOTE: Titles don't have period_id. We scope through bids→groups→period.
         $titles = Title::with([
             'lecturer',
             'bids' => function ($q) use ($period) {
-                // Only load ACCEPT-recommended bids for the active period
                 $q->where('lecturer_recommendation', 'ACCEPT')
                     ->whereHas('group', function ($gq) use ($period) {
-                    $gq->where('period_id', $period->id);
-                })
+                        $gq->where('period_id', $period->id);
+                    })
                     ->with(['group.members.student', 'proposedSupervisor1', 'proposedSupervisor2'])
                     ->orderBy('priority');
             },
         ])
             ->where(function ($q) use ($period) {
-                // Student-proposed: only if supervisor approved
                 $q->where(function ($sub) {
                     $sub->where('title_source', 'STUDENT')
                         ->where('supervisor_approval_status', 'APPROVED');
                 })
-                    // Bidding titles: only if at least one ACCEPT bid exists in this period
                     ->orWhereHas('bids', function ($bq) use ($period) {
-                    $bq->where('lecturer_recommendation', 'ACCEPT')
-                        ->whereHas('group', function ($gq) use ($period) {
-                            $gq->where('period_id', $period->id);
-                        });
-                });
+                        $bq->where('lecturer_recommendation', 'ACCEPT')
+                            ->whereHas('group', function ($gq) use ($period) {
+                                $gq->where('period_id', $period->id);
+                            });
+                    });
             })
             ->get();
 
-        // Current allocation counts per title
         $titles->each(function ($title) {
             $title->current_allocations = Group::where('title_id', $title->id)
                 ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
@@ -83,10 +96,7 @@ class FinalizationController extends Controller
      */
     public function dosenLoad(Request $request)
     {
-        $period = Period::where('is_active', true)->latest()->first();
-        if (!$period) {
-            return response()->json(['message' => 'No active period.'], 400);
-        }
+        $period = $this->resolvePeriod($request);
 
         $loadData = $this->finalizationService->getSupervisorLoad(
             $period->id,
@@ -159,14 +169,43 @@ class FinalizationController extends Controller
     }
 
     /**
+     * Batch finalize all eligible groups in a period.
+     * V4: Atomic transaction — all-or-nothing.
+     */
+    public function finalizePeriod(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+        ]);
+
+        $period = Period::findOrFail($request->period_id);
+
+        // ⚠ Guard: don't finalize archived/inactive period
+        if (!$period->is_active) {
+            return response()->json(['message' => 'Cannot finalize an inactive period.'], 400);
+        }
+
+        try {
+            $result = $this->finalizationService->finalizePeriod(
+                $period->id,
+                $request->user()->id
+            );
+
+            return response()->json([
+                'message' => 'Period finalized successfully.',
+                'data' => $result,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Batch finalization failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Manually lock bidding.
      */
     public function lock(Request $request)
     {
-        $period = Period::where('is_active', true)->latest()->first();
-        if (!$period) {
-            return response()->json(['message' => 'No active period.'], 400);
-        }
+        $period = $this->resolvePeriod($request);
 
         $this->biddingService->lockBidding($period);
 

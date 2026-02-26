@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use App\Models\Period;
+use App\Models\PhaseDocumentRequirement;
 
 class PeriodSeeder extends Seeder
 {
@@ -13,7 +14,7 @@ class PeriodSeeder extends Seeder
      */
     public function run(): void
     {
-        Period::create([
+        $period = Period::create([
             'name' => 'Ganjil 2025/2026',
             'start_date' => '2025-08-01',
             'end_date' => '2026-01-31',
@@ -27,5 +28,20 @@ class PeriodSeeder extends Seeder
             ]),
             'is_active' => true,
         ]);
+
+        $requirements = [
+            ['phase' => 'PDC1', 'name' => 'C100', 'is_required' => true],
+            ['phase' => 'PDC1', 'name' => 'C200', 'is_required' => true],
+            ['phase' => 'PDC1', 'name' => 'C300', 'is_required' => true],
+            ['phase' => 'SEMPRO', 'name' => 'SEMPRO', 'is_required' => true],
+            ['phase' => 'PDC2', 'name' => 'C400', 'is_required' => true],
+            ['phase' => 'PDC2', 'name' => 'C500', 'is_required' => true],
+            ['phase' => 'EXPO', 'name' => 'EXPO', 'is_required' => true],
+            ['phase' => 'TA', 'name' => 'TA Draft', 'is_required' => true],
+        ];
+
+        foreach ($requirements as $req) {
+            PhaseDocumentRequirement::create(array_merge($req, ['period_id' => $period->id]));
+        }
     }
 }

@@ -85,10 +85,10 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Your group is not eligible to propose a title at this time.'], 400);
         }
 
-        // Verify active period
-        $period = Period::whereRaw('is_active = true')->latest()->first();
-        if (!$period) {
-            return response()->json(['message' => 'No active academic period found.'], 400);
+        // V4: Resolve period through student's group
+        $period = $group->period;
+        if (!$period || !$period->is_active) {
+            return response()->json(['message' => 'No active academic period for your group.'], 400);
         }
 
         // Verify supervisor is a valid lecturer
@@ -122,7 +122,11 @@ class StudentProposalController extends Controller
             // Notify the supervisor
             Notification::create([
                 'user_id' => $validated['proposed_supervisor_id'],
+                'type' => 'PROPOSAL_SUBMITTED',
+                'title' => 'New Title Proposal',
                 'message' => "New title proposal from group #{$group->id}: \"{$validated['title']}\"",
+                'related_type' => 'Title',
+                'related_id' => $title->id,
             ]);
 
             DB::commit();
@@ -228,7 +232,11 @@ class StudentProposalController extends Controller
             // Notify supervisor
             Notification::create([
                 'user_id' => $supervisorId,
+                'type' => 'PROPOSAL_RESUBMITTED',
+                'title' => 'Resubmitted Title Proposal',
                 'message' => "Resubmitted title proposal from group #{$group->id}: \"{$validated['title']}\"",
+                'related_type' => 'Title',
+                'related_id' => $title->id,
             ]);
 
             DB::commit();

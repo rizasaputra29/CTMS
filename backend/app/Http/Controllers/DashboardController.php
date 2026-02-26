@@ -18,7 +18,7 @@ class DashboardController extends Controller
             'total_users' => User::count(),
             'total_students' => User::where('role', 'mahasiswa')->count(),
             'total_lecturers' => User::where('role', 'dosen')->count(),
-            'active_period' => Period::whereRaw('is_active = true')->first(),
+            'active_periods' => Period::where('is_active', true)->get(),
         ]);
     }
 
@@ -59,6 +59,9 @@ class DashboardController extends Controller
             })
             ->first();
         $group = $groupMember ? $groupMember->group : null;
+        if ($group) {
+            $group->load('period');
+        }
 
         $documents = $group ? \App\Models\Document::where('group_id', $group->id)->get() : collect([]);
 
@@ -85,7 +88,8 @@ class DashboardController extends Controller
             'has_group' => $group ? true : false,
             'group_status' => $group ? $group->status : null,
             'title' => $group && $group->title ? $group->title->title : null,
-            'active_period' => Period::whereRaw('is_active = true')->first(),
+            'group_period' => $group ? $group->period : null,
+            'active_periods' => Period::where('is_active', true)->get(),
             'steps' => $steps,
             'is_graduated' => $isGraduated,
             'pending_proposal' => $pendingProposal,

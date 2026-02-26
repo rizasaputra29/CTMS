@@ -36,7 +36,7 @@ class DemoSeeder extends Seeder
         }
 
         // ── Get existing seeded data ──
-        $period = Period::where('is_active', true)->first();
+        $period = Period::latest()->first();
         $dosen1 = User::where('email', 'dosen1@ctms.com')->first();
         $dosen2 = User::where('email', 'dosen2@ctms.com')->first();
         $student1 = User::where('email', 'student1@ctms.com')->first();
@@ -109,9 +109,9 @@ class DemoSeeder extends Seeder
             'period_id' => $period->id,
             'status' => 'READY_FOR_BIDDING',
         ]);
-        GroupMember::create(['group_id' => $group1->id, 'student_id' => $student1->id, 'is_leader' => true]);
-        GroupMember::create(['group_id' => $group1->id, 'student_id' => $student2->id, 'is_leader' => false]);
-        GroupMember::create(['group_id' => $group1->id, 'student_id' => $students[0]->id, 'is_leader' => false]);
+        GroupMember::create(['group_id' => $group1->id, 'student_id' => $student1->id, 'is_leader' => true, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group1->id, 'student_id' => $student2->id, 'is_leader' => false, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group1->id, 'student_id' => $students[0]->id, 'is_leader' => false, 'period_id' => $period->id]);
 
         Bid::create(['group_id' => $group1->id, 'title_id' => $title1->id, 'priority' => 1, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen1->id, 'proposed_supervisor_2_id' => $dosen2->id]);
         Bid::create(['group_id' => $group1->id, 'title_id' => $title3->id, 'priority' => 2, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen2->id, 'proposed_supervisor_2_id' => $dosen3->id]);
@@ -122,8 +122,8 @@ class DemoSeeder extends Seeder
             'period_id' => $period->id,
             'status' => 'READY_FOR_BIDDING',
         ]);
-        GroupMember::create(['group_id' => $group2->id, 'student_id' => $students[1]->id, 'is_leader' => true]);
-        GroupMember::create(['group_id' => $group2->id, 'student_id' => $students[2]->id, 'is_leader' => false]);
+        GroupMember::create(['group_id' => $group2->id, 'student_id' => $students[1]->id, 'is_leader' => true, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group2->id, 'student_id' => $students[2]->id, 'is_leader' => false, 'period_id' => $period->id]);
 
         Bid::create(['group_id' => $group2->id, 'title_id' => $title1->id, 'priority' => 1, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen1->id]);
         Bid::create(['group_id' => $group2->id, 'title_id' => $title2->id, 'priority' => 2, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen1->id, 'proposed_supervisor_2_id' => $dosen2->id]);
@@ -133,16 +133,16 @@ class DemoSeeder extends Seeder
             'period_id' => $period->id,
             'status' => 'FORMING',
         ]);
-        GroupMember::create(['group_id' => $group3->id, 'student_id' => $students[3]->id, 'is_leader' => true]);
+        GroupMember::create(['group_id' => $group3->id, 'student_id' => $students[3]->id, 'is_leader' => true, 'period_id' => $period->id]);
 
         // ── Group 4: READY_FOR_BIDDING with bid on title4 ──
         $group4 = Group::create([
             'period_id' => $period->id,
             'status' => 'READY_FOR_BIDDING',
         ]);
-        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[4]->id, 'is_leader' => true]);
-        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[5]->id, 'is_leader' => false]);
-        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[6]->id, 'is_leader' => false]);
+        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[4]->id, 'is_leader' => true, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[5]->id, 'is_leader' => false, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group4->id, 'student_id' => $students[6]->id, 'is_leader' => false, 'period_id' => $period->id]);
 
         Bid::create(['group_id' => $group4->id, 'title_id' => $title4->id, 'priority' => 1, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen2->id]);
         Bid::create(['group_id' => $group4->id, 'title_id' => $title3->id, 'priority' => 2, 'status' => 'PENDING', 'proposed_supervisor_1_id' => $dosen2->id, 'proposed_supervisor_2_id' => $dosen1->id]);
@@ -152,9 +152,9 @@ class DemoSeeder extends Seeder
             'period_id' => $period->id,
             'status' => 'READY_FOR_BIDDING',
         ]);
-        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[7]->id, 'is_leader' => true]);
-        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[8]->id, 'is_leader' => false]);
-        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[9]->id, 'is_leader' => false]);
+        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[7]->id, 'is_leader' => true, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[8]->id, 'is_leader' => false, 'period_id' => $period->id]);
+        GroupMember::create(['group_id' => $group5->id, 'student_id' => $students[9]->id, 'is_leader' => false, 'period_id' => $period->id]);
 
         Bid::create(['group_id' => $group5->id, 'title_id' => $title5->id, 'priority' => 1, 'status' => 'PENDING', 'lecturer_recommendation' => 'ACCEPT', 'proposed_supervisor_1_id' => $dosen3->id, 'proposed_supervisor_2_id' => $dosen1->id]);
         Bid::create(['group_id' => $group5->id, 'title_id' => $title1->id, 'priority' => 2, 'status' => 'PENDING', 'proposed_supervisor_1_id' => $dosen1->id]);
