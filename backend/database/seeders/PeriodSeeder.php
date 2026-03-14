@@ -14,19 +14,21 @@ class PeriodSeeder extends Seeder
      */
     public function run(): void
     {
-        $period = Period::create([
-            'name' => 'Ganjil 2025/2026',
-            'start_date' => '2025-08-01',
-            'end_date' => '2026-01-31',
-            'phase_dates' => [
-                'bidding' => ['start' => '2025-08-01', 'end' => '2025-08-15'],
-                'pdc1' => ['start' => '2025-08-16', 'end' => '2025-09-15'],
-                'sempro' => ['start' => '2025-09-16', 'end' => '2025-10-15'],
-                'pdc2' => ['start' => '2025-10-16', 'end' => '2025-11-15'],
-                'ta' => ['start' => '2025-11-16', 'end' => '2026-01-15'],
-                'sidang' => ['start' => '2026-01-16', 'end' => '2026-01-31'],
-            ],
-        ]);
+        $period = Period::updateOrCreate(
+            ['name' => 'Ganjil 2025/2026'],
+            [
+                'start_date' => '2025-08-01',
+                'end_date' => '2026-01-31',
+                'phase_dates' => [
+                    'bidding' => ['start' => '2025-08-01', 'end' => '2025-08-15'],
+                    'pdc1' => ['start' => '2025-08-16', 'end' => '2025-09-15'],
+                    'sempro' => ['start' => '2025-09-16', 'end' => '2025-10-15'],
+                    'pdc2' => ['start' => '2025-10-16', 'end' => '2025-11-15'],
+                    'ta' => ['start' => '2025-11-16', 'end' => '2026-01-15'],
+                    'sidang' => ['start' => '2026-01-16', 'end' => '2026-01-31'],
+                ],
+            ]
+        );
         // Set is_active via raw SQL to avoid PostgreSQL boolean binding issue
         \Illuminate\Support\Facades\DB::statement(
             'UPDATE periods SET is_active = TRUE WHERE id = ?',
@@ -45,7 +47,10 @@ class PeriodSeeder extends Seeder
         ];
 
         foreach ($requirements as $req) {
-            $phaseReq = PhaseDocumentRequirement::create(array_merge($req, ['period_id' => $period->id]));
+            $phaseReq = PhaseDocumentRequirement::updateOrCreate(
+                ['period_id' => $period->id, 'phase' => $req['phase'], 'name' => $req['name']],
+                []
+            );
             // Fix boolean for PostgreSQL
             \Illuminate\Support\Facades\DB::statement(
                 'UPDATE phase_document_requirements SET is_required = TRUE WHERE id = ?',

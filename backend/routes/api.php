@@ -174,6 +174,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Seminar dashboard (supervisor + examiner views)
         Route::get('/seminar-schedules/supervisor', [SeminarDashboardController::class, 'supervisorSchedules']);
         Route::get('/seminar-schedules/examiner', [SeminarDashboardController::class, 'examinerSchedules']);
+        Route::get('/evaluation-context/{type}/{id}', [SeminarDashboardController::class, 'evaluationContext']);
 
         // Assessment Scores (dosen submits evaluations)
         Route::get('/assessment-scores', [AssessmentScoreController::class, 'index']);

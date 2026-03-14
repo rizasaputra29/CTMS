@@ -117,4 +117,66 @@ class SeminarDashboardController extends Controller
             ],
         ]);
     }
+
+    /**
+     * Get specific evaluation context (Seminar or TA Defense).
+     */
+    public function evaluationContext(Request $request, $type, $id)
+    {
+        $user = $request->user();
+
+        if ($type === 'SEMINAR') {
+            $evaluation = SeminarEvaluation::where('id', $id)
+                ->where('examiner_id', $user->id)
+                ->firstOrFail();
+            $schedule = SeminarSchedule::with(['group.title', 'group.members.student', 'examiner1', 'examiner2'])
+                ->findOrFail($evaluation->schedule_id);
+            $components = \App\Models\AssessmentComponent::where('period_id', $schedule->group->period_id)
+                ->where('type', $schedule->type)
+                ->orderBy('sort_order')
+                ->get();
+            $existingScores = \App\Models\AssessmentScore::where('evaluator_id', $user->id)
+                ->where('group_id', $schedule->group_id)
+                ->where('evaluation_type', $schedule->type)
+                ->get()
+                ->keyBy(function ($score) {
+                    return $score->component_id . '_' . $score->student_id;
+                });
+
+            return response()->json([
+                'evaluation' => $evaluation,
+                'schedule' => $schedule,
+                'group' => $schedule->group,
+                'components' => $components,
+                'existing_scores' => $existingScores,
+                'type' => 'SEMINAR'
+            ]);
+        } else {
+            $evaluation = TaDefenseEvaluation::where('id', $id)
+                ->where('examiner_id', $user->id)
+                ->firstOrFail();
+            $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                ->findOrFail($evaluation->schedule_id);
+            $components = \App\Models\AssessmentComponent::where('period_id', $schedule->group->period_id)
+                ->where('type', 'SIDANG_TA')
+                ->orderBy('sort_order')
+                ->get();
+            $existingScores = \App\Models\AssessmentScore::where('evaluator_id', $user->id)
+                ->where('group_id', $schedule->group_id)
+                ->where('evaluation_type', 'SIDANG_TA')
+                ->get()
+                ->keyBy(function ($score) {
+                    return $score->component_id . '_' . $score->student_id;
+                });
+
+            return response()->json([
+                'evaluation' => $evaluation,
+                'schedule' => $schedule,
+                'group' => $schedule->group,
+                'components' => $components,
+                'existing_scores' => $existingScores,
+                'type' => 'TA_DEFENSE'
+            ]);
+        }
+    }
 }

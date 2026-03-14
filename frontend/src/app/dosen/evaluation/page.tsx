@@ -154,7 +154,7 @@ export default function DosenExaminerPage() {
 
                 {evalItem.status === 'PENDING' ? (
                     <Button className="w-full" asChild>
-                        <a href={`/dosen/evaluation/${evalItem.id}`}>Evaluate Presentation</a>
+                        <a href={`/dosen/evaluation/${evalItem.id}?type=${evalItem.type}`}>Evaluate Presentation</a>
                     </Button>
                 ) : (
                     <div className="p-3 bg-muted/50 rounded-lg text-sm border">
