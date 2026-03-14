@@ -198,9 +198,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/group', [GroupController::class, 'index']);
         Route::post('/group', [GroupController::class, 'store']);
         Route::delete('/group', [GroupController::class, 'deleteGroup']);
+        Route::post('/group/leave', [GroupController::class, 'leaveGroup']);
         Route::post('/group/add-member', [GroupController::class, 'addMember']);
         Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
         Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
+        Route::post('/group-invitations/{id}/accept', [GroupController::class, 'acceptInvite']);
+        Route::post('/group-invitations/{id}/reject', [GroupController::class, 'rejectInvite']);
 
         // Bidding
         Route::get('/bids', [BidController::class, 'index']);
@@ -233,6 +236,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Peer Review (mahasiswa)
         Route::get('/peer-review', [PeerReviewController::class, 'index']);
+        Route::get('/peer-review/status', [PeerReviewController::class, 'status']);
         Route::post('/peer-review', [PeerReviewController::class, 'store']);
 
         // TA Submissions

@@ -161,6 +161,32 @@ class TaDefenseController extends Controller
             'payload' => ['student_id' => $request->student_id, 'group_id' => $group->id],
         ]);
 
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $notificationService->send(
+            $request->student_id,
+            'SCHEDULE_APPROVED',
+            'TA Defense Scheduled',
+            "Your TA defense schedule has been set for {$schedule->date} at {$schedule->start_time}.",
+            'ta_defense_schedules',
+            $schedule->id
+        );
+
+        $examinerIds = array_unique(array_filter([
+            $request->examiner_1_id,
+            $request->examiner_2_id,
+            $supervisor1?->supervisor_id,
+            $supervisor2?->supervisor_id,
+        ]));
+        $notificationService->sendToMany(
+            $examinerIds,
+            'SCHEDULE_APPROVED',
+            'You are assigned as an examiner/supervisor',
+            "You have been assigned to a TA defense on {$schedule->date} at {$schedule->start_time}.",
+            'ta_defense_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'TA defense scheduled.',
             'data' => $schedule->load(['student', 'examiners.examiner', 'evaluations']),
@@ -321,6 +347,26 @@ class TaDefenseController extends Controller
             'payload' => ['student_id' => $schedule->student_id, 'group_id' => $schedule->group_id],
         ]);
 
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $notificationService->send(
+            $schedule->student_id,
+            'SCHEDULE_APPROVED',
+            'TA Defense Schedule Approved',
+            "Your TA defense schedule request for {$schedule->date} at {$schedule->start_time} has been approved.",
+            'ta_defense_schedules',
+            $schedule->id
+        );
+
+        $notificationService->sendToMany(
+            $allParticipantIds,
+            'SCHEDULE_APPROVED',
+            'You are assigned to a TA Defense',
+            "You have been assigned as an examiner/supervisor for a TA defense on {$schedule->date} at {$schedule->start_time}.",
+            'ta_defense_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'TA defense schedule approved.',
             'data' => $schedule->load(['student', 'examiners.examiner', 'evaluations']),
@@ -342,6 +388,15 @@ class TaDefenseController extends Controller
             'status' => 'CANCELLED',
             'rejection_reason' => $request->rejection_reason,
         ]);
+
+        app(\App\Services\NotificationService::class)->send(
+            $schedule->student_id,
+            'SCHEDULE_REJECTED',
+            'TA Defense Schedule Rejected',
+            "Your TA defense schedule request was rejected. Reason: {$request->rejection_reason}",
+            'ta_defense_schedules',
+            $schedule->id
+        );
 
         return response()->json(['message' => 'TA defense schedule request rejected.', 'data' => $schedule]);
     }

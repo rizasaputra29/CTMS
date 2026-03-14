@@ -102,6 +102,26 @@ class SemproController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
+        // Send notifications to group members and examiners
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $notificationService->sendToMany(
+            $studentIds,
+            'SCHEDULE_APPROVED', // Using existing type for scheduled
+            'SEMPRO Scheduled',
+            "Your SEMPRO schedule has been set for {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+        $notificationService->sendToMany(
+            [$schedule->examiner_1_id, $schedule->examiner_2_id],
+            'SCHEDULE_APPROVED',
+            'You are assigned as an examiner',
+            "You have been assigned as an examiner for a SEMPRO on {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'SEMPRO scheduled.',
             'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
@@ -213,6 +233,26 @@ class SemproController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
+        // Send notifications to group members and examiners
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $notificationService->sendToMany(
+            $studentIds,
+            'SCHEDULE_APPROVED',
+            'SEMPRO Schedule Approved',
+            "Your SEMPRO schedule request for {$schedule->date} at {$schedule->start_time} has been approved.",
+            'seminar_schedules',
+            $schedule->id
+        );
+        $notificationService->sendToMany(
+            [$schedule->examiner_1_id, $schedule->examiner_2_id],
+            'SCHEDULE_APPROVED',
+            'You are assigned as an examiner',
+            "You have been assigned as an examiner for a SEMPRO on {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'SEMPRO schedule approved.',
             'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
@@ -237,6 +277,21 @@ class SemproController extends Controller
             'status' => 'CANCELLED',
             'rejection_reason' => $request->rejection_reason,
         ]);
+
+        // Notify students
+        $notificationService = app(\App\Services\NotificationService::class);
+        $group = Group::find($schedule->group_id);
+        if ($group) {
+            $studentIds = $group->members()->pluck('student_id')->toArray();
+            $notificationService->sendToMany(
+                $studentIds,
+                'SCHEDULE_REJECTED',
+                'SEMPRO Schedule Rejected',
+                "Your SEMPRO schedule request was rejected. Reason: {$request->rejection_reason}",
+                'seminar_schedules',
+                $schedule->id
+            );
+        }
 
         return response()->json([
             'message' => 'SEMPRO schedule request rejected.',

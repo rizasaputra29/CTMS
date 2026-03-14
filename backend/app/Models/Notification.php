@@ -30,6 +30,6 @@ class Notification extends Model
      */
     public function scopeUnread($query)
     {
-        return $query->where('is_read', false);
+        return $query->where('is_read', \Illuminate\Support\Facades\DB::raw('false'));
     }
 }

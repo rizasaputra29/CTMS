@@ -342,6 +342,19 @@ class DocumentController extends Controller
             $this->checkPhaseCompletion($document->group_id, $document->phase);
         }
 
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $statusStr = strtolower($request->status);
+        $notificationService->sendToMany(
+            $studentIds,
+            'PROPOSAL_' . strtoupper($request->status), // e.g. PROPOSAL_APPROVED, PROPOSAL_REJECTED (reused for doc status)
+            "Document {$request->status}",
+            "Your {$document->phase} document ({$document->document_type}) has been {$statusStr}" . ($request->feedback ? " with feedback: {$request->feedback}" : "."),
+            'documents',
+            $document->id
+        );
+
         return response()->json(['message' => 'Document review updated', 'data' => $document]);
     }
 

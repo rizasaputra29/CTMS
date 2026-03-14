@@ -18,8 +18,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock } from 'lucide-react';
+import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuth } from '@/context/AuthContext';
 
 interface Lecturer {
     id: number;
@@ -50,9 +51,11 @@ interface GroupInfo {
     status: string;
     title_id: number | null;
     title: { title: string } | null;
+    members: { id: number; student: { id: number }; is_leader: boolean }[];
 }
 
 export default function ProposeTitlePage() {
+    const { user } = useAuth();
     const [lecturers, setLecturers] = useState<Lecturer[]>([]);
     const [proposals, setProposals] = useState<Proposal[]>([]);
     const [group, setGroup] = useState<GroupInfo | null>(null);
@@ -60,6 +63,7 @@ export default function ProposeTitlePage() {
     const [submitting, setSubmitting] = useState(false);
     const [showForm, setShowForm] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+    const [bidCount, setBidCount] = useState(0);
 
     const [formData, setFormData] = useState({
         title: '',
@@ -73,15 +77,17 @@ export default function ProposeTitlePage() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const [groupRes, lecturerRes, proposalRes] = await Promise.all([
+            const [groupRes, lecturerRes, proposalRes, bidsRes] = await Promise.all([
                 api.get('/mahasiswa/group'),
                 api.get('/mahasiswa/lecturers'),
                 api.get('/mahasiswa/my-proposal'),
+                api.get('/mahasiswa/bids'),
             ]);
 
             setGroup(groupRes.data.group);
             setLecturers(lecturerRes.data.data);
             setProposals(proposalRes.data.proposals || []);
+            setBidCount((bidsRes.data.data || []).length);
         } catch (error) {
             console.error('Failed to fetch data', error);
             toast.error('Failed to load data');
@@ -99,13 +105,17 @@ export default function ProposeTitlePage() {
     const isApproved = group?.status === 'APPROVED';
     const isPending = group?.status === 'PENDING';
     const isWaitingProposal = group?.status === 'WAITING_SUPERVISOR_APPROVAL';
-    const canPropose = hasGroup && !hasTitle && !isPending && !isWaitingProposal && group?.status === 'READY_FOR_BIDDING';
+    const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
+    const canPropose = hasGroup && !hasTitle && !isPending && !isWaitingProposal && group?.status === 'READY_FOR_BIDDING' && isLeader;
 
     const hasPendingProposal = proposals.some(p => p.supervisor_approval_status === 'PENDING');
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _isLocked = !hasGroup || isApproved || isPending || isWaitingProposal || hasApprovedProposal;
+    const MAX_TITLES = 3;
+    const activeProposalCount = proposals.filter(p => p.supervisor_approval_status === 'PENDING' || p.supervisor_approval_status === 'APPROVED').length;
+    const totalUsed = bidCount + activeProposalCount;
+    const slotsRemaining = MAX_TITLES - totalUsed;
+    const limitReached = slotsRemaining <= 0;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -186,12 +196,41 @@ export default function ProposeTitlePage() {
                     <h1 className="text-3xl font-bold tracking-tight">Propose Title</h1>
                     <p className="text-muted-foreground">Submit your own capstone title proposal to a supervisor.</p>
                 </div>
-                {canPropose && !hasPendingProposal && !hasApprovedProposal && !showForm && (
-                    <Button onClick={() => { setEditingProposal(null); setShowForm(true); }}>
-                        <PenLine className="mr-2 h-4 w-4" /> New Proposal
-                    </Button>
-                )}
+                <div className="flex items-center gap-3">
+                    {hasGroup && isLeader && (
+                        <Badge variant={slotsRemaining > 0 ? 'outline' : 'destructive'} className="text-sm px-3 py-1">
+                            {totalUsed}/{MAX_TITLES} slots used
+                        </Badge>
+                    )}
+                    {canPropose && !hasPendingProposal && !hasApprovedProposal && !showForm && !limitReached && (
+                        <Button onClick={() => { setEditingProposal(null); setShowForm(true); }}>
+                            <PenLine className="mr-2 h-4 w-4" /> New Proposal
+                        </Button>
+                    )}
+                </div>
             </div>
+
+            {/* Leader-only guard */}
+            {hasGroup && !isLeader && (
+                <Alert>
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Leader Only</AlertTitle>
+                    <AlertDescription>
+                        Only the group leader can propose titles. Contact your group leader to submit proposals.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {/* Limit reached */}
+            {isLeader && limitReached && !hasApprovedProposal && (
+                <Alert>
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Limit Reached</AlertTitle>
+                    <AlertDescription>
+                        You have used all 3 title slots (bids + proposals combined). Delete an existing bid to make room.
+                    </AlertDescription>
+                </Alert>
+            )}
 
             {/* Lock Alerts */}
             {!hasGroup && (

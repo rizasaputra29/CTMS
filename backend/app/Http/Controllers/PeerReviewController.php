@@ -39,12 +39,34 @@ class PeerReviewController extends Controller
             ->with('student')
             ->get();
 
+        // Check if locked
+        $stateMachine = new \App\Services\GroupStateMachine();
+        $isLocked = !$stateMachine->isAtLeast($group, 'EXPO_REGISTERED');
+
         return response()->json([
             'group' => $group,
             'indicators' => $indicators,
             'members' => $otherMembers,
             'existing_reviews' => $existingReviews,
+            'is_locked' => $isLocked,
         ]);
+    }
+
+    /**
+     * [Mahasiswa] Check if peer review is active for the student's period.
+     */
+    public function status(Request $request)
+    {
+        $user = $request->user();
+        $member = GroupMember::where('student_id', $user->id)->with('group')->first();
+
+        if (!$member || !$member->group) {
+            return response()->json(['active' => false]);
+        }
+
+        $active = PeerReviewIndicator::where('period_id', $member->group->period_id)->exists();
+
+        return response()->json(['active' => $active]);
     }
 
     /**
@@ -61,7 +83,13 @@ class PeerReviewController extends Controller
         ]);
 
         $user = $request->user();
-        $member = GroupMember::where('student_id', $user->id)->firstOrFail();
+        $member = GroupMember::with('group')->where('student_id', $user->id)->firstOrFail();
+
+        $stateMachine = new \App\Services\GroupStateMachine();
+        if (!$stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED')) {
+            return response()->json(['message' => 'Peer review is locked until your group reaches the Expo stage.'], 403);
+        }
+
         $saved = [];
 
         foreach ($request->reviews as $review) {

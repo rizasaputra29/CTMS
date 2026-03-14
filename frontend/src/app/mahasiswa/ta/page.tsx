@@ -134,7 +134,7 @@ export default function TaPage() {
                     <CardContent>
                         <div className="flex gap-3 items-end">
                             <div className="flex-1">
-                                <Label htmlFor="file_path">File Path / URL</Label>
+                                <Label htmlFor="file_path" className='py-2'>File Path / URL</Label>
                                 <Input
                                     id="file_path"
                                     placeholder="e.g. uploads/ta-draft-v1.pdf"

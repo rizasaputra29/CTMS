@@ -24,6 +24,15 @@ class NotificationController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 20));
 
+        foreach ($notifications as $notification) {
+            if ($notification->type === 'GROUP_INVITATION' && $notification->related_id) {
+                $invitation = \App\Models\GroupInvitation::find($notification->related_id);
+                if ($invitation) {
+                    $notification->invitation_status = $invitation->status;
+                }
+            }
+        }
+
         return response()->json($notifications);
     }
 

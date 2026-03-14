@@ -110,6 +110,26 @@ class ExpoController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $notificationService->sendToMany(
+            $studentIds,
+            'SCHEDULE_APPROVED',
+            'EXPO Scheduled',
+            "Your EXPO schedule has been set for {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+        $notificationService->sendToMany(
+            [$schedule->examiner_1_id, $schedule->examiner_2_id],
+            'SCHEDULE_APPROVED',
+            'You are assigned as an examiner',
+            "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'EXPO scheduled.',
             'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
@@ -217,6 +237,26 @@ class ExpoController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $notificationService->sendToMany(
+            $studentIds,
+            'SCHEDULE_APPROVED',
+            'EXPO Schedule Approved',
+            "Your EXPO schedule request for {$schedule->date} at {$schedule->start_time} has been approved.",
+            'seminar_schedules',
+            $schedule->id
+        );
+        $notificationService->sendToMany(
+            [$schedule->examiner_1_id, $schedule->examiner_2_id],
+            'SCHEDULE_APPROVED',
+            'You are assigned as an examiner',
+            "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
+            'seminar_schedules',
+            $schedule->id
+        );
+
         return response()->json([
             'message' => 'EXPO schedule approved.',
             'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
@@ -239,6 +279,21 @@ class ExpoController extends Controller
             'status' => 'CANCELLED',
             'rejection_reason' => $request->rejection_reason,
         ]);
+
+        // Notify students
+        $notificationService = app(\App\Services\NotificationService::class);
+        $group = Group::find($schedule->group_id);
+        if ($group) {
+            $studentIds = $group->members()->pluck('student_id')->toArray();
+            $notificationService->sendToMany(
+                $studentIds,
+                'SCHEDULE_REJECTED',
+                'EXPO Schedule Rejected',
+                "Your EXPO schedule request was rejected. Reason: {$request->rejection_reason}",
+                'seminar_schedules',
+                $schedule->id
+            );
+        }
 
         return response()->json(['message' => 'EXPO schedule request rejected.', 'data' => $schedule]);
     }

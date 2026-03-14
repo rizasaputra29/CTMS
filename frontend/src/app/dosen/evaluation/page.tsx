@@ -2,12 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Loader2, GraduationCap, CalendarDays, CheckCircle2, Clock, MapPin, Users } from 'lucide-react';
-import { toast } from 'sonner';
 
 interface Evaluation {
     id: number;
@@ -30,6 +29,26 @@ interface Evaluation {
     notes: string;
 }
 
+interface SeminarData {
+    id: number;
+    type: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string;
+    evaluations?: {
+        id: number;
+        status: string;
+        score: number;
+        feedback?: string;
+    }[];
+    group: {
+        id: number;
+        title: { title: string };
+        members: { student: { name: string } }[];
+    };
+}
+
 export default function DosenExaminerPage() {
     const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
     const [loading, setLoading] = useState(true);
@@ -39,12 +58,12 @@ export default function DosenExaminerPage() {
             try {
                 // Fetch schedules where dosen is examiner
                 const res = await api.get('/dosen/seminar-schedules/examiner');
-                const seminars = res.data.data?.seminars || [];
-                const taDefenses = res.data.data?.ta_defenses || [];
+                const seminars: SeminarData[] = res.data.data?.seminars || [];
+                const taDefenses: SeminarData[] = res.data.data?.ta_defenses || [];
 
                 const mapped: Evaluation[] = [];
 
-                seminars.forEach((s: any) => {
+                seminars.forEach((s) => {
                     const myEval = s.evaluations?.[0];
                     if (myEval) {
                         mapped.push({
@@ -58,7 +77,7 @@ export default function DosenExaminerPage() {
                     }
                 });
 
-                taDefenses.forEach((t: any) => {
+                taDefenses.forEach((t) => {
                     const myEval = t.evaluations?.[0];
                     if (myEval) {
                         // For TA Defense, members array might not exist in the same way, but we added it in backend

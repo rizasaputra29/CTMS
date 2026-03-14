@@ -1,5 +1,6 @@
 'use client';
 
+import React, { useEffect, useState } from 'react';
 import {
     Sidebar,
     SidebarContent,
@@ -11,8 +12,16 @@ import {
     SidebarMenu,
     SidebarMenuButton,
     SidebarMenuItem,
+    SidebarMenuSub,
+    SidebarMenuSubButton,
+    SidebarMenuSubItem,
     SidebarRail,
 } from '@/components/ui/sidebar';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -26,18 +35,19 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
+    ListChecks, FileType, BarChart3, GitCompare, Star, ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
 import api from '@/lib/api';
 
 export function AppSidebar() {
     const { user, logout } = useAuth();
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = useState(0);
+    const [peerReviewActive, setPeerReviewActive] = useState(false);
 
     // Fetch unread notification count
     useEffect(() => {
@@ -50,49 +60,149 @@ export function AppSidebar() {
                 // Silently fail
             }
         };
+        const fetchPeerReviewStatus = async () => {
+            if (user?.role === 'mahasiswa') {
+                try {
+                    const res = await api.get('/mahasiswa/peer-review/status');
+                    setPeerReviewActive(res.data.active || false);
+                } catch {
+                    // Silently fail
+                }
+            }
+        };
+
         fetchUnread();
-        const interval = setInterval(fetchUnread, 30000); // Poll every 30s
-        return () => clearInterval(interval);
+        fetchPeerReviewStatus();
+        // Removed the setInterval to prevent excessive polling and lag
     }, [user]);
 
-    const navItems = {
+    type NavItem = {
+        title: string;
+        url?: string;
+        icon: React.ElementType;
+        items?: { title: string; url: string; icon?: React.ElementType }[];
+    };
+
+    const navItems: Record<string, NavItem[]> = {
         admin: [
             { title: 'Dashboard', url: '/admin/dashboard', icon: LayoutDashboard },
-            { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
-            { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
-            { title: 'Users', url: '/admin/users', icon: Users },
-            { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
-            { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
-            { title: 'Settings', url: '/admin/settings', icon: Settings },
+            { 
+                title: 'Master Data', 
+                icon: Settings,
+                items: [
+                    { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
+                    { title: 'Users', url: '/admin/users', icon: Users },
+                    { title: 'Document Types', url: '/admin/document-types', icon: FileType },
+                ]
+            },
+            {
+                title: 'Evaluation Setup',
+                icon: ListChecks,
+                items: [
+                    { title: 'Assessments', url: '/admin/assessments', icon: ListChecks },
+                    { title: 'Peer Review', url: '/admin/peer-review', icon: Star },
+                ]
+            },
+            {
+                title: 'Operations',
+                icon: ShieldCheck,
+                items: [
+                    { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
+                    { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
+                    { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
+                ]
+            },
+            {
+                title: 'Analytics',
+                icon: BarChart3,
+                items: [
+                    { title: 'Grade Check', url: '/admin/grade-consistency', icon: GitCompare },
+                    { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
+                ]
+            },
         ],
         mahasiswa: [
             { title: 'Dashboard', url: '/mahasiswa/dashboard', icon: LayoutDashboard },
-            { title: 'My Group', url: '/mahasiswa/group', icon: Users },
-            { title: 'Bidding', url: '/mahasiswa/bidding', icon: Gavel },
-            { title: 'Propose Title', url: '/mahasiswa/propose-title', icon: PenLine },
-            { title: 'Titles & Group', url: '/mahasiswa/titles', icon: BookOpen },
-            { title: 'Documents', url: '/mahasiswa/documents', icon: FileText },
-            { title: 'TA Submission', url: '/mahasiswa/ta', icon: FileCheck },
-            { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
-            { title: 'Seminar & TA', url: '/mahasiswa/schedules', icon: ClipboardCheck },
-            { title: 'Grades', url: '/mahasiswa/grades', icon: GraduationCap },
+            {
+                title: 'Group & Titles',
+                icon: Users,
+                items: [
+                    { title: 'My Group', url: '/mahasiswa/group', icon: Users },
+                    { title: 'Available Titles', url: '/mahasiswa/titles', icon: BookOpen },
+                    { title: 'Propose Title', url: '/mahasiswa/propose-title', icon: PenLine },
+                    { title: 'Title Bids', url: '/mahasiswa/bidding', icon: Gavel },
+                ]
+            },
+            {
+                title: 'Progress & Docs',
+                icon: FileText,
+                items: [
+                    { title: 'Documents', url: '/mahasiswa/documents', icon: FileText },
+                    { title: 'TA Submission', url: '/mahasiswa/ta', icon: FileCheck },
+                ]
+            },
+            {
+                title: 'Schedules',
+                icon: CalendarIcon,
+                items: [
+                    { title: 'Seminar & Defense', url: '/mahasiswa/schedules', icon: ClipboardCheck },
+                    { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
+                ]
+            },
+            {
+                title: 'Evaluations',
+                icon: GraduationCap,
+                items: [
+                    { title: 'Peer Review', url: '/mahasiswa/peer-review', icon: Star },
+                    { title: 'My Grades', url: '/mahasiswa/grades', icon: GraduationCap },
+                ]
+            }
         ],
         dosen: [
             { title: 'Dashboard', url: '/dosen/dashboard', icon: LayoutDashboard },
-            { title: 'Titles', url: '/dosen/titles', icon: BookOpen },
-            { title: 'Supervised Groups', url: '/dosen/supervised-groups', icon: Users },
-            { title: 'Title Approvals', url: '/dosen/title-approvals', icon: ClipboardCheck },
-            { title: 'Bid Review', url: '/dosen/bids', icon: Gavel },
-            { title: 'Requests', url: '/dosen/requests', icon: Users },
-            { title: 'Bimbingan', url: '/dosen/bimbingan', icon: FileText },
-            { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
-            { title: 'Schedule', url: '/dosen/schedule', icon: CalendarIcon },
-            { title: 'Examiner', url: '/dosen/evaluation', icon: GraduationCap },
+            {
+                title: 'Titles & Bids',
+                icon: BookOpen,
+                items: [
+                    { title: 'My Titles', url: '/dosen/titles', icon: BookOpen },
+                    { title: 'Title Approvals', url: '/dosen/title-approvals', icon: ClipboardCheck },
+                    { title: 'Bid Review', url: '/dosen/bids', icon: Gavel },
+                ]
+            },
+            {
+                title: 'Mentoring',
+                icon: Users,
+                items: [
+                    { title: 'Supervised Groups', url: '/dosen/supervised-groups', icon: Users },
+                    { title: 'Bimbingan', url: '/dosen/bimbingan', icon: FileText },
+                ]
+            },
+            {
+                title: 'Schedule & Review',
+                icon: FileCheck,
+                items: [
+                    { title: 'Bimbingan Schedule', url: '/dosen/schedule', icon: CalendarIcon },
+                    { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
+                    { title: 'Evaluate Students', url: '/dosen/evaluation', icon: GraduationCap },
+                ]
+            },
         ],
     };
 
     const role = (user?.role as keyof typeof navItems) || 'mahasiswa';
-    const items = navItems[role] || [];
+    let items = navItems[role] || [];
+
+    if (role === 'mahasiswa' && !peerReviewActive) {
+        items = items.map(group => {
+            if (group.title === 'Evaluations' && group.items) {
+                return {
+                    ...group,
+                    items: group.items.filter(item => item.title !== 'Peer Review'),
+                };
+            }
+            return group;
+        });
+    }
 
     return (
         <Sidebar collapsible="icon">
@@ -115,16 +225,57 @@ export function AppSidebar() {
                     <SidebarGroupLabel>Menu</SidebarGroupLabel>
                     <SidebarGroupContent>
                         <SidebarMenu>
-                            {items.map((item) => (
-                                <SidebarMenuItem key={item.title}>
-                                    <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
-                                        <Link href={item.url}>
-                                            <item.icon />
-                                            <span>{item.title}</span>
-                                        </Link>
-                                    </SidebarMenuButton>
-                                </SidebarMenuItem>
-                            ))}
+                            {items.map((item) => {
+                                const isItemActive = pathname === item.url;
+                                const hasActiveSubitem = item.items?.some(sub => pathname === sub.url);
+                                const isDefaultOpen = isItemActive || hasActiveSubitem;
+
+                                if (item.items && item.items.length > 0) {
+                                    return (
+                                        <Collapsible
+                                            key={item.title}
+                                            asChild
+                                            defaultOpen={isDefaultOpen}
+                                            className="group/collapsible"
+                                        >
+                                            <SidebarMenuItem>
+                                                <CollapsibleTrigger asChild>
+                                                    <SidebarMenuButton tooltip={item.title} isActive={hasActiveSubitem}>
+                                                        {item.icon && <item.icon />}
+                                                        <span>{item.title}</span>
+                                                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                                                    </SidebarMenuButton>
+                                                </CollapsibleTrigger>
+                                                <CollapsibleContent>
+                                                    <SidebarMenuSub>
+                                                        {item.items.map((subItem) => (
+                                                            <SidebarMenuSubItem key={subItem.title}>
+                                                                <SidebarMenuSubButton asChild isActive={pathname === subItem.url}>
+                                                                    <Link href={subItem.url}>
+                                                                        {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
+                                                                        <span>{subItem.title}</span>
+                                                                    </Link>
+                                                                </SidebarMenuSubButton>
+                                                            </SidebarMenuSubItem>
+                                                        ))}
+                                                    </SidebarMenuSub>
+                                                </CollapsibleContent>
+                                            </SidebarMenuItem>
+                                        </Collapsible>
+                                    );
+                                }
+
+                                return (
+                                    <SidebarMenuItem key={item.title}>
+                                        <SidebarMenuButton asChild isActive={isItemActive} tooltip={item.title}>
+                                            <Link href={item.url!}>
+                                                {item.icon && <item.icon />}
+                                                <span>{item.title}</span>
+                                            </Link>
+                                        </SidebarMenuButton>
+                                    </SidebarMenuItem>
+                                );
+                            })}
                         </SidebarMenu>
                     </SidebarGroupContent>
                 </SidebarGroup>
