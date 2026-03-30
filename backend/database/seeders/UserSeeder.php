@@ -14,41 +14,51 @@ class UserSeeder extends Seeder
     public function run(): void
     {
         // Admin
-        User::create([
-            'name' => 'Admin System',
-            'email' => 'admin@ctms.com',
-            'password' => bcrypt('password'),
-            'role' => 'admin',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'admin@ctms.com'],
+            [
+                'name' => 'Admin System',
+                'password' => bcrypt('password'),
+                'role' => 'admin',
+            ]
+        );
 
         // Dosen
-        User::create([
-            'name' => 'Dr. Lecturer One',
-            'email' => 'dosen1@ctms.com',
-            'password' => bcrypt('password'),
-            'role' => 'dosen',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'dosen1@ctms.com'],
+            [
+                'name' => 'Dr. Lecturer One',
+                'password' => bcrypt('password'),
+                'role' => 'dosen',
+            ]
+        );
 
-        User::create([
-            'name' => 'Prof. Lecturer Two',
-            'email' => 'dosen2@ctms.com',
-            'password' => bcrypt('password'),
-            'role' => 'dosen',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'dosen2@ctms.com'],
+            [
+                'name' => 'Prof. Lecturer Two',
+                'password' => bcrypt('password'),
+                'role' => 'dosen',
+            ]
+        );
 
         // Mahasiswa
-        User::create([
-            'name' => 'Student One',
-            'email' => 'student1@ctms.com',
-            'password' => bcrypt('password'),
-            'role' => 'mahasiswa',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'student1@ctms.com'],
+            [
+                'name' => 'Student One',
+                'password' => bcrypt('password'),
+                'role' => 'mahasiswa',
+            ]
+        );
 
-        User::create([
-            'name' => 'Student Two',
-            'email' => 'student2@ctms.com',
-            'password' => bcrypt('password'),
-            'role' => 'mahasiswa',
-        ]);
+        User::updateOrCreate(
+            ['email' => 'student2@ctms.com'],
+            [
+                'name' => 'Student Two',
+                'password' => bcrypt('password'),
+                'role' => 'mahasiswa',
+            ]
+        );
     }
 }

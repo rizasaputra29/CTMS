@@ -85,6 +85,17 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Your group is not eligible to propose a title at this time.'], 400);
         }
 
+        // Combined limit: bids + student proposals <= 3
+        $bidCount = \App\Models\Bid::where('group_id', $group->id)->count();
+        $proposalCount = Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'APPROVED'])
+            ->count();
+
+        if (($bidCount + $proposalCount) >= 3) {
+            return response()->json(['message' => 'Maximum 3 titles allowed (bids + proposals combined).'], 400);
+        }
+
         // V4: Resolve period through student's group
         $period = $group->period;
         if (!$period || !$period->is_active) {

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\GroupSupervisorProposal;
+use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\Period;
 use App\Models\User;
@@ -68,9 +69,9 @@ class GroupController extends Controller
         // V4: Accept explicit period_id or resolve from active periods
         $period = null;
         if ($request->has('period_id')) {
-            $period = Period::where('is_active', true)->findOrFail($request->period_id);
+            $period = Period::where('is_active', 'true')->findOrFail($request->period_id);
         } else {
-            $activePeriods = Period::where('is_active', true)->get();
+            $activePeriods = Period::where('is_active', 'true')->get();
             if ($activePeriods->count() === 0) {
                 return response()->json(['message' => 'No active academic period found.'], 400);
             }
@@ -95,12 +96,14 @@ class GroupController extends Controller
                 'title_id' => null,
                 'period_id' => $period->id,
                 'status' => 'FORMING',
+                'group_mode' => $request->input('group_mode', 'GROUP'),
+                'has_existing_group' => $request->boolean('has_existing_group', false),
             ]);
 
             GroupMember::create([
                 'group_id' => $group->id,
                 'student_id' => $user->id,
-                'is_leader' => true,
+                'is_leader' => \Illuminate\Support\Facades\DB::raw('true'),
                 'period_id' => $period->id, // V4: denormalized for unique constraint
             ]);
 
@@ -225,27 +228,159 @@ class GroupController extends Controller
             return response()->json(['message' => 'This student is already in a group for this period.'], 400);
         }
 
+        // Check if there's already a pending invitation
+        $existingInvite = \App\Models\GroupInvitation::where('group_id', $group->id)
+            ->where('student_id', $student->id)
+            ->where('status', 'PENDING')
+            ->exists();
+        if ($existingInvite) {
+            return response()->json(['message' => 'An invitation is already pending for this student.'], 400);
+        }
+
         DB::beginTransaction();
         try {
-            GroupMember::create([
-                'group_id' => $group->id,
-                'student_id' => $student->id,
-                'is_leader' => false,
-                'period_id' => $group->period_id, // V4: denormalized
-            ]);
+            $invitation = \App\Models\GroupInvitation::updateOrCreate(
+                ['group_id' => $group->id, 'student_id' => $student->id],
+                ['inviter_id' => $user->id, 'status' => 'PENDING']
+            );
 
-            // Auto-transition FORMING → READY_FOR_BIDDING if member count >= min size
-            $this->checkAndTransitionToReady($group, $group->period);
+            // Send notification to student
+            app(\App\Services\NotificationService::class)->send(
+                $student->id,
+                'GROUP_INVITATION',
+                'Group Invitation',
+                "{$user->name} invited you to join their capstone group.",
+                'group_invitations',
+                $invitation->id
+            );
 
             DB::commit();
             return response()->json([
-                'message' => 'Member added successfully',
+                'message' => 'Invitation sent successfully',
                 'group' => $group->fresh()->load('members.student'),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to add member: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Failed to send invitation: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Accept a group invitation.
+     */
+    public function acceptInvite(Request $request, $id)
+    {
+        $user = $request->user();
+        $invitation = \App\Models\GroupInvitation::where('id', $id)
+            ->where('student_id', $user->id)
+            ->where('status', 'PENDING')
+            ->first();
+
+        if (!$invitation) {
+            return response()->json(['message' => 'Invitation not found or already processed.'], 404);
+        }
+
+        $group = Group::with('period')->find($invitation->group_id);
+
+        if (!$group || $group->status === 'CLOSED') {
+            return response()->json(['message' => 'Group is no longer available.'], 400);
+        }
+
+        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+            return response()->json(['message' => 'Group is finalized, cannot join now.'], 400);
+        }
+
+        $inPeriodGroup = GroupMember::where('student_id', $user->id)
+            ->where('period_id', $group->period_id)
+            ->exists();
+
+        if ($inPeriodGroup) {
+            return response()->json(['message' => 'You are already in a group for this period.'], 400);
+        }
+
+        $maxMembers = $group->period->max_group_size ?? 4;
+        $memberCount = GroupMember::where('group_id', $group->id)->count();
+        if ($memberCount >= $maxMembers) {
+            return response()->json(['message' => 'Group is already full.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $invitation->update(['status' => 'ACCEPTED']);
+
+            GroupMember::create([
+                'group_id' => $group->id,
+                'student_id' => $user->id,
+                'is_leader' => \Illuminate\Support\Facades\DB::raw('false'),
+                'period_id' => $group->period_id,
+            ]);
+
+            $this->checkAndTransitionToReady($group, $group->period);
+
+            app(\App\Services\NotificationService::class)->send(
+                $invitation->inviter_id,
+                'INVITE_ACCEPTED',
+                'Invitation Accepted',
+                "{$user->name} has joined your group.",
+                'groups',
+                $group->id
+            );
+
+            // Mark invitation notification as read
+            \App\Models\Notification::where('user_id', $user->id)
+                ->where('type', 'GROUP_INVITATION')
+                ->where('related_id', $invitation->id)
+                ->update(['is_read' => \Illuminate\Support\Facades\DB::raw('true')]);
+
+            // Cancel any other pending invitations for this student in this period
+            \App\Models\GroupInvitation::where('student_id', $user->id)
+                ->where('status', 'PENDING')
+                ->whereHas('group', function ($q) use ($group) {
+                    $q->where('period_id', $group->period_id);
+                })
+                ->update(['status' => 'REJECTED']);
+
+            DB::commit();
+            return response()->json(['message' => 'Invitation accepted.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to accept invitation: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Reject a group invitation.
+     */
+    public function rejectInvite(Request $request, $id)
+    {
+        $user = $request->user();
+        $invitation = \App\Models\GroupInvitation::where('id', $id)
+            ->where('student_id', $user->id)
+            ->where('status', 'PENDING')
+            ->first();
+
+        if (!$invitation) {
+            return response()->json(['message' => 'Invitation not found or already processed.'], 404);
+        }
+
+        $invitation->update(['status' => 'REJECTED']);
+
+        app(\App\Services\NotificationService::class)->send(
+            $invitation->inviter_id,
+            'INVITE_REJECTED',
+            'Invitation Rejected',
+            "{$user->name} declined your group invitation.",
+            'groups',
+            $invitation->group_id
+        );
+
+        // Mark invitation notification as read
+        \App\Models\Notification::where('user_id', $user->id)
+            ->where('type', 'GROUP_INVITATION')
+            ->where('related_id', $invitation->id)
+            ->update(['is_read' => \Illuminate\Support\Facades\DB::raw('true')]);
+
+        return response()->json(['message' => 'Invitation rejected.']);
     }
 
     /**
@@ -308,6 +443,47 @@ class GroupController extends Controller
     }
 
     /**
+     * Leave the group (non-leader only).
+     */
+    public function leaveGroup(Request $request)
+    {
+        $user = $request->user();
+
+        $membership = GroupMember::where('student_id', $user->id)->first();
+        if (!$membership) {
+            return response()->json(['message' => 'You are not in a group.'], 400);
+        }
+
+        if ($membership->is_leader) {
+            return response()->json(['message' => 'Group leaders cannot leave the group. Delete the group instead.'], 400);
+        }
+
+        $group = Group::with('period')->find($membership->group_id);
+
+        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+            return response()->json(['message' => 'Group is finalized, you cannot leave.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $membership->delete();
+
+            $memberCount = GroupMember::where('group_id', $group->id)->count();
+            $minSize = $group->period->min_group_size ?? 2;
+
+            if ($memberCount < $minSize && $group->status === 'READY_FOR_BIDDING') {
+                $this->stateMachine->transition($group, 'FORMING');
+            }
+
+            DB::commit();
+            return response()->json(['message' => 'You have left the group.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to leave group: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Propose preferred supervisors (group leader only, when READY_FOR_BIDDING).
      */
     public function proposeSupervisors(Request $request)
@@ -320,10 +496,9 @@ class GroupController extends Controller
         $user = $request->user();
 
         $leaderMembership = GroupMember::where('student_id', $user->id)
-            ->where('is_leader', true)
             ->first();
 
-        if (!$leaderMembership) {
+        if (!$leaderMembership || !$leaderMembership->is_leader) {
             return response()->json(['message' => 'Only the group leader can propose supervisors.'], 403);
         }
 
@@ -393,6 +568,7 @@ class GroupController extends Controller
 
     /**
      * Auto-transition FORMING → READY_FOR_BIDDING if member count >= min_group_size.
+     * For INDIVIDUAL mode, min_group_size = 1.
      */
     private function checkAndTransitionToReady(Group $group, Period $period): void
     {
@@ -401,10 +577,58 @@ class GroupController extends Controller
         }
 
         $memberCount = GroupMember::where('group_id', $group->id)->count();
-        $minSize = $period->min_group_size ?? 2;
+
+        // INDIVIDUAL mode: 1 member is enough
+        $minSize = $group->group_mode === 'INDIVIDUAL' ? 1 : ($period->min_group_size ?? 2);
 
         if ($memberCount >= $minSize) {
             $this->stateMachine->transition($group, 'READY_FOR_BIDDING');
+        }
+    }
+
+    /**
+     * [Admin] Assign Supervisor 2 (Dosbing 2) to a group. Admin exclusive.
+     */
+    public function assignSupervisor2(Request $request, Group $group)
+    {
+        $request->validate([
+            'supervisor_2_id' => 'required|exists:users,id',
+        ]);
+
+        $supervisor = User::findOrFail($request->supervisor_2_id);
+
+        if ($supervisor->role !== 'dosen') {
+            return response()->json(['message' => 'Supervisor 2 must be a lecturer.'], 400);
+        }
+
+        // Check not same as Supervisor 1
+        if ($group->supervisor_1_id && $group->supervisor_1_id === $supervisor->id) {
+            return response()->json(['message' => 'Supervisor 2 cannot be the same as Supervisor 1.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Update supervisions table
+            Supervision::updateOrCreate(
+                ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
+                [
+                    'supervisor_id' => $supervisor->id,
+                    'assigned_by' => $request->user()->id,
+                ]
+            );
+
+            // Update cache on groups table
+            $group->update(['supervisor_2_id' => $supervisor->id]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Supervisor 2 assigned successfully.',
+                'group' => $group->fresh()->load(['supervisor1', 'supervisor2', 'supervisions.supervisor']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed: ' . $e->getMessage()], 500);
         }
     }
 }

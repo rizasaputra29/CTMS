@@ -6,7 +6,7 @@ import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2 } from 'lucide-react';
+import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -54,6 +54,7 @@ export default function MahasiswaGroupPage() {
     const [submitting, setSubmitting] = useState(false);
     const [creating, setCreating] = useState(false);
     const [deleting, setDeleting] = useState(false);
+    const [leaving, setLeaving] = useState(false);
 
     const fetchGroup = useCallback(async () => {
         try {
@@ -104,6 +105,24 @@ export default function MahasiswaGroupPage() {
             }
         } finally {
             setDeleting(false);
+        }
+    };
+
+    const handleLeaveGroup = async () => {
+        if (!confirm('Are you sure you want to leave this group?')) return;
+        setLeaving(true);
+        try {
+            await api.post('/mahasiswa/group/leave');
+            toast.success('Successfully left the group.');
+            fetchGroup();
+        } catch (error) {
+            if (axios.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Failed to leave group');
+            } else {
+                toast.error('Failed to leave group');
+            }
+        } finally {
+            setLeaving(false);
         }
     };
 
@@ -215,6 +234,12 @@ export default function MahasiswaGroupPage() {
                         <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
                             {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                             Delete Group
+                        </Button>
+                    )}
+                    {!isLeader && !['APPROVED', 'CLOSED'].includes(myGroup.status) && (
+                        <Button variant="destructive" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
+                            {leaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
+                            Leave Group
                         </Button>
                     )}
                 </div>

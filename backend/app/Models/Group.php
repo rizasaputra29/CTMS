@@ -10,7 +10,7 @@ class Group extends Model
     // They are intentionally excluded from $fillable.
     // Use assignTitleFromFinalization() and assignTypeFromFinalization() only.
     // These methods are called exclusively by FinalizationService.
-    protected $fillable = ['period_id', 'status', 'supervisor_1_id', 'supervisor_2_id'];
+    protected $fillable = ['period_id', 'status', 'supervisor_1_id', 'supervisor_2_id', 'group_mode', 'has_existing_group'];
 
     /**
      * Assign title_id — ONLY callable from FinalizationService.

@@ -2,15 +2,16 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    Loader2, Bell, CheckCheck, Mail, MailOpen, ExternalLink,
+    Loader2, Bell, CheckCheck, Mail, MailOpen, XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
+import axios from 'axios';
 
 interface Notification {
     id: number;
@@ -21,6 +22,7 @@ interface Notification {
     related_type: string | null;
     related_id: number | null;
     created_at: string;
+    invitation_status?: string;
 }
 
 interface PaginatedNotifications {
@@ -36,6 +38,7 @@ export default function NotificationsPage() {
     const [page, setPage] = useState(1);
     const [lastPage, setLastPage] = useState(1);
     const [total, setTotal] = useState(0);
+    const [invitationActions, setInvitationActions] = useState<Record<number, string>>({});
 
     const fetchNotifications = useCallback(async (p: number) => {
         try {
@@ -63,27 +66,43 @@ export default function NotificationsPage() {
         }
     };
 
+    const handleInvitation = async (invitationId: number, action: 'accept' | 'reject', notificationId: number) => {
+        try {
+            await api.post(`/mahasiswa/group-invitations/${invitationId}/${action}`);
+            toast.success(`Invitation ${action}ed successfully`);
+            setInvitationActions(prev => ({ ...prev, [notificationId]: action }));
+            markAsRead(notificationId);
+        } catch (error) {
+            if (axios.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || `Failed to ${action} invitation`);
+            } else {
+                toast.error(`Failed to ${action} invitation`);
+            }
+        }
+    };
+
     const markAllAsRead = async () => {
         try {
             await api.put('/notifications/read-all');
             setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
             toast.success('All notifications marked as read');
-        } catch (err) {
+        } catch {
             toast.error('Failed to mark all as read');
         }
     };
 
     const typeIcon = (type: string) => {
-        const colors: Record<string, string> = {
-            PROPOSAL_SUBMITTED: 'bg-blue-100 text-blue-600',
-            PROPOSAL_APPROVED: 'bg-green-100 text-green-600',
-            PROPOSAL_REJECTED: 'bg-red-100 text-red-600',
-            PROPOSAL_RESUBMITTED: 'bg-yellow-100 text-yellow-600',
-            EXPO_REGISTRATION: 'bg-purple-100 text-purple-600',
-            SCHEDULE_APPROVED: 'bg-green-100 text-green-600',
-            SCHEDULE_REJECTED: 'bg-red-100 text-red-600',
+        const styles: Record<string, string> = {
+            PROPOSAL_SUBMITTED: 'bg-blue-50 text-blue-600',
+            PROPOSAL_APPROVED: 'bg-green-50 text-green-600',
+            PROPOSAL_REJECTED: 'bg-red-50 text-red-600',
+            PROPOSAL_RESUBMITTED: 'bg-amber-50 text-amber-600',
+            EXPO_REGISTRATION: 'bg-purple-50 text-purple-600',
+            SCHEDULE_APPROVED: 'bg-emerald-50 text-emerald-600',
+            SCHEDULE_REJECTED: 'bg-rose-50 text-rose-600',
+            GROUP_INVITATION: 'bg-indigo-50 text-indigo-600',
         };
-        return colors[type] || 'bg-muted text-muted-foreground';
+        return styles[type] || 'bg-gray-50 text-gray-500';
     };
 
     const unreadCount = notifications.filter(n => !n.is_read).length;
@@ -123,11 +142,11 @@ export default function NotificationsPage() {
                     {notifications.map((n) => (
                         <Card
                             key={n.id}
-                            className={`cursor-pointer transition-colors hover:bg-muted/50 ${!n.is_read ? 'border-primary/30 bg-primary/5' : ''}`}
+                            className={`cursor-pointer transition-all duration-200 ${!n.is_read ? 'border-primary/20 bg-primary/5 shadow-sm' : 'hover:border-primary/20 hover:bg-muted/30 shadow-none'}`}
                             onClick={() => !n.is_read && markAsRead(n.id)}
                         >
-                            <CardContent className="flex items-start gap-4 py-4">
-                                <div className={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${typeIcon(n.type)}`}>
+                            <CardContent className="flex items-start gap-4 p-5">
+                                <div className={`shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${typeIcon(n.type)}`}>
                                     {n.is_read ? (
                                         <MailOpen className="h-4 w-4" />
                                     ) : (
@@ -144,9 +163,32 @@ export default function NotificationsPage() {
                                         )}
                                     </div>
                                     <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>
-                                    <p className="text-xs text-muted-foreground mt-1">
+                                    
+                                    {n.type === 'GROUP_INVITATION' && n.related_id && (
+                                        <div className="flex gap-2 mt-4">
+                                            {n.invitation_status === 'PENDING' && !invitationActions[n.id] ? (
+                                                <>
+                                                    <Button size="sm" onClick={(e) => { e.stopPropagation(); handleInvitation(n.related_id!, 'accept', n.id); }}>
+                                                        Accept
+                                                    </Button>
+                                                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handleInvitation(n.related_id!, 'reject', n.id); }}>
+                                                        Reject
+                                                    </Button>
+                                                </>
+                                            ) : (
+                                                <span className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                                                    {(invitationActions[n.id] === 'accept' || n.invitation_status === 'ACCEPTED') ? (
+                                                        <><CheckCheck className="w-4 h-4 text-green-500" /> You accepted this invitation</>
+                                                    ) : (invitationActions[n.id] === 'reject' || n.invitation_status === 'REJECTED') ? (
+                                                        <><XCircle className="w-4 h-4 text-red-500" /> You rejected this invitation</>
+                                                    ) : null}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    <div className="text-xs text-muted-foreground whitespace-nowrap mt-2">
                                         {formatDistanceToNow(new Date(n.created_at), { addSuffix: true, locale: id })}
-                                    </p>
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

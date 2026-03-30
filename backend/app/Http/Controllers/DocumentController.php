@@ -265,22 +265,36 @@ class DocumentController extends Controller
 
         $path = $request->file('file')->store('documents', 'public');
 
-        // Determine version
-        $latestDoc = Document::where('group_id', $groupMember->group_id)
+        // V5: Replace (overwrite) existing document instead of creating new version
+        $existingDoc = Document::where('group_id', $groupMember->group_id)
             ->where('phase', $request->phase)
             ->when($request->document_type, fn($q) => $q->where('document_type', $request->document_type))
-            ->orderBy('version', 'desc')
             ->first();
 
-        $version = $latestDoc ? $latestDoc->version + 1 : 1;
+        if ($existingDoc) {
+            // Delete old file from storage
+            if ($existingDoc->file_path && Storage::disk('public')->exists($existingDoc->file_path)) {
+                Storage::disk('public')->delete($existingDoc->file_path);
+            }
 
+            // Update existing record (overwrite)
+            $existingDoc->update([
+                'file_path' => $path,
+                'status' => 'SUBMITTED',
+                'feedback' => null, // Reset feedback on resubmit
+            ]);
+
+            return response()->json(['message' => 'Document revised (replaced) successfully', 'data' => $existingDoc->fresh()], 200);
+        }
+
+        // First-time upload
         $document = Document::create([
             'group_id' => $groupMember->group_id,
             'student_id' => $user->id,
             'phase' => $request->phase,
             'document_type' => $request->document_type ?? 'GENERAL',
             'file_path' => $path,
-            'version' => $version,
+            'version' => 1,
             'status' => 'SUBMITTED',
         ]);
 
@@ -327,6 +341,19 @@ class DocumentController extends Controller
         if ($request->status === 'APPROVED' && $hasRequirements) {
             $this->checkPhaseCompletion($document->group_id, $document->phase);
         }
+
+        // Send notifications
+        $notificationService = app(\App\Services\NotificationService::class);
+        $studentIds = $group->members()->pluck('student_id')->toArray();
+        $statusStr = strtolower($request->status);
+        $notificationService->sendToMany(
+            $studentIds,
+            'PROPOSAL_' . strtoupper($request->status), // e.g. PROPOSAL_APPROVED, PROPOSAL_REJECTED (reused for doc status)
+            "Document {$request->status}",
+            "Your {$document->phase} document ({$document->document_type}) has been {$statusStr}" . ($request->feedback ? " with feedback: {$request->feedback}" : "."),
+            'documents',
+            $document->id
+        );
 
         return response()->json(['message' => 'Document review updated', 'data' => $document]);
     }

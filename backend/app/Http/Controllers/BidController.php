@@ -54,10 +54,9 @@ class BidController extends Controller
         $user = $request->user();
 
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('is_leader', true)
             ->first();
 
-        if (!$membership) {
+        if (!$membership || !$membership->is_leader) {
             return response()->json(['message' => 'Only the group leader can submit bids.'], 403);
         }
 
@@ -87,6 +86,17 @@ class BidController extends Controller
 
         if (!$this->biddingService->isWindowOpen($group->period)) {
             return response()->json(['message' => 'Bidding window is not open yet.'], 400);
+        }
+
+        // Combined limit: bids + student proposals <= 3
+        $bidCount = Bid::where('group_id', $group->id)->count();
+        $proposalCount = \App\Models\Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'APPROVED'])
+            ->count();
+
+        if (($bidCount + $proposalCount) >= 3) {
+            return response()->json(['message' => 'Maximum 3 titles allowed (bids + proposals combined).'], 400);
         }
 
         // DB unique constraints will enforce (group_id, priority) and (group_id, title_id)
@@ -120,10 +130,9 @@ class BidController extends Controller
         $user = $request->user();
 
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('is_leader', true)
             ->first();
 
-        if (!$membership) {
+        if (!$membership || !$membership->is_leader) {
             return response()->json(['message' => 'Only the group leader can delete bids.'], 403);
         }
 
