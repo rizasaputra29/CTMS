@@ -1,16 +1,16 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { AlertTitle } from '@/components/ui/alert';
 import {
     Loader2, ShieldCheck, Lock, Users, BookOpen, CheckCircle2,
-    XCircle, ChevronDown, User
+    XCircle, ChevronDown, User, RotateCcw, Search
 } from 'lucide-react';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -19,20 +19,11 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import {
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface Bid {
     id: number;
@@ -70,6 +61,17 @@ interface Period {
     id: number;
     name: string;
     is_active: boolean;
+    is_finalized: boolean;
+}
+
+interface ReadinessStats {
+    total_registered: number;
+    total_assigned: number;
+    total_unassigned: number;
+    total_groups: number;
+    total_invalid_groups: number;
+    unassigned_students: { id: number, name: string, email: string }[];
+    invalid_groups: { id: number, status: string, member_count: number, issues: string[] }[];
 }
 
 export default function FinalizationPage() {
@@ -77,13 +79,27 @@ export default function FinalizationPage() {
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [lecturers, setLecturers] = useState<Lecturer[]>([]);
+    const [readinessStats, setReadinessStats] = useState<ReadinessStats | null>(null);
     const [isLocked, setIsLocked] = useState(false);
+    const [isFinalized, setIsFinalized] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [allocateOpen, setAllocateOpen] = useState(false);
-    const [selectedBid, setSelectedBid] = useState<Bid | null>(null);
-    const [sup1, setSup1] = useState('');
-    const [sup2, setSup2] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredTitles = useMemo(() => {
+        if (!searchQuery) return titles;
+        const lowerQuery = searchQuery.toLowerCase();
+        
+        return titles.filter(t => {
+            const titleMatch = t.title.toLowerCase().includes(lowerQuery);
+            const lecturerMatch = t.lecturer.name.toLowerCase().includes(lowerQuery);
+            const bidMatch = t.bids.some(b => 
+                b.group.members.some(m => m.student.name.toLowerCase().includes(lowerQuery)) ||
+                b.group.id.toString().includes(lowerQuery)
+            );
+            return titleMatch || lecturerMatch || bidMatch;
+        });
+    }, [titles, searchQuery]);
 
     const fetchData = useCallback(async (periodId?: string) => {
         setLoading(true);
@@ -107,14 +123,19 @@ export default function FinalizationPage() {
                 api.get(`/admin/finalization/dosen-load?period_id=${currentPeriodId}`),
             ]);
             setTitles(finRes.data.data || []);
+            setReadinessStats(finRes.data.readiness_stats || null);
             setIsLocked(finRes.data.is_locked || false);
             setLecturers(loadRes.data.data || []);
+
+            // Track finalization status for selected period
+            const currentPer = (periods.length > 0 ? periods : (await api.get('/admin/periods')).data || []).find((p: Period) => p.id.toString() === currentPeriodId);
+            setIsFinalized(currentPer?.is_finalized || false);
         } catch (err) {
             console.error('Failed to fetch finalization data', err);
         } finally {
             setLoading(false);
         }
-    }, [selectedPeriod]);
+    }, [selectedPeriod, periods]);
 
     useEffect(() => {
         // Initial fetch handled gracefully by the dependency injection
@@ -123,6 +144,8 @@ export default function FinalizationPage() {
 
     const handlePeriodChange = (val: string) => {
         setSelectedPeriod(val);
+        const per = periods.find(p => p.id.toString() === val);
+        setIsFinalized(per?.is_finalized || false);
         fetchData(val);
     };
 
@@ -133,8 +156,20 @@ export default function FinalizationPage() {
             toast.success('Bidding locked.');
             setIsLocked(true);
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to lock');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to lock');
             else toast.error('Failed to lock');
+        }
+    };
+
+    const handleUnlockBidding = async () => {
+        if (!confirm('Unlock bidding? Students will be able to bid again.')) return;
+        try {
+            await api.post(`/admin/finalization/unlock?period_id=${selectedPeriod}`);
+            toast.success('Bidding unlocked.');
+            setIsLocked(false);
+        } catch (error) {
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to unlock');
+            else toast.error('Failed to unlock');
         }
     };
 
@@ -143,46 +178,31 @@ export default function FinalizationPage() {
         setSubmitting(true);
         try {
             const res = await api.post(`/admin/finalization/finalize-period`, { period_id: Number(selectedPeriod) });
-            toast.success(`Batch finalization complete. Assigned ${res.data.assigned_count} groups.`);
+            toast.success(`Batch finalization complete. Assigned ${res.data.total_allocated} groups. Skipped ${res.data.total_skipped}.`);
+            setIsFinalized(true);
             fetchData(selectedPeriod);
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to sequence');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to finalize');
             else toast.error('Failed to finalize');
         } finally {
             setSubmitting(false);
         }
     };
 
-    const handleAllocate = async () => {
-        if (!selectedBid) return;
+    const handleRunMatchmaker = async () => {
+        if (!confirm('Run Auto-Matchmaker? This will automatically group isolated students into incomplete groups and form new groups.')) return;
         setSubmitting(true);
         try {
-            await api.post('/admin/finalization/allocate', {
-                bid_id: selectedBid.id,
-                supervisor_1_id: Number(sup1),
-                supervisor_2_id: sup2 ? Number(sup2) : null,
-            });
-            toast.success('Group allocated successfully!');
-            setAllocateOpen(false);
-            setSelectedBid(null);
-            setSup1('');
-            setSup2('');
-            fetchData();
+            const res = await api.post(`/admin/finalization/run-automatchmaker`, { period_id: Number(selectedPeriod) });
+            toast.success(`Matchmaker complete! Ghost students processed: ${res.data.stats.ghosts_processed}. Groups filled: ${res.data.stats.groups_filled}. Merged: ${res.data.stats.groups_merged}. Created: ${res.data.stats.blank_groups_created}.`);
+            fetchData(selectedPeriod);
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Allocation failed');
-            else toast.error('Allocation failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to run matchmaker');
+            else toast.error('Failed to run matchmaker');
         } finally {
             setSubmitting(false);
         }
     };
-
-    const openAllocate = (bid: Bid) => {
-        setSelectedBid(bid);
-        // Pre-fill with group's proposed supervisors if available
-        setAllocateOpen(true);
-    };
-
-    const availableLecturers = lecturers.filter(l => !l.is_overloaded);
 
     if (loading) {
         return (
@@ -197,7 +217,7 @@ export default function FinalizationPage() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Finalization Dashboard</h1>
-                    <p className="text-muted-foreground">Allocate groups to titles, assign supervisors, and lock bidding.</p>
+                    <p className="text-muted-foreground">Run admin batch finalization, assign supervisors automatically, and lock bidding.</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-3">
                     <Select value={selectedPeriod} onValueChange={handlePeriodChange} disabled={loading}>
@@ -212,21 +232,136 @@ export default function FinalizationPage() {
                     </Select>
 
                     {isLocked ? (
-                        <Badge variant="destructive" className="px-3 py-1.5 h-10">
-                            <Lock className="mr-1 h-3 w-3" /> Locked
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                            <Badge variant="destructive" className="px-3 py-1.5 h-10">
+                                <Lock className="mr-1 h-3 w-3" /> Locked
+                            </Badge>
+                            <Button variant="outline" size="sm" onClick={handleUnlockBidding} className="h-10">
+                                <RotateCcw className="mr-2 h-4 w-4" /> Unlock
+                            </Button>
+                        </div>
                     ) : (
                         <Button variant="outline" size="sm" onClick={handleLockBidding} className="h-10">
                             <Lock className="mr-2 h-4 w-4" /> Lock Bidding
                         </Button>
                     )}
 
-                    <Button variant="default" size="sm" onClick={handleBatchFinalize} disabled={submitting || !selectedPeriod} className="h-10">
+                    <Button variant="outline" size="sm" onClick={handleRunMatchmaker} disabled={submitting || !selectedPeriod} className="h-10">
+                        {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
+                        Auto-Matchmaker
+                    </Button>
+
+                    <Button variant="default" size="sm" onClick={handleBatchFinalize} disabled={submitting || !selectedPeriod || isFinalized} className="h-10">
                         {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
                         Batch Finalize
                     </Button>
+
+                    {isFinalized ? (
+                        <Badge variant="default" className="px-3 py-1.5 h-10 bg-green-600 hover:bg-green-700">
+                            <CheckCircle2 className="mr-1 h-3 w-3" /> Finalized
+                        </Badge>
+                    ) : null}
+
+                    {isFinalized && (
+                        <Button variant="outline" size="sm" onClick={async () => {
+                            if (!confirm('Re-open this period for registration? New students will be able to create groups again.')) return;
+                            try {
+                                await api.post('/admin/finalization/reopen', { period_id: Number(selectedPeriod) });
+                                toast.success('Period reopened for registration.');
+                                setIsFinalized(false);
+                            } catch (error) {
+                                if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+                                else toast.error('Failed');
+                            }
+                        }} className="h-10">
+                            <RotateCcw className="mr-2 h-4 w-4" /> Re-open
+                        </Button>
+                    )}
                 </div>
             </div>
+
+            <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search by title, lecturer, student name, or group ID..."
+                        className="pl-9"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+            </div>
+
+            {/* Readiness Highlights (Rule Enforcement) */}
+            {readinessStats && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <Card className={readinessStats.total_unassigned > 0 ? 'border-amber-200 bg-amber-50' : ''}>
+                        <CardHeader className="pb-2">
+                            <CardDescription className="text-xs font-semibold">Registered Students</CardDescription>
+                            <CardTitle className="text-2xl">{readinessStats.total_registered}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-xs text-muted-foreground flex justify-between">
+                                <span>Assigned: {readinessStats.total_assigned}</span>
+                                <span className={readinessStats.total_unassigned > 0 ? 'text-amber-600 font-bold' : ''}>
+                                    Unassigned: {readinessStats.total_unassigned}
+                                </span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                    <Card className={readinessStats.total_invalid_groups > 0 ? 'border-destructive/20 bg-destructive/5' : ''}>
+                        <CardHeader className="pb-2">
+                            <CardDescription className="text-xs font-semibold">Total Groups</CardDescription>
+                            <CardTitle className="text-2xl">{readinessStats.total_groups}</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                            <div className="text-xs text-muted-foreground flex justify-between">
+                                <span>Ready: {readinessStats.total_groups - readinessStats.total_invalid_groups}</span>
+                                <span className={readinessStats.total_invalid_groups > 0 ? 'text-destructive font-bold' : ''}>
+                                    Invalid: {readinessStats.total_invalid_groups}
+                                </span>
+                            </div>
+                        </CardContent>
+                    </Card>
+                    
+                    {/* Collapsible Issues (if any) */}
+                    {(readinessStats.total_unassigned > 0 || readinessStats.total_invalid_groups > 0) && (
+                        <Card className="md:col-span-2 border-amber-500/50 bg-amber-50">
+                            <CardHeader className="pb-2">
+                                <CardTitle className="text-sm flex items-center gap-2">
+                                    <AlertTitle className="text-amber-800 flex items-center">
+                                        <XCircle className="h-4 w-4 mr-2" /> Issues Blocking Finalization
+                                    </AlertTitle>
+                                </CardTitle>
+                            </CardHeader>
+                            <CardContent className="max-h-[100px] overflow-y-auto text-xs space-y-1">
+                                {readinessStats.unassigned_students.map(s => (
+                                    <div key={s.id} className="text-amber-800">• Mahasiswa tanpa kelompok: <strong>{s.name}</strong></div>
+                                ))}
+                                {readinessStats.invalid_groups.map(g => (
+                                    <div key={g.id} className="text-destructive">• Kelompok #{g.id} ({g.status}): {g.issues.join(', ')}</div>
+                                ))}
+                            </CardContent>
+                            <CardFooter className="pt-0 pb-2">
+                                <p className="text-[10px] text-amber-700 italic">Run Auto-Matchmaker or manual fix to resolve these.</p>
+                            </CardFooter>
+                        </Card>
+                    )}
+                    
+                    {readinessStats.total_unassigned === 0 && readinessStats.total_invalid_groups === 0 && !isFinalized && (
+                        <Card className="md:col-span-2 border-green-200 bg-green-50">
+                            <CardHeader>
+                                <CardTitle className="text-sm text-green-700 flex items-center gap-2">
+                                    <CheckCircle2 className="h-4 w-4" /> Period is Ready
+                                </CardTitle>
+                                <CardDescription className="text-xs text-green-600">
+                                    All registered students are assigned and all groups meet the requirements.
+                                </CardDescription>
+                            </CardHeader>
+                        </Card>
+                    )}
+                </div>
+            )}
 
             {/* Supervisor Load Summary */}
             <Card>
@@ -250,15 +385,15 @@ export default function FinalizationPage() {
             </Card>
 
             {/* Title-centric bid list */}
-            {titles.length === 0 ? (
+            {filteredTitles.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Titles Yet</h2>
-                    <p className="text-muted-foreground">Titles will appear here once created.</p>
+                    <h2 className="text-xl font-bold mb-2">No Titles Found</h2>
+                    <p className="text-muted-foreground">Try adjusting your search query or period filter.</p>
                 </div>
             ) : (
                 <div className="space-y-4">
-                    {titles.map((title) => (
+                    {filteredTitles.map((title) => (
                         <Collapsible key={title.id}>
                             <Card>
                                 <CollapsibleTrigger className="w-full">
@@ -308,11 +443,6 @@ export default function FinalizationPage() {
                                                             <Badge variant={bid.status === 'ACCEPTED' ? 'default' : bid.status === 'REJECTED' ? 'destructive' : 'secondary'}>
                                                                 {bid.status}
                                                             </Badge>
-                                                            {bid.status === 'PENDING' && title.remaining_quota > 0 && (
-                                                                <Button size="sm" onClick={() => openAllocate(bid)}>
-                                                                    <CheckCircle2 className="mr-1 h-3 w-3" /> Allocate
-                                                                </Button>
-                                                            )}
                                                         </div>
                                                     </div>
                                                 ))}
@@ -326,61 +456,6 @@ export default function FinalizationPage() {
                 </div>
             )}
 
-            {/* Allocate Dialog */}
-            <Dialog open={allocateOpen} onOpenChange={setAllocateOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Allocate Group</DialogTitle>
-                        <DialogDescription>
-                            Accept this bid and assign supervisors. This will finalize the group&apos;s title.
-                        </DialogDescription>
-                    </DialogHeader>
-                    {selectedBid && (
-                        <div className="space-y-4 py-2">
-                            <div className="p-3 bg-muted/50 rounded-lg text-sm">
-                                <div className="font-medium">Group #{selectedBid.group_id}</div>
-                                <div className="text-muted-foreground">
-                                    Members: {selectedBid.group.members.map(m => m.student.name).join(', ')}
-                                </div>
-                            </div>
-                            <div>
-                                <Label>Supervisor 1 (required)</Label>
-                                <Select value={sup1} onValueChange={setSup1}>
-                                    <SelectTrigger><SelectValue placeholder="Select supervisor 1..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {lecturers.map((l, i) => (
-                                            <SelectItem key={i} value={l.lecturer.id.toString()} disabled={l.is_overloaded}>
-                                                {l.lecturer.name} ({l.current_load}/{l.max_load})
-                                                {l.is_overloaded ? ' — FULL' : ''}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div>
-                                <Label>Supervisor 2 (optional)</Label>
-                                <Select value={sup2} onValueChange={setSup2}>
-                                    <SelectTrigger><SelectValue placeholder="Select supervisor 2..." /></SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">None</SelectItem>
-                                        {lecturers.filter(l => l.lecturer.id.toString() !== sup1).map((l, i) => (
-                                            <SelectItem key={i} value={l.lecturer.id.toString()} disabled={l.is_overloaded}>
-                                                {l.lecturer.name} ({l.current_load}/{l.max_load})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                    )}
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setAllocateOpen(false)}>Cancel</Button>
-                        <Button onClick={handleAllocate} disabled={submitting || !sup1}>
-                            {submitting ? 'Allocating...' : 'Confirm Allocation'}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

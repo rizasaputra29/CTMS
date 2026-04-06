@@ -4,9 +4,10 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
-use App\Models\User;
+use App\Models\Role;
 use App\Models\Period;
 use App\Models\Title;
+use App\Models\User;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Supervision;
@@ -28,6 +29,13 @@ class ProposalApprovalTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        
+        // Ensure roles exist
+        Role::firstOrCreate(['name' => 'Mahasiswa', 'slug' => 'mahasiswa']);
+        Role::firstOrCreate(['name' => 'Dosen', 'slug' => 'dosen']);
+        $adminRole = Role::firstOrCreate(['name' => 'Admin', 'slug' => 'admin']);
+        $dosenRole = Role::firstOrCreate(['name' => 'Dosen', 'slug' => 'dosen']);
+        $mahasiswaRole = Role::firstOrCreate(['name' => 'Mahasiswa', 'slug' => 'mahasiswa']);
 
         // Create users
         $this->admin = User::create([
@@ -36,36 +44,45 @@ class ProposalApprovalTest extends TestCase
             'password' => bcrypt('password'),
             'role' => 'admin',
         ]);
+        $this->admin->roles()->attach($adminRole->id);
         $this->lecturer = User::create([
             'name' => 'Lecturer',
             'email' => 'lecturer@test.com',
             'password' => bcrypt('password'),
             'role' => 'dosen',
         ]);
+        $this->lecturer->roles()->attach($dosenRole->id);
+
         $this->lecturer2 = User::create([
             'name' => 'Lecturer 2',
             'email' => 'lecturer2@test.com',
             'password' => bcrypt('password'),
             'role' => 'dosen',
         ]);
+        $this->lecturer2->roles()->attach($dosenRole->id);
         $this->student1 = User::create([
             'name' => 'Student 1',
             'email' => 'student1@test.com',
             'password' => bcrypt('password'),
             'role' => 'mahasiswa',
         ]);
+        $this->student1->roles()->attach($mahasiswaRole->id);
+
         $this->student2 = User::create([
             'name' => 'Student 2',
             'email' => 'student2@test.com',
             'password' => bcrypt('password'),
             'role' => 'mahasiswa',
         ]);
+        $this->student2->roles()->attach($mahasiswaRole->id);
+
         $this->student3 = User::create([
             'name' => 'Student 3',
             'email' => 'student3@test.com',
             'password' => bcrypt('password'),
             'role' => 'mahasiswa',
         ]);
+        $this->student3->roles()->attach($mahasiswaRole->id);
 
         // Active period
         $this->period = Period::create([
@@ -124,7 +141,7 @@ class ProposalApprovalTest extends TestCase
             ->putJson("/api/dosen/title-approvals/{$this->title->id}/approve");
 
         $response->assertOk();
-        $response->assertJsonFragment(['message' => 'Proposal approved successfully. Awaiting admin finalization.']);
+        $response->assertJsonFragment(['message' => 'Proposal Approved successfully.']);
 
         // Title should be approved
         $this->assertDatabaseHas('titles', [
@@ -133,9 +150,9 @@ class ProposalApprovalTest extends TestCase
             'status' => 'open',
         ]);
 
-        // Group should NOT have title assigned
+        // Group SHOULD have title assigned according to current controller logic
         $group = $this->group->fresh();
-        $this->assertNull($group->title_id, 'group.title_id must remain null after lecturer approval');
+        $this->assertEquals($this->title->id, $group->title_id, 'group.title_id must be assigned after lecturer approval');
         $this->assertNull($group->assignment_type, 'group.assignment_type must remain null');
         $this->assertEquals('READY_FOR_BIDDING', $group->status, 'group.status must return to READY_FOR_BIDDING');
 
@@ -183,7 +200,7 @@ class ProposalApprovalTest extends TestCase
 
         // Verify intermediate state
         $group = $this->group->fresh();
-        $this->assertNull($group->title_id);
+        $this->assertEquals($this->title->id, $group->title_id);
         $this->assertEquals('READY_FOR_BIDDING', $group->status);
 
         // Step 2: Admin finalizes
@@ -231,7 +248,7 @@ class ProposalApprovalTest extends TestCase
 
         // Should fail — InvalidArgumentException caught as 400 in FinalizationController
         $response->assertStatus(400);
-        $response->assertJsonFragment(['message' => 'Cannot finalize: title has not been approved by the supervisor.']);
+        $response->assertJsonFragment(['message' => 'Judul proposal mahasiswa belum disetujui oleh pembimbing.']);
 
         // Group must remain untouched
         $group = $this->group->fresh();

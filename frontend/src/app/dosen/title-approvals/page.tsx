@@ -1,14 +1,24 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Loader2, Check, X, User, FileText, AlertTriangle } from 'lucide-react';
+import { Loader2, Check, X, User, FileText, AlertTriangle, Search } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -58,34 +68,73 @@ interface Proposal {
 
 export default function TitleApprovalsPage() {
     const [proposals, setProposals] = useState<Proposal[]>([]);
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
+    const [, setRefreshing] = useState(false);
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
     const [rejectionReason, setRejectionReason] = useState('');
     const [processing, setProcessing] = useState(false);
 
-    const fetchProposals = async () => {
+    const fetchData = useCallback(async (periodId?: string) => {
+        if (periodId && periodId !== 'all') setRefreshing(true);
+        else if (!periodId && !selectedPeriod) setLoading(true);
+        else setRefreshing(true);
+
         try {
-            const response = await api.get('/dosen/title-approvals');
-            setProposals(response.data.data);
+            let currentPeriodId = periodId || selectedPeriod;
+
+            // Fetch periods if not already fetched
+            if (periods.length === 0) {
+                const periodsRes = await api.get('/periods-list');
+                const fetchedPeriods = periodsRes.data || [];
+                setPeriods(fetchedPeriods);
+                
+                // If no period selected yet, default to active
+                if (!currentPeriodId || currentPeriodId === 'all') {
+                    const active = fetchedPeriods.find((p: { is_active: boolean }) => p.is_active);
+                    if (active) {
+                        currentPeriodId = active.id.toString();
+                        setSelectedPeriod(currentPeriodId);
+                    } else if (fetchedPeriods.length > 0) {
+                        currentPeriodId = fetchedPeriods[0].id.toString();
+                        setSelectedPeriod(currentPeriodId);
+                    }
+                }
+            }
+
+            const url = currentPeriodId && currentPeriodId !== 'all' 
+                ? `/dosen/title-approvals?period_id=${currentPeriodId}` 
+                : '/dosen/title-approvals';
+            
+            const response = await api.get(url);
+            setProposals(response.data.data || []);
         } catch (error) {
             console.error('Failed to fetch proposals', error);
             toast.error('Failed to load title proposals');
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
-    };
+    }, [periods.length, selectedPeriod]);
 
     useEffect(() => {
-        fetchProposals();
-    }, []);
+        fetchData();
+    }, [fetchData]);
+
+    const handlePeriodChange = (val: string) => {
+        setSelectedPeriod(val);
+        fetchData(val);
+    };
 
     const handleApprove = async (proposalId: number) => {
         setProcessing(true);
         try {
             await api.put(`/dosen/title-approvals/${proposalId}/approve`);
             toast.success('Proposal approved! Group has been finalized.');
-            fetchProposals();
+            fetchData(selectedPeriod);
         } catch (error) {
             console.error('Failed to approve', error);
             toast.error('Failed to approve proposal');
@@ -105,7 +154,7 @@ export default function TitleApprovalsPage() {
             setRejectDialogOpen(false);
             setRejectionReason('');
             setSelectedProposal(null);
-            fetchProposals();
+            fetchData(selectedPeriod);
         } catch (error) {
             console.error('Failed to reject', error);
             toast.error('Failed to reject proposal');
@@ -120,6 +169,16 @@ export default function TitleApprovalsPage() {
         setRejectDialogOpen(true);
     };
 
+    const filteredProposals = useMemo(() => {
+        if (!searchQuery) return proposals;
+        const q = searchQuery.toLowerCase();
+        return proposals.filter(p => 
+            p.title.toLowerCase().includes(q) ||
+            p.proposed_by_group?.id.toString().includes(q) ||
+            p.proposed_by_group?.members.some(m => m.student.name.toLowerCase().includes(q))
+        );
+    }, [proposals, searchQuery]);
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -130,20 +189,50 @@ export default function TitleApprovalsPage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Title Approvals</h1>
-                <p className="text-muted-foreground">Review and approve student-proposed capstone titles.</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Title Approvals</h1>
+                    <p className="text-muted-foreground">Review and approve student-proposed capstone titles.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="All Periods" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Academic Period</SelectLabel>
+                                <SelectItem value="all">All Periods</SelectItem>
+                                {periods.map(p => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                        {p.name} {p.is_active && "(Active)"}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
 
-            {proposals.length === 0 ? (
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search titles, students, or groups..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
+            {filteredProposals.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium mb-1">No pending proposals</p>
-                    <p className="text-sm">Student proposals will appear here when submitted.</p>
+                    <p className="text-lg font-medium mb-1">{searchQuery ? "No matching proposals found" : "No pending proposals"}</p>
+                    <p className="text-sm">{searchQuery ? "Try adjusting your search query." : "Student proposals will appear here when submitted."}</p>
                 </div>
             ) : (
                 <div className="grid gap-6">
-                    {proposals.map((proposal) => (
+                    {filteredProposals.map((proposal) => (
                         <Card key={proposal.id}>
                             <CardHeader>
                                 <div className="flex justify-between items-start">
@@ -207,20 +296,26 @@ export default function TitleApprovalsPage() {
                                 <AlertDialog>
                                     <AlertDialogTrigger asChild>
                                         <Button variant="default" size="sm" disabled={processing}>
-                                            <Check className="mr-2 h-4 w-4" /> Approve
+                                            <Check className="mr-2 h-4 w-4" /> 
+                                            {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
-                                            <AlertDialogTitle>Approve this proposal?</AlertDialogTitle>
+                                            <AlertDialogTitle>
+                                                {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve this proposal?' : 'Approve this proposal?'}
+                                            </AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                This will assign the title &quot;{proposal.title}&quot; to the group and finalize their project. This action cannot be undone.
+                                                {(proposal.proposed_by_group?.members?.length ?? 0) < 3 
+                                                    ? `This will Pre-Approve the title "${proposal.title}". The student must recruit more members to reach the minimum group size before it can be finalized.`
+                                                    : `This will approve the title "${proposal.title}" and prepare the group for admin finalization. This action cannot be undone.`
+                                                }
                                             </AlertDialogDescription>
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                                             <AlertDialogAction onClick={() => handleApprove(proposal.id)}>
-                                                Confirm Approve
+                                                Confirm {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>

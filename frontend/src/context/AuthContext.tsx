@@ -8,13 +8,16 @@ interface User {
     id: number;
     name: string;
     email: string;
-    role: 'admin' | 'dosen' | 'mahasiswa';
+    role: string;
+    roles: string[];
 }
 
 interface AuthContextType {
     user: User | null;
-    login: (token: string, userData: User) => void;
+    activeRole: string | null;
+    login: (token: string, userData: User, roles: string[]) => void;
     logout: () => void;
+    switchRole: (role: string) => void;
     isLoading: boolean;
 }
 
@@ -22,6 +25,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
+    const [activeRole, setActiveRole] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const router = useRouter();
 
@@ -29,14 +33,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const checkAuth = async () => {
             try {
                 const token = localStorage.getItem('token');
+                const storedRole = localStorage.getItem('activeRole');
                 if (token) {
                     api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
                     const response = await api.get('/user');
-                    setUser(response.data);
+                    const userData = response.data;
+                    setUser(userData);
+                    
+                    if (storedRole && userData.roles?.includes(storedRole)) {
+                        setActiveRole(storedRole);
+                    } else if (userData.roles && userData.roles.length > 0) {
+                        const defaultRole = userData.roles[0];
+                        setActiveRole(defaultRole);
+                        localStorage.setItem('activeRole', defaultRole);
+                    }
                 }
             } catch (error) {
                 console.error('Auth check failed', error);
-                localStorage.removeItem('token');
+                if (api.isAxiosError(error) && [401, 419].includes(error.response?.status ?? 0)) {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('activeRole');
+                    delete api.defaults.headers.common['Authorization'];
+                    setUser(null);
+                    setActiveRole(null);
+                }
             } finally {
                 setIsLoading(false);
             }
@@ -45,11 +65,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         checkAuth();
     }, []);
 
-    const login = (token: string, userData: User) => {
+    const login = (token: string, userData: User, roles: string[]) => {
         localStorage.setItem('token', token);
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-        setUser(userData);
-        router.push(`/${userData.role}/dashboard`);
+        
+        const userWithRoles = { ...userData, roles };
+        setUser(userWithRoles);
+
+        // For all users (single or multi-role), set activeRole and redirect to dashboard
+        const targetRole = roles[0] || userData.role || 'mahasiswa';
+        setActiveRole(targetRole);
+        localStorage.setItem('activeRole', targetRole);
+        router.push(`/${targetRole}/dashboard`);
+    };
+
+    const switchRole = async (role: string) => {
+        try {
+            await api.post('/user/active-role', { role });
+        } catch (error) {
+            console.error('Failed to sync role with server', error);
+        }
+        setActiveRole(role);
+        localStorage.setItem('activeRole', role);
+        router.push(`/${role}/dashboard`);
     };
 
     const logout = async () => {
@@ -59,14 +97,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             console.error('Logout failed', error);
         } finally {
             localStorage.removeItem('token');
+            localStorage.removeItem('activeRole');
             delete api.defaults.headers.common['Authorization'];
             setUser(null);
+            setActiveRole(null);
             router.push('/login');
         }
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, activeRole, login, logout, switchRole, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

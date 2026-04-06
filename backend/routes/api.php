@@ -31,16 +31,39 @@ use App\Http\Controllers\GradeConsistencyController;
 use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\DigitalSignatureController;
 use App\Http\Controllers\ReportExportController;
+use App\Http\Controllers\RoleController;
+use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
+use App\Http\Controllers\Admin\StakeholderController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        $user = $request->user()->load('roles');
+        $activeRole = null;
+
+        if ($request->hasSession()) {
+            $activeRole = $request->session()->get('active_role');
+        }
+
+        $roles = $user->roleSlugs();
+        if (!$activeRole) {
+            $activeRole = count($roles) > 0 ? $roles[0] : null;
+        }
+        
+        return response()->json(array_merge($user->toArray(), [
+            'roles' => $roles,
+            'active_role' => $activeRole
+        ]));
     });
 
+    Route::get('/user/roles', [RoleController::class, 'index']);
+    Route::post('/user/active-role', [RoleController::class, 'setActiveRole']);
+    Route::get('/user/current-role', [RoleController::class, 'currentRole']);
+
     Route::put('/profile', [ProfileController::class, 'update']);
+    Route::get('/periods-list', [PeriodController::class, 'index']);
 
     // ────────────────────────────────
     // Shared: Notifications (all roles)
@@ -63,10 +86,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Finalization
         Route::get('/finalization', [FinalizationController::class, 'index']);
         Route::get('/finalization/dosen-load', [FinalizationController::class, 'dosenLoad']);
-        Route::post('/finalization/allocate', [FinalizationController::class, 'allocate']);
-        Route::post('/finalization/allocate-student-proposed', [FinalizationController::class, 'allocateStudentProposed']);
         Route::post('/finalization/finalize-period', [FinalizationController::class, 'finalizePeriod']);
+        Route::get('/finalization/simulate', [FinalizationController::class, 'simulate']);
+        Route::post('/finalization/auto-fix', [FinalizationController::class, 'autoFix']);
+        Route::post('/finalization/run-automatchmaker', [FinalizationController::class, 'runAutoMatchmaker']);
+        Route::post('/finalization/force-ready', [FinalizationController::class, 'forceReady']);
         Route::post('/finalization/lock', [FinalizationController::class, 'lock']);
+        Route::post('/finalization/unlock', [FinalizationController::class, 'unlock']);
+        Route::post('/finalization/reopen', [FinalizationController::class, 'reopenPeriod']);
 
         // V4: Expo Event Management
         Route::apiResource('expo-events', ExpoEventController::class);
@@ -116,6 +143,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Document Types (admin)
         Route::apiResource('document-types', DocumentTypeController::class);
 
+        // Phase Document Requirements (admin)
+        Route::get('/document-requirements', [PhaseDocumentRequirementController::class, 'index']);
+        Route::get('/document-requirements/period/{periodId}', [PhaseDocumentRequirementController::class, 'byPeriod']);
+        Route::post('/document-requirements', [PhaseDocumentRequirementController::class, 'store']);
+        Route::put('/document-requirements/{id}', [PhaseDocumentRequirementController::class, 'update']);
+        Route::delete('/document-requirements/{id}', [PhaseDocumentRequirementController::class, 'destroy']);
+        Route::put('/document-requirements/bulk', [PhaseDocumentRequirementController::class, 'bulkUpdate']);
+
         // Digital Signatures (admin)
         Route::post('/digital-signatures/sign', [DigitalSignatureController::class, 'sign']);
         Route::get('/digital-signatures/verify/{hash}', [DigitalSignatureController::class, 'verify']);
@@ -125,6 +160,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Assign Supervisor 2 (admin only)
         Route::post('/groups/{group}/assign-supervisor-2', [GroupController::class, 'assignSupervisor2']);
+
+        // Stakeholders (admin)
+        Route::get('/stakeholders', [StakeholderController::class, 'index']);
+        Route::post('/stakeholders', [StakeholderController::class, 'store']);
+        Route::put('/stakeholders/{stakeholder}', [StakeholderController::class, 'update']);
+        Route::delete('/stakeholders/{stakeholder}', [StakeholderController::class, 'destroy']);
+        Route::post('/titles/{title}/stakeholders', [StakeholderController::class, 'attachToTitle']);
+        Route::delete('/titles/{title}/stakeholders/{stakeholder}', [StakeholderController::class, 'detachFromTitle']);
     });
 
     // ────────────────────────────────
@@ -133,6 +176,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['role:dosen'])->prefix('dosen')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dosen']);
         Route::apiResource('titles', TitleController::class);
+        
+        // Title Approval Withdrawal & History
+        Route::post('/titles/{title}/withdraw-approval', [TitleController::class, 'withdrawApproval']);
+        Route::get('/titles/{title}/approval-history', [TitleController::class, 'getApprovalHistory']);
 
         // Documents
         Route::put('/documents/{id}', [DocumentController::class, 'update']);
@@ -197,18 +244,24 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Group management
         Route::get('/group', [GroupController::class, 'index']);
+        Route::get('/available-periods', [GroupController::class, 'availablePeriods']);
+        Route::get('/registration-period', [PeriodController::class, 'registrationPeriod']);
         Route::post('/group', [GroupController::class, 'store']);
+        Route::post('/group/store-solo', [GroupController::class, 'storeSolo']);
         Route::delete('/group', [GroupController::class, 'deleteGroup']);
         Route::post('/group/leave', [GroupController::class, 'leaveGroup']);
         Route::post('/group/add-member', [GroupController::class, 'addMember']);
-        Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
-        Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
-        Route::post('/group-invitations/{id}/accept', [GroupController::class, 'acceptInvite']);
+         Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
+         Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
+         Route::post('/group/mark-ready-for-finalization', [GroupController::class, 'markReadyForFinalization']);
+         Route::post('/group/cancel-ready-for-finalization', [GroupController::class, 'cancelReadyForFinalization']);
+         Route::post('/group-invitations/{id}/accept', [GroupController::class, 'acceptInvite']);
         Route::post('/group-invitations/{id}/reject', [GroupController::class, 'rejectInvite']);
 
         // Bidding
         Route::get('/bids', [BidController::class, 'index']);
         Route::post('/bids', [BidController::class, 'store']);
+        Route::put('/bids/reorder', [BidController::class, 'reorder']);
         Route::delete('/bids/{id}', [BidController::class, 'destroy']);
 
         // Documents
@@ -234,6 +287,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/propose-title', [StudentProposalController::class, 'store']);
         Route::get('/my-proposal', [StudentProposalController::class, 'myProposal']);
         Route::put('/my-proposal', [StudentProposalController::class, 'update']);
+        Route::delete('/proposal/{id}', [StudentProposalController::class, 'destroy']);
+
+        // Bursa Ide (Open Recruitment / Idea Magnet)
+        Route::get('/bursa-ide', [\App\Http\Controllers\BursaIdeController::class, 'index']);
+        Route::post('/bursa-ide/{groupId}/request-join', [\App\Http\Controllers\BursaIdeController::class, 'requestJoin']);
+        Route::get('/join-requests', [\App\Http\Controllers\BursaIdeController::class, 'myRequests']);
+        Route::post('/join-requests/{id}/accept', [\App\Http\Controllers\BursaIdeController::class, 'acceptRequest']);
+        Route::post('/join-requests/{id}/reject', [\App\Http\Controllers\BursaIdeController::class, 'rejectRequest']);
+
+        // Solo Title Bidding (Bid to join solo seeker's title)
+        Route::get('/solo-titles', [\App\Http\Controllers\SoloTitleController::class, 'index']);
+        Route::post('/solo-titles/{id}/bid', [\App\Http\Controllers\SoloTitleController::class, 'store']);
+        Route::put('/solo-titles/{id}/accept', [\App\Http\Controllers\SoloTitleController::class, 'acceptBidder']);
+        Route::put('/solo-titles/{id}/reject', [\App\Http\Controllers\SoloTitleController::class, 'rejectBidder']);
 
         // Peer Review (mahasiswa)
         Route::get('/peer-review', [PeerReviewController::class, 'index']);
@@ -245,6 +312,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/ta/upload', [TaSubmissionController::class, 'upload']);
         Route::put('/ta/revise', [TaSubmissionController::class, 'revise']);
         Route::post('/ta/register', [TaSubmissionController::class, 'register']);
+
+        // Period Registration
+        Route::get('/periods/{periodId}/check-registration', [\App\Http\Controllers\RegistrationController::class, 'check']);
+        Route::post('/periods/register', [\App\Http\Controllers\RegistrationController::class, 'register']);
     });
 
     // ────────────────────────────────

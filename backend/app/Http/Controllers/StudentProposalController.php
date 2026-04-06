@@ -10,14 +10,25 @@ use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+use App\Services\GroupStateMachine;
+
 class StudentProposalController extends Controller
 {
+    protected $stateMachine;
+
+    public function __construct(GroupStateMachine $stateMachine)
+    {
+        $this->stateMachine = $stateMachine;
+    }
+
     /**
      * List active lecturers for supervisor selection.
      */
     public function lecturers()
     {
-        $lecturers = \App\Models\User::where('role', 'dosen')
+        $lecturers = \App\Models\User::whereHas('roles', function ($q) {
+            $q->where('slug', 'dosen');
+        })
             ->select('id', 'name', 'email')
             ->orderBy('name')
             ->get();
@@ -38,6 +49,8 @@ class StudentProposalController extends Controller
             'specializations' => 'sometimes|array',
             'specializations.*' => 'string|in:Software,Embedded,Network,Multimedia,AI,Blockchain',
             'proposed_supervisor_id' => 'required|exists:users,id',
+            'stakeholder_ids' => 'sometimes|array',
+            'stakeholder_ids.*' => 'integer|exists:stakeholders,id',
         ]);
 
         $user = $request->user();
@@ -60,10 +73,11 @@ class StudentProposalController extends Controller
 
         $group = Group::find($membership->group_id);
 
-        // Check minimum 3 members
+        // Check minimum 3 members (unless Solo Seeker)
         $memberCount = GroupMember::where('group_id', $group->id)->count();
-        if ($memberCount < 3) {
-            return response()->json(['message' => 'Your group must have at least 3 members before proposing a title.'], 400);
+        $minSize = $group->period->min_group_size ?? 3;
+        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING']) && $memberCount < $minSize) {
+            return response()->json(['message' => "Your group must have at least {$minSize} members before proposing a title."], 400);
         }
 
         // Check if group already has a title assigned
@@ -73,7 +87,7 @@ class StudentProposalController extends Controller
 
         // Check for pending proposal
         $pendingProposal = Title::where('proposed_by_group_id', $group->id)
-            ->where('supervisor_approval_status', 'PENDING')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->exists();
 
         if ($pendingProposal) {
@@ -81,7 +95,7 @@ class StudentProposalController extends Controller
         }
 
         // Check group status allows proposing
-        if (!in_array($group->status, ['PENDING', 'READY_FOR_BIDDING', 'REJECTED'])) {
+        if (!in_array($group->status, ['PENDING', 'READY_FOR_BIDDING', 'REJECTED', 'FORMING', 'FORMING_SOLO'])) {
             return response()->json(['message' => 'Your group is not eligible to propose a title at this time.'], 400);
         }
 
@@ -89,7 +103,7 @@ class StudentProposalController extends Controller
         $bidCount = \App\Models\Bid::where('group_id', $group->id)->count();
         $proposalCount = Title::where('proposed_by_group_id', $group->id)
             ->where('title_source', 'STUDENT')
-            ->whereIn('supervisor_approval_status', ['PENDING', 'APPROVED'])
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
             ->count();
 
         if (($bidCount + $proposalCount) >= 3) {
@@ -104,10 +118,9 @@ class StudentProposalController extends Controller
 
         // Verify supervisor is a valid lecturer
         $supervisor = \App\Models\User::where('id', $validated['proposed_supervisor_id'])
-            ->where('role', 'dosen')
             ->first();
 
-        if (!$supervisor) {
+        if (!$supervisor || !$supervisor->hasRole('dosen')) {
             return response()->json(['message' => 'Selected supervisor is not a valid lecturer.'], 400);
         }
 
@@ -126,9 +139,14 @@ class StudentProposalController extends Controller
                 'proposed_by_group_id' => $group->id,
                 'proposed_supervisor_id' => $validated['proposed_supervisor_id'],
                 'supervisor_approval_status' => 'PENDING',
+                'period_id' => $period->id,
             ]);
 
-            $group->update(['status' => 'WAITING_SUPERVISOR_APPROVAL']);
+            if (!empty($validated['stakeholder_ids'])) {
+                $title->stakeholders()->sync($validated['stakeholder_ids']);
+            }
+
+            $group->update(['has_active_proposal' => true]);
 
             // Notify the supervisor
             Notification::create([
@@ -144,7 +162,7 @@ class StudentProposalController extends Controller
 
             return response()->json([
                 'message' => 'Proposal submitted successfully.',
-                'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor']),
+                'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -171,7 +189,7 @@ class StudentProposalController extends Controller
 
         $proposals = Title::where('proposed_by_group_id', $membership->group_id)
             ->where('title_source', 'STUDENT')
-            ->with(['proposedSupervisor'])
+            ->with(['proposedSupervisor', 'stakeholders'])
             ->orderBy('created_at', 'desc')
             ->get();
 
@@ -190,6 +208,8 @@ class StudentProposalController extends Controller
             'problem_statement' => 'required|string',
             'scope' => 'required|string',
             'proposed_supervisor_id' => 'sometimes|exists:users,id',
+            'stakeholder_ids' => 'sometimes|array',
+            'stakeholder_ids.*' => 'integer|exists:stakeholders,id',
         ]);
 
         $user = $request->user();
@@ -215,7 +235,7 @@ class StudentProposalController extends Controller
 
         // Check no other pending proposal
         $pendingExists = Title::where('proposed_by_group_id', $membership->group_id)
-            ->where('supervisor_approval_status', 'PENDING')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->exists();
 
         if ($pendingExists) {
@@ -237,8 +257,12 @@ class StudentProposalController extends Controller
                 'rejection_reason' => null,
             ]);
 
+            if (array_key_exists('stakeholder_ids', $validated)) {
+                $title->stakeholders()->sync($validated['stakeholder_ids'] ?? []);
+            }
+
             $group = Group::find($membership->group_id);
-            $group->update(['status' => 'WAITING_SUPERVISOR_APPROVAL']);
+            $group->update(['has_active_proposal' => true]);
 
             // Notify supervisor
             Notification::create([
@@ -254,11 +278,71 @@ class StudentProposalController extends Controller
 
             return response()->json([
                 'message' => 'Proposal resubmitted successfully.',
-                'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor']),
+                'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to resubmit: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Cancel/delete a proposal.
+     */
+    public function destroy(Request $request, $id)
+    {
+        $user = $request->user();
+
+        // Get active period
+        $activePeriod = \App\Models\Period::where('is_active', true)->first();
+        
+        // Check if user is leader in current period
+        $membership = GroupMember::where('student_id', $user->id)
+            ->where('is_leader', true)
+            ->where('period_id', $activePeriod?->id)
+            ->whereHas('group', function ($q) use ($activePeriod) {
+                $q->where('period_id', $activePeriod?->id)
+                  ->where('status', '!=', 'REJECTED');
+            })
+            ->first();
+
+        if (!$membership) {
+            return response()->json(['message' => 'Hanya ketua kelompok yang dapat membatalkan proposal.'], 403);
+        }
+
+        // Find proposal
+        $title = Title::where('id', $id)
+            ->where('proposed_by_group_id', $membership->group_id)
+            ->where('title_source', 'STUDENT')
+            ->first();
+
+        if (!$title) {
+            return response()->json(['message' => 'Proposal tidak ditemukan.'], 404);
+        }
+
+        // Only PENDING or REJECTED proposals can be cancelled
+        if (!in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED'])) {
+            return response()->json(['message' => 'Proposal sudah disetujui dan tidak dapat dibatalkan. Hubungi admin jika ada kebutuhan khusus.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $group = Group::with('period', 'members')->find($membership->group_id);
+
+            // Delete the title (this will cascade any notifications if set)
+            $title->delete();
+            $group->update(['has_active_proposal' => false]);
+
+            // DO NOT change group status - only proposal status changes to CANCELLED
+            // Group status is determined solely by member count via determineStatus()
+            // This is handled by GroupMemberObserver when member changes occur
+
+            DB::commit();
+
+            return response()->json(['message' => 'Proposal berhasil dibatalkan.']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal membatalkan proposal: ' . $e->getMessage()], 500);
         }
     }
 }

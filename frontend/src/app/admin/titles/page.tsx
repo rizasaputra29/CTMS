@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Loader2, BookOpen, Users } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, BookOpen, Users, Search } from 'lucide-react';
 import {
     Select,
     SelectContent,
@@ -31,6 +31,7 @@ interface Group {
 export default function AdminTitlesPage() {
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [groups, setGroups] = useState<Group[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -69,6 +70,17 @@ export default function AdminTitlesPage() {
         fetchData(val);
     };
 
+    const filteredGroups = useMemo(() => {
+        if (!searchQuery) return groups;
+        const q = searchQuery.toLowerCase();
+        return groups.filter(g => 
+            g.title?.title.toLowerCase().includes(q) ||
+            g.members.some(m => m.student.name.toLowerCase().includes(q)) ||
+            g.supervisors?.some(s => s.lecturer.name.toLowerCase().includes(q)) ||
+            g.id.toString().includes(q)
+        );
+    }, [groups, searchQuery]);
+
     if (loading && !groups.length) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -79,7 +91,7 @@ export default function AdminTitlesPage() {
 
     // State machine status map for progress calculation
     const statusProgress: Record<string, number> = {
-        'FORMING': 0, 'READY_FOR_BIDDING': 10, 'WAITING_SUPERVISOR_APPROVAL': 15,
+        'FORMING': 0, 'FORMING_SOLO': 0, 'READY_FOR_BIDDING': 10,
         'KELOMPOK_FINAL': 20, 'PDC1_ACTIVE': 30, 'READY_FOR_SEMPRO': 40,
         'SEMPRO_DONE': 50, 'PDC2_ACTIVE': 60, 'PDC2_READY_FOR_EXPO': 70,
         'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'PDC2_COMPLETED': 100, 'CLOSED': 100
@@ -104,15 +116,25 @@ export default function AdminTitlesPage() {
                 </Select>
             </div>
 
-            {groups.length === 0 ? (
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search by title, student, or supervisor..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
+            {filteredGroups.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Groups</h2>
-                    <p className="text-muted-foreground">There are no groups in this period yet.</p>
+                    <h2 className="text-xl font-bold mb-2">{searchQuery ? "No matching groups found" : "No Groups"}</h2>
+                    <p className="text-muted-foreground">{searchQuery ? "Try adjusting your search query." : "There are no groups in this period yet."}</p>
                 </div>
             ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {groups.map((group) => {
+                    {filteredGroups.map((group) => {
                         const progress = statusProgress[group.status] || 0;
                         return (
                             <Card key={group.id}>

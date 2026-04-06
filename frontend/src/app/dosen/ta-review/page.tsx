@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Loader2, FileCheck, CheckCircle2, RotateCcw, ShieldCheck, Info } from 'lucide-react';
+import { Loader2, FileCheck, CheckCircle2, RotateCcw, ShieldCheck, CalendarDays, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import {
@@ -17,9 +17,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { toast } from 'sonner';
-import axios from 'axios';
-import { useAuth } from '@/context/AuthContext';
 
 interface TaSubmission {
     id: number;
@@ -44,25 +49,42 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function DosenTaReviewPage() {
-    const { user } = useAuth();
     const [submissions, setSubmissions] = useState<TaSubmission[]>([]);
     const [loading, setLoading] = useState(true);
     const [reviewOpen, setReviewOpen] = useState(false);
     const [selectedSub, setSelectedSub] = useState<TaSubmission | null>(null);
     const [feedback, setFeedback] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [periodLoading, setPeriodLoading] = useState(false);
+
+    useEffect(() => {
+        const fetchPeriods = async () => {
+            try {
+                const res = await api.get('/periods-list');
+                setPeriods(res.data);
+            } catch (err) {
+                console.error('Failed to fetch periods', err);
+            }
+        };
+        fetchPeriods();
+    }, []);
 
     const fetchSubmissions = useCallback(async () => {
+        setPeriodLoading(true);
         try {
             // Get supervised groups then their TA submissions
-            const groupRes = await api.get('/dosen/groups/supervised');
+            const periodParam = selectedPeriod !== 'all' ? `&period_id=${selectedPeriod}` : '';
+            const groupRes = await api.get(`/dosen/groups/supervised?${periodParam}`);
             const groups = groupRes.data.data || [];
 
             // For each group, fetch TA submissions
             const allSubs: TaSubmission[] = [];
             for (const group of groups) {
                 try {
-                    const taRes = await api.get(`/dosen/documents?group_id=${group.id}`);
+                    await api.get(`/dosen/documents?group_id=${group.id}`);
                     // Combine with any TA submission data
                     if (group.ta_submissions) {
                         allSubs.push(...group.ta_submissions.map((s: TaSubmission) => ({
@@ -79,12 +101,22 @@ export default function DosenTaReviewPage() {
             console.error('Failed to fetch TA submissions', err);
         } finally {
             setLoading(false);
+            setPeriodLoading(false);
         }
-    }, []);
+    }, [selectedPeriod]);
 
     useEffect(() => {
         fetchSubmissions();
     }, [fetchSubmissions]);
+
+    const filteredSubmissions = useMemo(() => {
+        if (!searchQuery) return submissions;
+        const q = searchQuery.toLowerCase();
+        return submissions.filter(sub => 
+            sub.student?.name.toLowerCase().includes(q) ||
+            sub.group?.title?.title.toLowerCase().includes(q)
+        );
+    }, [submissions, searchQuery]);
 
     const handleReview = async (result: 'APPROVE' | 'REVISE') => {
         if (!selectedSub) return;
@@ -100,7 +132,7 @@ export default function DosenTaReviewPage() {
             setFeedback('');
             fetchSubmissions();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Review failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Review failed');
             else toast.error('Review failed');
         } finally {
             setSubmitting(false);
@@ -114,7 +146,7 @@ export default function DosenTaReviewPage() {
             toast.success('TA marked as defended.');
             fetchSubmissions();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
             else toast.error('Failed to mark as defended');
         }
     };
@@ -140,15 +172,46 @@ export default function DosenTaReviewPage() {
                 <p className="text-muted-foreground">Review student TA drafts and mark defenses.</p>
             </div>
 
-            {submissions.length === 0 ? (
+            <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border">
+                <div className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Academic Period:</span>
+                </div>
+                <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                    <SelectTrigger className="w-[200px] h-9">
+                        <SelectValue placeholder="Select Period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Periods</SelectItem>
+                        {periods.map((p) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>
+                                {p.name} {p.is_active && "(Active)"}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                {periodLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search by student or title..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
+            {filteredSubmissions.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <FileCheck className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No TA Submissions</h2>
-                    <p className="text-muted-foreground">TA submissions from your supervised groups will appear here.</p>
+                    <h2 className="text-xl font-bold mb-2">{searchQuery ? "No matching submissions found" : "No TA Submissions"}</h2>
+                    <p className="text-muted-foreground">{searchQuery ? "Try adjusting your search query." : "TA submissions from your supervised groups will appear here."}</p>
                 </div>
             ) : (
                 <div className="grid gap-4">
-                    {submissions.map((sub) => (
+                    {filteredSubmissions.map((sub) => (
                         <Card key={sub.id}>
                             <CardHeader className="pb-3">
                                 <div className="flex items-start justify-between">

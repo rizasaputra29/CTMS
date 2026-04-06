@@ -18,7 +18,6 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Edit, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface Period { id: number; name: string; is_active: boolean; }
 interface Component {
@@ -83,7 +82,7 @@ export default function AdminAssessmentsPage() {
             }
             setOpen(false); resetForm(); fetchComponents();
         } catch (error: unknown) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to save');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to save');
             else toast.error('Failed to save');
         }
     };

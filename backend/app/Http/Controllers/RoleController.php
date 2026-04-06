@@ -1,0 +1,58 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+
+class RoleController extends Controller
+{
+    public function index(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $roles = $user->roleSlugs();
+
+        return response()->json([
+            'roles' => $roles,
+        ]);
+    }
+
+    public function setActiveRole(Request $request): JsonResponse
+    {
+        $request->validate([
+            'role' => 'required|string',
+        ]);
+
+        $user = $request->user();
+        $availableRoles = $user->roleSlugs();
+        $requestedRole = $request->input('role');
+
+        if (!in_array($requestedRole, $availableRoles, true)) {
+            return response()->json([
+                'message' => 'Invalid role. You do not have this role.',
+            ], 422);
+        }
+
+        if ($request->hasSession()) {
+            $request->session()->put('active_role', $requestedRole);
+        }
+
+        return response()->json([
+            'message' => 'Active role updated successfully.',
+            'active_role' => $requestedRole,
+        ]);
+    }
+
+    public function currentRole(Request $request): JsonResponse
+    {
+        $activeRole = null;
+
+        if ($request->hasSession()) {
+            $activeRole = $request->session()->get('active_role');
+        }
+
+        return response()->json([
+            'active_role' => $activeRole,
+        ]);
+    }
+}

@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import axios from 'axios';
+import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,13 +15,6 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge";
 import {
@@ -31,15 +26,20 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2 } from 'lucide-react';
-import api from '@/lib/api';
 import { toast } from "sonner";
-import axios from 'axios';
+
+interface Role {
+    id: number;
+    name: string;
+    slug: string;
+}
 
 interface User {
     id: number;
     name: string;
     email: string;
-    role: 'admin' | 'dosen' | 'mahasiswa';
+    role: string; // legacy compatibility
+    roles: Role[];
     created_at: string;
 }
 
@@ -61,7 +61,7 @@ export default function AdminUsersPage() {
         name: '',
         email: '',
         password: '',
-        role: 'mahasiswa',
+        roles: ['mahasiswa'],
     });
 
     const fetchUsers = useCallback(async () => {
@@ -103,7 +103,11 @@ export default function AdminUsersPage() {
             let cmp = 0;
             if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
             else if (sortKey === 'email') cmp = a.email.localeCompare(b.email);
-            else if (sortKey === 'role') cmp = a.role.localeCompare(b.role);
+            else if (sortKey === 'role') {
+                const aRoles = (a.roles?.map(r => r.slug) || [a.role]).join(',');
+                const bRoles = (b.roles?.map(r => r.slug) || [b.role]).join(',');
+                cmp = aRoles.localeCompare(bRoles);
+            }
             else if (sortKey === 'created_at') cmp = (a.created_at || '').localeCompare(b.created_at || '');
             return sortDir === 'asc' ? cmp : -cmp;
         });
@@ -151,7 +155,7 @@ export default function AdminUsersPage() {
             name: user.name,
             email: user.email,
             password: '',
-            role: user.role,
+            roles: user.roles?.map(r => r.slug) || [user.role],
         });
         setOpen(true);
     };
@@ -162,7 +166,7 @@ export default function AdminUsersPage() {
             name: '',
             email: '',
             password: '',
-            role: 'mahasiswa',
+            roles: ['mahasiswa'],
         });
     };
 
@@ -231,20 +235,32 @@ export default function AdminUsersPage() {
                                     />
                                 </div>
                                 <div className="grid gap-2">
-                                    <Label htmlFor="role">Role</Label>
-                                    <Select
-                                        value={formData.role}
-                                        onValueChange={(val: string) => setFormData({ ...formData, role: val })}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select role" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            <SelectItem value="mahasiswa">Mahasiswa</SelectItem>
-                                            <SelectItem value="dosen">Dosen</SelectItem>
-                                            <SelectItem value="admin">Admin</SelectItem>
-                                        </SelectContent>
-                                    </Select>
+                                    <Label>Roles</Label>
+                                    <div className="flex flex-wrap gap-4 mt-2">
+                                        {['admin', 'dosen', 'mahasiswa'].map((roleSlug) => (
+                                            <div key={roleSlug} className="flex items-center space-x-2">
+                                                <input
+                                                    type="checkbox"
+                                                    id={`role-${roleSlug}`}
+                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                                    checked={formData.roles.includes(roleSlug)}
+                                                    onChange={(e) => {
+                                                        const roles = [...formData.roles];
+                                                        if (e.target.checked) {
+                                                            roles.push(roleSlug);
+                                                        } else {
+                                                            const idx = roles.indexOf(roleSlug);
+                                                            if (idx > -1) roles.splice(idx, 1);
+                                                        }
+                                                        setFormData({ ...formData, roles });
+                                                    }}
+                                                />
+                                                <Label htmlFor={`role-${roleSlug}`} className="capitalize cursor-pointer">
+                                                    {roleSlug}
+                                                </Label>
+                                            </div>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
                             <DialogFooter>
@@ -303,9 +319,16 @@ export default function AdminUsersPage() {
                                     <TableCell className="font-medium">{user.name}</TableCell>
                                     <TableCell className="text-muted-foreground">{user.email}</TableCell>
                                     <TableCell>
-                                        <Badge variant={user.role === 'admin' ? 'default' : user.role === 'dosen' ? 'secondary' : 'outline'}>
-                                            {user.role}
-                                        </Badge>
+                                        <div className="flex flex-wrap gap-1">
+                                            {(user.roles?.map(r => r.slug) || [user.role]).map((slug) => (
+                                                <Badge
+                                                    key={`${user.id}-${slug}`}
+                                                    variant={slug === 'admin' ? 'default' : slug === 'dosen' ? 'secondary' : 'outline'}
+                                                >
+                                                    {slug}
+                                                </Badge>
+                                            ))}
+                                        </div>
                                     </TableCell>
                                     <TableCell className="text-muted-foreground">
                                         {new Date(user.created_at).toLocaleDateString()}

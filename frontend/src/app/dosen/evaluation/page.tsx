@@ -1,12 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, GraduationCap, CalendarDays, CheckCircle2, Clock, MapPin, Users } from 'lucide-react';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Loader2, GraduationCap, CalendarDays, CheckCircle2, Clock, MapPin, Users, Search } from 'lucide-react';
 
 interface Evaluation {
     id: number;
@@ -52,12 +60,30 @@ interface SeminarData {
 export default function DosenExaminerPage() {
     const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
     const [loading, setLoading] = useState(true);
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [periodLoading, setPeriodLoading] = useState(false);
+
+    useEffect(() => {
+        const fetchPeriods = async () => {
+            try {
+                const res = await api.get('/periods-list');
+                setPeriods(res.data);
+            } catch (err) {
+                console.error('Failed to fetch periods', err);
+            }
+        };
+        fetchPeriods();
+    }, []);
 
     useEffect(() => {
         const fetchEvaluations = async () => {
+            setPeriodLoading(true);
             try {
                 // Fetch schedules where dosen is examiner
-                const res = await api.get('/dosen/seminar-schedules/examiner');
+                const periodParam = selectedPeriod !== 'all' ? `?period_id=${selectedPeriod}` : '';
+                const res = await api.get(`/dosen/seminar-schedules/examiner${periodParam}`);
                 const seminars: SeminarData[] = res.data.data?.seminars || [];
                 const taDefenses: SeminarData[] = res.data.data?.ta_defenses || [];
 
@@ -97,10 +123,20 @@ export default function DosenExaminerPage() {
                 console.error('Failed to fetch evaluations', err);
             } finally {
                 setLoading(false);
+                setPeriodLoading(false);
             }
         };
         fetchEvaluations();
-    }, []);
+    }, [selectedPeriod]);
+
+    const filteredEvaluations = useMemo(() => {
+        if (!searchQuery) return evaluations;
+        const q = searchQuery.toLowerCase();
+        return evaluations.filter(e => 
+            e.schedule.group.title?.title.toLowerCase().includes(q) ||
+            e.schedule.group.members.some(m => m.student.name.toLowerCase().includes(q))
+        );
+    }, [evaluations, searchQuery]);
 
     if (loading) {
         return (
@@ -110,8 +146,8 @@ export default function DosenExaminerPage() {
         );
     }
 
-    const pending = evaluations.filter(e => e.status === 'PENDING');
-    const completed = evaluations.filter(e => e.status !== 'PENDING');
+    const pending = filteredEvaluations.filter(e => e.status === 'PENDING');
+    const completed = filteredEvaluations.filter(e => e.status !== 'PENDING');
 
     const EvaluationCard = ({ evalItem }: { evalItem: Evaluation }) => (
         <Card>
@@ -176,6 +212,37 @@ export default function DosenExaminerPage() {
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">Examiner Dashboard</h1>
                 <p className="text-muted-foreground">Manage your seminar and defense evaluations.</p>
+            </div>
+
+            <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border">
+                <div className="flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Academic Period:</span>
+                </div>
+                <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                    <SelectTrigger className="w-[200px] h-9">
+                        <SelectValue placeholder="Select Period" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All Periods</SelectItem>
+                        {periods.map((p) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>
+                                {p.name} {p.is_active && "(Active)"}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                {periodLoading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+            </div>
+
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search by student or title..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                />
             </div>
 
             <Tabs defaultValue="pending" className="space-y-4">

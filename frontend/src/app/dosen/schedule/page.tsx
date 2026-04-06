@@ -13,17 +13,19 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2 } from 'lucide-react';
 import { toast } from "sonner";
 import { format } from 'date-fns';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
 
 interface Group {
@@ -41,7 +43,10 @@ interface Group {
 export default function DosenSchedulePage() {
     const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
     const [groups, setGroups] = useState<Group[]>([]);
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
 
@@ -55,12 +60,22 @@ export default function DosenSchedulePage() {
     });
     const [editingId, setEditingId] = useState<number | null>(null);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
+    const fetchData = useCallback(async (periodId?: string) => {
+        if (periodId) setRefreshing(true);
+        else setLoading(true);
+
         try {
+            // Fetch periods if not already fetched
+            if (periods.length === 0) {
+                const periodsRes = await api.get('/periods-list');
+                setPeriods(periodsRes.data);
+            }
+
+            const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
+
             const [schedulesRes, groupsRes] = await Promise.all([
-                api.get('/dosen/schedules'),
-                api.get('/dosen/groups')
+                api.get(`/dosen/schedules${queryParam}`),
+                api.get(`/dosen/groups${queryParam}`)
             ]);
             setSchedules(schedulesRes.data.data);
             setGroups(groupsRes.data.data);
@@ -68,12 +83,18 @@ export default function DosenSchedulePage() {
             console.error('Failed to fetch data', error);
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
-    }, []);
+    }, [periods.length]);
 
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    const handlePeriodChange = (val: string) => {
+        setSelectedPeriod(val);
+        fetchData(val);
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -159,9 +180,30 @@ export default function DosenSchedulePage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Schedules</h1>
-                <p className="text-muted-foreground">Manage bimbingan sessions for your supervised groups.</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Schedules</h1>
+                    <p className="text-muted-foreground">Manage bimbingan sessions for your supervised groups.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="All Periods" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Academic Period</SelectLabel>
+                                <SelectItem value="all">All Periods</SelectItem>
+                                {periods.map(p => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                        {p.name} {p.is_active && "(Active)"}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                    {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
             </div>
 
             <ScheduleCalendar

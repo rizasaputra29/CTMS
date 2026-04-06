@@ -1,13 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search } from 'lucide-react';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Gavel, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import axios from 'axios';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 
 interface Bid {
     id: number;
@@ -24,37 +34,70 @@ interface Bid {
 
 export default function DosenBidsPage() {
     const [bids, setBids] = useState<Bid[]>([]);
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [submitting, setSubmitting] = useState<number | null>(null);
 
-    const fetchBids = useCallback(async () => {
+    const fetchData = useCallback(async (periodId?: string) => {
+        if (periodId) setRefreshing(true);
+        else setLoading(true);
+
         try {
-            const res = await api.get('/dosen/bids');
+            // Fetch periods if not already fetched
+            if (periods.length === 0) {
+                const periodsRes = await api.get('/periods-list');
+                setPeriods(periodsRes.data);
+            }
+
+            const url = periodId && periodId !== 'all' 
+                ? `/dosen/bids?period_id=${periodId}` 
+                : '/dosen/bids';
+            
+            const res = await api.get(url);
             setBids(res.data.data || []);
         } catch (err) {
             console.error('Failed to fetch bids', err);
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
-    }, []);
+    }, [periods.length]);
 
     useEffect(() => {
-        fetchBids();
-    }, [fetchBids]);
+        fetchData();
+    }, [fetchData]);
+
+    const handlePeriodChange = (val: string) => {
+        setSelectedPeriod(val);
+        fetchData(val);
+    };
 
     const handleRecommend = async (bidId: number, recommendation: 'ACCEPT' | 'REJECT') => {
         setSubmitting(bidId);
         try {
             await api.put(`/dosen/bids/${bidId}/recommend`, { recommendation });
             toast.success(`Recommendation: ${recommendation}`);
-            fetchBids();
+            fetchData(selectedPeriod);
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
             else toast.error('Failed to submit recommendation');
         } finally {
             setSubmitting(null);
         }
     };
+
+    const filteredBids = useMemo(() => {
+        if (!searchQuery) return bids;
+        const q = searchQuery.toLowerCase();
+        return bids.filter(bid => 
+            bid.title.title.toLowerCase().includes(q) ||
+            bid.group_id.toString().includes(q) ||
+            bid.group.members.some(m => m.student.name.toLowerCase().includes(q))
+        );
+    }, [bids, searchQuery]);
 
     if (loading) {
         return (
@@ -65,7 +108,7 @@ export default function DosenBidsPage() {
     }
 
     // Group bids by title
-    const byTitle = bids.reduce((acc, bid) => {
+    const byTitle = filteredBids.reduce((acc, bid) => {
         const key = bid.title.id;
         if (!acc[key]) acc[key] = { title: bid.title, bids: [] };
         acc[key].bids.push(bid);
@@ -74,9 +117,40 @@ export default function DosenBidsPage() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Bid Review</h1>
-                <p className="text-muted-foreground">Review bids on your titles. Your recommendation is advisory for admin.</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Bid Review</h1>
+                    <p className="text-muted-foreground">Review bids on your titles. Your recommendation is advisory for admin.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                        <SelectTrigger className="w-[200px]">
+                            <SelectValue placeholder="All Periods" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Academic Period</SelectLabel>
+                                <SelectItem value="all">All Periods</SelectItem>
+                                {periods.map(p => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                        {p.name} {p.is_active && "(Active)"}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                    {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
+            </div>
+
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search titles, students, or groups..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                />
             </div>
 
             {Object.keys(byTitle).length === 0 ? (

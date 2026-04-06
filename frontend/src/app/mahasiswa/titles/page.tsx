@@ -1,10 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import axios from 'axios';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
     Table,
@@ -14,14 +17,34 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { ArrowUpDown, Search, Loader2, Info, Lock } from 'lucide-react';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog"
+import { Textarea } from '@/components/ui/textarea';
+import { 
+    Search, Loader2, Info, Lock, 
+    BookOpen, Lightbulb, Send, User, Check
+} from 'lucide-react';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import api from '@/lib/api';
 import { toast } from "sonner";
-import axios from 'axios';
+import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
 
 const SPECIALIZATIONS = ['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'];
 
-interface Title {
+interface LecturerTitle {
     id: number;
     title: string;
     description: string;
@@ -32,94 +55,162 @@ interface Title {
     lecturer?: { id: number; name: string; email: string };
 }
 
+interface StudentIdea {
+    id: number;
+    title: string;
+    description: string;
+    specializations: string[] | null;
+    proposed_supervisor: { id: number; name: string } | null;
+    proposed_by_group: {
+        id: number;
+        status: string;
+        members: { id: number; is_leader: boolean; student: { id: number; name: string; email: string } }[];
+        period: { max_group_size: number } | null;
+    } | null;
+}
+
 interface Group {
     id: number;
     title_id: number | null;
     status: string;
     title?: { id: number; title: string };
     members: { id: number; student_id: number; is_leader: boolean }[];
+    period?: { max_group_size: number };
 }
 
-type SortKey = 'title' | 'lecturer' | 'quota' | 'specializations';
-type SortDir = 'asc' | 'desc';
-
-export default function MahasiswaTitlesPage() {
-    const [titles, setTitles] = useState<Title[]>([]);
-    const [loading, setLoading] = useState(true);
+export default function TitlesMarketplacePage() {
+    const router = useRouter();
+    const { user, isLoading: authLoading } = useAuth();
+    const [lecturerTitles, setLecturerTitles] = useState<LecturerTitle[]>([]);
+    const [studentIdeas, setStudentIdeas] = useState<StudentIdea[]>([]);
     const [group, setGroup] = useState<Group | null>(null);
-    const [biddingId, setBiddingId] = useState<number | null>(null);
-
+    const [loading, setLoading] = useState(true);
+    
+    // UI State
+    const [, setActiveTab] = useState('lecturer');
     const [search, setSearch] = useState('');
     const [filterSpecs, setFilterSpecs] = useState<string[]>([]);
-    const [sortKey, setSortKey] = useState<SortKey>('title');
-    const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean; is_finalized?: boolean }[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
 
-    useEffect(() => {
-        const fetchData = async () => {
-            try {
-                const [titlesRes, groupRes] = await Promise.all([
-                    api.get('/mahasiswa/titles'),
-                    api.get('/mahasiswa/group'),
-                ]);
-                setTitles(titlesRes.data);
-                setGroup(groupRes.data?.group || groupRes.data);
-            } catch (error) {
-                console.error('Failed to fetch data', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchData();
-    }, []);
+    // Bidding/Join State
+    const [, setBiddingId] = useState<number | null>(null);
+    const [canRequestJoin, setCanRequestJoin] = useState(false);
+    const [myPendingRequests, setMyPendingRequests] = useState<number[]>([]);
+    const [requestDialogOpen, setRequestDialogOpen] = useState(false);
+    const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+    const [joinMessage, setJoinMessage] = useState('');
+    const [submitting, setSubmitting] = useState(false);
 
-    const hasGroup = !!group;
-    const hasTitle = !!group?.title_id;
-    const isApproved = group?.status === 'APPROVED';
-    const isPending = group?.status === 'PENDING';
-    const isWaitingProposal = group?.status === 'WAITING_SUPERVISOR_APPROVAL';
-    const canBid = hasGroup && !hasTitle && !isPending && !isWaitingProposal && group?.status === 'READY_FOR_BIDDING';
+    const selectedPeriodData = useMemo(() => {
+        return periods.find(p => p.id.toString() === selectedPeriod);
+    }, [periods, selectedPeriod]);
 
-    const handleBid = async (titleId: number) => {
-        if (!canBid) return;
-        setBiddingId(titleId);
+    const isPeriodFinalized = !!selectedPeriodData?.is_finalized;
+
+    const fetchData = useCallback(async (periodId?: string) => {
+        setLoading(true);
         try {
-            await api.post('/mahasiswa/group/bid-title', { title_id: titleId });
-            toast.success('Bid submitted successfully!');
-            const groupRes = await api.get('/mahasiswa/group');
+            let currentPeriodId = periodId || selectedPeriod;
+            if (!currentPeriodId) {
+                const perRes = await api.get('/periods-list');
+                setPeriods(perRes.data || []);
+                const active = (perRes.data || []).find((p: { is_active: boolean }) => p.is_active);
+                if (active) currentPeriodId = active.id.toString();
+                setSelectedPeriod(currentPeriodId);
+            }
+
+            if (!currentPeriodId) {
+                setLoading(false);
+                return;
+            }
+
+            const [titlesRes, ideasRes, groupRes] = await Promise.all([
+                api.get(`/mahasiswa/titles?period_id=${currentPeriodId}`),
+                api.get(`/mahasiswa/bursa-ide?period_id=${currentPeriodId}`),
+                api.get('/mahasiswa/group'),
+            ]);
+            setLecturerTitles(titlesRes.data);
+            setStudentIdeas(ideasRes.data.data || []);
+            setCanRequestJoin(ideasRes.data.can_request_join);
+            setMyPendingRequests(ideasRes.data.my_pending_requests || []);
             setGroup(groupRes.data?.group || groupRes.data);
         } catch (error) {
-            if (axios.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to bid');
-            } else {
-                toast.error('Failed to submit bid');
+            if (axios.isAxiosError(error) && error.response?.status === 401) {
+                toast.error('Sesi Anda sudah habis. Silakan masuk kembali.');
+                router.replace('/login');
+                return;
             }
+
+            console.error('Failed to fetch marketplace data', error);
+        } finally {
+            setLoading(false);
+        }
+    }, [router, selectedPeriod]);
+
+    useEffect(() => {
+        if (authLoading) return;
+
+        if (!user) {
+            router.replace('/login');
+            return;
+        }
+
+        if (!selectedPeriod) fetchData();
+    }, [authLoading, fetchData, router, selectedPeriod, user]);
+
+    // --- Actions ---
+    const handleBid = async (titleId: number) => {
+        const canBid = !!group && !group.title_id && group.status === 'READY_FOR_BIDDING' && group.members.length >= 3;
+        if (!canBid) return;
+        
+        setBiddingId(titleId);
+        try {
+            // Need to get props from state or something for supervisors? 
+            // The original logic used a priority form usually, but the simplified mockup just sent title_id.
+            // Let's check how the current BidController expects it.
+            // Actually the current BidController expects supervisors. I'll just redirect to a detail page or show a simplified modal?
+            // For now, let's just stick to the simple bid if possible, or redirect.
+            window.location.href = `/mahasiswa/titles/${titleId}`;
         } finally {
             setBiddingId(null);
         }
     };
 
+    const handleRequestJoin = async () => {
+        if (!selectedGroupId) return;
+        setSubmitting(true);
+        try {
+            await api.post(`/mahasiswa/bursa-ide/${selectedGroupId}/request-join`, {
+                message: joinMessage || null,
+            });
+            toast.success('Join request sent!');
+            setRequestDialogOpen(false);
+            setJoinMessage('');
+            setSelectedGroupId(null);
+            fetchData();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Failed to send join request');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    // --- Helpers ---
     const toggleSpecFilter = (spec: string) => {
         setFilterSpecs(prev =>
             prev.includes(spec) ? prev.filter(s => s !== spec) : [...prev, spec]
         );
     };
 
-    const handleSort = (key: SortKey) => {
-        if (sortKey === key) {
-            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortKey(key);
-            setSortDir('asc');
-        }
-    };
-
-    const filteredTitles = useMemo(() => {
-        let result = titles;
+    const filteredLecturerTitles = useMemo(() => {
+        let result = lecturerTitles;
         if (search) {
             const q = search.toLowerCase();
             result = result.filter(t =>
                 t.title.toLowerCase().includes(q) ||
-                t.description.toLowerCase().includes(q) ||
                 (t.lecturer?.name || '').toLowerCase().includes(q)
             );
         }
@@ -128,142 +219,323 @@ export default function MahasiswaTitlesPage() {
                 t.specializations && filterSpecs.some(s => t.specializations!.includes(s))
             );
         }
-        result = [...result].sort((a, b) => {
-            let cmp = 0;
-            if (sortKey === 'title') cmp = a.title.localeCompare(b.title);
-            else if (sortKey === 'lecturer') cmp = (a.lecturer?.name || '').localeCompare(b.lecturer?.name || '');
-            else if (sortKey === 'quota') cmp = (a.quota - a.active_groups_count) - (b.quota - b.active_groups_count);
-            else if (sortKey === 'specializations') cmp = (a.specializations?.join(',') || '').localeCompare(b.specializations?.join(',') || '');
-            return sortDir === 'asc' ? cmp : -cmp;
+        
+        // Filter based on availability
+        result = result.filter(title => {
+            // Hide if lecturer withdrew approval (status = PENDING)
+            if (title.status === 'PENDING') {
+                return false;
+            }
+            
+            // Hide if current group reached max members with this title
+            if (group && group.title_id === title.id) {
+                const maxSize = group.period?.max_group_size || 4;
+                if (group.members.length >= maxSize) {
+                    return false;
+                }
+            }
+            
+            // Hide if current group at READY_FOR_FINALIZATION
+            if (group?.status === 'READY_FOR_FINALIZATION') {
+                return false;
+            }
+            
+            return true;
         });
+        
         return result;
-    }, [titles, search, filterSpecs, sortKey, sortDir]);
+    }, [lecturerTitles, search, filterSpecs, group]);
 
-    const getStatusMessage = () => {
-        if (!hasGroup) return null;
-        if (isApproved) return { icon: <Lock className="h-4 w-4" />, title: 'Title Approved', desc: `Your group already has an approved title: "${group?.title?.title}".` };
-        if (isPending) return { icon: <Lock className="h-4 w-4" />, title: 'Bid Pending', desc: 'Your group has a pending bid. Wait for the lecturer to respond.' };
-        if (isWaitingProposal) return { icon: <Lock className="h-4 w-4" />, title: 'Proposal Pending', desc: 'Your group has a pending title proposal. Cannot bid while proposal is pending.' };
-        return null;
-    };
+    const filteredStudentIdeas = useMemo(() => {
+        let result = studentIdeas;
+        if (search) {
+            const q = search.toLowerCase();
+            result = result.filter(t =>
+                t.title.toLowerCase().includes(q) ||
+                (t.proposed_supervisor?.name || '').toLowerCase().includes(q)
+            );
+        }
+        if (filterSpecs.length > 0) {
+            result = result.filter(t =>
+                t.specializations && filterSpecs.some(s => t.specializations!.includes(s))
+            );
+        }
+        return result;
+    }, [studentIdeas, search, filterSpecs]);
 
-    const statusMsg = getStatusMessage();
+    const memberCount = group?.members?.length || 0;
+    const hasMultipleMembers = memberCount > 1;
+    const canBidOnLecturer = !!group && !group.title_id && memberCount >= 3;
 
-    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className="h-3 w-3 opacity-50" />
+    if (loading) {
+        return (
+            <div className="flex justify-center items-center h-64">
+                <Loader2 className="h-8 w-8 animate-spin" />
             </div>
-        </TableHead>
-    );
+        );
+    }
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Available Titles</h1>
-                <p className="text-muted-foreground">Browse and bid on titles offered by lecturers.</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Titles Marketplace</h1>
+                    <p className="text-muted-foreground">Temukan topik skripsi atau bergabung dengan ide mahasiswa lain.</p>
+                </div>
+                <div className="flex items-center gap-3">
+                    <Select value={selectedPeriod} onValueChange={(val: string) => { setSelectedPeriod(val); fetchData(val); }} disabled={loading}>
+                        <SelectTrigger className="w-[240px]">
+                            <SelectValue placeholder="Select period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {periods.map(p => (
+                                <SelectItem key={p.id} value={p.id.toString()}>
+                                    {p.name} {p.is_active && !p.is_finalized ? "(Open)" : ""}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
 
-            {/* Status Alerts */}
-            {!hasGroup && (
+            {/* Finalized Period Alert */}
+            {isPeriodFinalized && (
+                <Alert variant="destructive">
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>View-Only Mode</AlertTitle>
+                    <AlertDescription>
+                        Pendaftaran untuk periode **{selectedPeriodData?.name}** sudah ditutup. Anda masih bisa melihat judul sebagai arsip, tetapi tidak dapat melakukan bidding atau meminta bergabung.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {/* Constraints Alert */}
+            {!group && (
                 <Alert>
                     <Info className="h-4 w-4" />
                     <AlertTitle>No Group Yet</AlertTitle>
                     <AlertDescription>
-                        You must <a href="/mahasiswa/group" className="font-medium underline">create a group</a> first before you can bid for a title.
+                        Anda harus <Link href="/mahasiswa/group" className="font-medium underline">membuat kelompok</Link> terlebih dahulu sebelum bisa melakukan bidding.
                     </AlertDescription>
                 </Alert>
             )}
-            {statusMsg && (
-                <Alert>
-                    {statusMsg.icon}
-                    <AlertTitle>{statusMsg.title}</AlertTitle>
-                    <AlertDescription>{statusMsg.desc}</AlertDescription>
+
+            {group && memberCount < 3 && (
+                <Alert variant="destructive">
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Bidding Locked</AlertTitle>
+                    <AlertDescription>
+                        Kelompok Anda memiliki {memberCount} anggota. **Minimal 3 anggota** diperlukan untuk melakukan bidding pada judul dari Dosen. 
+                        Silakan tambahkan anggota di menu <Link href="/mahasiswa/group" className="underline font-bold">Grup Saya</Link>.
+                    </AlertDescription>
                 </Alert>
             )}
 
             {/* Search + Filter */}
-            <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
+            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div className="relative flex-1 w-full">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search titles or lecturers..."
+                        placeholder="Search titles, lecturers, or student ideas..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         className="pl-9"
                     />
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">Filter:</span>
+                    <span className="text-sm font-medium mr-1">Filter Tags:</span>
                     {SPECIALIZATIONS.map(spec => (
-                        <label key={spec} className="flex items-center gap-1.5 cursor-pointer">
-                            <Checkbox
-                                checked={filterSpecs.includes(spec)}
-                                onCheckedChange={() => toggleSpecFilter(spec)}
-                            />
-                            <span className="text-xs">{spec}</span>
-                        </label>
+                        <Badge 
+                            key={spec} 
+                            variant={filterSpecs.includes(spec) ? "default" : "outline"}
+                            className="cursor-pointer select-none"
+                            onClick={() => toggleSpecFilter(spec)}
+                        >
+                            {spec}
+                        </Badge>
                     ))}
                 </div>
             </div>
 
-            {/* Table */}
-            {loading ? (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
-            ) : filteredTitles.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                    {titles.length === 0 ? 'No titles are currently available.' : 'No titles match your search/filter.'}
-                </div>
-            ) : (
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <SortHeader label="Title" sortKeyName="title" />
-                                <SortHeader label="Lecturer" sortKeyName="lecturer" />
-                                <TableHead>Specializations</TableHead>
-                                <SortHeader label="Available" sortKeyName="quota" />
-                                {canBid && <TableHead className="text-right">Action</TableHead>}
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {filteredTitles.map(title => (
-                                <TableRow key={title.id} className="cursor-pointer" onClick={() => window.location.href = `/mahasiswa/titles/${title.id}`}>
-                                    <TableCell className="font-medium max-w-[300px]">
-                                        <div className="line-clamp-2">{title.title}</div>
-                                    </TableCell>
-                                    <TableCell className="whitespace-nowrap">{title.lecturer?.name || '-'}</TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-wrap gap-1">
-                                            {(title.specializations || []).map(s => (
-                                                <Badge key={s} variant="outline" className="text-xs">{s}</Badge>
-                                            ))}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell>
-                                        {title.quota - title.active_groups_count}/{title.quota} group{title.quota > 1 ? 's' : ''}
-                                    </TableCell>
-                                    {canBid && (
-                                        <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
-                                            <Button
-                                                size="sm"
-                                                onClick={() => handleBid(title.id)}
-                                                disabled={biddingId === title.id}
-                                            >
-                                                {biddingId === title.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                                Bid
-                                            </Button>
-                                        </TableCell>
-                                    )}
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            )}
+            <Tabs defaultValue="lecturer" onValueChange={setActiveTab} className="space-y-4">
+                <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+                    <TabsTrigger value="lecturer" className="flex gap-2">
+                        <BookOpen className="h-4 w-4" /> Lecturer Offered
+                    </TabsTrigger>
+                    <TabsTrigger value="student" className="flex gap-2">
+                        <Lightbulb className="h-4 w-4" /> Student Ideas
+                    </TabsTrigger>
+                </TabsList>
+
+                {/* Lecturer Titles Tab */}
+                <TabsContent value="lecturer" className="space-y-4">
+                    {filteredLecturerTitles.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
+                            No titles found matching your criteria.
+                        </div>
+                    ) : (
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>Project Title</TableHead>
+                                        <TableHead>Lecturer</TableHead>
+                                        <TableHead>Specs</TableHead>
+                                        <TableHead>Availability</TableHead>
+                                        <TableHead className="text-right">Action</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {filteredLecturerTitles.map(title => (
+                                        <TableRow key={title.id} className="group cursor-pointer hover:bg-muted/30" onClick={() => window.location.href = `/mahasiswa/titles/${title.id}`}>
+                                            <TableCell className="font-medium max-w-[350px]">
+                                                <div className="line-clamp-2">{title.title}</div>
+                                            </TableCell>
+                                            <TableCell className="whitespace-nowrap">{title.lecturer?.name || '-'}</TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {(title.specializations || []).map(s => (
+                                                        <Badge key={s} variant="outline" className="text-[10px] h-5">{s}</Badge>
+                                                    ))}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                {title.quota - title.active_groups_count} of {title.quota} open
+                                            </TableCell>
+                                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => handleBid(title.id)}
+                                                    disabled={isPeriodFinalized || !canBidOnLecturer || (title.quota - title.active_groups_count <= 0)}
+                                                    variant={canBidOnLecturer && !isPeriodFinalized ? "default" : "outline"}
+                                                >
+                                                    {isPeriodFinalized ? <Lock className="mr-2 h-3 w-3" /> : !canBidOnLecturer ? <Lock className="mr-2 h-3 w-3" /> : null}
+                                                    {isPeriodFinalized ? "Closed" : "View & Bid"}
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    )}
+                </TabsContent>
+
+                {/* Student Ideas Tab (Bursa Ide) */}
+                <TabsContent value="student" className="space-y-4">
+                    {!canRequestJoin && !loading && (
+                        <Alert className="mb-4">
+                            <Info className="h-4 w-4" />
+                            <AlertTitle>Viewing Only</AlertTitle>
+                            <AlertDescription>
+                                {group?.title_id 
+                                    ? "Anda sudah memiliki judul tetap. Fitur bergabung tidak lagi tersedia."
+                                    : "Anda sudah terdaftar di kelompok permanen (Ready for Bidding) atau bukan ketua kelompok. Fitur bergabung hanya untuk mahasiswa tanpa kelompok atau Ketua Kelompok Seeker."
+                                }
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
+                    {filteredStudentIdeas.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
+                            <Lightbulb className="h-10 w-10 mx-auto mb-2 opacity-20" />
+                            <p>No student-proposed ideas found yet.</p>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {filteredStudentIdeas.map((title) => {
+                                const groupInfo = title.proposed_by_group;
+                                const maxMembers = 4; // Hardcoded default or from system
+                                const currentCount = groupInfo?.members?.length || 0;
+                                const spots = maxMembers - currentCount;
+                                const isPending = groupInfo ? myPendingRequests.includes(groupInfo.id) : false;
+                                
+                                return (
+                                    <Card key={title.id} className="flex flex-col">
+                                        <CardHeader className="pb-2">
+                                            <div className="flex justify-between items-start">
+                                                <div className="space-y-1">
+                                                    <CardTitle className="text-base line-clamp-1">{title.title}</CardTitle>
+                                                    <CardDescription className="text-xs">By {groupInfo?.members?.find(m => m.is_leader)?.student.name}</CardDescription>
+                                                </div>
+                                                <Badge variant={spots > 0 ? "secondary" : "destructive"}>
+                                                    {spots > 0 ? `${spots} slots` : 'FULL'}
+                                                </Badge>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="flex-1 space-y-4">
+                                            <p className="text-sm text-muted-foreground line-clamp-3">{title.description}</p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {title.specializations?.map(s => (
+                                                    <Badge key={s} variant="outline" className="text-[10px]">{s}</Badge>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t">
+                                                <User className="h-3 w-3" />
+                                                <span>Proposed Supervisor: {title.proposed_supervisor?.name || 'N/A'}</span>
+                                            </div>
+                                        </CardContent>
+                                        <CardFooter className="bg-muted/10 p-3 pt-0">
+                                            {isPeriodFinalized ? (
+                                                <Button variant="ghost" disabled className="w-full text-xs font-semibold">
+                                                    <Lock className="mr-2 h-3 w-3" /> Period Closed
+                                                </Button>
+                                            ) : groupInfo?.id === group?.id ? (
+                                                <Button variant="ghost" disabled className="w-full text-xs font-semibold text-primary">
+                                                    <Check className="mr-2 h-3 w-3" /> Your Idea
+                                                </Button>
+                                            ) : canRequestJoin && spots > 0 ? (
+                                                isPending ? (
+                                                    <Button variant="ghost" disabled className="w-full text-xs">
+                                                        <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Pending Approval
+                                                    </Button>
+                                                ) : (
+                                                    <Button variant="default" size="sm" className="w-full" onClick={() => { setSelectedGroupId(groupInfo?.id || null); setRequestDialogOpen(true); }}>
+                                                        <Send className="mr-2 h-3 w-3" /> {hasMultipleMembers ? 'Merge Group' : 'Request to Join'}
+                                                    </Button>
+                                                )
+                                            ) : (
+                                                <Button variant="ghost" disabled className="w-full text-xs">
+                                                    Unavailable
+                                                </Button>
+                                            )}
+                                        </CardFooter>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    )}
+                </TabsContent>
+            </Tabs>
+
+            {/* Request to Join Dialog */}
+            <Dialog open={requestDialogOpen} onOpenChange={setRequestDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{hasMultipleMembers ? 'Merge Groups' : 'Request to Join Group'}</DialogTitle>
+                        <DialogDescription>
+                            {hasMultipleMembers 
+                                ? `Sebagai Ketua Kelompok, permintaan ini akan memindahkan SELURUH anggota kelompok Anda (${memberCount} orang) ke dalam ide ini. Kelompok lama Anda akan dibubarkan.`
+                                : 'Kirim pesan ke ketua kelompok untuk menjelaskan ketertarikan Anda bergabung dengan ide ini.'
+                            }
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Textarea
+                            placeholder="Halo, saya tertarik dengan ide ini karena..."
+                            value={joinMessage}
+                            onChange={(e) => setJoinMessage(e.target.value)}
+                            rows={4}
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setRequestDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleRequestJoin} disabled={submitting}>
+                            {submitting ? 'Sending...' : 'Send Request'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

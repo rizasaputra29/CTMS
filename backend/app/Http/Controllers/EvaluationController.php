@@ -17,8 +17,9 @@ class EvaluationController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
+        $roles = $user->roleSlugs();
 
-        if ($user->role === 'dosen') {
+        if (in_array('dosen', $roles, true)) {
             // Return evaluations made by this dosen? Or for groups supervised?
             // Since evaluations are usually per student per phase
             // Let's allow filtering by group_id
@@ -28,7 +29,7 @@ class EvaluationController extends Controller
             return response()->json(['data' => []]);
         }
 
-        if ($user->role === 'mahasiswa') {
+        if (in_array('mahasiswa', $roles, true)) {
             return response()->json(['data' => Evaluation::where('student_id', $user->id)->get()]);
         }
 
@@ -40,7 +41,7 @@ class EvaluationController extends Controller
      */
     public function store(Request $request)
     {
-        if (Auth::user()->role !== 'dosen') {
+        if (!Auth::user()->hasRole('dosen')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

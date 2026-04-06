@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,9 +16,8 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Edit, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface DocumentType {
     id: number; name: string; description: string | null;
@@ -33,6 +32,14 @@ export default function AdminDocumentTypesPage() {
     const [open, setOpen] = useState(false);
     const [editing, setEditing] = useState<DocumentType | null>(null);
     const [form, setForm] = useState({ name: '', description: '', phase: 'ALL' });
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredTypes = useMemo(() => {
+        return types.filter(t => 
+            t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            t.description?.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [types, searchQuery]);
 
     const fetchTypes = useCallback(async () => {
         setLoading(true);
@@ -66,7 +73,7 @@ export default function AdminDocumentTypesPage() {
             }
             setOpen(false); resetForm(); fetchTypes();
         } catch (error: unknown) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to save');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to save');
             else toast.error('Failed to save');
         }
     };
@@ -112,10 +119,22 @@ export default function AdminDocumentTypesPage() {
                 </Dialog>
             </div>
 
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search document types..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
             {loading ? (
                 <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>
-            ) : types.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed text-muted-foreground">No document types defined yet.</div>
+            ) : filteredTypes.length === 0 ? (
+                <div className="text-center py-12 border rounded-lg border-dashed text-muted-foreground">
+                    {searchQuery ? 'No matching document types found.' : 'No document types defined yet.'}
+                </div>
             ) : (
                 <div className="rounded-md border">
                     <Table>
@@ -129,7 +148,7 @@ export default function AdminDocumentTypesPage() {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {types.map(t => (
+                            {filteredTypes.map(t => (
                                 <TableRow key={t.id}>
                                     <TableCell className="font-medium">{t.name}</TableCell>
                                     <TableCell className="text-muted-foreground max-w-[300px] truncate">{t.description || '—'}</TableCell>

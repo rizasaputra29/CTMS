@@ -12,10 +12,25 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
+        $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (\App\Exceptions\ConflictRuleException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
+                'code' => 'CONFLICT'
+            ], 409);
+        });
+
+        $exceptions->render(function (\App\Exceptions\DomainRuleException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
+                'code' => 'DOMAIN_ERROR'
+            ], 422);
+        });
     })->create();

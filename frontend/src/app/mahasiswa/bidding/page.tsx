@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Gavel, Plus, Trash2, UserCheck, Lock, AlertTriangle } from 'lucide-react';
+import { Loader2, Gavel, Trash2, UserCheck, Lock, AlertTriangle, ArrowUp, ArrowDown, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -25,7 +25,6 @@ import {
 } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
-import axios from 'axios';
 import { useAuth } from '@/context/AuthContext';
 
 interface Lecturer {
@@ -59,6 +58,14 @@ interface GroupInfo {
     members: { id: number; student: { id: number }; is_leader: boolean }[];
 }
 
+interface ProposalItem {
+    id: number;
+    title: string;
+    description: string;
+    supervisor_approval_status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED' | string;
+    proposed_supervisor?: Lecturer | null;
+}
+
 export default function BiddingPage() {
     const { user } = useAuth();
     const [bids, setBids] = useState<Bid[]>([]);
@@ -72,7 +79,9 @@ export default function BiddingPage() {
     const [supervisor2, setSupervisor2] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [group, setGroup] = useState<GroupInfo | null>(null);
-    const [proposalCount, setProposalCount] = useState(0);
+    const [proposals, setProposals] = useState<ProposalItem[]>([]);
+    const [reorderedBids, setReorderedBids] = useState<Bid[]>([]);
+    const [hasChanges, setHasChanges] = useState(false);
 
     const fetchGroup = useCallback(async () => {
         try {
@@ -83,28 +92,28 @@ export default function BiddingPage() {
         }
     }, []);
 
-    const fetchProposalCount = useCallback(async () => {
-        try {
-            const res = await api.get('/mahasiswa/my-proposal');
-            const proposals = res.data.proposals || [];
-            const activeProposals = proposals.filter(
-                (p: { supervisor_approval_status: string }) =>
-                    p.supervisor_approval_status === 'PENDING' || p.supervisor_approval_status === 'APPROVED'
-            );
-            setProposalCount(activeProposals.length);
-        } catch {
-            // ignore
-        }
-    }, []);
-
     const fetchBids = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/bids');
-            setBids(res.data.data || []);
+            const fetchedBids = res.data.data || [];
+            setBids(fetchedBids);
+            setReorderedBids(fetchedBids);
         } catch (err) {
             console.error('Failed to fetch bids', err);
         } finally {
             setLoading(false);
+        }
+    }, []);
+
+    const fetchProposals = useCallback(async () => {
+        try {
+            const res = await api.get('/mahasiswa/my-proposal');
+            const fetchedProposals = res.data.proposals || [];
+            setProposals(fetchedProposals.filter((p: ProposalItem) => 
+                ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)
+            ));
+        } catch (err) {
+            console.error('Failed to fetch proposals', err);
         }
     }, []);
 
@@ -131,13 +140,54 @@ export default function BiddingPage() {
         fetchBids();
         fetchTitles();
         fetchDosens();
-        fetchProposalCount();
-    }, [fetchGroup, fetchBids, fetchTitles, fetchDosens, fetchProposalCount]);
+        fetchProposals();
+    }, [fetchGroup, fetchBids, fetchTitles, fetchDosens, fetchProposals]);
 
     const isLeader = group?.members.some(m => m.is_leader && m.student.id === user?.id) ?? false;
     const MAX_TITLES = 3;
-    const totalUsed = bids.length + proposalCount;
+    const totalUsed = bids.length + proposals.length;
     const slotsRemaining = MAX_TITLES - totalUsed;
+
+    // Priority reorder functions
+    const movePriority = (bidId: number, direction: 'up' | 'down') => {
+        setReorderedBids(prev => {
+            const newBids = [...prev].sort((a, b) => a.priority - b.priority);
+            const index = newBids.findIndex(b => b.id === bidId);
+            if (index === -1) return prev;
+
+            const targetIndex = direction === 'up' ? index - 1 : index + 1;
+            if (targetIndex < 0 || targetIndex >= newBids.length) return prev;
+
+            // Swap priorities
+            const currentBid = newBids[index];
+            const targetBid = newBids[targetIndex];
+            
+            const currentPriority = currentBid.priority;
+            const targetPriority = targetBid.priority;
+            
+            newBids[index] = { ...currentBid, priority: targetPriority };
+            newBids[targetIndex] = { ...targetBid, priority: currentPriority };
+            
+            setHasChanges(true);
+            return newBids;
+        });
+    };
+
+    const savePriorityOrder = async () => {
+        try {
+            const orderData = reorderedBids.map(b => ({ id: b.id, priority: b.priority }));
+            await api.put('/mahasiswa/bids/reorder', { bids: orderData });
+            setBids(reorderedBids);
+            setHasChanges(false);
+            toast.success('Urutan prioritas berhasil disimpan');
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Gagal menyimpan urutan');
+            } else {
+                toast.error('Gagal menyimpan urutan');
+            }
+        }
+    };
 
     const handleSubmitBid = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -160,9 +210,8 @@ export default function BiddingPage() {
             setSupervisor1('');
             setSupervisor2('');
             fetchBids();
-            fetchProposalCount();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to submit bid');
             } else {
                 toast.error('Failed to submit bid');
@@ -179,7 +228,7 @@ export default function BiddingPage() {
             toast.success('Bid deleted.');
             fetchBids();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to delete bid');
             } else {
                 toast.error('Failed to delete bid');
@@ -222,13 +271,23 @@ export default function BiddingPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Title Bidding</h1>
                     <p className="text-muted-foreground">Submit and manage your title bids.</p>
                 </div>
-                <Alert>
-                    <Lock className="h-4 w-4" />
-                    <AlertTitle>Leader Only</AlertTitle>
-                    <AlertDescription>
-                        Only the group leader can submit and manage title bids. Contact your group leader for bidding.
-                    </AlertDescription>
-                </Alert>
+                {!group ? (
+                    <Alert>
+                        <AlertTriangle className="h-4 w-4" />
+                        <AlertTitle>No Group</AlertTitle>
+                        <AlertDescription>
+                            You need to join or create a group first before bidding on titles.
+                        </AlertDescription>
+                    </Alert>
+                ) : !isLeader ? (
+                    <Alert>
+                        <Lock className="h-4 w-4" />
+                        <AlertTitle>Leader Only</AlertTitle>
+                        <AlertDescription>
+                            Only the group leader can submit and manage title bids. Contact your group leader for bidding.
+                        </AlertDescription>
+                    </Alert>
+                ) : null}
                 {/* Still show existing bids as read-only */}
                 {bids.length > 0 && (
                     <div className="grid gap-4">
@@ -262,15 +321,15 @@ export default function BiddingPage() {
             <div className="flex justify-between items-start">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Title Bidding</h1>
-                    <p className="text-muted-foreground">Submit and manage your title bids. Ranked by priority (1 = highest).</p>
+                    <p className="text-muted-foreground">Kelola ranking judul TA Anda. Gunakan panah untuk mengubah urutan prioritas.</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <Badge variant={slotsRemaining > 0 ? 'outline' : 'destructive'} className="text-sm px-3 py-1">
                         {totalUsed}/{MAX_TITLES} slots used
                     </Badge>
-                    {slotsRemaining > 0 && (
-                        <Button onClick={() => setAddOpen(true)}>
-                            <Plus className="mr-2 h-4 w-4" /> New Bid
+                    {hasChanges && (
+                        <Button onClick={savePriorityOrder}>
+                            <Save className="mr-2 h-4 w-4" /> Simpan Urutan
                         </Button>
                     )}
                 </div>
@@ -286,7 +345,7 @@ export default function BiddingPage() {
                 </Alert>
             )}
 
-            {bids.length === 0 ? (
+            {bids.length === 0 && proposals.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <Gavel className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
                     <h2 className="text-xl font-bold mb-2">No Bids Yet</h2>
@@ -295,56 +354,117 @@ export default function BiddingPage() {
                     </p>
                 </div>
             ) : (
-                <div className="grid gap-4">
-                    {bids.sort((a, b) => a.priority - b.priority).map((bid) => (
-                        <Card key={bid.id} className="relative">
-                            <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                                            {bid.priority}
-                                        </div>
-                                        <div>
-                                            <CardTitle className="text-base">{bid.title.title}</CardTitle>
-                                            <CardDescription>Lecturer: {bid.title.lecturer?.name}</CardDescription>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Badge variant={getStatusVariant(bid.status)}>{bid.status}</Badge>
-                                        {bid.lecturer_recommendation && (
-                                            <Badge variant={getRecVariant(bid.lecturer_recommendation)}>
-                                                Rec: {bid.lecturer_recommendation}
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </div>
-                            </CardHeader>
-                            <CardContent className="pb-3">
-                                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                    <div className="flex items-center gap-1">
-                                        <UserCheck className="h-4 w-4" />
-                                        <span>Pembimbing 1: <span className="font-medium text-foreground">{bid.proposed_supervisor1?.name || '-'}</span></span>
-                                    </div>
-                                    {bid.proposed_supervisor2 && (
-                                        <div className="flex items-center gap-1">
-                                            <UserCheck className="h-4 w-4" />
-                                            <span>Pembimbing 2: <span className="font-medium text-foreground">{bid.proposed_supervisor2.name}</span></span>
-                                        </div>
-                                    )}
-                                </div>
-                            </CardContent>
-                            <CardFooter className="border-t pt-3">
-                                <div className="flex justify-between w-full items-center">
-                                    <span className="text-sm text-muted-foreground">Priority #{bid.priority}</span>
-                                    {bid.status === 'PENDING' && (
-                                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteBid(bid.id)}>
-                                            <Trash2 className="mr-1 h-4 w-4" /> Delete
-                                        </Button>
-                                    )}
-                                </div>
-                            </CardFooter>
-                        </Card>
-                    ))}
+                <div className="space-y-6">
+                    {/* Proposals Section */}
+                    {proposals.length > 0 && (
+                        <div>
+                            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                                <Badge variant="secondary" className="bg-blue-100 text-blue-800">Proposal</Badge>
+                                Judul yang Anda Usulkan
+                            </h2>
+                            <div className="grid gap-4">
+                                {proposals.map((proposal) => (
+                                    <Card key={proposal.id} className="relative border-l-4 border-l-blue-500">
+                                        <CardHeader className="pb-3">
+                                            <div className="flex items-start justify-between">
+                                                <div>
+                                                    <CardTitle className="text-base">{proposal.title}</CardTitle>
+                                                    <CardDescription>Proposed Supervisor: {proposal.proposed_supervisor?.name || '-'}</CardDescription>
+                                                </div>
+                                                <Badge variant={getStatusVariant(proposal.supervisor_approval_status)}>
+                                                    {proposal.supervisor_approval_status}
+                                                </Badge>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="pb-3">
+                                            <p className="text-sm text-muted-foreground line-clamp-2">{proposal.description}</p>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Bids Section */}
+                    {bids.length > 0 && (
+                        <div>
+                            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                                <Badge variant="default" className="bg-green-100 text-green-800">Bid</Badge>
+                                Judul yang Anda Bidding
+                            </h2>
+                            <div className="grid gap-4">
+                                {reorderedBids.sort((a, b) => a.priority - b.priority).map((bid, index) => (
+                                    <Card key={bid.id} className="relative">
+                                        <CardHeader className="pb-3">
+                                            <div className="flex items-start justify-between">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="flex flex-col gap-1">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0"
+                                                            onClick={() => movePriority(bid.id, 'up')}
+                                                            disabled={index === 0}
+                                                        >
+                                                            <ArrowUp className="h-3 w-3" />
+                                                        </Button>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="h-6 w-6 p-0"
+                                                            onClick={() => movePriority(bid.id, 'down')}
+                                                            disabled={index === reorderedBids.length - 1}
+                                                        >
+                                                            <ArrowDown className="h-3 w-3" />
+                                                        </Button>
+                                                    </div>
+                                                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-lg">
+                                                        {bid.priority}
+                                                    </div>
+                                                    <div>
+                                                        <CardTitle className="text-base">{bid.title.title}</CardTitle>
+                                                        <CardDescription>Lecturer: {bid.title.lecturer?.name}</CardDescription>
+                                                    </div>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <Badge variant={getStatusVariant(bid.status)}>{bid.status}</Badge>
+                                                    {bid.lecturer_recommendation && (
+                                                        <Badge variant={getRecVariant(bid.lecturer_recommendation)}>
+                                                            Rec: {bid.lecturer_recommendation}
+                                                        </Badge>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </CardHeader>
+                                        <CardContent className="pb-3">
+                                            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                                <div className="flex items-center gap-1">
+                                                    <UserCheck className="h-4 w-4" />
+                                                    <span>Pembimbing 1: <span className="font-medium text-foreground">{bid.proposed_supervisor1?.name || '-'}</span></span>
+                                                </div>
+                                                {bid.proposed_supervisor2 && (
+                                                    <div className="flex items-center gap-1">
+                                                        <UserCheck className="h-4 w-4" />
+                                                        <span>Pembimbing 2: <span className="font-medium text-foreground">{bid.proposed_supervisor2.name}</span></span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </CardContent>
+                                        <CardFooter className="border-t pt-3">
+                                            <div className="flex justify-between w-full items-center">
+                                                <span className="text-sm text-muted-foreground">Priority #{bid.priority}</span>
+                                                {bid.status === 'PENDING' && (
+                                                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteBid(bid.id)}>
+                                                        <Trash2 className="mr-1 h-4 w-4" /> Delete
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </CardFooter>
+                                    </Card>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

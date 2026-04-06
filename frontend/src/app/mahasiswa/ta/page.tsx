@@ -10,7 +10,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface TaSubmission {
     id: number;
@@ -71,7 +70,7 @@ export default function TaPage() {
             setFilePath('');
             fetchSubmission();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Upload failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Upload failed');
             else toast.error('Upload failed');
         } finally {
             setSubmitting(false);
@@ -86,7 +85,7 @@ export default function TaPage() {
             setFilePath('');
             fetchSubmission();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Revision failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Revision failed');
             else toast.error('Revision failed');
         } finally {
             setSubmitting(false);
@@ -101,7 +100,7 @@ export default function TaPage() {
             toast.success('Registered for TA defense.');
             fetchSubmission();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Registration failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Registration failed');
             else toast.error('Registration failed');
         } finally {
             setSubmitting(false);

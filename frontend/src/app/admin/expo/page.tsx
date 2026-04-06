@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search } from 'lucide-react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +28,6 @@ import {
     Trash2, Edit, Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface ExpoEvent {
     id: number;
@@ -57,6 +57,8 @@ export default function AdminExpoPage() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ExpoEvent | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [form, setForm] = useState({
         period_id: '',
         name: '',
@@ -67,22 +69,44 @@ export default function AdminExpoPage() {
         capacity: '30',
     });
 
-    const fetchData = useCallback(async () => {
+    const fetchData = useCallback(async (periodId?: string) => {
         try {
+            const currentPeriod = periodId || selectedPeriod;
+            const query = currentPeriod ? `?period_id=${currentPeriod}` : '';
+            
             const [evtRes, perRes] = await Promise.all([
-                api.get('/admin/expo-events'),
+                api.get(`/admin/expo-events${query}`),
                 api.get('/admin/periods'),
             ]);
             setEvents(evtRes.data || []);
-            setPeriods((perRes.data || []).filter((p: Period) => p.is_active));
+            const allPeriods = perRes.data || [];
+            setPeriods(allPeriods);
+            
+            if (!selectedPeriod && !periodId) {
+                const active = allPeriods.find((p: Period) => p.is_active);
+                if (active) setSelectedPeriod(active.id.toString());
+            }
         } catch (err) {
             console.error('Failed to fetch expo events', err);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedPeriod]);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
+    useEffect(() => { 
+        if (!selectedPeriod) {
+            fetchData();
+        } else {
+            fetchData(selectedPeriod);
+        }
+    }, [selectedPeriod, fetchData]);
+
+    const filteredEvents = useMemo(() => {
+        return events.filter(evt => 
+            evt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            evt.room.toLowerCase().includes(searchQuery.toLowerCase())
+        );
+    }, [events, searchQuery]);
 
     const openCreate = () => {
         setEditing(null);
@@ -118,7 +142,7 @@ export default function AdminExpoPage() {
             setDialogOpen(false);
             fetchData();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
             else toast.error('Failed');
         } finally {
             setSubmitting(false);
@@ -131,7 +155,7 @@ export default function AdminExpoPage() {
             toast.success(evt.is_published ? 'Unpublished' : 'Published');
             fetchData();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
         }
     };
 
@@ -142,7 +166,7 @@ export default function AdminExpoPage() {
             toast.success('Event deleted');
             fetchData();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
         }
     };
 
@@ -156,25 +180,48 @@ export default function AdminExpoPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Expo Events</h1>
                     <p className="text-muted-foreground">Create and manage expo events for student groups.</p>
                 </div>
-                <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> New Event
-                </Button>
+                <div className="flex items-center gap-3">
+                    <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Periods</SelectItem>
+                            {periods.map((p) => (
+                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button onClick={openCreate}>
+                        <Plus className="mr-2 h-4 w-4" /> New Event
+                    </Button>
+                </div>
             </div>
 
-            {events.length === 0 ? (
+            <div className="relative max-w-sm">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search events by name or room..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
+            </div>
+
+            {filteredEvents.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Expo Events</h2>
-                    <p className="text-muted-foreground">Create your first expo event to get started.</p>
+                    <h2 className="text-xl font-bold mb-2">No Expo Events Found</h2>
+                    <p className="text-muted-foreground">Try adjusting your filters or create a new event.</p>
                 </div>
             ) : (
                 <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {events.map((evt) => (
+                    {filteredEvents.map((evt) => (
                         <Card key={evt.id} className={!evt.is_published ? 'opacity-70 border-dashed' : ''}>
                             <CardHeader className="pb-3">
                                 <div className="flex items-center justify-between">
@@ -246,7 +293,7 @@ export default function AdminExpoPage() {
                                 <Select value={form.period_id} onValueChange={(v) => setForm({ ...form, period_id: v })}>
                                     <SelectTrigger><SelectValue placeholder="Select period..." /></SelectTrigger>
                                     <SelectContent>
-                                        {periods.map((p) => (
+                                        {periods.filter(p => p.is_active).map((p) => (
                                             <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                                         ))}
                                     </SelectContent>

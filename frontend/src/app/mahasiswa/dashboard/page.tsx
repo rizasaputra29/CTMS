@@ -63,10 +63,12 @@ export default function MahasiswaDashboard() {
 
     const isGroupApproved = stats.group_status && ![
         'FORMING',
+        'FORMING_SOLO',
         'READY_FOR_BIDDING',
-        'WAITING_SUPERVISOR_APPROVAL',
         'REJECTED'
     ].includes(stats.group_status);
+
+    const isSoloSeeker = stats.group_status && ['FORMING_SOLO', 'FORMING'].includes(stats.group_status);
 
     const getStepStatus = (stepKey: string): 'completed' | 'current' | 'error' | 'upcoming' => {
         if (stepKey === 'BIDDING') {
@@ -98,8 +100,14 @@ export default function MahasiswaDashboard() {
     return (
         <div className="flex flex-col space-y-6">
 
-            <div className="text-2xl font-bold tracking-tight">
-                Welcome back, {user?.name || 'Student'}
+            <div className="flex flex-col">
+                <div className="text-2xl font-bold tracking-tight">
+                    Welcome back, {user?.name || 'Student'}
+                </div>
+                <div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
+                    <Calendar className="h-3.5 w-3.5" />
+                    <span>Periode: <strong>{stats.group_period?.name || (stats.active_periods?.length > 0 ? stats.active_periods[0].name : 'N/A')}</strong></span>
+                </div>
             </div>
 
             {/* Workflow Stepper */}
@@ -196,11 +204,18 @@ export default function MahasiswaDashboard() {
                     </CardHeader>
                     <CardContent className="flex flex-col gap-3 pt-2">
                         {!stats.has_group ? (
-                            <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
-                                <Link href="/mahasiswa/titles">
-                                    Browse Titles <ArrowRight className="h-4 w-4" />
-                                </Link>
-                            </Button>
+                            <>
+                                <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                                    <Link href="/mahasiswa/group">
+                                        {isSoloSeeker ? "Cari Kelompok (Bursa Ide)" : "Buat atau Cari Kelompok"} <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                </Button>
+                                <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                                    <Link href="/mahasiswa/titles">
+                                        Browse Titles <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                </Button>
+                            </>
                         ) : isGroupApproved ? (
                             <Button size="sm" className="w-full justify-between" variant="default" asChild>
                                 <Link href="/mahasiswa/documents">
@@ -257,6 +272,13 @@ export default function MahasiswaDashboard() {
                             <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Current Phase</div>
                             <div className="text-sm font-medium">
                                 {currentPhase?.label || (stats.is_graduated ? 'Completed' : 'N/A')}
+                            </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-dashed">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Registration Period</div>
+                            <div className="text-xs font-medium text-primary">
+                                {stats.group_period?.name || 'Not Registered'}
                             </div>
                         </div>
                     </CardContent>

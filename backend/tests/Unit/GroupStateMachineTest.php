@@ -28,6 +28,7 @@ class GroupStateMachineTest extends TestCase
             'start_date' => now(),
             'end_date' => now()->addMonths(6),
             'is_active' => true,
+            'is_finalized' => false,
             'min_group_size' => 2,
             'max_group_size' => 4,
         ]);
@@ -49,9 +50,16 @@ class GroupStateMachineTest extends TestCase
         $this->assertEquals('READY_FOR_BIDDING', $group->fresh()->status);
     }
 
-    public function test_ready_for_bidding_to_kelompok_final(): void
+    public function test_ready_for_bidding_to_ready_for_finalization(): void
     {
         $group = $this->makeGroup('READY_FOR_BIDDING');
+        $this->sm->transition($group, 'READY_FOR_FINALIZATION');
+        $this->assertEquals('READY_FOR_FINALIZATION', $group->fresh()->status);
+    }
+
+    public function test_ready_for_finalization_to_kelompok_final(): void
+    {
+        $group = $this->makeGroup('READY_FOR_FINALIZATION');
         $this->sm->transition($group, 'KELOMPOK_FINAL');
         $this->assertEquals('KELOMPOK_FINAL', $group->fresh()->status);
     }
@@ -59,6 +67,7 @@ class GroupStateMachineTest extends TestCase
     public function test_kelompok_final_to_pdc1_active(): void
     {
         $group = $this->makeGroup('KELOMPOK_FINAL');
+        $group->period->update(['is_finalized' => true]);
         $this->sm->transition($group, 'PDC1_ACTIVE');
         $this->assertEquals('PDC1_ACTIVE', $group->fresh()->status);
     }
@@ -80,6 +89,7 @@ class GroupStateMachineTest extends TestCase
     public function test_sempro_fail_returns_to_pdc1(): void
     {
         $group = $this->makeGroup('READY_FOR_SEMPRO');
+        $group->period->update(['is_finalized' => true]);
         $this->sm->transition($group, 'PDC1_ACTIVE');
         $this->assertEquals('PDC1_ACTIVE', $group->fresh()->status);
     }
@@ -176,7 +186,7 @@ class GroupStateMachineTest extends TestCase
     {
         $group = $this->makeGroup('READY_FOR_BIDDING');
         $transitions = $this->sm->getAvailableTransitions($group);
-        $this->assertContains('KELOMPOK_FINAL', $transitions);
+        $this->assertContains('READY_FOR_FINALIZATION', $transitions);
         $this->assertContains('FORMING', $transitions);
     }
 

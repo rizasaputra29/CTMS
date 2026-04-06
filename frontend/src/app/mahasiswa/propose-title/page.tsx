@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import axios from 'axios';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,7 +17,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle } from 'lucide-react';
+import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 
@@ -35,7 +34,7 @@ interface Proposal {
     problem_statement: string;
     scope: string;
     specializations: string[] | null;
-    supervisor_approval_status: 'PENDING' | 'APPROVED' | 'REJECTED';
+    supervisor_approval_status: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
     rejection_reason: string | null;
     proposed_supervisor: {
         id: number;
@@ -49,6 +48,7 @@ interface Proposal {
 interface GroupInfo {
     id: number;
     status: string;
+    has_active_proposal?: boolean;
     title_id: number | null;
     title: { title: string } | null;
     members: { id: number; student: { id: number }; is_leader: boolean }[];
@@ -104,15 +104,17 @@ export default function ProposeTitlePage() {
     const hasTitle = !!group?.title_id;
     const isApproved = group?.status === 'APPROVED';
     const isPending = group?.status === 'PENDING';
-    const isWaitingProposal = group?.status === 'WAITING_SUPERVISOR_APPROVAL';
+    const hasActiveProposalFlag = group?.has_active_proposal === true;
     const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
-    const canPropose = hasGroup && !hasTitle && !isPending && !isWaitingProposal && group?.status === 'READY_FOR_BIDDING' && isLeader;
+    const canPropose = hasGroup && !hasTitle && !isPending && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING'].includes(group?.status || '') && isLeader;
 
-    const hasPendingProposal = proposals.some(p => p.supervisor_approval_status === 'PENDING');
+    const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
+    
+    const canCancelProposal = hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING'].includes(group?.status || '');
 
     const MAX_TITLES = 3;
-    const activeProposalCount = proposals.filter(p => p.supervisor_approval_status === 'PENDING' || p.supervisor_approval_status === 'APPROVED').length;
+    const activeProposalCount = proposals.filter(p => ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)).length;
     const totalUsed = bidCount + activeProposalCount;
     const slotsRemaining = MAX_TITLES - totalUsed;
     const limitReached = slotsRemaining <= 0;
@@ -140,7 +142,7 @@ export default function ProposeTitlePage() {
             setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], proposed_supervisor_id: '' });
             fetchData();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to submit proposal');
             } else {
                 toast.error('Failed to submit proposal');
@@ -163,9 +165,28 @@ export default function ProposeTitlePage() {
         setShowForm(true);
     };
 
+    const handleCancelProposal = async (proposalId: number) => {
+        if (!confirm('Apakah Anda yakin ingin membatalkan proposal ini?')) {
+            return;
+        }
+
+        try {
+            const res = await api.delete(`/mahasiswa/proposal/${proposalId}`);
+            toast.success(res.data.message || 'Proposal dibatalkan');
+            fetchData();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Gagal membatalkan proposal');
+            } else {
+                toast.error('Gagal membatalkan proposal');
+            }
+        }
+    };
+
     const getStatusIcon = (status: string) => {
         switch (status) {
             case 'PENDING': return <Clock className="h-4 w-4" />;
+            case 'UNDER_REVIEW': return <Clock className="h-4 w-4" />;
             case 'APPROVED': return <CheckCircle className="h-4 w-4" />;
             case 'REJECTED': return <XCircle className="h-4 w-4" />;
             default: return null;
@@ -175,6 +196,7 @@ export default function ProposeTitlePage() {
     const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' | 'outline' => {
         switch (status) {
             case 'PENDING': return 'secondary';
+            case 'UNDER_REVIEW': return 'secondary';
             case 'APPROVED': return 'default';
             case 'REJECTED': return 'destructive';
             default: return 'outline';
@@ -263,7 +285,7 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
-            {isWaitingProposal && !hasApprovedProposal && (
+            {hasPendingProposal && !hasApprovedProposal && (
                 <Alert>
                     <Lock className="h-4 w-4" />
                     <AlertTitle>Proposal Pending Review</AlertTitle>
@@ -441,8 +463,18 @@ export default function ProposeTitlePage() {
                             </CardContent>
                             {proposal.supervisor_approval_status === 'REJECTED' && !hasPendingProposal && canPropose && (
                                 <CardFooter className="flex justify-end gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
+                                        <Trash2 className="mr-2 h-4 w-4" /> Batalkan
+                                    </Button>
                                     <Button variant="outline" size="sm" onClick={() => handleResubmit(proposal)}>
                                         <RotateCcw className="mr-2 h-4 w-4" /> Edit & Resubmit
+                                    </Button>
+                                </CardFooter>
+                            )}
+                            {proposal.supervisor_approval_status === 'PENDING' && canCancelProposal && (
+                                <CardFooter className="flex justify-end gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
+                                        <Trash2 className="mr-2 h-4 w-4" /> Batalkan
                                     </Button>
                                 </CardFooter>
                             )}

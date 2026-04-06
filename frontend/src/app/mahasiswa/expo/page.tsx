@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     Loader2, CalendarDays, MapPin, Users, Clock, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface ExpoEvent {
     id: number;
@@ -49,7 +48,7 @@ export default function MahasiswaExpoPage() {
             toast.success('Successfully registered for expo!');
             fetchEvents();
         } catch (error) {
-            if (axios.isAxiosError(error)) toast.error(error.response?.data?.message || 'Registration failed');
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Registration failed');
             else toast.error('Registration failed');
         } finally {
             setRegistering(null);

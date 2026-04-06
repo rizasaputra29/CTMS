@@ -14,6 +14,7 @@ class Period extends Model
         'end_date',
         'phase_dates',
         'is_active',
+        'is_finalized',
         'bidding_start',
         'bidding_end',
         'bidding_locked_at',
@@ -27,6 +28,8 @@ class Period extends Model
         'min_group_size',
         'max_group_size',
         'max_supervise_load',
+        'allow_solo',
+        'require_all_students_grouped',
     ];
 
     protected $casts = [
@@ -34,6 +37,9 @@ class Period extends Model
         'end_date' => 'date',
         'phase_dates' => 'array',
         'is_active' => 'boolean',
+        'is_finalized' => 'boolean',
+        'require_all_students_grouped' => 'boolean',
+        'allow_solo' => 'boolean',
         'bidding_start' => 'datetime',
         'bidding_end' => 'datetime',
         'bidding_locked_at' => 'datetime',
@@ -78,8 +84,26 @@ class Period extends Model
         return true;
     }
 
+    /**
+     * Check if this period is open for new group registration.
+     * A period is open when it's active AND not yet finalized.
+     */
+    public function isRegistrationOpen(): bool
+    {
+        return $this->is_active && !$this->is_finalized;
+    }
+
     public function groups()
     {
         return $this->hasMany(Group::class);
+    }
+
+    /**
+     * Students who have registered for this period.
+     */
+    public function registeredStudents()
+    {
+        return $this->belongsToMany(User::class, 'period_registrations')
+            ->withTimestamps();
     }
 }

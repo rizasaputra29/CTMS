@@ -23,6 +23,7 @@ class TaSubmission extends Model
     protected $fillable = [
         'student_id',
         'group_id',
+        'period_id',
         'status',
         'file_path',
         'draft_report_path',

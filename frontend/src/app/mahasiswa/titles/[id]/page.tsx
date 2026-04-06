@@ -1,5 +1,6 @@
 'use client';
 
+import axios from 'axios';
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import axios from 'axios';
 
 interface TitleDetail {
     id: number;
@@ -62,9 +62,19 @@ export default function MahasiswaTitleDetailPage() {
 
     const handleBid = async () => {
         if (!title || !canBid) return;
+        if (!title.lecturer?.id) {
+            toast.error('Data dosen pembimbing untuk judul ini tidak tersedia.');
+            return;
+        }
+
         setBidding(true);
         try {
-            await api.post('/mahasiswa/group/bid-title', { title_id: title.id });
+            await api.post('/mahasiswa/bids', {
+                title_id: title.id,
+                priority: 1,
+                proposed_supervisor_1_id: title.lecturer.id,
+                proposed_supervisor_2_id: null,
+            });
             toast.success('Bid submitted successfully!');
             router.push('/mahasiswa/group');
         } catch (error) {

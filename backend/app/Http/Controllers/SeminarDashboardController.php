@@ -47,9 +47,16 @@ class SeminarDashboardController extends Controller
     public function supervisorSchedules(Request $request)
     {
         $user = $request->user();
+        $periodId = $request->query('period_id');
 
         // Groups I supervise
-        $groupIds = Supervision::where('supervisor_id', $user->id)->pluck('group_id');
+        $groupsQuery = Supervision::where('supervisor_id', $user->id);
+        if ($periodId) {
+            $groupsQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+        $groupIds = $groupsQuery->pluck('group_id');
 
         $seminars = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->whereIn('group_id', $groupIds)
@@ -75,12 +82,10 @@ class SeminarDashboardController extends Controller
     public function examinerSchedules(Request $request)
     {
         $user = $request->user();
+        $periodId = $request->query('period_id');
 
         // Seminar schedules where I'm examiner
-        $seminarScheduleIds = SeminarEvaluation::where('examiner_id', $user->id)
-            ->pluck('schedule_id');
-
-        $seminars = SeminarSchedule::with([
+        $seminarQuery = SeminarSchedule::with([
             'group.title',
             'group.members.student',
             'examiner1',
@@ -88,16 +93,24 @@ class SeminarDashboardController extends Controller
             'evaluations' => function ($q) use ($user) {
                 $q->where('examiner_id', $user->id);
             }
-        ])
-            ->whereIn('id', $seminarScheduleIds)
+        ]);
+
+        if ($periodId) {
+            $seminarQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+
+        // Only get schedules where I'm examiner (via evaluation or explicit column)
+        $seminarScheduleIds = SeminarEvaluation::where('examiner_id', $user->id)
+            ->pluck('schedule_id');
+        
+        $seminars = $seminarQuery->whereIn('id', $seminarScheduleIds)
             ->orderByDesc('date')
             ->get();
 
         // TA defense schedules where I'm examiner
-        $taScheduleIds = TaDefenseExaminer::where('examiner_id', $user->id)
-            ->pluck('schedule_id');
-
-        $taDefenses = TaDefenseSchedule::with([
+        $taQuery = TaDefenseSchedule::with([
             'student',
             'group.title',
             'group.members.student',
@@ -105,8 +118,18 @@ class SeminarDashboardController extends Controller
             'evaluations' => function ($q) use ($user) {
                 $q->where('examiner_id', $user->id);
             }
-        ])
-            ->whereIn('id', $taScheduleIds)
+        ]);
+
+        if ($periodId) {
+            $taQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+
+        $taScheduleIds = TaDefenseExaminer::where('examiner_id', $user->id)
+            ->pluck('schedule_id');
+
+        $taDefenses = $taQuery->whereIn('id', $taScheduleIds)
             ->orderByDesc('date')
             ->get();
 

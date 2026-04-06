@@ -8,20 +8,40 @@ use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+use App\Services\GroupStateMachine;
+
 class TitleApprovalController extends Controller
 {
+    protected $stateMachine;
+
+    public function __construct(GroupStateMachine $stateMachine)
+    {
+        $this->stateMachine = $stateMachine;
+    }
+
     /**
      * List pending proposals for the authenticated lecturer.
      */
     public function index(Request $request)
     {
         $user = $request->user();
+        $periodId = $request->query('period_id');
 
-        $proposals = Title::where('proposed_supervisor_id', $user->id)
+        $query = Title::where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
-            ->where('supervisor_approval_status', 'PENDING')
-            ->with(['proposedByGroup.members.student', 'proposedSupervisor'])
-            ->orderBy('created_at', 'desc')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
+            ->with(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']);
+
+        if ($periodId) {
+            $query->where('period_id', $periodId);
+        } else {
+            // Default to current active period if no period_id provided
+            $query->whereHas('period', function($q) {
+                $q->where('is_active', true);
+            });
+        }
+
+        $proposals = $query->orderBy('created_at', 'desc')
             ->get();
 
         return response()->json(['data' => $proposals]);
@@ -37,7 +57,7 @@ class TitleApprovalController extends Controller
         $proposal = Title::where('id', $id)
             ->where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
-            ->with(['proposedByGroup.members.student', 'proposedByGroup.period', 'proposedSupervisor'])
+            ->with(['proposedByGroup.members.student', 'proposedByGroup.period', 'proposedSupervisor', 'stakeholders'])
             ->first();
 
         if (!$proposal) {
@@ -62,7 +82,7 @@ class TitleApprovalController extends Controller
         $title = Title::where('id', $id)
             ->where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
-            ->where('supervisor_approval_status', 'PENDING')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->first();
 
         if (!$title) {
@@ -82,30 +102,53 @@ class TitleApprovalController extends Controller
 
         DB::beginTransaction();
         try {
-            // Approve the title — proposal validation ONLY
+            $memberCount = $group->members()->count();
+            $minSize = $group->period->min_group_size ?? 3;
+            
+            // Determine approval type based on member count and group type
+            $newStatus = ($memberCount < $minSize && !$group->is_solo) ? 'UNDER_REVIEW' : 'APPROVED';
+
+            // Approve the title (or Pre-Approve if lacking members)
             $title->update([
-                'supervisor_approval_status' => 'APPROVED',
+                'supervisor_approval_status' => $newStatus,
                 'status' => 'open',
             ]);
 
-            // Return group to READY_FOR_BIDDING (from WAITING_SUPERVISOR_APPROVAL)
-            // Guard: only transition if currently waiting for approval
-            if ($group->status === 'WAITING_SUPERVISOR_APPROVAL') {
-                $group->update(['status' => 'READY_FOR_BIDDING']);
+            $group->update([
+                'has_active_proposal' => $newStatus !== 'APPROVED',
+            ]);
+
+            // If Approved, link title_id to the group and handle status transition
+            if ($newStatus === 'APPROVED') {
+                $group->update(['title_id' => $title->id]);
+                
+                // Handle status based on group type:
+                // - Solo seeker (is_solo=true) → TITLE_APPROVED (title open for recruitment)
+                // - Regular group → determineStatus() (based on member count)
+                if ($group->is_solo) {
+                    // Solo seeker: title is open for other students to join via marketplace
+                    if ($this->stateMachine->canTransition($group->status, 'TITLE_APPROVED')) {
+                        $this->stateMachine->transition($group, 'TITLE_APPROVED');
+                    }
+                } else {
+                    // Regular group: status determined by member count
+                    $group->status = $group->determineStatus();
+                    $group->save();
+                }
             }
 
-            // NO title_id assignment — admin finalization only
-            // NO assignment_type write — admin finalization only
-            // NO cancel other groups — admin finalization only
-            // NO supervisor assignment — admin finalization only
-
             // Notify all group members
+            $verb = $newStatus === 'APPROVED' ? 'Approved' : 'Under Review';
+            $msgPart = $newStatus === 'APPROVED' 
+                ? "await admin finalization." 
+                : "complete your team members first.";
+
             foreach ($group->members()->with('student')->get() as $member) {
                 Notification::create([
                     'user_id' => $member->student_id,
                     'type' => 'PROPOSAL_APPROVED',
-                    'title' => 'Title Proposal Approved',
-                    'message' => "Your title proposal \"{$title->title}\" has been approved by the supervisor! Await admin finalization.",
+                    'title' => "Title Proposal {$verb}",
+                    'message' => "Your title proposal \"{$title->title}\" has been {$verb} by the supervisor! Please {$msgPart}",
                     'related_type' => 'Title',
                     'related_id' => $title->id,
                 ]);
@@ -114,8 +157,8 @@ class TitleApprovalController extends Controller
             DB::commit();
 
             return response()->json([
-                'message' => 'Proposal approved successfully. Awaiting admin finalization.',
-                'title' => $title->load('proposedByGroup.members.student'),
+                'message' => "Proposal {$verb} successfully.",
+                'title' => $title->load(['proposedByGroup.members.student', 'stakeholders']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -137,7 +180,7 @@ class TitleApprovalController extends Controller
         $title = Title::where('id', $id)
             ->where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
-            ->where('supervisor_approval_status', 'PENDING')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->first();
 
         if (!$title) {
@@ -156,10 +199,13 @@ class TitleApprovalController extends Controller
                 'supervisor_approval_status' => 'REJECTED',
                 'rejection_reason' => $validated['rejection_reason'],
             ]);
+            $group->update(['has_active_proposal' => false]);
 
-            $group->update([
-                'status' => 'READY_FOR_BIDDING',
-            ]);
+            // Reject proposal - do NOT hardcode status. 
+            // Use determineStatus() to recalculate based on member count ONLY.
+            // This follows the principle: cancel/reject/withdraw NEVER changes group status.
+            $group->status = $group->determineStatus();
+            $group->save();
 
             // Notify all group members
             foreach ($group->members()->with('student')->get() as $member) {

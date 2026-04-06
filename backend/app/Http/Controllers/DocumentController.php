@@ -183,8 +183,9 @@ class DocumentController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
+        $roles = $user->roleSlugs();
 
-        if ($user->role === 'mahasiswa') {
+        if (in_array('mahasiswa', $roles, true)) {
             $groupMember = GroupMember::where('student_id', $user->id)->first();
             if (!$groupMember) {
                 return response()->json(['data' => []]);
@@ -196,15 +197,23 @@ class DocumentController extends Controller
             return response()->json(['data' => $documents]);
         }
 
-        if ($user->role === 'dosen') {
+        if (in_array('dosen', $roles, true)) {
             $query = Document::with(['student', 'group.title']);
 
             if ($request->has('group_id')) {
                 $query->where('group_id', $request->group_id);
             } else {
-                $supervisedGroupIds = Group::whereHas('supervisions', function ($q) use ($user) {
+                $supervisedGroupsQuery = Group::whereHas('supervisions', function ($q) use ($user) {
                     $q->where('supervisor_id', $user->id);
-                })->pluck('id');
+                });
+
+                if ($request->has('period_id')) {
+                    $supervisedGroupsQuery->where('period_id', $request->period_id);
+                    // Also filter the main query by period even if group_id is provided later
+                    $query->whereHas('group', fn($q) => $q->where('period_id', $request->period_id));
+                }
+
+                $supervisedGroupIds = $supervisedGroupsQuery->pluck('id');
                 $query->whereIn('group_id', $supervisedGroupIds);
             }
 
@@ -315,7 +324,7 @@ class DocumentController extends Controller
     public function update(Request $request, string $id)
     {
         $user = Auth::user();
-        if ($user->role !== 'dosen') {
+        if (!$user->hasRole('dosen')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

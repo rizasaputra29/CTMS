@@ -15,32 +15,41 @@ class ScheduleController extends Controller
     public function index(Request $request)
     {
         $user = Auth::user();
+        $query = Schedule::with('group.title.lecturer', 'group.members.student')
+            ->orderBy('date', 'asc');
+
+        if ($request->has('period_id')) {
+            $query->whereHas('group', function ($q) use ($request) {
+                $q->where('period_id', $request->period_id);
+            });
+        }
 
         // Admin can only see SEMPRO, SIDANG, EXPO schedules
-        if ($user->role === 'admin') {
+        if ($user->hasRole('admin')) {
             return response()->json([
-                'data' => Schedule::with('group.title.lecturer', 'group.members.student')
-                    ->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO'])
-                    ->orderBy('date', 'asc')->get()
+                'data' => $query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO'])->get()
             ]);
         }
 
         // Dosen can only see BIMBINGAN schedules for their own groups
-        if ($user->role === 'dosen') {
+        if ($user->hasRole('dosen')) {
             $groupIds = Group::whereHas('title', function ($q) use ($user) {
                 $q->where('lecturer_id', $user->id);
-            })->pluck('id');
+            });
+
+            if ($request->has('period_id')) {
+                $groupIds->where('period_id', $request->period_id);
+            }
 
             return response()->json([
-                'data' => Schedule::whereIn('group_id', $groupIds)
+                'data' => $query->whereIn('group_id', $groupIds->pluck('id'))
                     ->where('type', 'BIMBINGAN')
-                    ->with('group.title.lecturer', 'group.members.student')
-                    ->orderBy('date', 'asc')->get()
+                    ->get()
             ]);
         }
 
         // Mahasiswa can only see their own group's schedule (exclude rejected groups)
-        if ($user->role === 'mahasiswa') {
+        if ($user->hasRole('mahasiswa')) {
             $groupMember = \App\Models\GroupMember::where('student_id', $user->id)
                 ->whereHas('group', function ($q) {
                     $q->where('status', '!=', 'REJECTED');
@@ -50,9 +59,7 @@ class ScheduleController extends Controller
                 return response()->json(['data' => []]);
             }
             return response()->json([
-                'data' => Schedule::where('group_id', $groupMember->group_id)
-                    ->with('group.title.lecturer', 'group.members.student')
-                    ->orderBy('date', 'asc')->get()
+                'data' => $query->where('group_id', $groupMember->group_id)->get()
             ]);
         }
 
@@ -66,12 +73,12 @@ class ScheduleController extends Controller
     {
         $user = Auth::user();
 
-        if ($user->role === 'mahasiswa') {
+        if ($user->hasRole('mahasiswa')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         // Dosen can only create BIMBINGAN, Admin can only create SEMPRO/SIDANG/EXPO
-        $allowedTypes = $user->role === 'dosen'
+        $allowedTypes = $user->hasRole('dosen')
             ? ['BIMBINGAN']
             : ['SEMPRO', 'SIDANG', 'EXPO'];
 
@@ -104,11 +111,11 @@ class ScheduleController extends Controller
     {
         $user = Auth::user();
 
-        if ($user->role === 'mahasiswa') {
+        if ($user->hasRole('mahasiswa')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
-        $allowedTypes = $user->role === 'dosen'
+        $allowedTypes = $user->hasRole('dosen')
             ? ['BIMBINGAN']
             : ['SEMPRO', 'SIDANG', 'EXPO'];
 
@@ -132,7 +139,7 @@ class ScheduleController extends Controller
      */
     public function destroy(string $id)
     {
-        if (Auth::user()->role === 'mahasiswa') {
+        if (Auth::user()->hasRole('mahasiswa')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

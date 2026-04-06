@@ -21,175 +21,24 @@ class FinalizationService
     }
 
     /**
-     * Allocate a group to a title via bidding resolution.
-     * Single atomic transaction: quota lock, bid resolution, supervisor assignment, state transitions.
-     *
-     * @param int $bidId The winning bid to accept
-     * @param int $supervisor1Id Supervisor 1 user ID
-     * @param int|null $supervisor2Id Supervisor 2 user ID (optional)
-     * @param int $adminId The admin performing the allocation
+     * Centralized quota validation with row locking.
+     * Throws exception if quota is full.
      */
-    public function allocateGroup(int $bidId, int $supervisor1Id, ?int $supervisor2Id, int $adminId): array
+    private function validateQuota(int $titleId): void
     {
-        return DB::transaction(function () use ($bidId, $supervisor1Id, $supervisor2Id, $adminId) {
-            // 1. Load the bid with group
-            $bid = Bid::with('group.period')->findOrFail($bidId);
-            $group = $bid->group;
-            $titleId = $bid->title_id;
+        $title = Title::where('id', $titleId)->lockForUpdate()->first();
+        
+        if (!$title) {
+            throw new InvalidArgumentException('Title not found.');
+        }
 
-            // 2. Row lock on title for quota concurrency safety
-            $title = Title::where('id', $titleId)->lockForUpdate()->first();
-            if (!$title) {
-                throw new InvalidArgumentException('Title not found.');
-            }
+        $currentAllocations = Group::where('title_id', $titleId)
+            ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
+            ->count();
 
-            // GOVERNANCE: If title is student-proposed, it must be approved by supervisor
-            if ($title->title_source === 'STUDENT' && $title->supervisor_approval_status !== 'APPROVED') {
-                throw new InvalidArgumentException('Cannot finalize: title has not been approved by the supervisor.');
-            }
-
-            // GOVERNANCE: Strict 2-level — bid must be recommended ACCEPT by lecturer
-            if ($bid->lecturer_recommendation !== 'ACCEPT') {
-                throw new InvalidArgumentException('Bid must be recommended ACCEPT by lecturer before admin can allocate.');
-            }
-
-            // 3. Validate quota not exceeded
-            $currentAllocations = Group::where('title_id', $titleId)
-                ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
-                ->count();
-
-            if ($currentAllocations >= $title->quota) {
-                throw new InvalidArgumentException('Title quota is full.');
-            }
-
-            // 4. Accept winning bid, reject all others for this title
-            $bid->update(['status' => 'ACCEPTED']);
-
-            Bid::where('title_id', $titleId)
-                ->where('id', '!=', $bidId)
-                ->update(['status' => 'REJECTED']);
-
-            // 5. Reject other bids from this group (for other titles)
-            Bid::where('group_id', $group->id)
-                ->where('id', '!=', $bidId)
-                ->update(['status' => 'REJECTED']);
-
-            // 6. Assign title to group (via explicit method — title_id not in $fillable)
-            $group->assignTitleFromFinalization($titleId);
-            $group->assignTypeFromFinalization('BIDDING');
-            $group->save();
-
-            // 7. Transition to KELOMPOK_FINAL
-            $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
-
-            // 8. Create supervision records (source of truth)
-            Supervision::create([
-                'group_id' => $group->id,
-                'supervisor_id' => $supervisor1Id,
-                'role' => 'SUPERVISOR_1',
-                'assigned_by' => $adminId,
-            ]);
-
-            // 9. Update group cache fields
-            $group->supervisor_1_id = $supervisor1Id;
-
-            if ($supervisor2Id) {
-                Supervision::create([
-                    'group_id' => $group->id,
-                    'supervisor_id' => $supervisor2Id,
-                    'role' => 'SUPERVISOR_2',
-                    'assigned_by' => $adminId,
-                ]);
-                $group->supervisor_2_id = $supervisor2Id;
-            }
-            $group->save();
-
-            // 10. Transition to PDC1_ACTIVE
-            $this->stateMachine->transition($group, 'PDC1_ACTIVE');
-
-            // 11. Audit log
-            AuditLog::create([
-                'user_id' => $adminId,
-                'action' => 'FINALIZATION_ALLOCATE',
-                'target_type' => 'Group',
-                'target_id' => $group->id,
-                'payload' => [
-                    'bid_id' => $bidId,
-                    'title_id' => $titleId,
-                    'supervisor_1_id' => $supervisor1Id,
-                    'supervisor_2_id' => $supervisor2Id,
-                ],
-            ]);
-
-            return [
-                'group' => $group->fresh()->load(['title', 'members.student', 'supervisions.supervisor']),
-                'bid' => $bid->fresh(),
-            ];
-        });
-    }
-
-    /**
-     * Allocate a group with a student-proposed title (same transactional pattern).
-     */
-    public function allocateStudentProposed(int $groupId, int $titleId, int $supervisor1Id, ?int $supervisor2Id, int $adminId): array
-    {
-        return DB::transaction(function () use ($groupId, $titleId, $supervisor1Id, $supervisor2Id, $adminId) {
-            $group = Group::findOrFail($groupId);
-
-            // GOVERNANCE: Ensure title is approved by supervisor before admin finalization
-            $title = Title::findOrFail($titleId);
-            if ($title->title_source === 'STUDENT' && $title->supervisor_approval_status !== 'APPROVED') {
-                throw new InvalidArgumentException('Cannot finalize: title has not been approved by the supervisor.');
-            }
-
-            // Assign title (via explicit method — title_id not in $fillable)
-            $group->assignTitleFromFinalization($titleId);
-            $group->assignTypeFromFinalization('STUDENT_PROPOSED');
-            $group->save();
-
-            // Transition
-            $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
-
-            // Create supervisions
-            Supervision::create([
-                'group_id' => $group->id,
-                'supervisor_id' => $supervisor1Id,
-                'role' => 'SUPERVISOR_1',
-                'assigned_by' => $adminId,
-            ]);
-            $group->supervisor_1_id = $supervisor1Id;
-
-            if ($supervisor2Id) {
-                Supervision::create([
-                    'group_id' => $group->id,
-                    'supervisor_id' => $supervisor2Id,
-                    'role' => 'SUPERVISOR_2',
-                    'assigned_by' => $adminId,
-                ]);
-                $group->supervisor_2_id = $supervisor2Id;
-            }
-            $group->save();
-
-            // Transition to PDC1_ACTIVE
-            $this->stateMachine->transition($group, 'PDC1_ACTIVE');
-
-            // Audit
-            AuditLog::create([
-                'user_id' => $adminId,
-                'action' => 'FINALIZATION_ALLOCATE_STUDENT_PROPOSED',
-                'target_type' => 'Group',
-                'target_id' => $group->id,
-                'payload' => [
-                    'title_id' => $titleId,
-                    'supervisor_1_id' => $supervisor1Id,
-                    'supervisor_2_id' => $supervisor2Id,
-                ],
-            ]);
-
-            return [
-                'group' => $group->fresh()->load(['title', 'members.student', 'supervisions.supervisor']),
-            ];
-        });
+        if ($currentAllocations >= $title->quota) {
+            throw new InvalidArgumentException("Kuota judul '{$title->title}' sudah penuh ({$title->quota}/{$title->quota}).");
+        }
     }
 
     /**
@@ -200,6 +49,7 @@ class FinalizationService
         $lecturers = User::where('role', 'dosen')->get();
 
         $loadData = [];
+        /** @var \App\Models\User $lecturer */
         foreach ($lecturers as $lecturer) {
             $currentLoad = $lecturer->supervisionLoadInPeriod($periodId);
             $loadData[] = [
@@ -216,18 +66,38 @@ class FinalizationService
     /**
      * V4: Batch finalize all eligible groups in a period.
      * ⚠ Atomic transaction — all-or-nothing.
+     *
+     * @param int $periodId Period to finalize
+     * @param int $adminId Admin user ID performing this action
+     * @param bool $isSimulation If true, preview without committing. Default: false
+     * @return array ['allocated' => [...], 'skipped' => [...], 'total_allocated' => int, 'total_skipped' => int, 'simulated' => bool]
+     *
+     * PATTERN:
+     * - Same transaction logic for both simulation and actual execution
+     * - If $isSimulation = true, rollback at end (DB::transaction naturally rolls back)
+     * - If $isSimulation = false, commit changes and update period.is_finalized
      */
-    public function finalizePeriod(int $periodId, int $adminId): array
+    public function finalizePeriod(int $periodId, int $adminId, bool $isSimulation = false): array
     {
-        return DB::transaction(function () use ($periodId, $adminId) {
+        return DB::transaction(function () use ($periodId, $adminId, $isSimulation) {
             // Lock the period row to prevent concurrent finalization
             $period = \App\Models\Period::lockForUpdate()->findOrFail($periodId);
 
+            // V5: Mandatory Readiness Check before any batch finalization
+            $this->validatePeriodReadiness($periodId);
+
+            // Mark period finalized before transitioning groups to PDC1_ACTIVE.
+            // This guarantees PDC1_ACTIVE only appears after admin finalization flow begins.
+            if (!$isSimulation) {
+                $period->update(['is_finalized' => true]);
+            }
+
             // Fetch all ACCEPT bids for this period, grouped by title, ordered by priority
+            // V6: Only process groups that are READY_FOR_FINALIZATION (leader clicked button)
             $acceptBids = Bid::where('lecturer_recommendation', 'ACCEPT')
                 ->whereHas('group', function ($q) use ($periodId) {
                     $q->where('period_id', $periodId)
-                        ->where('status', 'READY_FOR_BIDDING');
+                        ->where('status', 'READY_FOR_FINALIZATION');
                 })
                 ->with(['group', 'proposedSupervisor1', 'proposedSupervisor2'])
                 ->orderBy('priority')
@@ -237,19 +107,20 @@ class FinalizationService
             $skipped = [];
             $titleQuotaUsed = [];
 
+            /** @var \App\Models\Bid $bid */
             foreach ($acceptBids as $bid) {
                 $titleId = $bid->title_id;
                 $group = $bid->group;
 
                 // Skip if group already allocated (by a higher-priority bid)
-                if ($group->status !== 'READY_FOR_BIDDING') {
+                if ($group->status !== 'READY_FOR_FINALIZATION') {
                     continue;
                 }
 
                 // Check quota
                 if (!isset($titleQuotaUsed[$titleId])) {
                     $titleQuotaUsed[$titleId] = Group::where('title_id', $titleId)
-                        ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
+                        ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
                         ->count();
                 }
 
@@ -268,34 +139,33 @@ class FinalizationService
                 $group->assignTypeFromFinalization('BIDDING');
                 $group->save();
 
-                // Transition READY_FOR_BIDDING → KELOMPOK_FINAL
+                // Transition READY_FOR_FINALIZATION → KELOMPOK_FINAL
                 $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
 
                 // Assign supervisors
                 $sup1Id = $bid->proposed_supervisor_1_id ?? $title->lecturer_id;
                 $sup2Id = $bid->proposed_supervisor_2_id;
 
-                Supervision::create([
-                    'group_id' => $group->id,
-                    'supervisor_id' => $sup1Id,
-                    'role' => 'SUPERVISOR_1',
-                    'assigned_by' => $adminId,
-                ]);
+                Supervision::updateOrCreate(
+                    ['group_id' => $group->id, 'role' => 'SUPERVISOR_1'],
+                    ['supervisor_id' => $sup1Id, 'assigned_by' => $adminId]
+                );
                 $group->supervisor_1_id = $sup1Id;
 
                 if ($sup2Id) {
-                    Supervision::create([
-                        'group_id' => $group->id,
-                        'supervisor_id' => $sup2Id,
-                        'role' => 'SUPERVISOR_2',
-                        'assigned_by' => $adminId,
-                    ]);
+                    Supervision::updateOrCreate(
+                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
+                        ['supervisor_id' => $sup2Id, 'assigned_by' => $adminId]
+                    );
                     $group->supervisor_2_id = $sup2Id;
                 }
                 $group->save();
 
                 // Transition KELOMPOK_FINAL → PDC1_ACTIVE
                 $this->stateMachine->transition($group, 'PDC1_ACTIVE');
+
+                // Refresh readiness snapshot after all updates
+                $group->refreshReadinessSnapshot();
 
                 $titleQuotaUsed[$titleId]++;
                 $allocated[] = [
@@ -305,25 +175,343 @@ class FinalizationService
                 ];
             }
 
-            // Audit
-            AuditLog::create([
-                'user_id' => $adminId,
-                'action' => 'BATCH_FINALIZATION',
-                'target_type' => 'Period',
-                'target_id' => $periodId,
-                'payload' => [
-                    'allocated_count' => count($allocated),
-                    'skipped_count' => count($skipped),
-                ],
-            ]);
+            // ⚠️ CRITICAL: Only audit period finalization if NOT simulating
+            if (!$isSimulation) {
+                // Audit log the actual finalization
+                AuditLog::create([
+                    'user_id' => $adminId,
+                    'action' => 'PERIOD_FINALIZED',
+                    'target_type' => 'Period',
+                    'target_id' => $period->id,
+                    'payload' => [
+                        'total_allocated' => count($allocated),
+                        'total_skipped' => count($skipped),
+                    ],
+                ]);
+            }
 
             return [
                 'allocated' => $allocated,
                 'skipped' => $skipped,
                 'total_allocated' => count($allocated),
                 'total_skipped' => count($skipped),
+                'simulated' => $isSimulation,
             ];
         });
+    }
+
+    /**
+     * V5: Run a "Pre-fly" simulation of the finalization process.
+     * Returns a dry-run result without committing any database changes.
+     */
+    public function validateSimulation(int $periodId): array
+    {
+        // 1. Get current readiness overview
+        $stats = $this->getReadinessStats($periodId);
+        
+        $actionPreviews = [];
+        $canFinalize = $stats['total_invalid_groups'] === 0 && $stats['total_unassigned'] === 0;
+
+        if ($canFinalize) {
+            $actionPreviews[] = "Semua grup dan mahasiswa siap. Batch finalisasi akan memproses " . $stats['total_groups'] . " kelompok.";
+        } else {
+            if ($stats['total_unassigned'] > 0) {
+                $actionPreviews[] = "PERLU TINDAKAN: " . $stats['total_unassigned'] . " mahasiswa belum memiliki kelompok.";
+            }
+            if ($stats['total_invalid_groups'] > 0) {
+                $actionPreviews[] = "PERLU TINDAKAN: " . $stats['total_invalid_groups'] . " kelompok memiliki masalah kritis (size/title/supervisor).";
+            }
+        }
+
+        // 2. Identify potential allocations from accepted bids
+        // V6: Only show groups that are READY_FOR_FINALIZATION
+        $potentialAllocations = Bid::where('lecturer_recommendation', 'ACCEPT')
+            ->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId)->where('status', 'READY_FOR_FINALIZATION');
+            })
+            ->with(['group', 'title'])
+            ->get();
+
+        foreach ($potentialAllocations as $bid) {
+            $actionPreviews[] = "ALOKASI: Kelompok #{$bid->group_id} akan dialokasikan ke judul '{$bid->title->title}' via bidding.";
+        }
+
+        return [
+            'can_finalize' => $canFinalize,
+            'summary' => [
+                'ready_groups' => $stats['total_groups'] - $stats['total_invalid_groups'],
+                'invalid_groups' => $stats['total_invalid_groups'],
+                'unassigned_students' => $stats['total_unassigned'],
+            ],
+            'action_previews' => $actionPreviews,
+            'readiness_details' => $stats
+        ];
+    }
+
+    /**
+     * V5: Automated Remediation Engine.
+     * SAFE mode: Auto-assign titles/supervisors from bids.
+     * AGGRESSIVE mode: Randomly assign missing supervisors and merge unassigned students.
+     */
+    public function executeAutoFix(int $periodId, string $mode, int $adminId): array
+    {
+        return DB::transaction(function () use ($periodId, $mode, $adminId) {
+            $applied = [];
+            
+            // 1. SAFE FIX: Auto-populate supervisors from Bids if recommended
+            if ($mode === 'SAFE' || $mode === 'AGGRESSIVE') {
+                $groupsWithBids = Group::where('period_id', $periodId)
+                    ->where(function($q) {
+                        $q->whereNull('supervisor_1_id')->orWhereNull('supervisor_2_id');
+                    })
+                    ->with(['bids' => fn($q) => $q->where('lecturer_recommendation', 'ACCEPT')])
+                    ->get();
+                
+                /** @var \App\Models\Group $group */
+                foreach ($groupsWithBids as $group) {
+                    $winningBid = $group->bids->first();
+                    if ($winningBid && $winningBid->proposed_supervisor_1_id) {
+                        $group->update([
+                            'supervisor_1_id' => $winningBid->proposed_supervisor_1_id,
+                            'supervisor_2_id' => $winningBid->proposed_supervisor_2_id,
+                        ]);
+                        $applied[] = "Grup #{$group->id}: Supervisor diisi otomatis dari tawaran bidding.";
+                    }
+                }
+            }
+
+            // 2. AGGRESSIVE FIX: Handle unassigned students (Soft Matchmaking)
+            if ($mode === 'AGGRESSIVE') {
+                $matchmaker = app(AutoMatchmakerService::class);
+                $matchmaker->executeMatchmaking($periodId, $adminId); // Forms SOFT_FORMING groups
+                $applied[] = "Unassigned students dikelompokkan secara otomatis (Incomplete Teams).";
+            }
+
+            return [
+                'message' => 'Auto-fix completed in ' . $mode . ' mode.',
+                'applied_actions' => $applied,
+            ];
+        });
+    }
+    /**
+     * V5: Validate that all groups and students in a period are ready for finalization.
+     * Enforces the 4 strict rules requested by admin.
+     * 
+     * @param int $periodId
+     * @throws InvalidArgumentException
+     */
+    public function validatePeriodReadiness(int $periodId): void
+    {
+        $blockers = $this->collectPeriodReadinessBlockers($periodId);
+
+        if (!$blockers['has_blockers']) {
+            return;
+        }
+
+        $errors = [];
+
+        if (!empty($blockers['unassigned_students'])) {
+            $names = array_map(fn($s) => $s['name'], $blockers['unassigned_students']);
+            $errors[] = "Terdapat " . count($blockers['unassigned_students']) . " mahasiswa terdaftar yang belum memiliki kelompok: " . implode(', ', $names);
+        }
+
+        foreach ($blockers['group_errors'] as $groupError) {
+            $errors[] = "Kelompok #{$groupError['group_id']}: " . implode(', ', $groupError['issues']);
+        }
+
+        throw new InvalidArgumentException("Finalisasi Gagal! Mohon lengkapi data berikut:\n- " . implode("\n- ", $errors));
+    }
+
+    /**
+     * V6: Collect structured readiness blockers for admin-facing diagnostics.
+     */
+    public function collectPeriodReadinessBlockers(int $periodId): array
+    {
+        $period = \App\Models\Period::findOrFail($periodId);
+        $minSize = $period->min_group_size ?? 3;
+        $maxSize = $period->max_group_size ?? 4;
+
+        $blockers = [
+            'unassigned_students' => [],
+            'groups_invalid_size' => [],
+            'groups_without_title' => [],
+            'groups_without_supervisor_1' => [],
+            'groups_without_supervisor_2' => [],
+            'group_errors' => [],
+            'rules' => [
+                'min_group_size' => $minSize,
+                'max_group_size' => $maxSize,
+                'require_all_students_grouped' => (bool) ($period->require_all_students_grouped ?? true),
+            ],
+        ];
+
+        $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $periodId)
+            ->pluck('user_id');
+
+        $assignedStudentIds = \App\Models\GroupMember::where('period_id', $periodId)
+            ->pluck('student_id')
+            ->unique();
+
+        if (($period->require_all_students_grouped ?? true) === true) {
+            $unassignedIds = $registeredStudentIds->diff($assignedStudentIds)->values();
+            if ($unassignedIds->isNotEmpty()) {
+                $blockers['unassigned_students'] = \App\Models\User::whereIn('id', $unassignedIds)
+                    ->get(['id', 'name', 'email'])
+                    ->map(fn($u) => ['id' => $u->id, 'name' => $u->name, 'email' => $u->email])
+                    ->values()
+                    ->toArray();
+            }
+        }
+
+        $groups = Group::where('period_id', $periodId)
+            ->whereNotIn('status', ['CLOSED'])
+            ->withCount('members')
+            ->get();
+
+        foreach ($groups as $group) {
+            $groupErrors = [];
+
+            if ($group->members_count < $minSize || $group->members_count > $maxSize) {
+                $groupErrors[] = "Jumlah anggota {$group->members_count} (harus {$minSize}-{$maxSize})";
+                $blockers['groups_invalid_size'][] = [
+                    'group_id' => $group->id,
+                    'members_count' => $group->members_count,
+                ];
+            }
+
+            $hasTitle = $group->title_id || \App\Models\Bid::where('group_id', $group->id)
+                ->where('lecturer_recommendation', 'ACCEPT')
+                ->exists();
+
+            if (!$hasTitle) {
+                $groupErrors[] = 'Belum memiliki judul (bursa ide/proposal)';
+                $blockers['groups_without_title'][] = $group->id;
+            }
+
+            $winningBid = \App\Models\Bid::where('group_id', $group->id)
+                ->where('lecturer_recommendation', 'ACCEPT')
+                ->first();
+
+            $titleLecturerId = null;
+            if ($winningBid) {
+                $titleLecturerId = \App\Models\Title::where('id', $winningBid->title_id)->value('lecturer_id');
+            }
+
+            $hasSup1 = $group->supervisor_1_id
+                || ($winningBid && $winningBid->proposed_supervisor_1_id)
+                || $titleLecturerId;
+
+            $hasSup2 = $group->supervisor_2_id
+                || ($winningBid && $winningBid->proposed_supervisor_2_id);
+
+            if (!$hasSup1) {
+                $groupErrors[] = 'Belum memiliki Pembimbing 1';
+                $blockers['groups_without_supervisor_1'][] = $group->id;
+            }
+
+            if (!$hasSup2) {
+                $groupErrors[] = 'Belum memiliki Pembimbing 2';
+                $blockers['groups_without_supervisor_2'][] = $group->id;
+            }
+
+            if (!empty($groupErrors)) {
+                $blockers['group_errors'][] = [
+                    'group_id' => $group->id,
+                    'issues' => $groupErrors,
+                ];
+            }
+        }
+
+        foreach (['groups_without_title', 'groups_without_supervisor_1', 'groups_without_supervisor_2'] as $key) {
+            $blockers[$key] = array_values(array_unique($blockers[$key]));
+        }
+
+        $blockers['has_blockers'] =
+            !empty($blockers['unassigned_students'])
+            || !empty($blockers['groups_invalid_size'])
+            || !empty($blockers['groups_without_title'])
+            || !empty($blockers['groups_without_supervisor_1'])
+            || !empty($blockers['groups_without_supervisor_2']);
+
+        return $blockers;
+    }
+
+    /**
+     * V5: Get comprehensive readiness statistics for a period.
+     * Returns counts and details of registrations and potential validation failures.
+     */
+    public function getReadinessStats(int $periodId): array
+    {
+        // 1. Student Registration Stats (always real-time)
+        $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $periodId)
+            ->pluck('user_id');
+        
+        $assignedStudentIds = \App\Models\GroupMember::where('period_id', $periodId)
+            ->pluck('student_id')
+            ->unique();
+
+        $unassignedIds = $registeredStudentIds->diff($assignedStudentIds);
+        $unassignedStudents = \App\Models\User::whereIn('id', $unassignedIds)->get(['id', 'name', 'email']);
+
+        // 2. Group Readiness Stats (Snapshot-Powered for Performance)
+        $groups = Group::where('period_id', $periodId)
+            ->whereNotIn('status', ['CLOSED'])
+            ->get();
+
+        $invalidGroups = [];
+        $totalProgress = 0;
+        
+        foreach ($groups as $group) {
+            $status = $group->readiness_status ?? $group->calculateReadiness();
+            $progress = $status['progress'] ?? null;
+
+            // Backward compatibility: newer readiness snapshots may omit progress.
+            if ($progress === null) {
+                $period = $group->period;
+                $minSize = $period->min_group_size ?? 3;
+                $maxSize = $period->max_group_size ?? 4;
+                $memberCount = $status['member_count'] ?? $group->members()->count();
+
+                $metWeight = 0;
+                if ($memberCount >= $minSize && $memberCount <= $maxSize) {
+                    $metWeight++;
+                }
+                if (($status['title_assigned'] ?? false) === true) {
+                    $metWeight++;
+                }
+                if (($group->supervisor_1_id !== null)) {
+                    $metWeight++;
+                }
+                if (($group->supervisor_2_id !== null)) {
+                    $metWeight++;
+                }
+
+                $progress = (int) round(($metWeight / 4) * 100);
+            }
+            
+            if (!$status['is_ready']) {
+                $invalidGroups[] = [
+                    'id' => $group->id,
+                    'status' => $group->status,
+                    'progress' => $progress,
+                    'issues' => $status['issues']['critical'] ?? []
+                ];
+            }
+            $totalProgress += $progress;
+        }
+
+        $averageProgress = $groups->count() > 0 ? round($totalProgress / $groups->count()) : 0;
+
+        return [
+            'total_registered' => $registeredStudentIds->count(),
+            'total_assigned' => $assignedStudentIds->count(),
+            'total_unassigned' => $unassignedIds->count(),
+            'total_groups' => $groups->count(),
+            'total_invalid_groups' => count($invalidGroups),
+            'global_progress' => $averageProgress,
+            'unassigned_students' => $unassignedStudents,
+            'invalid_groups' => $invalidGroups,
+        ];
     }
 }
 

@@ -11,7 +11,6 @@ import {
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { id } from 'date-fns/locale';
-import axios from 'axios';
 
 interface Notification {
     id: number;
@@ -73,7 +72,7 @@ export default function NotificationsPage() {
             setInvitationActions(prev => ({ ...prev, [notificationId]: action }));
             markAsRead(notificationId);
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || `Failed to ${action} invitation`);
             } else {
                 toast.error(`Failed to ${action} invitation`);

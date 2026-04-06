@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Search, Filter } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -16,6 +16,13 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2, CalendarIcon, Edit, Loader2, Users, BookOpen, GraduationCap } from 'lucide-react';
@@ -68,6 +75,18 @@ export default function AdminPeriodsPage() {
     const [open, setOpen] = useState(false);
     const [editingPeriod, setEditingPeriod] = useState<Period | null>(null);
     const [submitting, setSubmitting] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+
+    const filteredPeriods = useMemo(() => {
+        return periods.filter(p => {
+            const matchesSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase());
+            const matchesStatus = statusFilter === 'all' 
+                ? true 
+                : statusFilter === 'active' ? p.is_active : !p.is_active;
+            return matchesSearch && matchesStatus;
+        });
+    }, [periods, searchQuery, statusFilter]);
 
     const [formData, setFormData] = useState({ ...emptyForm });
 
@@ -142,7 +161,7 @@ export default function AdminPeriodsPage() {
             fetchPeriods();
         } catch (error: unknown) {
             console.error('Failed to save period', error);
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to save period');
             } else {
                 toast.error('Failed to save period');
@@ -160,7 +179,7 @@ export default function AdminPeriodsPage() {
             fetchPeriods();
         } catch (error: unknown) {
             console.error('Failed to delete period', error);
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to delete period');
             } else {
                 toast.error('Failed to delete period');
@@ -401,6 +420,32 @@ export default function AdminPeriodsPage() {
                 </Dialog>
             </div>
 
+            {/* Search and Filter */}
+            <div className="flex flex-col sm:flex-row gap-4">
+                <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search periods by name..."
+                        className="pl-9"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+                <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">All Status</SelectItem>
+                            <SelectItem value="active">Active Only</SelectItem>
+                            <SelectItem value="inactive">Inactive Only</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            </div>
+
             {/* Loading */}
             {loading && (
                 <div className="flex justify-center items-center h-64">
@@ -409,15 +454,15 @@ export default function AdminPeriodsPage() {
             )}
 
             {/* Empty state */}
-            {!loading && periods.length === 0 && (
+            {!loading && filteredPeriods.length === 0 && (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                    No periods found. Create one to get started.
+                    No periods found matching your criteria.
                 </div>
             )}
 
             {/* Period Cards */}
             <div className="grid gap-4">
-                {periods.map((period) => (
+                {filteredPeriods.map((period) => (
                     <Card key={period.id} className={period.is_active ? 'border-primary' : ''}>
                         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                             <div className="flex items-center gap-3">

@@ -70,4 +70,68 @@ class NotificationService
             ->where('is_read', \Illuminate\Support\Facades\DB::raw('false'))
             ->count();
     }
+
+    /**
+     * Notify all group members about finalization.
+     */
+    public function notifyGroupMembersOfFinalization(\App\Models\Group $group): void
+    {
+        $members = $group->members;
+        
+        foreach ($members as $member) {
+            $this->send(
+                $member->student_id,
+                'group_finalization',
+                'Kelompok Siap Finalisasi',
+                'Ketua kelompok telah menandai kelompok "{$group->title->title ?? $group->name}" siap untuk finalisasi. Tunggu admin untuk proses finalisasi.',
+                'Group',
+                $group->id
+            );
+        }
+    }
+
+    /**
+     * Notify all group members about cancellation of finalization.
+     */
+    public function notifyGroupMembersOfCancellation(\App\Models\Group $group): void
+    {
+        $members = $group->members;
+        
+        foreach ($members as $member) {
+            $this->send(
+                $member->student_id,
+                'group_finalization_cancelled',
+                'Finalisasi Dibatalkan',
+                'Ketua kelompok telah membatalkan finalisasi untuk kelompok "{$group->title->title ?? $group->name}". Kelompok kembali ke status siap bidding.',
+                'Group',
+                $group->id
+            );
+        }
+    }
+
+    /**
+     * Notify all group members when lecturer withdraws approval.
+     */
+    public function notifyGroupOfWithdrawal(\App\Models\Group $group, \App\Models\Title $title, ?string $reason = null): void
+    {
+        $members = $group->members;
+        $message = "Dosen telah menarik persetujuan untuk judul \"{$title->title}\".";
+        
+        if ($reason) {
+            $message .= " Alasan: {$reason}";
+        }
+        
+        $message .= " Status kelompok kembali ke FORMING_SOLO. Silakan pilih judul lain.";
+        
+        foreach ($members as $member) {
+            $this->send(
+                $member->student_id,
+                'title_approval_withdrawn',
+                'Persetujuan Judul Ditarik',
+                $message,
+                'Title',
+                $title->id
+            );
+        }
+    }
 }

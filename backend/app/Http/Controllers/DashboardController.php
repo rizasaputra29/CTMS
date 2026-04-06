@@ -8,52 +8,117 @@ use App\Models\Period;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Bid;
+use App\Services\FinalizationService;
 use Illuminate\Support\Facades\Auth;
 
 class DashboardController extends Controller
 {
     public function admin()
     {
+        $currentPeriod = Period::where('is_active', true)->orderBy('created_at', 'desc')->first();
+        $readinessStats = $currentPeriod ? app(FinalizationService::class)->getReadinessStats($currentPeriod->id) : null;
+
         return response()->json([
             'total_users' => User::count(),
             'total_students' => User::where('role', 'mahasiswa')->count(),
             'total_lecturers' => User::where('role', 'dosen')->count(),
-            'active_periods' => Period::where('is_active', 'true')->get(),
+            'active_periods' => Period::where('is_active', true)->get(),
+            'registration_summary' => $readinessStats ? [
+                'total' => $readinessStats['total_registered'],
+                'assigned' => $readinessStats['total_assigned'],
+                'unassigned' => $readinessStats['total_unassigned'],
+            ] : null,
+            'readiness_overview' => $readinessStats ? [
+                'total_groups' => $readinessStats['total_groups'],
+                'invalid_groups' => $readinessStats['total_invalid_groups'],
+                'global_progress' => $readinessStats['global_progress'],
+            ] : null,
+            'unassigned_list' => $readinessStats ? $readinessStats['unassigned_students'] : [],
         ]);
     }
 
-    public function dosen()
+    public function dosen(Request $request)
     {
         $user = Auth::user();
-        $titles = Title::where('lecturer_id', $user->id)->get();
+        $periodId = $request->query('period_id');
+
+        // Resolve current period if not provided
+        if (!$periodId) {
+            $currentPeriod = Period::where('is_active', true)
+                ->orderBy('created_at', 'desc')
+                ->first();
+            $periodId = $currentPeriod ? $currentPeriod->id : null;
+        }
+
+        $titlesQuery = Title::where('lecturer_id', $user->id);
+        if ($periodId) {
+            // Note: Lecturer titles are generally reused, but let's assume filtering 
+            // is useful for seeing titles that were active or used in a period.
+            // For now, we'll keep it simple: total titles for the lecturer.
+        }
+        $titles = $titlesQuery->get();
         $totalTitles = $titles->count();
 
-        $activeGroups = Group::whereIn('title_id', $titles->pluck('id'))
-            ->where('status', 'APPROVED')
-            ->count();
+        $groupsQuery = Group::whereIn('title_id', $titles->pluck('id'))
+            ->where('status', 'APPROVED');
+        if ($periodId) {
+            $groupsQuery->where('period_id', $periodId);
+        }
+        $activeGroups = $groupsQuery->count();
 
         $pendingBimbingan = 0;
 
-        // Count pending student proposals for this lecturer
-        $pendingProposals = Title::where('proposed_supervisor_id', $user->id)
+        // Count pending student proposals for this lecturer in this period
+        $pendingProposalsQuery = Title::where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
-            ->where('supervisor_approval_status', 'PENDING')
-            ->count();
+            ->where('supervisor_approval_status', 'PENDING');
+        if ($periodId) {
+            $pendingProposalsQuery->whereHas('proposedByGroup', function($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+        $pendingProposals = $pendingProposalsQuery->count();
+
+        $availablePeriods = Period::orderBy('created_at', 'desc')->get(['id', 'name', 'is_active']);
+
+        // New: Identify groups where this lecturer is recommended/proposed but not yet finalized
+        $pendingAssignmentsCount = 0;
+        if ($periodId) {
+            $pendingAssignmentsCount = Bid::where('lecturer_recommendation', 'ACCEPT')
+                ->where('status', 'PENDING')
+                ->where(function($q) use ($user) {
+                    $q->where('proposed_supervisor_1_id', $user->id)
+                      ->orWhere('proposed_supervisor_2_id', $user->id);
+                })
+                ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
+                ->count();
+        }
 
         return response()->json([
             'total_titles' => $totalTitles,
             'active_groups' => $activeGroups,
-            'pending_bimbingan' => $pendingBimbingan,
+            'pending_bimbingan' => $pendingBimbingan, // Legacy field
             'pending_proposals' => $pendingProposals,
+            'pending_assignments_count' => $pendingAssignmentsCount,
+            'available_periods' => $availablePeriods,
+            'selected_period_id' => $periodId,
         ]);
     }
 
     public function mahasiswa()
     {
         $user = Auth::user();
-        // Find group where user is a member (exclude rejected groups)
+        
+        // Get current active period
+        $currentPeriod = Period::where('is_active', true)
+            ->orderBy('created_at', 'desc')
+            ->first();
+        
+        // Find group where user is a member (exclude rejected groups) for current period only
         $groupMember = GroupMember::with(['group.title'])
             ->where('student_id', $user->id)
+            ->where('period_id', $currentPeriod?->id)
             ->whereHas('group', function ($q) {
                 $q->where('status', '!=', 'REJECTED');
             })
@@ -71,7 +136,30 @@ class DashboardController extends Controller
             $steps[$phase] = $documents->where('phase', $phase)->where('status', 'APPROVED')->isNotEmpty();
         }
 
-        $isGraduated = $group && $group->status === 'APPROVED' && collect($steps)->every(fn($v) => $v === true);
+        // Check graduation status - group is graduated when all phases completed
+        // Use statusOrder to check if group has reached at least CLOSED state
+        $isGraduated = false;
+        if ($group) {
+            $statusOrder = [
+                'FORMING' => 0,
+                'FORMING_SOLO' => 1,
+                'SOFT_FORMING' => 2,
+                'WAITING_SUPERVISOR_APPROVAL' => 3,
+                'READY_FOR_BIDDING' => 4,
+                'KELOMPOK_FINAL' => 5,
+                'PDC1_ACTIVE' => 6,
+                'READY_FOR_SEMPRO' => 7,
+                'SEMPRO_DONE' => 8,
+                'PDC2_ACTIVE' => 9,
+                'PDC2_READY_FOR_EXPO' => 10,
+                'EXPO_REGISTERED' => 11,
+                'EXPO_DONE' => 12,
+                'PDC2_COMPLETED' => 13,
+                'CLOSED' => 14,
+            ];
+            $currentOrder = $statusOrder[$group->status] ?? 0;
+            $isGraduated = $currentOrder >= 13 && collect($steps)->every(fn($v) => $v === true);
+        }
 
         // Check for pending proposal
         $pendingProposal = null;
@@ -87,9 +175,10 @@ class DashboardController extends Controller
         return response()->json([
             'has_group' => $group ? true : false,
             'group_status' => $group ? $group->status : null,
+            'readiness' => $group ? ($group->readiness_status ?? $group->calculateReadiness()) : null,
             'title' => $group && $group->title ? $group->title->title : null,
             'group_period' => $group ? $group->period : null,
-            'active_periods' => Period::where('is_active', 'true')->get(),
+            'active_periods' => Period::where('is_active', true)->get(),
             'steps' => $steps,
             'is_graduated' => $isGraduated,
             'pending_proposal' => $pendingProposal,

@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { isAxiosError } from "axios";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
@@ -8,6 +8,9 @@ const api = axios.create({
   },
   withCredentials: true,
 });
+
+// Add isAxiosError helper to api object
+api.isAxiosError = isAxiosError;
 
 // Always attach token from localStorage on every request
 // This prevents 401 race conditions when pages load before AuthContext initializes

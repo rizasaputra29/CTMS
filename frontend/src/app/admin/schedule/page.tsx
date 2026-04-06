@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Calendar, Clock, MapPin, Users, Plus } from 'lucide-react';
+import { Loader2, Calendar, Clock, MapPin, Users, Plus, Search as SearchIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,8 +18,8 @@ import {
     Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import axios from 'axios';
 
+interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
 interface Dosen { id: number; name: string; email: string; }
 interface Schedule {
     id: number;
@@ -50,6 +50,12 @@ interface TaDefenseSchedule {
 }
 
 interface GroupItem { id: number; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+ 
+interface Period {
+    id: number;
+    name: string;
+    is_active: boolean;
+}
 
 export default function AdminSchedulePage() {
     const [semproSchedules, setSemproSchedules] = useState<Schedule[]>([]);
@@ -57,6 +63,9 @@ export default function AdminSchedulePage() {
     const [taDefenseSchedules, setTaDefenseSchedules] = useState<TaDefenseSchedule[]>([]);
     const [groups, setGroups] = useState<GroupItem[]>([]);
     const [dosens, setDosens] = useState<Dosen[]>([]);
+    const [periods, setPeriods] = useState<Period[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
     const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -74,13 +83,24 @@ export default function AdminSchedulePage() {
     const [rejectType, setRejectType] = useState<'SEMPRO' | 'EXPO' | 'TA_DEFENSE'>('SEMPRO');
     const [rejectReason, setRejectReason] = useState('');
 
-    const fetchAll = useCallback(async () => {
+    const fetchAll = useCallback(async (periodId?: string) => {
         try {
+            const currentPeriod = periodId || selectedPeriod;
+            if (!currentPeriod && !periodId) {
+                const perRes = await api.get('/admin/periods');
+                const perData = perRes.data || [];
+                setPeriods(perData);
+                const active = perData.find((p: Period) => p.is_active);
+                if (active) setSelectedPeriod(active.id.toString());
+                return;
+            }
+
+            const query = currentPeriod ? `?period_id=${currentPeriod}` : '';
             const [semproRes, expoRes, taRes, groupsRes] = await Promise.all([
-                api.get('/admin/sempro/schedules'),
-                api.get('/admin/expo/schedules'),
-                api.get('/admin/ta-defense/schedules'),
-                api.get('/admin/groups'),
+                api.get(`/admin/sempro/schedules${query}`),
+                api.get(`/admin/expo/schedules${query}`),
+                api.get(`/admin/ta-defense/schedules${query}`),
+                api.get(`/admin/groups${query}`),
             ]);
             setSemproSchedules(semproRes.data.data || []);
             setExpoSchedules(expoRes.data.data || []);
@@ -91,7 +111,7 @@ export default function AdminSchedulePage() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [selectedPeriod]);
 
     const fetchDosens = useCallback(async () => {
         try {
@@ -103,7 +123,15 @@ export default function AdminSchedulePage() {
         }
     }, []);
 
-    useEffect(() => { fetchAll(); fetchDosens(); }, [fetchAll, fetchDosens]);
+    useEffect(() => {
+        if (!selectedPeriod) {
+            fetchAll();
+        } else {
+            fetchAll(selectedPeriod);
+        }
+    }, [selectedPeriod, fetchAll]);
+
+    useEffect(() => { fetchDosens(); }, [fetchDosens]);
 
     const resetForm = () => {
         setFormGroupId(''); setFormStudentId(''); setFormDate('');
@@ -134,7 +162,7 @@ export default function AdminSchedulePage() {
             toast.success(`${scheduleType} scheduled!`);
             setScheduleOpen(false); resetForm(); fetchAll();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 const msg = error.response?.data?.message || 'Scheduling failed.';
                 const conflicts = error.response?.data?.conflicts;
                 toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
@@ -160,7 +188,7 @@ export default function AdminSchedulePage() {
             toast.success(`${type} schedule approved!`);
             fetchAll();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 const msg = error.response?.data?.message || 'Approval failed.';
                 const conflicts = error.response?.data?.conflicts;
                 toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
@@ -180,7 +208,7 @@ export default function AdminSchedulePage() {
             toast.success('Schedule request rejected.');
             setRejectId(null); setRejectReason('');
             fetchAll();
-        } catch (error) {
+        } catch {
             toast.error('Rejection failed.');
         }
     };
@@ -259,7 +287,34 @@ export default function AdminSchedulePage() {
         </Card>
     );
 
-    if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+    if (loading && !selectedPeriod) return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>;
+
+    const filterSchedules = (list: (Schedule | TaDefenseSchedule)[]) => {
+        if (!searchQuery) return list;
+        const lowerQuery = searchQuery.toLowerCase();
+        return list.filter(item => {
+            const group = (item as Schedule).group || (item as TaDefenseSchedule).group;
+            const title = group?.title?.title?.toLowerCase() || '';
+            const groupId = ((item as Schedule).group_id || group?.id)?.toString() || '';
+            const studentName = (item as TaDefenseSchedule).student?.name?.toLowerCase() || '';
+            const room = item.room?.toLowerCase() || '';
+            const ex1 = (item as Schedule).examiner1?.name?.toLowerCase() || '';
+            const ex2 = (item as Schedule).examiner2?.name?.toLowerCase() || '';
+            const examinersList = (item as TaDefenseSchedule).examiners?.map((ex) => ex.examiner?.name?.toLowerCase()).join(' ') || '';
+            
+            return title.includes(lowerQuery) || 
+                   groupId.includes(lowerQuery) || 
+                   studentName.includes(lowerQuery) || 
+                   room.includes(lowerQuery) || 
+                   ex1.includes(lowerQuery) || 
+                   ex2.includes(lowerQuery) || 
+                   examinersList.includes(lowerQuery);
+        });
+    };
+
+    const displaySempro = filterSchedules(semproSchedules) as Schedule[];
+    const displayExpo = filterSchedules(expoSchedules) as Schedule[];
+    const displayTa = filterSchedules(taDefenseSchedules) as TaDefenseSchedule[];
 
     const semproEligible = groups.filter(g => g.status === 'READY_FOR_SEMPRO');
     const expoEligible = groups.filter(g => g.status === 'PDC2_READY_FOR_EXPO');
@@ -269,28 +324,50 @@ export default function AdminSchedulePage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Schedule Management</h1>
                     <p className="text-muted-foreground">Manage SEMPRO, EXPO, and TA Defense schedules.</p>
                 </div>
-                <Button onClick={() => setScheduleOpen(true)}><Plus className="mr-2 h-4 w-4" /> New Schedule</Button>
+                <div className="flex items-center gap-3">
+                    <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                        <SelectTrigger className="w-[180px]">
+                            <SelectValue placeholder="Select period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {periods.map(p => (
+                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button onClick={() => setScheduleOpen(true)}><Plus className="mr-2 h-4 w-4" /> New Schedule</Button>
+                </div>
+            </div>
+
+            <div className="relative max-w-sm">
+                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                    placeholder="Search schedules..."
+                    className="pl-9"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                />
             </div>
 
             <Tabs defaultValue="sempro">
                 <TabsList>
-                    <TabsTrigger value="sempro">SEMPRO ({semproSchedules.length})</TabsTrigger>
-                    <TabsTrigger value="expo">EXPO ({expoSchedules.length})</TabsTrigger>
-                    <TabsTrigger value="ta">TA Defense ({taDefenseSchedules.length})</TabsTrigger>
+                    <TabsTrigger value="sempro">SEMPRO ({displaySempro.length})</TabsTrigger>
+                    <TabsTrigger value="expo">EXPO ({displayExpo.length})</TabsTrigger>
+                    <TabsTrigger value="ta">TA Defense ({displayTa.length})</TabsTrigger>
                 </TabsList>
                 <TabsContent value="sempro" className="space-y-3">
-                    {semproSchedules.length === 0 ? <p className="text-muted-foreground text-center py-8">No SEMPRO schedules.</p> : semproSchedules.map(s => <ScheduleCard key={s.id} s={s} />)}
+                    {displaySempro.length === 0 ? <p className="text-muted-foreground text-center py-8">No SEMPRO schedules found.</p> : displaySempro.map(s => <ScheduleCard key={s.id} s={s} />)}
                 </TabsContent>
                 <TabsContent value="expo" className="space-y-3">
-                    {expoSchedules.length === 0 ? <p className="text-muted-foreground text-center py-8">No EXPO schedules.</p> : expoSchedules.map(s => <ScheduleCard key={s.id} s={s} />)}
+                    {displayExpo.length === 0 ? <p className="text-muted-foreground text-center py-8">No EXPO schedules found.</p> : displayExpo.map(s => <ScheduleCard key={s.id} s={s} />)}
                 </TabsContent>
                 <TabsContent value="ta" className="space-y-3">
-                    {taDefenseSchedules.length === 0 ? <p className="text-muted-foreground text-center py-8">No TA Defense schedules.</p> : taDefenseSchedules.map(s => <TaDefenseCard key={s.id} s={s} />)}
+                    {displayTa.length === 0 ? <p className="text-muted-foreground text-center py-8">No TA Defense schedules found.</p> : displayTa.map(s => <TaDefenseCard key={s.id} s={s} />)}
                 </TabsContent>
             </Tabs>
 

@@ -19,7 +19,7 @@ class RoleMiddleware
         Log::info('RoleMiddleware: Handling request', [
             'path' => $request->path(),
             'user_id' => $request->user()?->id,
-            'user_role' => $request->user()?->role,
+            'user_roles' => $request->user()?->roleSlugs(),
             'required_roles' => $roles,
         ]);
 
@@ -28,9 +28,13 @@ class RoleMiddleware
             abort(401, 'Unauthenticated.');
         }
 
-        if (!in_array($request->user()->role, $roles)) {
+        // Check if user has ANY of the required roles
+        $userRoles = $request->user()->roleSlugs();
+        $hasRole = !empty(array_intersect($userRoles, $roles));
+
+        if (!$hasRole) {
             Log::error('RoleMiddleware: Role mismatch!', [
-                'user_role' => $request->user()->role,
+                'user_roles' => $userRoles,
                 'required_roles' => $roles,
             ]);
             abort(403, 'Unauthorized action.');

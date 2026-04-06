@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -14,11 +14,24 @@ import {
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
     BarChart, Bar, XAxis, YAxis
 } from 'recharts';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select"
+import { Loader2 } from 'lucide-react';
 
 interface DosenStats {
     total_titles: number;
     active_groups: number;
     pending_bimbingan: number;
+    pending_proposals: number;
+    available_periods: { id: number; name: string; is_active: boolean }[];
+    selected_period_id: number | null;
 }
 
 import { useAuth } from '@/context/AuthContext';
@@ -27,21 +40,37 @@ export default function DosenDashboard() {
     const { user } = useAuth();
     const [stats, setStats] = useState<DosenStats | null>(null);
     const [loading, setLoading] = useState(true);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchStats = useCallback(async (periodId?: string) => {
+        if (periodId) setRefreshing(true);
+        else setLoading(true);
+
+        try {
+            const url = periodId ? `/dosen/dashboard?period_id=${periodId}` : '/dosen/dashboard';
+            const response = await api.get(url);
+            const data = response.data;
+            setStats(data);
+            if (!selectedPeriod && data.selected_period_id) {
+                setSelectedPeriod(data.selected_period_id.toString());
+            }
+        } catch (error) {
+            console.error('Failed to fetch dashboard stats', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, [selectedPeriod]);
 
     useEffect(() => {
-        const fetchStats = async () => {
-            try {
-                const response = await api.get('/dosen/dashboard');
-                setStats(response.data);
-            } catch (error) {
-                console.error('Failed to fetch dashboard stats', error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchStats();
-    }, []);
+    }, [fetchStats]);
+
+    const handlePeriodChange = (value: string) => {
+        setSelectedPeriod(value);
+        fetchStats(value);
+    };
 
     if (loading) {
          return <div className="p-4 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
@@ -64,8 +93,29 @@ export default function DosenDashboard() {
 
     return (
         <div className="space-y-4 p-4 lg:p-8">
-            <div className="text-2xl font-bold tracking-tight">
-                Welcome to {user?.name || 'User'}&apos;s Dashboard
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="text-2xl font-bold tracking-tight">
+                    Welcome to {user?.name || 'User'}&apos;s Dashboard
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">View Period:</span>
+                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                        <SelectTrigger className="w-[200px] h-8 text-xs">
+                            <SelectValue placeholder="Select Period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectGroup>
+                                <SelectLabel>Available Periods</SelectLabel>
+                                {stats.available_periods.map(p => (
+                                    <SelectItem key={p.id} value={p.id.toString()}>
+                                        {p.name} {p.is_active && "(Active)"}
+                                    </SelectItem>
+                                ))}
+                            </SelectGroup>
+                        </SelectContent>
+                    </Select>
+                    {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 
@@ -160,10 +210,10 @@ export default function DosenDashboard() {
                              <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                                 <FileText className="w-4 h-4" /> Action Required
                              </div>
-                             {stats.pending_bimbingan > 0 && <AlertCircle className="w-4 h-4 text-orange-500 animate-pulse" />}
+                             {stats.pending_proposals > 0 && <AlertCircle className="w-4 h-4 text-orange-500 animate-pulse" />}
                         </div>
-                        <div className="text-4xl font-bold mt-2 tracking-tight">{stats.pending_bimbingan}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Pending student requests waiting for your approval.</p>
+                        <div className="text-4xl font-bold mt-2 tracking-tight">{stats.pending_proposals}</div>
+                        <p className="text-xs text-muted-foreground mt-1">Pending student proposals for this period.</p>
                     </div>
                     
                     <div className="flex items-center justify-between mt-4">

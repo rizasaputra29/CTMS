@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
-import axios from 'axios';
 import Link from 'next/link';
 import Image from 'next/image';
+import { toast } from 'sonner';
 
 export default function LoginPage() {
     const { login } = useAuth();
@@ -25,10 +25,13 @@ export default function LoginPage() {
 
         try {
             await api.get('/sanctum/csrf-cookie', { baseURL: 'http://localhost:8000' });
-            const response = await api.post('/login', { email, password });
-            login(response.data.access_token, response.data.user);
+            const res = await api.post('/login', { email, password });
+            
+            // Login for all users (single and multi-role) - no role selection dialog
+            login(res.data.access_token, res.data.user, res.data.roles);
+            toast.success('Login successful');
         } catch (err: unknown) {
-            if (axios.isAxiosError(err)) {
+            if (api.isAxiosError(err)) {
                 setError(err.response?.data?.message || 'Login failed');
             } else {
                 setError('An unexpected error occurred');

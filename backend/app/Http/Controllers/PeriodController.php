@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Period;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class PeriodController extends Controller
@@ -25,6 +26,7 @@ class PeriodController extends Controller
             'start_date' => 'required|date',
             'end_date' => 'required|date|after:start_date',
             'is_active' => 'boolean',
+            'is_finalized' => 'boolean',
             // Bidding config
             'bidding_start' => 'nullable|date',
             'bidding_end' => 'nullable|date|after_or_equal:bidding_start',
@@ -40,11 +42,13 @@ class PeriodController extends Controller
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
             'max_supervise_load' => 'nullable|integer|min:1|max:50',
+            'require_all_students_grouped' => 'boolean',
         ]);
 
         // V4: Allow multiple active periods — no auto-deactivation
 
         $period = Period::create($validated);
+        Cache::forget('active_period');
 
         return response()->json($period->fresh(), 201);
     }
@@ -56,6 +60,7 @@ class PeriodController extends Controller
             'start_date' => 'sometimes|date',
             'end_date' => 'sometimes|date|after:start_date',
             'is_active' => 'boolean',
+            'is_finalized' => 'boolean',
             // Bidding config
             'bidding_start' => 'nullable|date',
             'bidding_end' => 'nullable|date|after_or_equal:bidding_start',
@@ -71,11 +76,13 @@ class PeriodController extends Controller
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
             'max_supervise_load' => 'nullable|integer|min:1|max:50',
+            'require_all_students_grouped' => 'boolean',
         ]);
 
         // V4: Allow multiple active periods — no auto-deactivation
 
         $period->update($validated);
+        Cache::forget('active_period');
 
         return response()->json($period->fresh());
     }
@@ -89,6 +96,22 @@ class PeriodController extends Controller
 
         // Soft delete
         $period->delete();
+        Cache::forget('active_period');
+
         return response()->json(['message' => 'Period archived successfully.']);
+    }
+
+    /**
+     * V5: Get the current registration period for students.
+     * Returns the latest active, non-finalized period.
+     */
+    public function registrationPeriod()
+    {
+        $period = Period::where('is_active', true)
+            ->where('is_finalized', false)
+            ->orderBy('created_at', 'desc')
+            ->first();
+
+        return response()->json(['period' => $period]);
     }
 }

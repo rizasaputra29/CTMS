@@ -6,6 +6,7 @@ use App\Models\Bid;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
+use App\Models\Role;
 use App\Models\Title;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +34,8 @@ class BidControllerTest extends TestCase
             'password' => bcrypt('pw'),
             'role' => 'dosen',
         ]);
+        $dosenRole = Role::firstOrCreate(['name' => 'Dosen', 'slug' => 'dosen']);
+        $this->dosen->roles()->attach($dosenRole->id);
 
         $this->leader = User::create([
             'name' => 'Leader',
@@ -40,6 +43,8 @@ class BidControllerTest extends TestCase
             'password' => bcrypt('pw'),
             'role' => 'mahasiswa',
         ]);
+        $mahasiswaRole = Role::firstOrCreate(['name' => 'Mahasiswa', 'slug' => 'mahasiswa']);
+        $this->leader->roles()->attach($mahasiswaRole->id);
 
         $this->member = User::create([
             'name' => 'Member',
@@ -47,6 +52,7 @@ class BidControllerTest extends TestCase
             'password' => bcrypt('pw'),
             'role' => 'mahasiswa',
         ]);
+        $this->member->roles()->attach($mahasiswaRole->id);
 
         $this->period = Period::create([
             'name' => 'Test',
@@ -248,8 +254,8 @@ class BidControllerTest extends TestCase
             'proposed_supervisor_1_id' => $this->dosen->id,
         ]);
 
-        $response->assertStatus(400);
-        $response->assertJson(['message' => 'Group must be in READY_FOR_BIDDING status to bid.']);
+        $response->assertStatus(403);
+        $response->assertJson(['message' => 'Solo Seekers tidak boleh bidding pada judul Dosen. Gunakan "Propose Title" untuk mengajukan ide Anda sendiri dan menarik anggota via Bursa Ide.']);
     }
 
     // ══════════════════════════════════════════

@@ -10,7 +10,25 @@ class Group extends Model
     // They are intentionally excluded from $fillable.
     // Use assignTitleFromFinalization() and assignTypeFromFinalization() only.
     // These methods are called exclusively by FinalizationService.
-    protected $fillable = ['period_id', 'status', 'supervisor_1_id', 'supervisor_2_id', 'group_mode', 'has_existing_group'];
+    protected $fillable = [
+        'period_id', 
+        'status', 
+        'supervisor_1_id', 
+        'supervisor_2_id', 
+        'group_mode', 
+        'is_solo',
+        'has_existing_group', 
+        'has_active_proposal',
+        'title_id', 
+        'assignment_type',
+        'readiness_status'
+    ];
+
+    protected $casts = [
+        'has_active_proposal' => 'boolean',
+        'readiness_status' => 'array',
+        'is_solo' => 'boolean',
+    ];
 
     /**
      * Assign title_id — ONLY callable from FinalizationService.
@@ -96,6 +114,148 @@ class Group extends Model
         return $this->hasMany(Schedule::class);
     }
 
+    /**
+     * Determine group status based ONLY on member count.
+     * This is the core logic for automatic status calculation.
+     * 
+     * Status is determined by:
+     * - Number of members
+     * - Period settings (min_group_size, allow_solo)
+     * 
+     * NOT determined by:
+     * - Bid/Proposal status (these are independent)
+     * - Any preference/choice actions
+     */
+    public function determineStatus(): string
+    {
+        // Skip if already finalized or beyond these states
+        if (in_array($this->status, [
+            'TITLE_APPROVED',
+            'KELOMPOK_FINAL',
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'PDC2_COMPLETED',
+            'CLOSED',
+            'DISSOLVED',
+        ])) {
+            return $this->status;
+        }
+
+        $period = $this->period;
+        $minSize = $period->min_group_size ?? 3;
+        $allowSolo = $period->allow_solo ?? false;
+        $memberCount = $this->members()->count();
+
+        // If members >= minimum, group is ready for bidding/proposing
+        if ($memberCount >= $minSize) {
+            return 'READY_FOR_BIDDING';
+        }
+
+        // Special case: solo seeker with allow_solo enabled
+        if ($memberCount === 1 && $allowSolo && $this->is_solo) {
+            return 'READY_FOR_BIDDING';
+        }
+
+        // If group has exactly 1 member (solo seeker), return FORMING_SOLO
+        if ($memberCount === 1) {
+            return 'FORMING_SOLO';
+        }
+
+        // Otherwise, group is still forming (incomplete)
+        return 'FORMING';
+    }
+
+    /**
+     * Check if group has any active preference (bid or proposal).
+     * Used for UI display - NOT for status determination.
+     */
+    public function hasPreference(): bool
+    {
+        // Check active bids (PENDING or ACCEPTED)
+        $hasBids = $this->bids()
+            ->whereIn('status', ['PENDING', 'ACCEPTED'])
+            ->exists();
+        
+        // Check active proposals (PENDING or APPROVED)
+        $hasProposals = \App\Models\Title::where('proposed_by_group_id', $this->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'APPROVED'])
+            ->exists();
+
+        return $hasBids || $hasProposals;
+    }
+
+    /**
+     * Check if current user is the leader of this group.
+     */
+    public function isLeader(User $user): bool
+    {
+        return $this->members()
+            ->where('student_id', $user->id)
+            ->where('is_leader', true)
+            ->exists();
+    }
+
+    /**
+     * Check if group can mark ready for finalization.
+     * Used for frontend display and backend validation.
+     */
+    public function canMarkReadyForFinalization(): bool
+    {
+        // Must be in READY_FOR_BIDDING or TITLE_APPROVED status
+        if (!in_array($this->status, ['READY_FOR_BIDDING', 'TITLE_APPROVED'])) {
+            return false;
+        }
+
+        // Period must be active
+        if (!$this->period || !$this->period->is_active) {
+            return false;
+        }
+
+        // Check member count - must reach max
+        $memberCount = $this->members()->count();
+        $maxSize = $this->period->max_group_size ?? 4;
+        if ($memberCount !== $maxSize) {
+            return false;
+        }
+
+        // Must have at least one accepted bid or approved proposal
+        $hasAcceptedBid = $this->bids()
+            ->where('lecturer_recommendation', 'ACCEPT')
+            ->exists();
+
+        $hasApprovedProposal = Title::where('proposed_by_group_id', $this->id)
+            ->where('title_source', 'STUDENT')
+            ->where('supervisor_approval_status', 'APPROVED')
+            ->exists();
+
+        return $hasAcceptedBid || $hasApprovedProposal;
+    }
+
+    /**
+     * Check if group can cancel finalization.
+     * Used for frontend display.
+     */
+    public function canCancelFinalization(): bool
+    {
+        // Must be in READY_FOR_FINALIZATION status
+        if ($this->status !== 'READY_FOR_FINALIZATION') {
+            return false;
+        }
+
+        // Period must still be active
+        if (!$this->period || !$this->period->is_active) {
+            return false;
+        }
+
+        return true;
+    }
+
     public function evaluations()
     {
         return $this->hasMany(Evaluation::class);
@@ -117,5 +277,265 @@ class Group extends Model
     public function taDefenseSchedules()
     {
         return $this->hasMany(TaDefenseSchedule::class);
+    }
+
+    // =================================================================
+    // ENTERPRISE READINESS SYSTEM (Single Source of Truth Pattern)
+    // =================================================================
+    // ALL readiness logic must go through Group::refreshReadinessSnapshot()
+    // Snapshot is computed once and cached in readiness_status JSON field.
+    // This prevents double computation and ensures consistency.
+    // =================================================================
+
+    /**
+     * SINGLE SOURCE OF TRUTH: Compute & persist readiness snapshot.
+     * Called by:
+     * - GroupObserver::updated() on model changes
+     * - Controllers for manual refresh
+     * - Batch commands
+     *
+     * CRITICAL: Always wrap in DB::transaction() if called from multi-step operations.
+     */
+    public function refreshReadinessSnapshot(): self
+    {
+        $snapshot = [
+            'is_ready' => $this->isReadyForBidding(),
+            'issues' => $this->getReadinessIssues(),
+            'member_count' => $this->members()->count(),
+            'supervisor_assigned' => $this->supervisor_1_id !== null && $this->supervisor_2_id !== null,
+            'title_assigned' => $this->title_id !== null,
+            'progress' => $this->calculateProgressScore(),
+            'last_checked_at' => now()->toIso8601String(),
+        ];
+
+        // Persist within transaction for safety
+        \Illuminate\Support\Facades\DB::transaction(function () use ($snapshot) {
+            $this->update(['readiness_status' => $snapshot]);
+
+            // Audit log for transparency
+            AuditLog::create([
+                'user_id' => null, // System-triggered
+                'action' => 'READINESS_SNAPSHOT_REFRESHED',
+                'target_type' => self::class,
+                'target_id' => $this->id,
+                'payload' => [
+                    'snapshot' => $snapshot,
+                    'triggered_by' => 'observer', // or 'manual', 'command', etc.
+                ],
+            ]);
+        });
+
+        return $this->fresh();
+    }
+
+    /**
+     * Check if group is ready for bidding (explicit check, not cached).
+     * This is the CORE LOGIC — used by FinalizationService, GroupStateMachine, etc.
+     *
+     * @return bool True if all critical requirements met.
+     */
+    public function isReadyForBidding(): bool
+    {
+        return empty($this->getReadinessIssues()['critical']);
+    }
+
+    /**
+     * Get detailed readiness issues (critical & warning).
+     * IMPORTANT: This computes fresh — used to build snapshot.
+     *
+     * @return array ['critical' => [...], 'warning' => [...]]
+     */
+    public function getReadinessIssues(): array
+    {
+        $issues = ['critical' => [], 'warning' => []];
+
+        // Always check size constraints
+        $sizeIssues = $this->checkSizeConstraints();
+        if (!empty($sizeIssues)) {
+            $issues['critical'] = array_merge($issues['critical'], $sizeIssues);
+        }
+
+        // Always check title requirement
+        $titleIssues = $this->checkTitleRequirement();
+        if (!empty($titleIssues)) {
+            $issues['critical'] = array_merge($issues['critical'], $titleIssues);
+        }
+
+        // Always check supervisor requirement
+        $supervisorIssues = $this->checkSupervisorRequirement();
+        if (!empty($supervisorIssues)) {
+            $issues['critical'] = array_merge($issues['critical'], $supervisorIssues);
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Check group size constraints.
+     * @return array Issues found
+     */
+    private function checkSizeConstraints(): array
+    {
+        $issues = [];
+        $period = $this->period;
+        if (!$period) return $issues;
+
+        $minSize = $period->min_group_size ?? 3;
+        $maxSize = $period->max_group_size ?? 4;
+        $activeMembersCount = $this->members()->count();
+
+        if ($activeMembersCount < $minSize) {
+            $issues[] = "Anggota kurang dari batas minimum ({$activeMembersCount}/{$minSize})";
+        } elseif ($activeMembersCount > $maxSize) {
+            $issues[] = "Anggota melebihi batas kapasitas ({$activeMembersCount}/{$maxSize})";
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Check title assignment requirement.
+     * Title can come from bidding or student proposal.
+     * @return array Issues found
+     */
+    private function checkTitleRequirement(): array
+    {
+        $issues = [];
+
+        // Already assigned via finalization
+        if ($this->title_id) {
+            return $issues;
+        }
+
+        // Check if group has accepted bid (lecturer recommendation = ACCEPT)
+        $hasAcceptedBid = $this->bids()
+            ->where('lecturer_recommendation', 'ACCEPT')
+            ->exists();
+
+        if (!$hasAcceptedBid) {
+            $issues[] = "Judul (Bursa Ide/Proposal) belum ditetapkan";
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Check supervisor assignment requirement.
+     * Both supervisors must be assigned.
+     * @return array Issues found
+     */
+    private function checkSupervisorRequirement(): array
+    {
+        $issues = [];
+        $missing = [];
+
+        if (!$this->supervisor_1_id) {
+            $missing[] = "Pembimbing 1";
+        }
+        if (!$this->supervisor_2_id) {
+            $missing[] = "Pembimbing 2";
+        }
+
+        if (!empty($missing)) {
+            $issues[] = "Belum memiliki " . implode(' & ', $missing);
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Calculate Progress Score (0-100) based on readiness criteria.
+     */
+    public function calculateProgressScore(): int
+    {
+        $criteria = 3;
+        $met = 0;
+
+        $activeMembersCount = $this->members()->count();
+        $minSize = ($this->period->min_group_size ?? 3);
+        if ($activeMembersCount >= $minSize) {
+            $met++;
+        }
+
+        if ($this->title_id || $this->bids()->where('lecturer_recommendation', 'ACCEPT')->exists()) {
+            $met++;
+        }
+        if ($this->supervisor_1_id && $this->supervisor_2_id) {
+            $met++;
+        }
+
+        return (int) round(($met / $criteria) * 100);
+    }
+
+    /**
+     * DEPRECATED: Use isReadyForBidding() or getReadinessIssues() instead.
+     * Kept for backwards compatibility, but don't use in new code.
+     */
+    public function calculateReadiness(): array
+    {
+        // Return cached snapshot if available
+        if ($this->readiness_status) {
+            return $this->readiness_status;
+        }
+
+        // Otherwise compute fresh
+        return [
+            'is_ready' => $this->isReadyForBidding(),
+            'issues' => $this->getReadinessIssues(),
+            'member_count' => $this->members()->count(),
+            'supervisor_assigned' => $this->supervisor_1_id !== null && $this->supervisor_2_id !== null,
+            'title_assigned' => $this->title_id !== null,
+            'last_checked_at' => now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * Check if group can accept new members.
+     */
+    public function canAcceptNewMembers(): bool
+    {
+        $maxSize = $this->period->max_group_size ?? 4;
+        return $this->members()->count() < $maxSize;
+    }
+
+    /**
+     * Check if group is at maximum capacity.
+     */
+    public function isAtMaxCapacity(): bool
+    {
+        $maxSize = $this->period->max_group_size ?? 4;
+        return $this->members()->count() >= $maxSize;
+    }
+
+    /**
+     * Revert group status to FORMING_SOLO.
+     */
+    public function revertToFormingSolo(): void
+    {
+        $this->update(['status' => 'FORMING_SOLO']);
+    }
+
+    /**
+     * Get approval audit history for this group's current title.
+     */
+    public function getApprovalAuditHistory()
+    {
+        if (!$this->title_id) {
+            return collect();
+        }
+
+        return TitleApprovalAudit::where('title_id', $this->title_id)
+            ->where('affected_group_id', $this->id)
+            ->orderByDesc('created_at')
+            ->with('title', 'lecturer')
+            ->get();
+    }
+
+    /**
+     * Relationship: Approval audits affecting this group.
+     */
+    public function approvalAudits()
+    {
+        return $this->hasMany(TitleApprovalAudit::class, 'affected_group_id');
     }
 }

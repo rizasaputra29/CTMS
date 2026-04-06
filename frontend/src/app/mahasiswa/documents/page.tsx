@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -18,7 +18,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Upload, FileText, Download, Check, Lock, Clock, AlertTriangle } from 'lucide-react';
 import { toast } from "sonner";
-import axios from 'axios';
 import { cn } from '@/lib/utils';
 
 interface Document {
@@ -72,7 +71,6 @@ export default function MahasiswaDocumentsPage() {
     const [uploading, setUploading] = useState(false);
     const [uploadPhase, setUploadPhase] = useState('');
     const [uploadType, setUploadType] = useState('GENERAL');
-    const [requiredTypesForUpload, setRequiredTypesForUpload] = useState<string[]>([]);
     const [file, setFile] = useState<File | null>(null);
     const [groupStatus, setGroupStatus] = useState<string | null>(null);
     const [hasGroup, setHasGroup] = useState(false);
@@ -89,8 +87,8 @@ export default function MahasiswaDocumentsPage() {
             // Only fetch workflow/docs if group is approved
             const isApproved = group && ![
                 'FORMING',
+                'FORMING_SOLO',
                 'READY_FOR_BIDDING',
-                'WAITING_SUPERVISOR_APPROVAL',
                 'REJECTED'
             ].includes(group.status);
 
@@ -148,7 +146,7 @@ export default function MahasiswaDocumentsPage() {
             setFile(null);
             fetchData();
         } catch (error) {
-            if (axios.isAxiosError(error)) {
+            if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Upload failed');
             } else {
                 toast.error('Upload failed');
@@ -197,8 +195,8 @@ export default function MahasiswaDocumentsPage() {
 
     const isGroupApproved = groupStatus && ![
         'FORMING',
+        'FORMING_SOLO',
         'READY_FOR_BIDDING',
-        'WAITING_SUPERVISOR_APPROVAL',
         'REJECTED'
     ].includes(groupStatus);
 
@@ -259,7 +257,6 @@ export default function MahasiswaDocumentsPage() {
                         <div className="hidden md:block absolute top-6 left-[calc(100%/12)] right-[calc(100%/12)] h-0.5 bg-muted z-0" />
                         <div className="grid grid-cols-1 md:grid-cols-6 gap-4 relative z-10">
                             {workflow.phases.map((phaseInfo) => {
-                                const canUpload = phaseInfo.status === 'unlocked' || phaseInfo.status === 'revision';
                                 return (
                                     <div key={phaseInfo.phase} className="flex flex-col items-center text-center">
                                         <div className={cn(

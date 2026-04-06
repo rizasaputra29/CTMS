@@ -6,9 +6,15 @@ use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\TaSubmission;
+use App\Models\Period;
 use App\Services\GroupStateMachine;
+use App\Exceptions\ConflictRuleException;
+use App\Exceptions\DomainRuleException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
 
 class TaSubmissionController extends Controller
 {
@@ -105,25 +111,70 @@ class TaSubmissionController extends Controller
     {
         $user = $request->user();
 
-        $submission = TaSubmission::where('student_id', $user->id)->firstOrFail();
+        // 1. Resolve Active Period (Cached)
+        $activePeriod = Cache::remember('active_period', 3600, function () {
+            return Period::where('is_active', true)
+                ->where('is_finalized', false)
+                ->orderBy('created_at', 'desc')
+                ->first();
+        });
 
-        // Gate: status must be TA_READY
-        if ($submission->status !== 'TA_READY') {
-            return response()->json(['message' => 'TA must be in TA_READY status to register.'], 400);
+        if (!$activePeriod) {
+            throw new DomainRuleException("Tidak ada periode pendaftaran aktif saat ini.");
         }
 
-        // Gate: group must be PDC2_COMPLETED
-        $group = Group::findOrFail($submission->group_id);
-        if ($group->status !== 'PDC2_COMPLETED') {
-            return response()->json(['message' => 'Group must be in PDC2_COMPLETED status.'], 400);
+        // 2. Check TA Registration Window
+        $now = now();
+        if (!$activePeriod->ta_start || !$activePeriod->ta_end || $now->lt($activePeriod->ta_start) || $now->gt($activePeriod->ta_end)) {
+            throw new DomainRuleException("Pendaftaran sidang TA saat ini sedang ditutup.");
         }
 
-        $submission->update(['status' => 'TA_REGISTERED']);
+        return DB::transaction(function () use ($user, $activePeriod) {
+            // A. Row-Level Lock on Submission
+            $submission = TaSubmission::where('student_id', $user->id)
+                ->where('period_id', $activePeriod->id)
+                ->lockForUpdate()
+                ->first();
 
-        return response()->json([
-            'message' => 'TA defense registration submitted.',
-            'data' => $submission->fresh(),
-        ]);
+            if (!$submission) {
+                throw new DomainRuleException("Data pendaftaran TA tidak ditemukan.");
+            }
+
+            // Idempotency
+            if ($submission->status === 'TA_REGISTERED') {
+                throw new ConflictRuleException("Anda sudah terdaftar untuk sidang TA.");
+            }
+
+            // B. Eligibility Check (Submission Status & Group Status)
+            if ($submission->status !== 'TA_READY') {
+                throw new DomainRuleException("Status TA Anda belum mencapai TA_READY.");
+            }
+
+            $group = Group::where('id', $submission->group_id)->lockForUpdate()->first();
+            if (!in_array($group->status, ['PDC2_COMPLETED'])) {
+                throw new DomainRuleException("Grup Anda belum menyelesaikan fase PDC2_COMPLETED.");
+            }
+
+            // C. Finalize Registration
+            $submission->update(['status' => 'TA_REGISTERED']);
+
+            // Audit
+            AuditLog::create([
+                'user_id' => $user->id,
+                'action' => 'TA_REGISTER_DEFENSE',
+                'target_type' => 'TaSubmission',
+                'target_id' => $submission->id,
+                'payload' => [
+                    'request_id' => Log::getContext()['request_id'] ?? null,
+                    'period_id' => $activePeriod->id
+                ],
+            ]);
+
+            return response()->json([
+                'message' => 'Pendaftaran sidang TA berhasil.',
+                'data' => $submission->fresh(),
+            ]);
+        });
     }
 
     /**

@@ -28,18 +28,23 @@ class TaDefenseController extends Controller
     /**
      * List TA defense schedules (admin).
      */
-    public function index()
+    public function index(Request $request)
     {
-        $schedules = TaDefenseSchedule::with([
+        $query = TaDefenseSchedule::with([
             'student',
             'group.title',
             'examiners.examiner',
             'evaluations.examiner',
         ])
-            ->orderByDesc('date')
-            ->get();
+            ->orderByDesc('date');
 
-        return response()->json(['data' => $schedules]);
+        if ($request->has('period_id')) {
+            $query->whereHas('group', function ($q) use ($request) {
+                $q->where('period_id', $request->period_id);
+            });
+        }
+
+        return response()->json(['data' => $query->get()]);
     }
 
     /**
@@ -72,7 +77,7 @@ class TaDefenseController extends Controller
         // Validate examiners are dosen
         foreach (['examiner_1_id', 'examiner_2_id'] as $field) {
             $user = User::find($request->$field);
-            if (!$user || $user->role !== 'dosen') {
+            if (!$user || !$user->hasRole('dosen')) {
                 return response()->json(['message' => "{$field} must be a dosen."], 400);
             }
         }

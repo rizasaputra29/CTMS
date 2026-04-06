@@ -12,7 +12,6 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { ArrowLeft, Loader2, User, Lock } from 'lucide-react';
 import api from '@/lib/api';
 import DashboardLayout from '@/components/layout/DashboardLayout';
-import axios from 'axios';
 import { toast } from "sonner";
 
 export default function ProfilePage() {
@@ -39,10 +38,10 @@ export default function ProfilePage() {
             toast.success('Profile updated successfully.');
             const token = localStorage.getItem('token');
             if (token) {
-                login(token, response.data.user);
+                login(token, response.data.user, response.data.roles || []);
             }
         } catch (err: unknown) {
-            if (axios.isAxiosError(err)) {
+            if (api.isAxiosError(err)) {
                 toast.error(err.response?.data?.message || 'Failed to update profile');
             } else {
                 toast.error('An unexpected error occurred');
@@ -70,7 +69,7 @@ export default function ProfilePage() {
             setPassword('');
             setPasswordConfirmation('');
         } catch (err: unknown) {
-            if (axios.isAxiosError(err)) {
+            if (api.isAxiosError(err)) {
                 toast.error(err.response?.data?.message || 'Failed to update password');
             } else {
                 toast.error('An unexpected error occurred');

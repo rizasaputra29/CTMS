@@ -24,14 +24,19 @@ class SemproController extends Controller
     /**
      * List SEMPRO schedules (admin).
      */
-    public function index()
+    public function index(Request $request)
     {
-        $schedules = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
+        $query = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'SEMPRO')
-            ->orderByDesc('date')
-            ->get();
+            ->orderByDesc('date');
 
-        return response()->json(['data' => $schedules]);
+        if ($request->has('period_id')) {
+            $query->whereHas('group', function ($q) use ($request) {
+                $q->where('period_id', $request->period_id);
+            });
+        }
+
+        return response()->json(['data' => $query->get()]);
     }
 
     /**

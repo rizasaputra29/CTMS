@@ -21,11 +21,19 @@ class Title extends Model
         'proposed_supervisor_id',
         'supervisor_approval_status',
         'rejection_reason',
+        'period_id',
+        'pre_assigned_group_id',
+        'is_reserved',
     ];
 
     protected $casts = [
         'specializations' => 'array',
     ];
+
+    public function period()
+    {
+        return $this->belongsTo(Period::class);
+    }
 
     public function lecturer()
     {
@@ -50,5 +58,17 @@ class Title extends Model
     public function proposedSupervisor()
     {
         return $this->belongsTo(User::class, 'proposed_supervisor_id');
+    }
+
+    public function stakeholders()
+    {
+        return $this->belongsToMany(Stakeholder::class, 'stakeholder_title')
+            ->withPivot(['role', 'notes'])
+            ->withTimestamps();
+    }
+
+    public function approvalAudits()
+    {
+        return $this->hasMany(TitleApprovalAudit::class, 'title_id');
     }
 }

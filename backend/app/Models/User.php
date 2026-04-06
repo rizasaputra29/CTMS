@@ -60,6 +60,59 @@ class User extends Authenticatable
     }
 
     /**
+     * Roles assigned to this user.
+     */
+    public function roles()
+    {
+        return $this->belongsToMany(Role::class);
+    }
+
+    /**
+     * Resolve role slugs from both pivot roles and legacy users.role column.
+     */
+    public function roleSlugs(): array
+    {
+        $relationRoles = $this->roles->pluck('slug')->filter()->values()->toArray();
+
+        if (!empty($relationRoles)) {
+            return array_values(array_unique($relationRoles));
+        }
+
+        $legacyRole = $this->getRawOriginal('role');
+        return $legacyRole ? [$legacyRole] : [];
+    }
+
+    /**
+     * Compatibility accessor: prefer pivot role slugs as runtime source of truth.
+     */
+    public function getRoleAttribute($value): ?string
+    {
+        if ($this->relationLoaded('roles')) {
+            $roleSlug = $this->roles->pluck('slug')->first();
+            if ($roleSlug) {
+                return $roleSlug;
+            }
+            return $value;
+        }
+
+        $roleSlug = $this->roles()->pluck('slug')->first();
+
+        if ($roleSlug) {
+            return $roleSlug;
+        }
+
+        return $value;
+    }
+
+    /**
+     * Check if user has a specific role.
+     */
+    public function hasRole(string $slug): bool
+    {
+        return in_array($slug, $this->roleSlugs(), true);
+    }
+
+    /**
      * TA submissions for this student.
      */
     public function taSubmissions()
@@ -91,5 +144,13 @@ class User extends Authenticatable
     public function groupMemberships()
     {
         return $this->hasMany(GroupMember::class, 'student_id');
+    }
+    /**
+     * Periods this student has registered for.
+     */
+    public function registeredPeriods()
+    {
+        return $this->belongsToMany(Period::class, 'period_registrations')
+            ->withTimestamps();
     }
 }
