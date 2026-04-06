@@ -35,7 +35,7 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
-    ListChecks, FileType, BarChart3, GitCompare, Star, ChevronRight,
+     ListChecks, BarChart3, GitCompare, Star, ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -44,7 +44,7 @@ import Image from 'next/image';
 import api from '@/lib/api';
 
 export function AppSidebar() {
-    const { user, logout } = useAuth();
+    const { user, activeRole, logout, switchRole } = useAuth();
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = useState(0);
     const [peerReviewActive, setPeerReviewActive] = useState(false);
@@ -61,7 +61,7 @@ export function AppSidebar() {
             }
         };
         const fetchPeerReviewStatus = async () => {
-            if (user?.role === 'mahasiswa') {
+            if (activeRole === 'mahasiswa') {
                 try {
                     const res = await api.get('/mahasiswa/peer-review/status');
                     setPeerReviewActive(res.data.active || false);
@@ -74,7 +74,7 @@ export function AppSidebar() {
         fetchUnread();
         fetchPeerReviewStatus();
         // Removed the setInterval to prevent excessive polling and lag
-    }, [user]);
+    }, [user, activeRole]);
 
     type NavItem = {
         title: string;
@@ -92,7 +92,7 @@ export function AppSidebar() {
                 items: [
                     { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
                     { title: 'Users', url: '/admin/users', icon: Users },
-                    { title: 'Document Types', url: '/admin/document-types', icon: FileType },
+                    { title: 'Document Requirements', url: '/admin/document-requirements', icon: FileText },
                 ]
             },
             {
@@ -108,6 +108,7 @@ export function AppSidebar() {
                 icon: ShieldCheck,
                 items: [
                     { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
+                    { title: 'Groups', url: '/admin/groups', icon: Users },
                     { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
                     { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
                 ]
@@ -128,7 +129,7 @@ export function AppSidebar() {
                 icon: Users,
                 items: [
                     { title: 'My Group', url: '/mahasiswa/group', icon: Users },
-                    { title: 'Available Titles', url: '/mahasiswa/titles', icon: BookOpen },
+                    { title: 'Titles Marketplace', url: '/mahasiswa/titles', icon: BookOpen },
                     { title: 'Propose Title', url: '/mahasiswa/propose-title', icon: PenLine },
                     { title: 'Title Bids', url: '/mahasiswa/bidding', icon: Gavel },
                 ]
@@ -189,20 +190,33 @@ export function AppSidebar() {
         ],
     };
 
-    const role = (user?.role as keyof typeof navItems) || 'mahasiswa';
-    let items = navItems[role] || [];
+    // Collect all nav items from all roles (don't filter by activeRole)
+    const userRoles = user?.roles || [user?.role || 'mahasiswa'];
+    
+    // Deduplicate items by title to avoid repeated blocks if roles overlap
+    const seenTitles = new Set();
+    const items: NavItem[] = [];
 
-    if (role === 'mahasiswa' && !peerReviewActive) {
-        items = items.map(group => {
-            if (group.title === 'Evaluations' && group.items) {
-                return {
-                    ...group,
-                    items: group.items.filter(item => item.title !== 'Peer Review'),
-                };
+    userRoles.forEach(r => {
+        const roleItems = navItems[r as keyof typeof navItems] || [];
+        roleItems.forEach(item => {
+            if (!seenTitles.has(item.title)) {
+                seenTitles.add(item.title);
+                
+                // Special handling for Peer Review inside Mahasiswa role
+                if (r === 'mahasiswa' && !peerReviewActive) {
+                    if (item.title === 'Evaluations' && item.items) {
+                        items.push({
+                            ...item,
+                            items: item.items.filter(i => i.title !== 'Peer Review')
+                        });
+                        return;
+                    }
+                }
+                items.push(item);
             }
-            return group;
         });
-    }
+    });
 
     return (
         <Sidebar collapsible="icon">
@@ -342,6 +356,27 @@ export function AppSidebar() {
                                     </div>
                                 </DropdownMenuLabel>
                                 <DropdownMenuSeparator />
+                                {/* Role Switcher - Show if user has multiple roles */}
+                                {user?.roles && user.roles.length > 1 && (
+                                    <>
+                                        <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                            Switch Role
+                                        </DropdownMenuLabel>
+                                        {user.roles.map((role) => (
+                                            <DropdownMenuItem
+                                                key={role}
+                                                onClick={() => switchRole(role)}
+                                                className="cursor-pointer"
+                                            >
+                                                <span className="capitalize mr-2">{role}</span>
+                                                {role === activeRole && (
+                                                    <span className="text-xs text-primary">✓</span>
+                                                )}
+                                            </DropdownMenuItem>
+                                        ))}
+                                        <DropdownMenuSeparator />
+                                    </>
+                                )}
                                 <DropdownMenuItem asChild>
                                     <Link href="/profile">
                                         <User className="mr-2 h-4 w-4" />

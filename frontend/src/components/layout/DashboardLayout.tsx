@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/layout/AppSidebar"
 import { Separator } from "@/components/ui/separator"
@@ -9,9 +10,15 @@ import {
   BreadcrumbList,
   BreadcrumbPage,
 } from "@/components/ui/breadcrumb"
+import { Button } from "@/components/ui/button"
+import { ChevronDown } from "lucide-react"
 
 import { Toaster } from "@/components/ui/sonner"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import { useAuth } from "@/context/AuthContext"
+import { RoleSelector } from "@/components/auth/RoleSelector"
+
+const GUARDED_ROLES = ['admin', 'dosen', 'mahasiswa'] as const;
 
 export default function DashboardLayout({
     children,
@@ -19,6 +26,36 @@ export default function DashboardLayout({
     children: React.ReactNode
 }) {
     const pathname = usePathname();
+    const router = useRouter();
+    const { user, activeRole, isLoading, switchRole } = useAuth();
+    const roleFromPath = pathname.split('/').filter(Boolean)[0] || null;
+    const [roleSelectorOpen, setRoleSelectorOpen] = useState(false);
+
+    useEffect(() => {
+        if (isLoading) {
+            return;
+        }
+
+        if (!user) {
+            router.replace('/login');
+            return;
+        }
+
+        // For multi-role users, automatically switch activeRole to match the URL
+        if (roleFromPath && GUARDED_ROLES.includes(roleFromPath as (typeof GUARDED_ROLES)[number])) {
+            // Check if user has this role
+            const userRoles = user?.roles || [user?.role || 'mahasiswa'];
+            if (userRoles.includes(roleFromPath)) {
+                // User has this role, switch to it if needed
+                if (activeRole !== roleFromPath) {
+                    switchRole(roleFromPath);
+                }
+            } else {
+                // User doesn't have this role, redirect to login
+                router.replace('/login');
+            }
+        }
+    }, [isLoading, user, activeRole, roleFromPath, router, switchRole]);
 
     // Derive page title from pathname
     // e.g. /mahasiswa/dashboard -> Dashboard
@@ -31,6 +68,14 @@ export default function DashboardLayout({
     };
 
     const pageTitle = getPageTitle(pathname);
+
+    if (isLoading) {
+        return <div className="p-6 text-sm text-muted-foreground">Loading dashboard...</div>;
+    }
+
+    if (!user) {
+        return null;
+    }
 
     return (
         <SidebarProvider>
@@ -49,6 +94,24 @@ export default function DashboardLayout({
                         </Breadcrumb>
                     </div>
                     
+                    {/* Role Selector only on dashboard pages */}
+                    {user?.roles && user.roles.length > 1 && pathname.endsWith('/dashboard') && (
+                        <>
+                            <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => setRoleSelectorOpen(true)}
+                                className="text-xs"
+                            >
+                                {activeRole && activeRole.charAt(0).toUpperCase() + activeRole.slice(1)}
+                                <ChevronDown className="ml-1 h-3 w-3" />
+                            </Button>
+                            <RoleSelector 
+                                open={roleSelectorOpen} 
+                                onOpenChange={setRoleSelectorOpen}
+                            />
+                        </>
+                    )}
                 </header>
                 <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-muted/50">
                     {children}
