@@ -242,9 +242,9 @@ export default function TitleApprovalsPage() {
                                             Group #{proposal.proposed_by_group?.id} · Submitted {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                                         </CardDescription>
                                     </div>
-                                    <Badge variant="secondary" className="flex items-center gap-1">
+                                    <Badge variant={proposal.supervisor_approval_status === 'PENDING' ? 'secondary' : 'outline'} className="flex items-center gap-1">
                                         <AlertTriangle className="h-3 w-3" />
-                                        Pending Review
+                                        {proposal.supervisor_approval_status === 'PENDING' ? 'Pending Review' : 'Pre-Approved'}
                                     </Badge>
                                 </div>
                             </CardHeader>
@@ -297,16 +297,20 @@ export default function TitleApprovalsPage() {
                                     <AlertDialogTrigger asChild>
                                         <Button variant="default" size="sm" disabled={processing}>
                                             <Check className="mr-2 h-4 w-4" /> 
-                                            {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
+                                            {proposal.supervisor_approval_status === 'UNDER_REVIEW' ? 'Re-Approve' : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>
-                                                {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve this proposal?' : 'Approve this proposal?'}
+                                                {proposal.supervisor_approval_status === 'UNDER_REVIEW' 
+                                                    ? 'Re-Approve this proposal?' 
+                                                    : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve this proposal?' : 'Approve this proposal?'}
                                             </AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                {(proposal.proposed_by_group?.members?.length ?? 0) < 3 
+                                                {proposal.supervisor_approval_status === 'UNDER_REVIEW'
+                                                    ? `This will Re-Approve the title "${proposal.title}" that was previously withdrawn. The title will return to the marketplace for member recruitment.`
+                                                    : (proposal.proposed_by_group?.members?.length ?? 0) < 3 
                                                     ? `This will Pre-Approve the title "${proposal.title}". The student must recruit more members to reach the minimum group size before it can be finalized.`
                                                     : `This will approve the title "${proposal.title}" and prepare the group for admin finalization. This action cannot be undone.`
                                                 }
@@ -315,7 +319,7 @@ export default function TitleApprovalsPage() {
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
                                             <AlertDialogAction onClick={() => handleApprove(proposal.id)}>
-                                                Confirm {(proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
+                                                Confirm {proposal.supervisor_approval_status === 'UNDER_REVIEW' ? 'Re-Approve' : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
