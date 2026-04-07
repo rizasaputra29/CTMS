@@ -161,59 +161,105 @@ export default function DosenBidsPage() {
                 </div>
             ) : (
                 <div className="space-y-6">
-                    {Object.values(byTitle).map(({ title, bids: titleBids }) => (
-                        <Card key={title.id}>
-                            <CardHeader>
-                                <CardTitle className="text-base">{title.title}</CardTitle>
-                                <CardDescription>{titleBids.length} bid(s)</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                {titleBids.sort((a, b) => a.priority - b.priority).map(bid => (
-                                    <div key={bid.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
-                                        <div className="flex items-center gap-4">
-                                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                                                P{bid.priority}
-                                            </div>
-                                            <div>
-                                                <div className="font-medium text-sm">
-                                                    {bid.group.members.map(m => m.student.name).join(', ')}
+                    {Object.values(byTitle).map(({ title, bids: titleBids }) => {
+                        const acceptedBid = titleBids.find(b => b.lecturer_recommendation === 'ACCEPT');
+                        
+                        return (
+                            <Card key={title.id}>
+                                <CardHeader>
+                                    <CardTitle className="text-base">{title.title}</CardTitle>
+                                    <CardDescription>{titleBids.length} bid(s)</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-3">
+                                    {acceptedBid && (
+                                        <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
+                                            <strong className="text-green-700">Kelompok Diterima:</strong>{' '}
+                                            <span className="text-green-600">
+                                                Group #{acceptedBid.group_id} - {acceptedBid.group.members.map(m => m.student.name).join(', ')}
+                                            </span>
+                                            <p className="text-xs text-green-600 mt-1">Kelompok lain untuk judul ini otomatis ditolak.</p>
+                                        </div>
+                                    )}
+                                    {titleBids.sort((a, b) => a.priority - b.priority).map(bid => {
+                                        const isAccepted = bid.lecturer_recommendation === 'ACCEPT';
+                                        const isRejected = bid.lecturer_recommendation === 'REJECT';
+                                        const canAcceptOthers = !acceptedBid || acceptedBid.id === bid.id;
+                                        
+                                        return (
+                                            <div 
+                                                key={bid.id} 
+                                                className={`flex items-center justify-between p-3 rounded-lg border ${
+                                                    isAccepted 
+                                                        ? 'bg-green-50 border-green-300' 
+                                                        : isRejected 
+                                                        ? 'bg-muted/30 border-muted' 
+                                                        : 'bg-muted/50 border-muted'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-4">
+                                                    <div className={`h-8 w-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                                                        isAccepted 
+                                                            ? 'bg-green-600 text-white' 
+                                                            : 'bg-primary/10 text-primary'
+                                                    }`}>
+                                                        P{bid.priority}
+                                                    </div>
+                                                    <div>
+                                                        <div className={`font-medium text-sm ${isRejected ? 'text-muted-foreground' : ''}`}>
+                                                            {bid.group.members.map(m => m.student.name).join(', ')}
+                                                        </div>
+                                                        <div className="text-xs text-muted-foreground">Group #{bid.group_id}</div>
+                                                    </div>
                                                 </div>
-                                                <div className="text-xs text-muted-foreground">Group #{bid.group_id}</div>
+                                                <div className="flex items-center gap-2">
+                                                    {bid.lecturer_recommendation ? (
+                                                        <>
+                                                            <Badge variant={bid.lecturer_recommendation === 'ACCEPT' ? 'default' : 'destructive'}>
+                                                                {bid.lecturer_recommendation === 'ACCEPT' ? 'DITERIMA' : 'DITOLAK'}
+                                                            </Badge>
+                                                            {isAccepted && (
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                                                    onClick={() => handleRecommend(bid.id, 'REJECT')}
+                                                                    disabled={submitting === bid.id}
+                                                                >
+                                                                    Batalkan
+                                                                </Button>
+                                                            )}
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-green-600 border-green-300 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                                onClick={() => handleRecommend(bid.id, 'ACCEPT')}
+                                                                disabled={submitting === bid.id || !canAcceptOthers}
+                                                                title={!canAcceptOthers ? 'Anda sudah menerima kelompok lain untuk judul ini' : ''}
+                                                            >
+                                                                <ThumbsUp className="mr-1 h-3 w-3" /> Accept
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-red-600 border-red-300 hover:bg-red-50"
+                                                                onClick={() => handleRecommend(bid.id, 'REJECT')}
+                                                                disabled={submitting === bid.id}
+                                                            >
+                                                                <ThumbsDown className="mr-1 h-3 w-3" /> Reject
+                                                            </Button>
+                                                        </>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            {bid.lecturer_recommendation ? (
-                                                <Badge variant={bid.lecturer_recommendation === 'ACCEPT' ? 'default' : 'destructive'}>
-                                                    {bid.lecturer_recommendation}
-                                                </Badge>
-                                            ) : (
-                                                <>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="text-green-600 border-green-300 hover:bg-green-50"
-                                                        onClick={() => handleRecommend(bid.id, 'ACCEPT')}
-                                                        disabled={submitting === bid.id}
-                                                    >
-                                                        <ThumbsUp className="mr-1 h-3 w-3" /> Accept
-                                                    </Button>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        className="text-red-600 border-red-300 hover:bg-red-50"
-                                                        onClick={() => handleRecommend(bid.id, 'REJECT')}
-                                                        disabled={submitting === bid.id}
-                                                    >
-                                                        <ThumbsDown className="mr-1 h-3 w-3" /> Reject
-                                                    </Button>
-                                                </>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    ))}
+                                        );
+                                    })}
+                                </CardContent>
+                            </Card>
+                        );
+                    })}
                 </div>
             )}
         </div>

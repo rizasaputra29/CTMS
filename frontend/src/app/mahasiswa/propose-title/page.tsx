@@ -50,6 +50,7 @@ interface GroupInfo {
     id: number;
     status: string;
     has_active_proposal?: boolean;
+    is_solo?: boolean;
     title_id: number | null;
     title: { title: string } | null;
     members: { id: number; student: { id: number }; is_leader: boolean }[];
@@ -91,10 +92,12 @@ export default function ProposeTitlePage() {
             setProposals(proposalRes.data.proposals || []);
             
             const allBids = bidsRes.data.data || [];
-            setBidCount(allBids.length);
-            setActiveBids(allBids.filter((b: any) => 
-                b.status === 'PENDING' || b.lecturer_recommendation === 'ACCEPT'
-            ));
+            // Filter active bids only (not rejected) for slot counting
+            const activeBidsFiltered = allBids.filter((b: any) => 
+                !b.lecturer_recommendation || b.lecturer_recommendation === 'ACCEPT'
+            );
+            setBidCount(activeBidsFiltered.length);
+            setActiveBids(activeBidsFiltered);
         } catch (error) {
             console.error('Failed to fetch data', error);
             toast.error('Failed to load data');

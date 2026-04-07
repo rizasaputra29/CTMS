@@ -116,7 +116,13 @@ class StudentProposalController extends Controller
         }
 
         // Combined limit: bids + student proposals <= 3
-        $bidCount = \App\Models\Bid::where('group_id', $group->id)->count();
+        // Only count active bids (pending or accepted, not rejected)
+        $bidCount = \App\Models\Bid::where('group_id', $group->id)
+            ->where(function($q) {
+                $q->whereNull('lecturer_recommendation')  // PENDING
+                  ->orWhere('lecturer_recommendation', 'ACCEPT');  // ACCEPTED
+            })
+            ->count();
         $proposalCount = Title::where('proposed_by_group_id', $group->id)
             ->where('title_source', 'STUDENT')
             ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
