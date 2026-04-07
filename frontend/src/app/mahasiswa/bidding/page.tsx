@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -147,6 +148,7 @@ export default function BiddingPage() {
     const MAX_TITLES = 3;
     const totalUsed = bids.length + proposals.length;
     const slotsRemaining = MAX_TITLES - totalUsed;
+    const hasActiveProposal = proposals.length > 0;
 
     // Priority reorder functions
     const movePriority = (bidId: number, direction: 'up' | 'down') => {
@@ -341,6 +343,17 @@ export default function BiddingPage() {
                     <AlertTitle>Limit Reached</AlertTitle>
                     <AlertDescription>
                         You have used all 3 title slots (bids + proposals combined). Delete an existing bid to make room for a new one.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {hasActiveProposal && (
+                <Alert variant="destructive">
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Proposal Aktif</AlertTitle>
+                    <AlertDescription>
+                        Kelompok Anda memiliki proposal yang sedang diproses. Tidak dapat mengajukan bid baru.
+                        <Link href="/mahasiswa/propose-title" className="underline ml-1">Lihat Proposal</Link>
                     </AlertDescription>
                 </Alert>
             )}

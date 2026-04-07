@@ -107,6 +107,20 @@ class BidController extends Controller
             return response()->json(['message' => 'Kelompok belum siap untuk bidding.'], 400);
         }
 
+        // Mutual Exclusive: Block bidding if group has active proposal (normal groups only)
+        if (!$group->is_solo) {
+            $hasActiveProposal = \App\Models\Title::where('proposed_by_group_id', $group->id)
+                ->where('title_source', 'STUDENT')
+                ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
+                ->exists();
+            
+            if ($hasActiveProposal) {
+                return response()->json([
+                    'message' => 'Tidak dapat mengajukan bid karena kelompok sudah memiliki proposal yang sedang diproses atau disetujui.'
+                ], 400);
+            }
+        }
+
         // Window check
         if ($group->period->is_finalized) {
             return response()->json(['message' => 'Pendaftaran untuk periode ini sudah ditutup.'], 400);
@@ -273,6 +287,25 @@ class BidController extends Controller
         }
 
         $bid->update(['lecturer_recommendation' => $request->recommendation]);
+
+        // If lecturer ACCEPTS the bid → transition group to TITLE_APPROVED
+        if ($request->recommendation === 'ACCEPT') {
+            $group->title_id = $bid->title_id;
+            $group->status = 'TITLE_APPROVED';
+            $group->save();
+            
+            // Notify group members
+            foreach ($group->members()->with('student')->get() as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'BID_ACCEPTED',
+                    'title' => 'Bid Diterima',
+                    'message' => "Bid Anda untuk judul \"{$bid->title->title}\" telah diterima. Silakan klik 'Siap Finalisasi' jika sudah siap.",
+                    'related_type' => 'Bid',
+                    'related_id' => $bid->id,
+                ]);
+            }
+        }
 
         return response()->json([
             'message' => 'Recommendation submitted.',

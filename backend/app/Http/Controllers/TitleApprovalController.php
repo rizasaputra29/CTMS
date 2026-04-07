@@ -122,17 +122,12 @@ class TitleApprovalController extends Controller
             if ($newStatus === 'APPROVED') {
                 $group->update(['title_id' => $title->id]);
                 
-                // Handle status based on group type:
-                // - Solo seeker (is_solo=true) → TITLE_APPROVED (title open for recruitment)
-                // - Regular group → determineStatus() (based on member count)
-                if ($group->is_solo) {
-                    // Solo seeker: title is open for other students to join via marketplace
-                    if ($this->stateMachine->canTransition($group->status, 'TITLE_APPROVED')) {
-                        $this->stateMachine->transition($group, 'TITLE_APPROVED');
-                    }
+                // Both solo seeker AND normal group → TITLE_APPROVED
+                if ($this->stateMachine->canTransition($group->status, 'TITLE_APPROVED')) {
+                    $this->stateMachine->transition($group, 'TITLE_APPROVED');
                 } else {
-                    // Regular group: status determined by member count
-                    $group->status = $group->determineStatus();
+                    // Fallback if state machine doesn't allow transition
+                    $group->status = 'TITLE_APPROVED';
                     $group->save();
                 }
             }

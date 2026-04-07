@@ -475,7 +475,7 @@ export default function MahasiswaGroupPage() {
     const spotsRemaining = maxMembers - myGroup.members.length;
     const hasTitle = !!myGroup.title_id;
     const hasEnoughMembers = myGroup.members.length >= minMembers;
-    const isSoloSeeker = ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
+    const isSoloSeeker = myGroup.is_solo && ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
 
     const getStatusBadgeVariant = (status: string) => {
         switch (status) {

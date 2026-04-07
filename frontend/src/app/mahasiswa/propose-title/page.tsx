@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -64,6 +65,7 @@ export default function ProposeTitlePage() {
     const [showForm, setShowForm] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
     const [bidCount, setBidCount] = useState(0);
+    const [activeBids, setActiveBids] = useState<any[]>([]);
 
     const [formData, setFormData] = useState({
         title: '',
@@ -87,7 +89,12 @@ export default function ProposeTitlePage() {
             setGroup(groupRes.data.group);
             setLecturers(lecturerRes.data.data);
             setProposals(proposalRes.data.proposals || []);
-            setBidCount((bidsRes.data.data || []).length);
+            
+            const allBids = bidsRes.data.data || [];
+            setBidCount(allBids.length);
+            setActiveBids(allBids.filter((b: any) => 
+                b.status === 'PENDING' || b.lecturer_recommendation === 'ACCEPT'
+            ));
         } catch (error) {
             console.error('Failed to fetch data', error);
             toast.error('Failed to load data');
@@ -103,10 +110,10 @@ export default function ProposeTitlePage() {
     const hasGroup = !!group;
     const hasTitle = !!group?.title_id;
     const isApproved = group?.status === 'APPROVED';
-    const isPending = group?.status === 'PENDING';
+    const hasActiveBid = activeBids.length > 0 && !group?.is_solo;
     const hasActiveProposalFlag = group?.has_active_proposal === true;
     const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
-    const canPropose = hasGroup && !hasTitle && !isPending && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '') && isLeader;
+    const canPropose = hasGroup && !hasTitle && !hasActiveBid && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '') && isLeader;
 
     const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
@@ -275,12 +282,14 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
-            {isPending && (
-                <Alert>
+            {hasActiveBid && (
+                <Alert variant="destructive">
                     <Lock className="h-4 w-4" />
-                    <AlertTitle>Bid Pending</AlertTitle>
+                    <AlertTitle>Bid Aktif</AlertTitle>
                     <AlertDescription>
-                        Your group has a pending bid on <strong>{group?.title?.title}</strong>. Proposing is locked until the bid is resolved.
+                        Kelompok Anda memiliki bid yang sedang diproses atau diterima. 
+                        Tidak dapat mengajukan proposal baru.
+                        <Link href="/mahasiswa/bidding" className="underline ml-1">Lihat Bids</Link>
                     </AlertDescription>
                 </Alert>
             )}

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Log;
 
 class Group extends Model
 {
@@ -29,6 +30,34 @@ class Group extends Model
         'readiness_status' => 'array',
         'is_solo' => 'boolean',
     ];
+
+    /**
+     * Boot method to add model event listeners.
+     */
+    protected static function boot()
+    {
+        parent::boot();
+
+        // DEBUG: Track all status changes to find auto-transition bug
+        static::updating(function (Group $group) {
+            if ($group->isDirty('status')) {
+                $oldStatus = $group->getOriginal('status');
+                $newStatus = $group->status;
+                
+                // Only log if transitioning TO READY_FOR_FINALIZATION
+                if ($newStatus === 'READY_FOR_FINALIZATION') {
+                    Log::warning('group.status_change.READY_FOR_FINALIZATION', [
+                        'group_id' => $group->id,
+                        'from' => $oldStatus,
+                        'to' => $newStatus,
+                        'trace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15))
+                            ->map(fn($t) => ($t['class'] ?? '') . '::' . ($t['function'] ?? '') . ':' . ($t['line'] ?? ''))
+                            ->toArray()
+                    ]);
+                }
+            }
+        });
+    }
 
     /**
      * Assign title_id — ONLY callable from FinalizationService.

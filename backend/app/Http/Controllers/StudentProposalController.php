@@ -99,6 +99,22 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Your group is not eligible to propose a title at this time.'], 400);
         }
 
+        // Mutual Exclusive: Block proposing if group has active bids (normal groups only)
+        if (!$group->is_solo) {
+            $hasActiveBid = \App\Models\Bid::where('group_id', $group->id)
+                ->where(function($q) {
+                    $q->where('status', 'PENDING')
+                      ->orWhere('lecturer_recommendation', 'ACCEPT');
+                })
+                ->exists();
+            
+            if ($hasActiveBid) {
+                return response()->json([
+                    'message' => 'Tidak dapat mengajukan proposal karena kelompok sudah memiliki bid yang sedang diproses atau diterima.'
+                ], 400);
+            }
+        }
+
         // Combined limit: bids + student proposals <= 3
         $bidCount = \App\Models\Bid::where('group_id', $group->id)->count();
         $proposalCount = Title::where('proposed_by_group_id', $group->id)

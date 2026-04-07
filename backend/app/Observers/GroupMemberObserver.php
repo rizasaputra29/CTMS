@@ -67,6 +67,9 @@ class GroupMemberObserver
      */
     private function recalculateStatus(Group $group): void
     {
+        // IMPORTANT: Refresh to get latest status from DB (avoid stale data from eager loading)
+        $group->refresh();
+        
         // Skip if group is in a finalized or beyond state - these should NOT change
         $finalizedStates = [
             'TITLE_APPROVED',    // Solo title approved - waiting for members to join via marketplace

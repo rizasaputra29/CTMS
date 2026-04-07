@@ -107,6 +107,13 @@ class BursaIdeController extends Controller
             return response()->json(['message' => 'Pendaftaran untuk periode ini sudah ditutup.'], 400);
         }
 
+        // Guard: Only solo seekers can receive join requests
+        if (!$group->is_solo) {
+            return response()->json([
+                'message' => 'Grup ini tidak menerima permintaan bergabung.'
+            ], 400);
+        }
+
         // Guard: only Solo Seeker groups can be joined
         if (!in_array($group->status, self::SOLO_STATUSES)) {
             return response()->json(['message' => 'This group is not accepting join requests.'], 400);

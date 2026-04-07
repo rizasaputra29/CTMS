@@ -52,10 +52,12 @@ class TitleController extends Controller
                 })
                 ->orWhere(function ($query) use ($periodId) {
                     // Include STUDENT titles that are APPROVED (for marketplace)
+                    // ONLY from solo seekers - they need to recruit members
                     $query->where('title_source', 'STUDENT')
                         ->where('supervisor_approval_status', 'APPROVED')
                         ->where('status', 'open')
-                        ->where('is_reserved', false);
+                        ->where('is_reserved', false)
+                        ->whereHas('proposedByGroup', fn($q) => $q->where('is_solo', true));
                     
                     if ($periodId) {
                         $query->where('period_id', $periodId);

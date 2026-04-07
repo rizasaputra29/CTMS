@@ -336,8 +336,11 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
      */
     public function evaluateGroupReadiness(Group $group): void
     {
-        // Guard: Skip if already finalized or dissolved
-        if ($this->stateMachine->isAtLeast($group, self::STATUS_KELOMPOK_FINAL) || $group->status === self::STATUS_DISSOLVED) {
+        // IMPORTANT: Refresh to get latest status from DB (avoid stale data from eager loading)
+        $group->refresh();
+        
+        // Guard: Skip if already finalized, dissolved, or has approved title (solo seeker waiting for leader to finalize)
+        if ($this->stateMachine->isAtLeast($group, self::STATUS_KELOMPOK_FINAL) || $group->status === 'TITLE_APPROVED' || $group->status === self::STATUS_DISSOLVED) {
             return;
         }
 
@@ -389,6 +392,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
     private function transitionToReady(Group $group): void
     {
+        // Guard: Skip if already at target status (avoid same-state transition error)
+        if ($group->status === self::STATUS_READY_FOR_TITLE_BIDDING) {
+            Log::info('group.readiness.skipped', ['group_id' => $group->id, 'reason' => 'already_ready']);
+            return;
+        }
+        
         $preApprovedTitle = Title::where('proposed_by_group_id', $group->id)
             ->where('supervisor_approval_status', 'UNDER_REVIEW')
             ->first();

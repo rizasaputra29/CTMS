@@ -37,6 +37,7 @@ class GroupStateMachine
             'FORMING',                       // via determineStatus() - members dropped below min
             'WAITING_SUPERVISOR_APPROVAL',   // submit proposal
             'READY_FOR_FINALIZATION',        // leader manually marks as ready for finalization
+            'TITLE_APPROVED',                // bid accepted by lecturer → title approved
             'DISSOLVED',
         ],
         
