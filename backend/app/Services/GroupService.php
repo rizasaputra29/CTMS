@@ -343,12 +343,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($this->canBecomeReady($group)) {
             $this->transitionToReady($group);
-        } else {
-            // Case: group was READY but member left -> demote back to FORMING or FORMING_SOLO based on member count
-            $memberCount = GroupMember::where('group_id', $group->id)->count();
-            $revertStatus = ($memberCount === 1 && $group->group_mode !== 'INDIVIDUAL') ? self::STATUS_FORMING_SOLO : self::STATUS_FORMING;
-            $group->update(['status' => $revertStatus]);
-        }
+         } else {
+             // Case: group was READY but member left -> demote back to FORMING or FORMING_SOLO based on is_solo flag
+             $memberCount = GroupMember::where('group_id', $group->id)->count();
+             $revertStatus = ($memberCount === 1 && $group->is_solo) ? self::STATUS_FORMING_SOLO : self::STATUS_FORMING;
+             $group->update(['status' => $revertStatus]);
+         }
     }
 
     private function canBecomeReady(Group $group): bool
