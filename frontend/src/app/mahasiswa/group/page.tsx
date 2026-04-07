@@ -492,8 +492,8 @@ export default function MahasiswaGroupPage() {
     const getStatusLabel = (status: string) => {
         switch (status) {
             case 'READY_FOR_BIDDING': return hasTitle ? 'Ready for Finalization' : 'Ready for Bidding';
-            case 'FORMING': return 'Solo Seeker';
-            case 'FORMING_SOLO': return 'Incomplete Group';
+            case 'FORMING': return 'Incomplete Group';
+            case 'FORMING_SOLO': return 'Solo Seeker';
             default: return status;
         }
     };

@@ -106,12 +106,12 @@ export default function ProposeTitlePage() {
     const isPending = group?.status === 'PENDING';
     const hasActiveProposalFlag = group?.has_active_proposal === true;
     const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
-    const canPropose = hasGroup && !hasTitle && !isPending && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING'].includes(group?.status || '') && isLeader;
+    const canPropose = hasGroup && !hasTitle && !isPending && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '') && isLeader;
 
     const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
     
-    const canCancelProposal = hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING'].includes(group?.status || '');
+    const canCancelProposal = hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '');
 
     const MAX_TITLES = 3;
     const activeProposalCount = proposals.filter(p => ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)).length;

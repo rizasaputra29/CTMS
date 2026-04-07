@@ -193,6 +193,7 @@ class GroupController extends Controller
                 'status' => 'FORMING_SOLO', // Fixed: Solo seekers should start as FORMING_SOLO
                 'group_mode' => 'GROUP',
                 'has_existing_group' => false,
+                'is_solo' => true,
             ]);
 
             GroupMember::create([
