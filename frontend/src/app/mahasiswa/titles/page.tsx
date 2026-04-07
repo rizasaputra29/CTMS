@@ -53,6 +53,7 @@ interface LecturerTitle {
     status: string;
     active_groups_count: number;
     lecturer?: { id: number; name: string; email: string };
+    title_source?: 'LECTURER' | 'STUDENT' | null;
 }
 
 interface StudentIdea {
@@ -67,6 +68,7 @@ interface StudentIdea {
         members: { id: number; is_leader: boolean; student: { id: number; name: string; email: string } }[];
         period: { max_group_size: number } | null;
     } | null;
+    title_source?: 'LECTURER' | 'STUDENT' | null;
 }
 
 interface Group {
@@ -125,16 +127,36 @@ export default function TitlesMarketplacePage() {
                 return;
             }
 
-            const [titlesRes, ideasRes, groupRes] = await Promise.all([
+            const [titlesRes, groupRes] = await Promise.all([
                 api.get(`/mahasiswa/titles?period_id=${currentPeriodId}`),
-                api.get(`/mahasiswa/bursa-ide?period_id=${currentPeriodId}`),
                 api.get('/mahasiswa/group'),
             ]);
-            setLecturerTitles(titlesRes.data);
-            setStudentIdeas(ideasRes.data.data || []);
-            setCanRequestJoin(ideasRes.data.can_request_join);
-            setMyPendingRequests(ideasRes.data.my_pending_requests || []);
-            setGroup(groupRes.data?.group || groupRes.data);
+            
+            // Single endpoint returns both lecturer and student titles
+            const allTitles = titlesRes.data || [];
+            
+            // Filter lecturer titles (title_source = 'LECTURER' or null)
+            const lecturerOnly = allTitles.filter((t: LecturerTitle) => 
+                t.title_source === 'LECTURER' || t.title_source === null || !t.title_source
+            );
+            setLecturerTitles(lecturerOnly);
+            
+            // Filter student ideas (title_source = 'STUDENT')
+            const studentOnly = allTitles.filter((t: StudentIdea) => t.title_source === 'STUDENT');
+            setStudentIdeas(studentOnly);
+            
+            // Can request join if user has no group or is a solo seeker leader
+            const userGroup = groupRes.data?.group || groupRes.data;
+            setGroup(userGroup);
+            
+            // Determine if user can request to join
+            const soloStatuses = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL'];
+            const isLeader = userGroup?.members?.some((m: { is_leader: boolean; student_id: number }) => m.is_leader && m.student_id === user?.id);
+            const canJoin = !userGroup || (soloStatuses.includes(userGroup?.status) && isLeader);
+            setCanRequestJoin(canJoin);
+            
+            // Get pending requests from group data if available
+            setMyPendingRequests(userGroup?.pending_join_requests || []);
         } catch (error) {
             if (axios.isAxiosError(error) && error.response?.status === 401) {
                 toast.error('Sesi Anda sudah habis. Silakan masuk kembali.');

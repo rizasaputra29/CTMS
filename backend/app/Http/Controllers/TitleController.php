@@ -39,14 +39,33 @@ class TitleController extends Controller
         }
 
         if ($user->hasRole('mahasiswa')) {
-            // Students see only LECTURER titles (exclude student-proposed titles and reserved titles)
+            // Students see LECTURER titles AND approved STUDENT titles
             return $query->where('status', 'open')
-                ->where('quota', '>', 0)
                 ->where('is_reserved', false)
                 ->where(function ($query) {
-                    $query->where('title_source', 'LECTURER')
-                        ->orWhereNull('title_source');
+                    // Include LECTURER titles with quota > 0
+                    $query->where(function ($q) {
+                        $q->where('title_source', 'LECTURER')
+                            ->orWhereNull('title_source');
+                    })
+                    ->where('quota', '>', 0);
                 })
+                ->orWhere(function ($query) use ($periodId) {
+                    // Include STUDENT titles that are APPROVED (for marketplace)
+                    $query->where('title_source', 'STUDENT')
+                        ->where('supervisor_approval_status', 'APPROVED')
+                        ->where('status', 'open')
+                        ->where('is_reserved', false);
+                    
+                    if ($periodId) {
+                        $query->where('period_id', $periodId);
+                    } else {
+                        $query->whereHas('period', function($q) {
+                            $q->where('is_active', true);
+                        });
+                    }
+                })
+                ->with(['lecturer', 'proposedByGroup.members.student', 'proposedSupervisor'])
                 ->withCount([
                     'groups as active_groups_count' => function ($query) {
                         $query->where('status', '!=', 'REJECTED');
@@ -54,7 +73,12 @@ class TitleController extends Controller
                 ])
                 ->get()
                 ->filter(function ($title) {
-                    return $title->active_groups_count < $title->quota;
+                    // For LECTURER titles, check quota
+                    if ($title->title_source === 'LECTURER' || $title->title_source === null) {
+                        return $title->active_groups_count < $title->quota;
+                    }
+                    // For STUDENT titles, always show (no quota limit)
+                    return true;
                 })
                 ->values();
         }
