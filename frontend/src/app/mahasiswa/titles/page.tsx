@@ -146,7 +146,7 @@ export default function TitlesMarketplacePage() {
             setStudentIdeas(studentOnly);
             
             // Can request join if user has no group or is a solo seeker leader
-            const userGroup = groupRes.data?.group || groupRes.data;
+            const userGroup = groupRes.data?.group ?? null;
             setGroup(userGroup);
             
             // Determine if user can request to join
