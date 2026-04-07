@@ -48,12 +48,13 @@ class BidController extends Controller
 
     /**
      * Submit a bid on a title (group leader only).
+     * Priority is auto-assigned (max existing priority + 1).
      */
     public function store(Request $request)
     {
         $request->validate([
             'title_id' => 'required|exists:titles,id',
-            'priority' => 'required|integer|min:1',
+            // Priority removed - will be auto-assigned
             'proposed_supervisor_1_id' => 'required|exists:users,id',
             'proposed_supervisor_2_id' => 'nullable|exists:users,id|different:proposed_supervisor_1_id',
         ]);
@@ -135,6 +136,7 @@ class BidController extends Controller
         }
 
         // Combined limit: bids + student proposals <= 3
+        // Since rejected bids are deleted, all existing bids are active
         $bidCount = Bid::where('group_id', $group->id)->count();
         $proposalCount = \App\Models\Title::where('proposed_by_group_id', $group->id)
             ->where('title_source', 'STUDENT')
@@ -145,27 +147,32 @@ class BidController extends Controller
             return response()->json(['message' => 'Maksimal 3 judul diperbolehkan (bidding + proposal digabungkan).'], 400);
         }
 
-        // DB unique constraints will enforce (group_id, priority) and (group_id, title_id)
-        try {
-            $bid = Bid::create([
-                'group_id' => $group->id,
-                'title_id' => $request->title_id,
-                'priority' => $request->priority,
-                'status' => 'PENDING',
-                'proposed_supervisor_1_id' => $request->proposed_supervisor_1_id,
-                'proposed_supervisor_2_id' => $request->proposed_supervisor_2_id,
-            ]);
-
-            return response()->json([
-                'message' => 'Bid submitted successfully.',
-                'data' => $bid->load(['title.lecturer', 'proposedSupervisor1', 'proposedSupervisor2']),
-            ], 201);
-        } catch (\Illuminate\Database\QueryException $e) {
-            if (str_contains($e->getMessage(), 'UNIQUE constraint failed') || str_contains($e->getMessage(), 'Duplicate entry')) {
-                return response()->json(['message' => 'Duplicate bid: you already have a bid with this priority or for this title.'], 400);
-            }
-            throw $e;
+        // Check if already bidding on this title
+        $existingBid = Bid::where('group_id', $group->id)
+            ->where('title_id', $request->title_id)
+            ->exists();
+        
+        if ($existingBid) {
+            return response()->json(['message' => 'Anda sudah mengajukan bid untuk judul ini.'], 400);
         }
+
+        // Auto-assign priority: max existing priority + 1
+        $maxPriority = Bid::where('group_id', $group->id)->max('priority') ?? 0;
+        $nextPriority = $maxPriority + 1;
+
+        $bid = Bid::create([
+            'group_id' => $group->id,
+            'title_id' => $request->title_id,
+            'priority' => $nextPriority,
+            'status' => 'PENDING',
+            'proposed_supervisor_1_id' => $request->proposed_supervisor_1_id,
+            'proposed_supervisor_2_id' => $request->proposed_supervisor_2_id,
+        ]);
+
+        return response()->json([
+            'message' => 'Bid submitted successfully.',
+            'data' => $bid->load(['title.lecturer', 'proposedSupervisor1', 'proposedSupervisor2']),
+        ], 201);
     }
 
     /**
@@ -263,7 +270,8 @@ class BidController extends Controller
     }
 
     /**
-     * Lecturer recommendation on a bid (ACCEPT/REJECT — advisory only).
+     * Lecturer recommendation on a bid (ACCEPT/REJECT).
+     * REJECT = immediate deletion from bids table.
      */
     public function recommend(Request $request, $id)
     {
@@ -286,30 +294,106 @@ class BidController extends Controller
             return response()->json(['message' => 'Bidding ditutup. Tidak dapat mengubah rekomendasi.'], 400);
         }
 
-        $bid->update(['lecturer_recommendation' => $request->recommendation]);
+        // Store title info before potential deletion
+        $titleInfo = $bid->title->title;
 
-        // If lecturer ACCEPTS the bid → transition group to TITLE_APPROVED
+        // ACCEPT Logic
         if ($request->recommendation === 'ACCEPT') {
+            // Validation: Only one ACCEPT per title (check if different bid already accepted)
+            $existingAcceptedBid = Bid::where('title_id', $bid->title_id)
+                ->where('id', '!=', $bid->id)
+                ->where('lecturer_recommendation', 'ACCEPT')
+                ->first();
+            
+            if ($existingAcceptedBid) {
+                return response()->json([
+                    'message' => 'Anda sudah menerima kelompok lain untuk judul ini. Hanya satu kelompok yang dapat diterima per judul.'
+                ], 400);
+            }
+
+            // Update this bid to ACCEPT
+            $bid->update(['lecturer_recommendation' => 'ACCEPT']);
+
+            // Transition group to TITLE_APPROVED
             $group->title_id = $bid->title_id;
             $group->status = 'TITLE_APPROVED';
             $group->save();
             
-            // Notify group members
+            // Notify accepted group members
             foreach ($group->members()->with('student')->get() as $member) {
                 \App\Models\Notification::create([
                     'user_id' => $member->student_id,
                     'type' => 'BID_ACCEPTED',
                     'title' => 'Bid Diterima',
-                    'message' => "Bid Anda untuk judul \"{$bid->title->title}\" telah diterima. Silakan klik 'Siap Finalisasi' jika sudah siap.",
+                    'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah diterima. Silakan klik 'Siap Finalisasi' jika sudah siap.",
                     'related_type' => 'Bid',
                     'related_id' => $bid->id,
                 ]);
             }
+
+            // Auto-reject (DELETE) all other pending bids on this title
+            $otherBids = Bid::with('group.members.student')
+                ->where('title_id', $bid->title_id)
+                ->where('id', '!=', $bid->id)
+                ->whereNull('lecturer_recommendation') // Only pending bids
+                ->get();
+            
+            foreach ($otherBids as $otherBid) {
+                // Notify rejected group members BEFORE deleting
+                foreach ($otherBid->group->members as $member) {
+                    \App\Models\Notification::create([
+                        'user_id' => $member->student_id,
+                        'type' => 'BID_REJECTED',
+                        'title' => 'Bid Ditolak',
+                        'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah ditolak karena dosen sudah menerima kelompok lain. Anda dapat mengajukan bid untuk judul lain.",
+                        'related_type' => 'Group',
+                        'related_id' => $otherBid->group_id,
+                    ]);
+                }
+                
+                // DELETE the rejected bid immediately
+                $otherBid->delete();
+            }
+            
+            return response()->json([
+                'message' => 'Bid diterima. Bid lain pada judul ini otomatis dihapus.',
+                'data' => $bid->fresh(),
+            ]);
+        }
+        
+        // REJECT Logic - DELETE the bid immediately
+        if ($request->recommendation === 'REJECT') {
+            $previousRecommendation = $bid->lecturer_recommendation;
+            
+            // If this bid was previously ACCEPTED, revert group status
+            if ($previousRecommendation === 'ACCEPT') {
+                $group->title_id = null;
+                $group->status = 'READY_FOR_BIDDING';
+                $group->save();
+            }
+            
+            // Notify group members about rejection BEFORE deleting
+            foreach ($group->members()->with('student')->get() as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'BID_REJECTED',
+                    'title' => 'Bid Ditolak',
+                    'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah ditolak. Anda dapat mengajukan bid untuk judul lain.",
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+            
+            // DELETE the bid immediately
+            $bid->delete();
+            
+            return response()->json([
+                'message' => 'Bid ditolak dan dihapus.',
+            ]);
         }
 
         return response()->json([
             'message' => 'Recommendation submitted.',
-            'data' => $bid,
         ]);
     }
 }

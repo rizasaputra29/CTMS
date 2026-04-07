@@ -75,7 +75,6 @@ export default function BiddingPage() {
     const [loading, setLoading] = useState(true);
     const [addOpen, setAddOpen] = useState(false);
     const [selectedTitle, setSelectedTitle] = useState('');
-    const [priority, setPriority] = useState('');
     const [supervisor1, setSupervisor1] = useState('');
     const [supervisor2, setSupervisor2] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -146,6 +145,8 @@ export default function BiddingPage() {
 
     const isLeader = group?.members.some(m => m.is_leader && m.student.id === user?.id) ?? false;
     const MAX_TITLES = 3;
+    
+    // Since rejected bids are deleted immediately, all bids are active
     const totalUsed = bids.length + proposals.length;
     const slotsRemaining = MAX_TITLES - totalUsed;
     const hasActiveProposal = proposals.length > 0;
@@ -201,14 +202,13 @@ export default function BiddingPage() {
         try {
             await api.post('/mahasiswa/bids', {
                 title_id: Number(selectedTitle),
-                priority: Number(priority),
+                // Priority auto-assigned by backend
                 proposed_supervisor_1_id: Number(supervisor1),
                 proposed_supervisor_2_id: supervisor2 ? Number(supervisor2) : null,
             });
             toast.success('Bid submitted successfully!');
             setAddOpen(false);
             setSelectedTitle('');
-            setPriority('');
             setSupervisor1('');
             setSupervisor2('');
             fetchBids();
@@ -262,7 +262,6 @@ export default function BiddingPage() {
 
     const bidTitleIds = bids.map(b => b.title_id);
     const availableTitles = titles.filter(t => !bidTitleIds.includes(t.id));
-    const usedPriorities = bids.map(b => b.priority);
     const availableSup2 = dosens.filter(d => d.id.toString() !== supervisor1);
 
     // Non-leader: show access denied
@@ -406,8 +405,11 @@ export default function BiddingPage() {
                                 Judul yang Anda Bidding
                             </h2>
                             <div className="grid gap-4">
-                                {reorderedBids.sort((a, b) => a.priority - b.priority).map((bid, index) => (
-                                    <Card key={bid.id} className="relative">
+                                {reorderedBids.sort((a, b) => a.priority - b.priority).map((bid, index) => {
+                                    const isAccepted = bid.lecturer_recommendation === 'ACCEPT';
+                                    
+                                    return (
+                                    <Card key={bid.id} className={`relative ${isAccepted ? 'border-green-300 bg-green-50/30' : ''}`}>
                                         <CardHeader className="pb-3">
                                             <div className="flex items-start justify-between">
                                                 <div className="flex items-center gap-3">
@@ -431,7 +433,7 @@ export default function BiddingPage() {
                                                             <ArrowDown className="h-3 w-3" />
                                                         </Button>
                                                     </div>
-                                                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center text-green-700 font-bold text-lg">
+                                                    <div className={`h-10 w-10 rounded-full flex items-center justify-center font-bold text-lg ${isAccepted ? 'bg-green-600 text-white' : 'bg-green-100 text-green-700'}`}>
                                                         {bid.priority}
                                                     </div>
                                                     <div>
@@ -441,10 +443,8 @@ export default function BiddingPage() {
                                                 </div>
                                                 <div className="flex items-center gap-2">
                                                     <Badge variant={getStatusVariant(bid.status)}>{bid.status}</Badge>
-                                                    {bid.lecturer_recommendation && (
-                                                        <Badge variant={getRecVariant(bid.lecturer_recommendation)}>
-                                                            Rec: {bid.lecturer_recommendation}
-                                                        </Badge>
+                                                    {isAccepted && (
+                                                        <Badge variant="default">DITERIMA</Badge>
                                                     )}
                                                 </div>
                                             </div>
@@ -474,7 +474,8 @@ export default function BiddingPage() {
                                             </div>
                                         </CardFooter>
                                     </Card>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -488,7 +489,7 @@ export default function BiddingPage() {
                         <DialogHeader>
                             <DialogTitle>Submit a New Bid</DialogTitle>
                             <DialogDescription>
-                                Select a title, assign priority, and propose supervisors (Pembimbing 1 required, Pembimbing 2 optional).
+                                Select a title and propose supervisors (Pembimbing 1 required, Pembimbing 2 optional).
                                 <br />
                                 <span className="font-medium">{slotsRemaining} slot{slotsRemaining !== 1 ? 's' : ''} remaining</span> (max {MAX_TITLES} bids + proposals combined).
                             </DialogDescription>
@@ -510,21 +511,14 @@ export default function BiddingPage() {
                                 </Select>
                             </div>
                             <div className="grid gap-2">
-                                <Label htmlFor="priority">Priority</Label>
-                                <Input
-                                    id="priority"
-                                    type="number"
-                                    min={1}
-                                    placeholder="1 (highest priority)"
-                                    value={priority}
-                                    onChange={(e) => setPriority(e.target.value)}
-                                    required
-                                />
-                                {usedPriorities.length > 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Already used: {usedPriorities.sort((a, b) => a - b).join(', ')}
-                                    </p>
-                                )}
+                                <Label>Priority</Label>
+                                <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md border">
+                                    <Badge variant="outline" className="bg-background">Auto</Badge>
+                                    <span className="font-semibold text-lg">#{bids.length + 1}</span>
+                                    <span className="text-sm text-muted-foreground">
+                                        (akan menjadi prioritas ke-{bids.length + 1})
+                                    </span>
+                                </div>
                             </div>
                             <div className="grid gap-2">
                                 <Label>Proposed Pembimbing 1 <span className="text-destructive">*</span></Label>
@@ -556,7 +550,7 @@ export default function BiddingPage() {
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-                            <Button type="submit" disabled={submitting || !selectedTitle || !priority || !supervisor1}>
+                            <Button type="submit" disabled={submitting || !selectedTitle || !supervisor1}>
                                 {submitting ? 'Submitting...' : 'Submit Bid'}
                             </Button>
                         </DialogFooter>
