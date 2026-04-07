@@ -156,14 +156,14 @@ class Group extends Model
             return 'READY_FOR_BIDDING';
         }
 
-        // Special case: solo seeker with allow_solo enabled
-        if ($memberCount === 1 && $allowSolo && $this->is_solo) {
-            return 'READY_FOR_BIDDING';
+        // Check solo seeker status
+        if ($memberCount === 1 && $this->is_solo) {
+            return 'FORMING_SOLO';
         }
 
-        // If group has exactly 1 member (solo seeker), return FORMING_SOLO
+        // If group has exactly 1 member (normal group with 1 member), return FORMING
         if ($memberCount === 1) {
-            return 'FORMING_SOLO';
+            return 'FORMING';
         }
 
         // Otherwise, group is still forming (incomplete)
