@@ -506,6 +506,10 @@ export default function TitlesMarketplacePage() {
                                                 <Button variant="ghost" disabled className="w-full text-xs font-semibold text-primary">
                                                     <Check className="mr-2 h-3 w-3" /> Your Idea
                                                 </Button>
+                                            ) : groupInfo?.status === 'READY_FOR_FINALIZATION' ? (
+                                                <Button variant="ghost" disabled className="w-full text-xs" title="Grup ini sudah siap finalisasi dan tidak menerima anggota baru">
+                                                    <Lock className="mr-2 h-3 w-3" /> Siap Finalisasi
+                                                </Button>
                                             ) : canRequestJoin && spots > 0 ? (
                                                 isPending ? (
                                                     <Button variant="ghost" disabled className="w-full text-xs">

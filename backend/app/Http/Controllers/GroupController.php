@@ -713,9 +713,11 @@ class GroupController extends Controller
       * - Group must meet member count requirements (min & max from period)
       * - Group must have at least one accepted bid or approved proposal
       */
-    public function markReadyForFinalization(Request $request, Group $group)
+    public function markReadyForFinalization(Request $request)
     {
         $user = $request->user();
+
+        $group = Group::findOrFail($request->input('group_id'));
 
         // Get user's membership
         $membership = GroupMember::where('student_id', $user->id)
@@ -754,10 +756,10 @@ class GroupController extends Controller
             ], 400);
         }
 
-        // Require exactly maximum members (must be full)
-        if ($memberCount !== $maxSize) {
+        // Require minimum members met (between min and max)
+        if ($memberCount < $minSize || $memberCount > $maxSize) {
             return response()->json([
-                'message' => "Anggota harus mencapai jumlah maksimal ({$memberCount}/{$maxSize}). Tambahkan atau kurangi anggota."
+                'message' => "Jumlah anggota harus antara {$minSize}-{$maxSize} orang (saat ini: {$memberCount})."
             ], 400);
         }
 
@@ -796,9 +798,11 @@ class GroupController extends Controller
     /**
      * Cancel ready for finalization - revert from READY_FOR_FINALIZATION to READY_FOR_BIDDING
      */
-    public function cancelReadyForFinalization(Request $request, Group $group)
+    public function cancelReadyForFinalization(Request $request)
     {
         $user = $request->user();
+
+        $group = Group::findOrFail($request->input('group_id'));
 
         // Get user's membership
         $membership = GroupMember::where('student_id', $user->id)
@@ -826,15 +830,27 @@ class GroupController extends Controller
             return response()->json(['message' => 'Periode tidak aktif. Tidak dapat membatalkan finalisasi.'], 400);
         }
 
-        // Transition back to READY_FOR_BIDDING
+        // Determine target status based on group's title ownership
+        // If group has their own approved proposal (solo seeker), revert to TITLE_APPROVED
+        // Otherwise, revert to READY_FOR_BIDDING
+        $hasOwnApprovedTitle = \App\Models\Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->where('supervisor_approval_status', 'APPROVED')
+            ->exists();
+
+        $targetStatus = $hasOwnApprovedTitle ? 'TITLE_APPROVED' : 'READY_FOR_BIDDING';
+
+        // Transition back to previous status
         try {
-            $this->stateMachine->transition($group, 'READY_FOR_BIDDING');
+            $this->stateMachine->transition($group, $targetStatus);
 
             // Notify all members
             $this->notificationService->notifyGroupMembersOfCancellation($group);
 
+            $statusLabel = $targetStatus === 'TITLE_APPROVED' ? 'Title Approved' : 'Ready for Bidding';
+
             return response()->json([
-                'message' => 'Finalisasi berhasil dibatalkan. Kelompok kembali ke status siap bidding.',
+                'message' => "Finalisasi berhasil dibatalkan. Kelompok kembali ke status {$statusLabel}.",
                 'group' => $group->fresh(['members.student', 'title', 'period'])
             ]);
         } catch (\InvalidArgumentException $e) {

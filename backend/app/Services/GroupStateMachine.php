@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Group;
 use InvalidArgumentException;
+use Illuminate\Support\Facades\Log;
 
 class GroupStateMachine
 {
@@ -23,6 +24,14 @@ class GroupStateMachine
             'DISSOLVED',
         ],
         
+        // Solo seeker group - similar to FORMING but for solo mode
+        'FORMING_SOLO' => [
+            'WAITING_SUPERVISOR_APPROVAL', // via controller guard - submit proposal
+            'TITLE_APPROVED',              // solo seeker proposal approved (or re-approved after withdraw)
+            'READY_FOR_BIDDING',           // when members reach min (for non-solo transitions)
+            'DISSOLVED',
+        ],
+        
         // Group ready to bid/propose - can submit proposal, join other groups, or be finalized
         'READY_FOR_BIDDING' => [
             'FORMING',                       // via determineStatus() - members dropped below min
@@ -34,6 +43,7 @@ class GroupStateMachine
         // Group has been accepted/recommended by lecturer - waiting for leader to confirm
         'READY_FOR_FINALIZATION' => [
             'READY_FOR_BIDDING',             // leader can revert if needed
+            'TITLE_APPROVED',                // leader can revert to title approved (for solo seeker groups)
             'KELOMPOK_FINAL',                // admin finalization
             'DISSOLVED',
         ],
@@ -110,6 +120,16 @@ class GroupStateMachine
     public function transition(Group $group, string $newStatus): void
     {
         $currentStatus = $group->status;
+        
+        // DEBUG: Log all transitions to track down auto-transition bug
+        Log::info('state_machine.transition', [
+            'group_id' => $group->id,
+            'from' => $currentStatus,
+            'to' => $newStatus,
+            'trace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10))
+                ->map(fn($t) => ($t['class'] ?? '') . '::' . ($t['function'] ?? '') . ':' . ($t['line'] ?? ''))
+                ->toArray()
+        ]);
 
         if ($newStatus === 'PDC1_ACTIVE') {
             $group->loadMissing('period');

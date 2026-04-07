@@ -132,7 +132,7 @@ export default function MahasiswaGroupPage() {
     }, []);
 
     useEffect(() => {
-        const soloStatuses = ['FORMING_SOLO', 'FORMING'];
+        const soloStatuses = ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'];
         if (myGroup?.status && soloStatuses.includes(myGroup.status)) {
             fetchJoinRequests();
         }
@@ -475,7 +475,7 @@ export default function MahasiswaGroupPage() {
     const spotsRemaining = maxMembers - myGroup.members.length;
     const hasTitle = !!myGroup.title_id;
     const hasEnoughMembers = myGroup.members.length >= minMembers;
-    const isSoloSeeker = ['FORMING_SOLO', 'FORMING'].includes(myGroup.status);
+    const isSoloSeeker = ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
 
     const getStatusBadgeVariant = (status: string) => {
         switch (status) {
@@ -518,7 +518,7 @@ export default function MahasiswaGroupPage() {
                             <UserPlus className="mr-2 h-4 w-4" /> Add Member
                         </Button>
                     )}
-                    {isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(myGroup.status) && (
+                    {isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO', 'TITLE_APPROVED'].includes(myGroup.status) && (
                         <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
                             {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                             Delete Group
@@ -608,6 +608,7 @@ export default function MahasiswaGroupPage() {
                  {isLeader && myGroup.members.length >= minMembers && (
                      <CardFooter className="bg-muted/20 border-t p-6 flex gap-3">
                          {(myGroup.status === 'READY_FOR_BIDDING' || 
+                           myGroup.status === 'TITLE_APPROVED' ||
                            (myGroup.status === 'FORMING_SOLO' && myGroup.title?.id)) && (
                             <>
                                 <Button 

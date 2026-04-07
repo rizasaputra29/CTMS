@@ -17,9 +17,10 @@ class BursaIdeController extends Controller
     /**
      * Solo Seeker statuses — FORMING_SOLO and FORMING transitions to WAITING_SUPERVISOR_APPROVAL
      * after proposing a title, then back to FORMING/FORMING_SOLO after Pre-Approval.
+     * TITLE_APPROVED is the status after supervisor approves - title is open for recruitment.
      * All statuses represent a "Solo Seeker" in different lifecycle phases.
      */
-    private const SOLO_STATUSES = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL'];
+    private const SOLO_STATUSES = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL', 'TITLE_APPROVED'];
 
     protected GroupStateMachine $stateMachine;
     protected \App\Services\GroupService $groupService;
@@ -153,12 +154,17 @@ class BursaIdeController extends Controller
             return response()->json(['message' => "Jumlah anggota gabungan ({$sourceCount} + {$targetCount}) melebihi kuota maksimal {$maxMembers} orang."], 400);
         }
 
-        $joinRequest = JoinRequest::create([
-            'group_id' => $group->id,
-            'requester_id' => $user->id,
-            'status' => 'PENDING',
-            'message' => $request->input('message'),
-        ]);
+        $joinRequest = JoinRequest::updateOrCreate(
+            [
+                'group_id' => $group->id,
+                'requester_id' => $user->id,
+            ],
+            [
+                'status' => 'PENDING',
+                'message' => $request->input('message'),
+                'requested_at' => now(),
+            ]
+        );
 
         // Notify the group leader
         $leader = GroupMember::where('group_id', $group->id)
