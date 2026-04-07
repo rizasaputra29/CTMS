@@ -12,17 +12,20 @@ class Group extends Model
     // Use assignTitleFromFinalization() and assignTypeFromFinalization() only.
     // These methods are called exclusively by FinalizationService.
     protected $fillable = [
-        'period_id', 
-        'status', 
-        'supervisor_1_id', 
-        'supervisor_2_id', 
-        'group_mode', 
+        'period_id',
+        'status',
+        'supervisor_1_id',
+        'supervisor_2_id',
+        'group_mode',
         'is_solo',
-        'has_existing_group', 
+        'has_existing_group',
         'has_active_proposal',
-        'title_id', 
+        'title_id',
         'assignment_type',
-        'readiness_status'
+        'readiness_status',
+        'finalization_notes',
+        'finalized_at',
+        'finalized_by'
     ];
 
     protected $casts = [
@@ -136,6 +139,11 @@ class Group extends Model
     public function supervisor2()
     {
         return $this->belongsTo(User::class, 'supervisor_2_id');
+    }
+
+    public function finalizedBy()
+    {
+        return $this->belongsTo(User::class, 'finalized_by');
     }
 
     public function schedules()
@@ -566,5 +574,37 @@ class Group extends Model
     public function approvalAudits()
     {
         return $this->hasMany(TitleApprovalAudit::class, 'affected_group_id');
+    }
+
+    /**
+     * Scope: Groups that are ready for finalization.
+     */
+    public function scopeReadyForFinalization($query)
+    {
+        return $query->where('status', 'READY_FOR_FINALIZATION');
+    }
+
+    /**
+     * Scope: Groups that are in KELOMPOK_FINAL status.
+     */
+    public function scopeKelompokFinal($query)
+    {
+        return $query->where('status', 'KELOMPOK_FINAL');
+    }
+
+    /**
+     * Scope: Groups that have been finalized (PDC1_ACTIVE and beyond).
+     */
+    public function scopeFinalized($query)
+    {
+        return $query->whereIn('status', ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'PDC2_COMPLETED', 'CLOSED']);
+    }
+
+    /**
+     * Check if group has both supervisors assigned.
+     */
+    public function hasSupervisors(): bool
+    {
+        return !is_null($this->supervisor_1_id);
     }
 }

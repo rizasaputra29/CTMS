@@ -95,6 +95,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/finalization/unlock', [FinalizationController::class, 'unlock']);
         Route::post('/finalization/reopen', [FinalizationController::class, 'reopenPeriod']);
 
+        // Admin Finalization Dashboard
+        Route::get('/finalization/dashboard', [FinalizationController::class, 'adminDashboard']);
+        Route::post('/finalization/set-supervisor', [FinalizationController::class, 'setSupervisor']);
+        Route::post('/finalization/execute', [FinalizationController::class, 'executeFinalization']);
+        Route::post('/finalization/rollback', [FinalizationController::class, 'rollbackFinalization']);
+        Route::get('/finalization/export', [FinalizationController::class, 'export']);
+
         // V4: Expo Event Management
         Route::apiResource('expo-events', ExpoEventController::class);
         Route::put('/expo-events/{expoEvent}/publish', [ExpoEventController::class, 'publish']);

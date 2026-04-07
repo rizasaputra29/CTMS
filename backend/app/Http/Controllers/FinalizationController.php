@@ -10,6 +10,7 @@ use App\Services\BiddingService;
 use App\Services\FinalizationService;
 use App\Services\AutoMatchmakerService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class FinalizationController extends Controller
 {
@@ -362,5 +363,505 @@ class FinalizationController extends Controller
             'message' => 'Period reopened for registration.',
             'period' => $period->fresh(),
         ]);
+    }
+
+    /**
+     * Admin Dashboard: View groups ready for finalization and others.
+     */
+    public function adminDashboard(Request $request)
+    {
+        $period = $this->resolvePeriod($request);
+
+        // Tab 1: READY_FOR_FINALIZATION (need supervisor assignment)
+        $readyForFinalization = Group::with(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period'])
+            ->where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION')
+            ->get();
+
+        // Tab 2: KELOMPOK_FINAL (ready to be finalized to PDC1_ACTIVE)
+        $kelompokFinal = Group::with(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period'])
+            ->where('period_id', $period->id)
+            ->where('status', 'KELOMPOK_FINAL')
+            ->get();
+
+        // Tab 3: Others (no group, no title, not ready)
+        $others = [
+            'no_group' => [], // Mahasiswa tanpa kelompok
+            'no_title' => [], // Kelompok tanpa judul
+            'not_ready' => [], // Kelompok belum READY_FOR_FINALIZATION
+        ];
+
+        // Get students without groups
+        $studentsWithGroups = \App\Models\GroupMember::whereHas('group', function ($q) use ($period) {
+            $q->where('period_id', $period->id);
+        })->pluck('student_id');
+
+        $others['no_group'] = \App\Models\User::where('role', 'mahasiswa')
+            ->whereNotIn('id', $studentsWithGroups)
+            ->select('id', 'name', 'email', 'nim')
+            ->get();
+
+        // Get groups without title
+        $others['no_title'] = Group::with(['members.student'])
+            ->where('period_id', $period->id)
+            ->whereNull('title_id')
+            ->whereNotIn('status', ['CLOSED', 'DISSOLVED'])
+            ->get();
+
+        // Get groups not ready
+        $others['not_ready'] = Group::with(['members.student', 'title'])
+            ->where('period_id', $period->id)
+            ->whereNotIn('status', ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
+            ->get();
+
+        // Stats
+        $stats = [
+            'total_ready' => $readyForFinalization->count(),
+            'total_kelompok_final' => $kelompokFinal->count(),
+            'total_no_group' => $others['no_group']->count(),
+            'total_no_title' => $others['no_title']->count(),
+            'total_not_ready' => $others['not_ready']->count(),
+            'can_finalize' => $kelompokFinal->count() > 0 && $readyForFinalization->count() === 0,
+        ];
+
+        return response()->json([
+            'period' => $period,
+            'ready_for_finalization' => $readyForFinalization,
+            'kelompok_final' => $kelompokFinal,
+            'others' => $others,
+            'stats' => $stats,
+        ]);
+    }
+
+    /**
+     * Set Supervisor 1 and 2 for a group (Admin only).
+     */
+    public function setSupervisor(Request $request)
+    {
+        $request->validate([
+            'group_id' => 'required|exists:groups,id',
+            'supervisor_1_id' => 'nullable|exists:users,id',
+            'supervisor_2_id' => 'nullable|exists:users,id',
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        $user = $request->user();
+        $group = Group::with('period')->findOrFail($request->group_id);
+
+        // Only admin can set supervisors
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat menetapkan supervisor.'], 403);
+        }
+
+        // Group must be READY_FOR_FINALIZATION
+        if ($group->status !== 'READY_FOR_FINALIZATION') {
+            return response()->json([
+                'message' => 'Grup harus dalam status READY_FOR_FINALIZATION untuk menetapkan supervisor.',
+                'current_status' => $group->status
+            ], 400);
+        }
+
+        // Validate supervisors
+        $loadService = app(\App\Services\SupervisorLoadService::class);
+
+        if ($request->supervisor_1_id) {
+            $validation = $loadService->validateAssignment($request->supervisor_1_id, $group->period_id);
+            if (!$validation['valid']) {
+                return response()->json(['message' => $validation['message']], 400);
+            }
+        }
+
+        if ($request->supervisor_2_id) {
+            $validation = $loadService->validateAssignment($request->supervisor_2_id, $group->period_id);
+            if (!$validation['valid']) {
+                return response()->json(['message' => $validation['message']], 400);
+            }
+        }
+
+        // Prevent same supervisor for both roles
+        if ($request->supervisor_1_id && $request->supervisor_2_id &&
+            $request->supervisor_1_id === $request->supervisor_2_id) {
+            return response()->json(['message' => 'Supervisor 1 dan 2 tidak boleh sama.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldValues = [
+                'supervisor_1_id' => $group->supervisor_1_id,
+                'supervisor_2_id' => $group->supervisor_2_id,
+                'status' => $group->status,
+            ];
+
+            // Update group
+            $group->update([
+                'supervisor_1_id' => $request->supervisor_1_id,
+                'supervisor_2_id' => $request->supervisor_2_id,
+                'finalization_notes' => $request->notes,
+                'status' => 'KELOMPOK_FINAL',
+            ]);
+
+            // Create audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $group->period_id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'SUPERVISOR_SET',
+                'old_values' => $oldValues,
+                'new_values' => [
+                    'supervisor_1_id' => $request->supervisor_1_id,
+                    'supervisor_2_id' => $request->supervisor_2_id,
+                    'status' => 'KELOMPOK_FINAL',
+                ],
+                'notes' => $request->notes,
+            ]);
+
+            // Notify group members
+            foreach ($group->members as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'SUPERVISOR_ASSIGNED',
+                    'title' => 'Supervisor Ditentukan',
+                    'message' => 'Admin telah menetapkan supervisor untuk kelompok Anda. Kelompok siap untuk finalisasi.',
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Supervisor berhasil ditetapkan. Status kelompok: KELOMPOK_FINAL.',
+                'group' => $group->fresh(['supervisor1', 'supervisor2', 'members.student', 'title']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal menetapkan supervisor: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Execute Finalization: Change all KELOMPOK_FINAL to PDC1_ACTIVE.
+     */
+    public function executeFinalization(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'confirmation' => 'required|boolean',
+        ]);
+
+        if (!$request->confirmation) {
+            return response()->json(['message' => 'Konfirmasi diperlukan untuk mengeksekusi finalisasi.'], 400);
+        }
+
+        $user = $request->user();
+        $period = Period::findOrFail($request->period_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat mengeksekusi finalisasi.'], 403);
+        }
+
+        // Check if period is active
+        if (!$period->is_active) {
+            return response()->json(['message' => 'Periode tidak aktif.'], 400);
+        }
+
+        // Validation: ALL groups must be KELOMPOK_FINAL
+        $notReadyGroups = Group::where('period_id', $period->id)
+            ->whereNotIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
+            ->count();
+
+        if ($notReadyGroups > 0) {
+            return response()->json([
+                'message' => "Terdapat {$notReadyGroups} grup yang belum siap finalisasi.",
+                'error_code' => 'GROUPS_NOT_READY',
+            ], 422);
+        }
+
+        // Validation: ALL KELOMPOK_FINAL groups must have supervisor_1
+        $noSupervisorGroups = Group::where('period_id', $period->id)
+            ->where('status', 'KELOMPOK_FINAL')
+            ->whereNull('supervisor_1_id')
+            ->count();
+
+        if ($noSupervisorGroups > 0) {
+            return response()->json([
+                'message' => "Terdapat {$noSupervisorGroups} grup KELOMPOK_FINAL yang belum memiliki Supervisor 1.",
+                'error_code' => 'MISSING_SUPERVISOR',
+            ], 422);
+        }
+
+        DB::beginTransaction();
+        try {
+            $groups = Group::where('period_id', $period->id)
+                ->where('status', 'KELOMPOK_FINAL')
+                ->get();
+
+            $finalizedCount = 0;
+
+            foreach ($groups as $group) {
+                $group->update([
+                    'status' => 'PDC1_ACTIVE',
+                    'finalized_at' => now(),
+                    'finalized_by' => $user->id,
+                ]);
+
+                // Create supervision records
+                if ($group->supervisor_1_id) {
+                    \App\Models\Supervision::updateOrCreate(
+                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_1'],
+                        ['supervisor_id' => $group->supervisor_1_id, 'assigned_by' => $user->id]
+                    );
+                }
+
+                if ($group->supervisor_2_id) {
+                    \App\Models\Supervision::updateOrCreate(
+                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
+                        ['supervisor_id' => $group->supervisor_2_id, 'assigned_by' => $user->id]
+                    );
+                }
+
+                // Audit log
+                \App\Models\FinalizationAudit::create([
+                    'period_id' => $period->id,
+                    'group_id' => $group->id,
+                    'user_id' => $user->id,
+                    'action' => 'FINALIZATION_EXECUTED',
+                    'old_values' => ['status' => 'KELOMPOK_FINAL'],
+                    'new_values' => ['status' => 'PDC1_ACTIVE'],
+                ]);
+
+                $finalizedCount++;
+            }
+
+            // Notify all groups and lecturers
+            $this->notifyFinalizationCompletion($period, $groups, $user);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => "Finalisasi berhasil. {$finalizedCount} grup telah difinalisasi ke PDC1_ACTIVE.",
+                'finalized_count' => $finalizedCount,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Finalisasi gagal: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Rollback Finalization: Revert PDC1_ACTIVE or KELOMPOK_FINAL to previous status.
+     */
+    public function rollbackFinalization(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'group_ids' => 'nullable|array',
+            'group_ids.*' => 'exists:groups,id',
+            'reason' => 'required|string|max:1000',
+        ]);
+
+        $user = $request->user();
+        $period = Period::findOrFail($request->period_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat melakukan rollback.'], 403);
+        }
+
+        DB::beginTransaction();
+        try {
+            $query = Group::where('period_id', $period->id)
+                ->whereIn('status', ['PDC1_ACTIVE', 'KELOMPOK_FINAL']);
+
+            if ($request->group_ids) {
+                $query->whereIn('id', $request->group_ids);
+            }
+
+            $groups = $query->get();
+
+            if ($groups->isEmpty()) {
+                return response()->json(['message' => 'Tidak ada grup yang dapat di-rollback.'], 400);
+            }
+
+            foreach ($groups as $group) {
+                $oldStatus = $group->status;
+                $newStatus = $oldStatus === 'PDC1_ACTIVE' ? 'KELOMPOK_FINAL' : 'READY_FOR_FINALIZATION';
+
+                $group->update([
+                    'status' => $newStatus,
+                    'finalized_at' => $oldStatus === 'PDC1_ACTIVE' ? null : $group->finalized_at,
+                    'finalized_by' => $oldStatus === 'PDC1_ACTIVE' ? null : $group->finalized_by,
+                ]);
+
+                // Audit log
+                \App\Models\FinalizationAudit::create([
+                    'period_id' => $period->id,
+                    'group_id' => $group->id,
+                    'user_id' => $user->id,
+                    'action' => 'FINALIZATION_ROLLBACK',
+                    'old_values' => ['status' => $oldStatus],
+                    'new_values' => ['status' => $newStatus],
+                    'notes' => $request->reason,
+                ]);
+
+                // Notify group
+                foreach ($group->members as $member) {
+                    \App\Models\Notification::create([
+                        'user_id' => $member->student_id,
+                        'type' => 'FINALIZATION_ROLLBACK',
+                        'title' => 'Finalisasi Dibatalkan',
+                        'message' => "Finalisasi kelompok Anda telah dibatalkan. Alasan: {$request->reason}",
+                        'related_type' => 'Group',
+                        'related_id' => $group->id,
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => "Rollback berhasil. {$groups->count()} grup telah dikembalikan.",
+                'rolled_back_count' => $groups->count(),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Rollback gagal: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Export finalization report.
+     */
+    public function export(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'format' => 'required|in:excel,pdf',
+        ]);
+
+        $period = Period::findOrFail($request->period_id);
+        $groups = Group::with(['members.student', 'title', 'supervisor1', 'supervisor2'])
+            ->where('period_id', $period->id)
+            ->whereIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
+            ->get();
+
+        if ($request->format === 'excel') {
+            return $this->exportExcel($groups, $period);
+        } else {
+            return $this->exportPdf($groups, $period);
+        }
+    }
+
+    /**
+     * Export to Excel.
+     */
+    private function exportExcel($groups, $period)
+    {
+        $data = [];
+        foreach ($groups as $index => $group) {
+            $data[] = [
+                'No' => $index + 1,
+                'Group ID' => $group->id,
+                'Judul' => $group->title ? $group->title->title : '-',
+                'Anggota' => $group->members->map(fn($m) => $m->student->name)->join(', '),
+                'Supervisor 1' => $group->supervisor1 ? $group->supervisor1->name : '-',
+                'Supervisor 2' => $group->supervisor2 ? $group->supervisor2->name : '-',
+                'Status' => $group->status,
+            ];
+        }
+
+        // Simple CSV export for now
+        $filename = "finalisasi_periode_{$period->id}_" . now()->format('Y-m-d') . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => "attachment; filename={$filename}",
+        ];
+
+        $output = fopen('php://temp', 'r+');
+        fputcsv($output, array_keys($data[0] ?? []));
+        foreach ($data as $row) {
+            fputcsv($output, $row);
+        }
+        rewind($output);
+        $csv = stream_get_contents($output);
+        fclose($output);
+
+        return response($csv, 200, $headers);
+    }
+
+    /**
+     * Export to PDF.
+     */
+    private function exportPdf($groups, $period)
+    {
+        // For now, return simple HTML table as PDF alternative
+        $html = '<h1>Laporan Finalisasi</h1>';
+        $html .= '<p>Periode: ' . ($period->name ?? $period->id) . '</p>';
+        $html .= '<table border="1" cellpadding="5">';
+        $html .= '<tr><th>No</th><th>Group ID</th><th>Judul</th><th>Anggota</th><th>Supervisor 1</th><th>Supervisor 2</th><th>Status</th></tr>';
+
+        foreach ($groups as $index => $group) {
+            $html .= '<tr>';
+            $html .= '<td>' . ($index + 1) . '</td>';
+            $html .= '<td>' . $group->id . '</td>';
+            $html .= '<td>' . ($group->title ? $group->title->title : '-') . '</td>';
+            $html .= '<td>' . $group->members->map(fn($m) => $m->student->name)->join(', ') . '</td>';
+            $html .= '<td>' . ($group->supervisor1 ? $group->supervisor1->name : '-') . '</td>';
+            $html .= '<td>' . ($group->supervisor2 ? $group->supervisor2->name : '-') . '</td>';
+            $html .= '<td>' . $group->status . '</td>';
+            $html .= '</tr>';
+        }
+
+        $html .= '</table>';
+
+        $filename = "finalisasi_periode_{$period->id}_" . now()->format('Y-m-d') . '.html';
+
+        return response($html, 200, [
+            'Content-Type' => 'text/html',
+            'Content-Disposition' => "attachment; filename={$filename}",
+        ]);
+    }
+
+    /**
+     * Helper: Notify finalization completion.
+     */
+    private function notifyFinalizationCompletion($period, $groups, $user)
+    {
+        // Get all unique lecturers
+        $lecturerIds = $groups->pluck('supervisor_1_id')
+            ->merge($groups->pluck('supervisor_2_id'))
+            ->filter()
+            ->unique();
+
+        // Notify lecturers
+        foreach ($lecturerIds as $lecturerId) {
+            $supervisedGroups = $groups->filter(function ($g) use ($lecturerId) {
+                return $g->supervisor_1_id === $lecturerId || $g->supervisor_2_id === $lecturerId;
+            });
+
+            \App\Models\Notification::create([
+                'user_id' => $lecturerId,
+                'type' => 'FINALIZATION_COMPLETED',
+                'title' => 'Finalisasi Selesai',
+                'message' => "Finalisasi periode telah selesai. Anda menaungi {$supervisedGroups->count()} kelompok.",
+                'related_type' => 'Period',
+                'related_id' => $period->id,
+            ]);
+        }
+
+        // Notify all students
+        foreach ($groups as $group) {
+            foreach ($group->members as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'FINALIZATION_COMPLETED',
+                    'title' => 'Finalisasi Selesai',
+                    'message' => 'Selamat! Kelompok Anda telah difinalisasi dan memasuki tahap PDC1_ACTIVE.',
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+        }
     }
 }
