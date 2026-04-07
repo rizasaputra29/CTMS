@@ -299,7 +299,7 @@ export default function DosenTitlesPage() {
                      </Select>
                     <Dialog open={open} onOpenChange={handleOpenChange}>
                         <DialogTrigger asChild>
-                            <Button onClick={() => { setEditingId(null); setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1 }); }}>
+                            <Button onClick={() => { setEditingId(null); setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' }); }}>
                                 <Plus className="mr-2 h-4 w-4" /> Add Title
                             </Button>
                         </DialogTrigger>

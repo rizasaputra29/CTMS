@@ -36,7 +36,13 @@ interface Group {
     status: string;
     assignment_type: string | null;
     title_id: number | null;
+    is_solo?: boolean;
+    period?: {
+        min_group_size: number;
+        max_group_size: number;
+    };
     title: {
+        id: number;
         title: string;
         quota: number;
         lecturer: {

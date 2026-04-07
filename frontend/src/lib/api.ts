@@ -1,4 +1,9 @@
-import axios, { isAxiosError } from "axios";
+import axios, { isAxiosError, AxiosInstance } from "axios";
+
+// Extend AxiosInstance type to include isAxiosError
+interface ExtendedAxiosInstance extends AxiosInstance {
+  isAxiosError: typeof isAxiosError;
+}
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
@@ -7,7 +12,7 @@ const api = axios.create({
     Accept: "application/json",
   },
   withCredentials: true,
-});
+}) as ExtendedAxiosInstance;
 
 // Add isAxiosError helper to api object
 api.isAxiosError = isAxiosError;
