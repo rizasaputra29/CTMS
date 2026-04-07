@@ -221,6 +221,10 @@ class TitleController extends Controller
             $title->update(['status' => 'PENDING']);
         }
 
+        // 5.5. SECURITY FIX: Delete all bids on this title to prevent unauthorized joins
+        // When a title is withdrawn, no new members should be able to join via bidding
+        \App\Models\Bid::where('title_id', $title->id)->delete();
+
         // 6. For each affected group: revert to FORMING_SOLO
         $reason = $request->input('reason');
         foreach ($affectedGroups as $group) {

@@ -319,16 +319,27 @@ class BidController extends Controller
             $group->status = 'TITLE_APPROVED';
             $group->save();
             
-            // Notify accepted group members
-            foreach ($group->members()->with('student')->get() as $member) {
-                \App\Models\Notification::create([
+            // Notify accepted group members - OPTIMIZED: Batch insert
+            $members = $group->members()->with('student')->get();
+            $notifications = [];
+            $now = now();
+            
+            foreach ($members as $member) {
+                $notifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'BID_ACCEPTED',
                     'title' => 'Bid Diterima',
                     'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah diterima. Silakan klik 'Siap Finalisasi' jika sudah siap.",
                     'related_type' => 'Bid',
                     'related_id' => $bid->id,
-                ]);
+                    'is_read' => false,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            
+            if (!empty($notifications)) {
+                \App\Models\Notification::insert($notifications);
             }
 
             // Auto-reject (DELETE) all other pending bids on this title
@@ -338,25 +349,78 @@ class BidController extends Controller
                 ->whereNull('lecturer_recommendation') // Only pending bids
                 ->get();
             
+            // OPTIMIZED: Batch collect notifications and delete bids
+            $rejectedNotifications = [];
+            $rejectedBidIds = [];
+            $now = now();
+            
             foreach ($otherBids as $otherBid) {
-                // Notify rejected group members BEFORE deleting
+                // Collect notifications for batch insert
                 foreach ($otherBid->group->members as $member) {
-                    \App\Models\Notification::create([
+                    $rejectedNotifications[] = [
                         'user_id' => $member->student_id,
                         'type' => 'BID_REJECTED',
                         'title' => 'Bid Ditolak',
                         'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah ditolak karena dosen sudah menerima kelompok lain. Anda dapat mengajukan bid untuk judul lain.",
                         'related_type' => 'Group',
                         'related_id' => $otherBid->group_id,
+                        'is_read' => false,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
+                }
+                
+                $rejectedBidIds[] = $otherBid->id;
+            }
+            
+            // Batch insert all rejected notifications
+            if (!empty($rejectedNotifications)) {
+                \App\Models\Notification::insert($rejectedNotifications);
+            }
+            
+            // Batch delete all rejected bids
+            if (!empty($rejectedBidIds)) {
+                Bid::whereIn('id', $rejectedBidIds)->delete();
+            }
+            
+            // NEW: Auto-delete all other bids from the same group to other titles
+            $otherGroupBids = Bid::with(['title.lecturer', 'group.members'])
+                ->where('group_id', $group->id)
+                ->where('id', '!=', $bid->id)
+                ->whereNull('lecturer_recommendation') // Only pending bids
+                ->get();
+            
+            foreach ($otherGroupBids as $otherBid) {
+                // Notify the lecturer before deleting
+                if ($otherBid->title && $otherBid->title->lecturer) {
+                    \App\Models\Notification::create([
+                        'user_id' => $otherBid->title->lecturer_id,
+                        'type' => 'BID_AUTO_REJECTED',
+                        'title' => 'Bid Ditolak Otomatis',
+                        'message' => "Bid dari kelompok #{$group->id} untuk judul \"{$otherBid->title->title}\" ditolak otomatis karena kelompok tersebut sudah mendapat judul lain yang disetujui.",
+                        'related_type' => 'Bid',
+                        'related_id' => $otherBid->id,
                     ]);
                 }
                 
-                // DELETE the rejected bid immediately
+                // Notify group members before deleting
+                foreach ($otherBid->group->members as $member) {
+                    \App\Models\Notification::create([
+                        'user_id' => $member->student_id,
+                        'type' => 'BID_REJECTED',
+                        'title' => 'Bid Ditolak',
+                        'message' => "Bid Anda untuk judul \"{$otherBid->title->title}\" ditolak karena kelompok sudah mendapat judul \"{$titleInfo}\" yang disetujui.",
+                        'related_type' => 'Bid',
+                        'related_id' => $otherBid->id,
+                    ]);
+                }
+                
+                // DELETE the bid immediately
                 $otherBid->delete();
             }
             
             return response()->json([
-                'message' => 'Bid diterima. Bid lain pada judul ini otomatis dihapus.',
+                'message' => 'Bid diterima. Semua bid lain dari kelompok ini otomatis dihapus.',
                 'data' => $bid->fresh(),
             ]);
         }
@@ -372,16 +436,27 @@ class BidController extends Controller
                 $group->save();
             }
             
-            // Notify group members about rejection BEFORE deleting
-            foreach ($group->members()->with('student')->get() as $member) {
-                \App\Models\Notification::create([
+            // OPTIMIZED: Batch insert notifications for rejection
+            $members = $group->members()->with('student')->get();
+            $rejectedNotifications = [];
+            $now = now();
+            
+            foreach ($members as $member) {
+                $rejectedNotifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'BID_REJECTED',
                     'title' => 'Bid Ditolak',
                     'message' => "Bid Anda untuk judul \"{$titleInfo}\" telah ditolak. Anda dapat mengajukan bid untuk judul lain.",
                     'related_type' => 'Group',
                     'related_id' => $group->id,
-                ]);
+                    'is_read' => false,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            
+            if (!empty($rejectedNotifications)) {
+                \App\Models\Notification::insert($rejectedNotifications);
             }
             
             // DELETE the bid immediately

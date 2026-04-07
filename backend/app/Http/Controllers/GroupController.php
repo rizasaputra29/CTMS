@@ -296,9 +296,9 @@ class GroupController extends Controller
 
         $group = Group::with('period')->find($leaderMembership->group_id);
 
-        // Only allow adding members before KELOMPOK_FINAL
-        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
-            return response()->json(['message' => 'Kelompok sudah difinalisasi dan tidak dapat menambahkan anggota. Hubungi admin jika ada kebutuhan khusus.'], 400);
+        // LOCKED: After READY_FOR_FINALIZATION, cannot send invitations
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization). Batalkan finalisasi terlebih dahulu untuk mengundang anggota.'], 400);
         }
 
         // Member limit from period config
@@ -389,8 +389,18 @@ class GroupController extends Controller
             return response()->json(['message' => 'Kelompok tidak tersedia lagi.'], 400);
         }
 
-        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
-            return response()->json(['message' => 'Kelompok sudah difinalisasi dan tidak dapat bergabung. Hubungi admin jika ada kebutuhan khusus.'], 400);
+        // LOCKED: After READY_FOR_FINALIZATION, cannot accept new members
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.'], 400);
+        }
+
+        // SECURITY FIX: For solo seeker groups, check if title is still APPROVED
+        // Prevent joining if the title has been withdrawn by lecturer
+        if ($group->is_solo && $group->title_id) {
+            $title = \App\Models\Title::find($group->title_id);
+            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+                return response()->json(['message' => 'Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat bergabung.'], 400);
+            }
         }
 
         // Check if user is in a STANDARD group
@@ -488,10 +498,10 @@ class GroupController extends Controller
 
         $group = Group::with('period')->find($leaderMembership->group_id);
 
-        // After KELOMPOK_FINAL: require admin approval (handled separately)
-        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
+        // LOCKED: After READY_FOR_FINALIZATION, cannot modify members (admin can bypass)
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION') && !$user->hasRole('admin')) {
             return response()->json([
-                'message' => 'Kelompok sudah difinalisasi dan tidak dapat mengeluarkan anggota. Hubungi admin jika ada kebutuhan khusus.',
+                'message' => 'Kelompok sudah terkunci (Ready for Finalization). Batalkan finalisasi terlebih dahulu untuk mengubah anggota.',
             ], 400);
         }
 
@@ -528,8 +538,9 @@ class GroupController extends Controller
 
         $group = Group::with('period')->find($membership->group_id);
 
-        if ($this->stateMachine->isAtLeast($group, 'KELOMPOK_FINAL')) {
-            return response()->json(['message' => 'Kelompok sudah difinalisasi dan tidak dapat keluar. Hubungi admin jika ada kebutuhan khusus.'], 400);
+        // LOCKED: After READY_FOR_FINALIZATION, cannot leave group
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.'], 400);
         }
 
         DB::beginTransaction();
@@ -833,10 +844,16 @@ class GroupController extends Controller
         // Determine target status based on group's title ownership
         // If group has their own approved proposal (solo seeker), revert to TITLE_APPROVED
         // Otherwise, revert to READY_FOR_BIDDING
-        $hasOwnApprovedTitle = \App\Models\Title::where('proposed_by_group_id', $group->id)
-            ->where('title_source', 'STUDENT')
-            ->where('supervisor_approval_status', 'APPROVED')
-            ->exists();
+        
+        // SECURITY FIX: Check the actual title's approval status, not just ownership
+        $hasOwnApprovedTitle = false;
+        if ($group->title_id) {
+            $title = \App\Models\Title::find($group->title_id);
+            // Title must be APPROVED and either be student-proposed by this group OR assigned to them
+            if ($title && $title->supervisor_approval_status === 'APPROVED') {
+                $hasOwnApprovedTitle = true;
+            }
+        }
 
         $targetStatus = $hasOwnApprovedTitle ? 'TITLE_APPROVED' : 'READY_FOR_BIDDING';
 

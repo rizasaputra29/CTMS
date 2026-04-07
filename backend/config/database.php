@@ -97,7 +97,11 @@ return [
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
             'options' => [
+                // CRITICAL: Must be TRUE for Neon PostgreSQL with PgBouncer
+                // PgBouncer doesn't support prepared statements, so we emulate them
                 \PDO::ATTR_EMULATE_PREPARES => true,
+                // Prevent PDO from stringifying fetched values
+                \PDO::ATTR_STRINGIFY_FETCHES => false,
             ],
         ],
 

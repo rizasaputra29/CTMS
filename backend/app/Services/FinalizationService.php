@@ -43,15 +43,27 @@ class FinalizationService
 
     /**
      * Get supervisor load dashboard data for a period.
+     * OPTIMIZED: Single query for all lecturer loads to avoid N+1
      */
     public function getSupervisorLoad(int $periodId, int $maxLoad): array
     {
+        // Get all lecturers
         $lecturers = User::where('role', 'dosen')->get();
+        $lecturerIds = $lecturers->pluck('id');
+
+        // Single query to get supervision counts for ALL lecturers
+        $supervisionCounts = Supervision::whereIn('supervisor_id', $lecturerIds)
+            ->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            })
+            ->selectRaw('supervisor_id, COUNT(*) as count')
+            ->groupBy('supervisor_id')
+            ->pluck('count', 'supervisor_id');
 
         $loadData = [];
         /** @var \App\Models\User $lecturer */
         foreach ($lecturers as $lecturer) {
-            $currentLoad = $lecturer->supervisionLoadInPeriod($periodId);
+            $currentLoad = $supervisionCounts[$lecturer->id] ?? 0;
             $loadData[] = [
                 'lecturer' => $lecturer,
                 'current_load' => $currentLoad,
@@ -94,18 +106,30 @@ class FinalizationService
 
             // Fetch all ACCEPT bids for this period, grouped by title, ordered by priority
             // V6: Only process groups that are READY_FOR_FINALIZATION (leader clicked button)
+            // OPTIMIZATION: Eager load all related data to avoid N+1 queries
             $acceptBids = Bid::where('lecturer_recommendation', 'ACCEPT')
                 ->whereHas('group', function ($q) use ($periodId) {
                     $q->where('period_id', $periodId)
                         ->where('status', 'READY_FOR_FINALIZATION');
                 })
-                ->with(['group', 'proposedSupervisor1', 'proposedSupervisor2'])
+                ->with(['group', 'proposedSupervisor1', 'proposedSupervisor2', 'title'])
                 ->orderBy('priority')
                 ->get();
 
             $allocated = [];
             $skipped = [];
             $titleQuotaUsed = [];
+            
+            // Pre-load all title quotas in a single query to avoid N+1
+            $titleIds = $acceptBids->pluck('title_id')->unique()->values();
+            $titleQuotas = Title::whereIn('id', $titleIds)->pluck('quota', 'id');
+            
+            // Pre-count allocations for all titles in a single query
+            $allocationCounts = Group::whereIn('title_id', $titleIds)
+                ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
+                ->selectRaw('title_id, COUNT(*) as count')
+                ->groupBy('title_id')
+                ->pluck('count', 'title_id');
 
             /** @var \App\Models\Bid $bid */
             foreach ($acceptBids as $bid) {
@@ -117,18 +141,19 @@ class FinalizationService
                     continue;
                 }
 
-                // Check quota
+                // Check quota using pre-loaded data
                 if (!isset($titleQuotaUsed[$titleId])) {
-                    $titleQuotaUsed[$titleId] = Group::where('title_id', $titleId)
-                        ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
-                        ->count();
+                    $titleQuotaUsed[$titleId] = $allocationCounts[$titleId] ?? 0;
                 }
 
-                $title = Title::find($titleId);
-                if (!$title || $titleQuotaUsed[$titleId] >= $title->quota) {
+                $titleQuota = $titleQuotas[$titleId] ?? 0;
+                if ($titleQuotaUsed[$titleId] >= $titleQuota) {
                     $skipped[] = ['bid_id' => $bid->id, 'reason' => 'Quota full', 'group_id' => $group->id];
                     continue;
                 }
+
+                // Use the eager-loaded title
+                $title = $bid->title;
 
                 // Allocate: accept bid, reject others
                 $bid->update(['status' => 'ACCEPTED']);
@@ -142,8 +167,8 @@ class FinalizationService
                 // Transition READY_FOR_FINALIZATION → KELOMPOK_FINAL
                 $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
 
-                // Assign supervisors
-                $sup1Id = $bid->proposed_supervisor_1_id ?? $title->lecturer_id;
+                // Assign supervisors (use eager-loaded data)
+                $sup1Id = $bid->proposed_supervisor_1_id ?? ($title ? $title->lecturer_id : null);
                 $sup2Id = $bid->proposed_supervisor_2_id;
 
                 Supervision::updateOrCreate(
@@ -164,8 +189,8 @@ class FinalizationService
                 // Transition KELOMPOK_FINAL → PDC1_ACTIVE
                 $this->stateMachine->transition($group, 'PDC1_ACTIVE');
 
-                // Refresh readiness snapshot after all updates
-                $group->refreshReadinessSnapshot();
+                // NOTE: refreshReadinessSnapshot moved outside loop for performance
+                // Will be done in batch after all allocations
 
                 $titleQuotaUsed[$titleId]++;
                 $allocated[] = [
@@ -173,6 +198,13 @@ class FinalizationService
                     'title_id' => $titleId,
                     'bid_id' => $bid->id,
                 ];
+            }
+            
+            // Batch refresh readiness snapshots after all allocations
+            if (!empty($allocated)) {
+                $groupIds = array_column($allocated, 'group_id');
+                // Dispatch to queue for better performance
+                \App\Jobs\RefreshGroupReadinessBatch::dispatch($groupIds);
             }
 
             // ⚠️ CRITICAL: Only audit period finalization if NOT simulating
@@ -293,6 +325,139 @@ class FinalizationService
             ];
         });
     }
+
+    /**
+     * V4-CHUNKED: Process finalization in chunks to avoid long-running transactions.
+     * Use this for very large periods (>100 groups) to prevent transaction timeouts.
+     * 
+     * NOTE: This is NOT atomic - if it fails mid-way, some groups may be finalized
+     * and others not. Use finalizePeriod() for atomic all-or-nothing behavior.
+     * 
+     * @param int $periodId Period to finalize
+     * @param int $adminId Admin user ID performing this action
+     * @param int $chunkSize Number of groups to process per chunk (default: 50)
+     * @return array ['allocated' => [...], 'skipped' => [...], 'total_allocated' => int, 'total_skipped' => int]
+     */
+    public function finalizePeriodChunked(int $periodId, int $adminId, int $chunkSize = 50): array
+    {
+        $period = \App\Models\Period::findOrFail($periodId);
+
+        // V5: Mandatory Readiness Check before any batch finalization
+        $this->validatePeriodReadiness($periodId);
+
+        // Mark period finalized
+        $period->update(['is_finalized' => true]);
+
+        $allocated = [];
+        $skipped = [];
+        $titleQuotaUsed = [];
+
+        // Process bids in chunks to avoid long-running transactions
+        Bid::where('lecturer_recommendation', 'ACCEPT')
+            ->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId)
+                    ->where('status', 'READY_FOR_FINALIZATION');
+            })
+            ->with(['group', 'proposedSupervisor1', 'proposedSupervisor2', 'title'])
+            ->orderBy('priority')
+            ->chunk($chunkSize, function ($bids) use ($adminId, &$allocated, &$skipped, &$titleQuotaUsed) {
+                // Each chunk is processed in its own transaction
+                DB::transaction(function () use ($bids, $adminId, &$allocated, &$skipped, &$titleQuotaUsed) {
+                    foreach ($bids as $bid) {
+                        $titleId = $bid->title_id;
+                        $group = $bid->group;
+
+                        // Skip if group already allocated (by a higher-priority bid)
+                        if ($group->status !== 'READY_FOR_FINALIZATION') {
+                            continue;
+                        }
+
+                        // Check quota using accumulated data
+                        if (!isset($titleQuotaUsed[$titleId])) {
+                            $titleQuotaUsed[$titleId] = Group::where('title_id', $titleId)
+                                ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
+                                ->count();
+                        }
+
+                        $title = $bid->title;
+                        if (!$title || $titleQuotaUsed[$titleId] >= $title->quota) {
+                            $skipped[] = ['bid_id' => $bid->id, 'reason' => 'Quota full', 'group_id' => $group->id];
+                            continue;
+                        }
+
+                        // Allocate: accept bid, reject others
+                        $bid->update(['status' => 'ACCEPTED']);
+                        Bid::where('group_id', $group->id)->where('id', '!=', $bid->id)->update(['status' => 'REJECTED']);
+
+                        // Assign title
+                        $group->assignTitleFromFinalization($titleId);
+                        $group->assignTypeFromFinalization('BIDDING');
+                        $group->save();
+
+                        // Transition READY_FOR_FINALIZATION → KELOMPOK_FINAL
+                        $this->stateMachine->transition($group, 'KELOMPOK_FINAL');
+
+                        // Assign supervisors
+                        $sup1Id = $bid->proposed_supervisor_1_id ?? ($title ? $title->lecturer_id : null);
+                        $sup2Id = $bid->proposed_supervisor_2_id;
+
+                        Supervision::updateOrCreate(
+                            ['group_id' => $group->id, 'role' => 'SUPERVISOR_1'],
+                            ['supervisor_id' => $sup1Id, 'assigned_by' => $adminId]
+                        );
+                        $group->supervisor_1_id = $sup1Id;
+
+                        if ($sup2Id) {
+                            Supervision::updateOrCreate(
+                                ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
+                                ['supervisor_id' => $sup2Id, 'assigned_by' => $adminId]
+                            );
+                            $group->supervisor_2_id = $sup2Id;
+                        }
+                        $group->save();
+
+                        // Transition KELOMPOK_FINAL → PDC1_ACTIVE
+                        $this->stateMachine->transition($group, 'PDC1_ACTIVE');
+
+                        $titleQuotaUsed[$titleId]++;
+                        $allocated[] = [
+                            'group_id' => $group->id,
+                            'title_id' => $titleId,
+                            'bid_id' => $bid->id,
+                        ];
+                    }
+                });
+            });
+
+        // Batch refresh readiness snapshots after all allocations
+        if (!empty($allocated)) {
+            $groupIds = array_column($allocated, 'group_id');
+            \App\Jobs\RefreshGroupReadinessBatch::dispatch($groupIds);
+        }
+
+        // Audit log the finalization
+        AuditLog::create([
+            'user_id' => $adminId,
+            'action' => 'PERIOD_FINALIZED',
+            'target_type' => 'Period',
+            'target_id' => $period->id,
+            'payload' => [
+                'total_allocated' => count($allocated),
+                'total_skipped' => count($skipped),
+                'chunked' => true,
+                'chunk_size' => $chunkSize,
+            ],
+        ]);
+
+        return [
+            'allocated' => $allocated,
+            'skipped' => $skipped,
+            'total_allocated' => count($allocated),
+            'total_skipped' => count($skipped),
+            'chunked' => true,
+        ];
+    }
+
     /**
      * V5: Validate that all groups and students in a period are ready for finalization.
      * Enforces the 4 strict rules requested by admin.

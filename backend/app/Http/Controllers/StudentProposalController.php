@@ -73,11 +73,13 @@ class StudentProposalController extends Controller
 
         $group = Group::find($membership->group_id);
 
-        // Check minimum 3 members (unless Solo Seeker)
+        // Check minimum members requirement
+        // Solo Seeker (is_solo=true) can propose with any member count
+        // Normal groups must have minimum members before proposing
         $memberCount = GroupMember::where('group_id', $group->id)->count();
         $minSize = $group->period->min_group_size ?? 3;
-        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING']) && $memberCount < $minSize) {
-            return response()->json(['message' => "Your group must have at least {$minSize} members before proposing a title."], 400);
+        if (!$group->is_solo && $memberCount < $minSize) {
+            return response()->json(['message' => "Kelompok harus memiliki minimal {$minSize} anggota untuk mengajukan judul. Tambahkan anggota terlebih dahulu."], 400);
         }
 
         // Check if group already has a title assigned

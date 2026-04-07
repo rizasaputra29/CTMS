@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Jobs\RefreshGroupReadiness;
 use App\Models\Group;
 
 class GroupObserver
@@ -13,6 +14,7 @@ class GroupObserver
             return;
         }
 
-        $group->refreshReadinessSnapshot();
+        // Dispatch to queue for better performance - avoids blocking the request
+        RefreshGroupReadiness::dispatch($group->id);
     }
 }

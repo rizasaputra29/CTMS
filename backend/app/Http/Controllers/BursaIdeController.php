@@ -119,6 +119,12 @@ class BursaIdeController extends Controller
             return response()->json(['message' => 'This group is not accepting join requests.'], 400);
         }
 
+        // LOCKED: After READY_FOR_FINALIZATION, cannot request to join
+        $stateMachine = app(\App\Services\GroupStateMachine::class);
+        if ($stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima permintaan bergabung.'], 400);
+        }
+
         // Guard: Check user eligibility (Ghost or FORMING)
         $userMembership = GroupMember::where('student_id', $user->id)
             ->where('period_id', $group->period_id)
@@ -254,6 +260,21 @@ class BursaIdeController extends Controller
 
         if (!$group || !in_array($group->status, self::SOLO_STATUSES)) {
             return response()->json(['message' => 'Group is not accepting members.'], 400);
+        }
+
+        // LOCKED: After READY_FOR_FINALIZATION, cannot accept new members
+        $stateMachine = app(\App\Services\GroupStateMachine::class);
+        if ($stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.'], 400);
+        }
+
+        // SECURITY FIX: For solo seeker groups, check if title is still APPROVED
+        // Prevent joining if the title has been withdrawn by lecturer
+        if ($group->is_solo && $group->title_id) {
+            $title = \App\Models\Title::find($group->title_id);
+            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+                return response()->json(['message' => 'Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat menerima anggota baru.'], 400);
+            }
         }
 
         $maxMembers = $group->period->max_group_size ?? 4;

@@ -55,6 +55,11 @@ class GroupService
 
         Log::info('group.join.attempt');
 
+        // SAFETY CHECK: Locked groups cannot accept new members
+        if ($this->stateMachine->isAtLeast($targetGroup, 'READY_FOR_FINALIZATION')) {
+            throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.");
+        }
+
         // 2. Pre-validation & Idempotency (Fast Path)
         $this->validateJoinRequest($student, $targetGroup);
 
@@ -139,8 +144,9 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
                     $oldGroup = Group::where('id', $membership->group_id)->lockForUpdate()->first();
 
-                    if ($this->stateMachine->isAtLeast($oldGroup, self::STATUS_KELOMPOK_FINAL)) {
-                        throw new DomainRuleException("Kelompok sudah difinalisasi dan tidak dapat diubah. Hubungi admin jika ada kebutuhan khusus.");
+                    // LOCKED: After READY_FOR_FINALIZATION, cannot leave group
+                    if ($this->stateMachine->isAtLeast($oldGroup, 'READY_FOR_FINALIZATION')) {
+                        throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.");
                     }
 
                     $periodId = $oldGroup->period_id;
@@ -362,6 +368,15 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($memberCount < $minSize) {
             return false;
+        }
+
+        // SECURITY FIX: For solo seeker groups, verify title is still APPROVED
+        // Prevent transition to READY if title has been withdrawn
+        if ($group->is_solo && $group->title_id) {
+            $title = Title::find($group->title_id);
+            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+                return false; // Title not approved, cannot become ready
+            }
         }
 
         // Atomic Validation: Check Quota if title exists
