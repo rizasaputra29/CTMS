@@ -131,7 +131,7 @@ class GroupController extends Controller
                 'status' => 'FORMING',
                 'group_mode' => $request->input('group_mode', 'GROUP'),
                 'has_existing_group' => $request->boolean('has_existing_group', false),
-            ]);
+            ])->refresh();
 
             GroupMember::create([
                 'group_id' => $group->id,
@@ -194,7 +194,7 @@ class GroupController extends Controller
                 'group_mode' => 'GROUP',
                 'has_existing_group' => false,
                 'is_solo' => true,
-            ]);
+            ])->refresh();
 
             GroupMember::create([
                 'group_id' => $group->id,
