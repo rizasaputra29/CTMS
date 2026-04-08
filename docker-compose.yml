@@ -1,0 +1,102 @@
+services:
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: ctms-db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ctms
+      MYSQL_USER: ctms_user
+      MYSQL_PASSWORD: ctms_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ctms-network
+
+  # Laravel Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ctms-backend
+    restart: unless-stopped
+    environment:
+      APP_NAME: CTMS
+      APP_ENV: local
+      APP_DEBUG: true
+      APP_URL: http://148.230.99.31:8000
+      APP_PORT: 8000
+      
+      LOG_CHANNEL: stack
+      LOG_LEVEL: debug
+      
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: ctms
+      DB_USERNAME: ctms_user
+      DB_PASSWORD: ctms_password
+      
+      BROADCAST_DRIVER: log
+      CACHE_DRIVER: file
+      FILESYSTEM_DISK: local
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: file
+      SESSION_LIFETIME: 120
+      
+      SANCTUM_STATEFUL_DOMAINS: localhost:3000,localhost:8000,148.230.99.31
+      SESSION_DOMAIN: .148.230.99.31
+    volumes:
+      - ./backend:/var/www/html
+      - /var/www/html/vendor
+      - /var/www/html/node_modules
+    ports:
+      - "8000:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ctms-network
+
+  # Next.js Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://148.230.99.31/api
+    container_name: ctms-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://148.230.99.31/api
+      API_URL: http://backend:80
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - ctms-network
+
+volumes:
+  mysql_data:
+    driver: local
+
+networks:
+  ctms-network:
+    driver: bridge
