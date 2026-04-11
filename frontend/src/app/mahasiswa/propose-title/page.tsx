@@ -21,6 +21,7 @@ import {
 import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
+import { Bid } from '@/types/bid';
 
 interface Lecturer {
     id: number;
@@ -66,7 +67,7 @@ export default function ProposeTitlePage() {
     const [showForm, setShowForm] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
     const [bidCount, setBidCount] = useState(0);
-    const [activeBids, setActiveBids] = useState<any[]>([]);
+    const [activeBids, setActiveBids] = useState<Bid[]>([]);
 
     const [formData, setFormData] = useState({
         title: '',
@@ -93,7 +94,7 @@ export default function ProposeTitlePage() {
             
             const allBids = bidsRes.data.data || [];
             // Filter active bids only (not rejected) for slot counting
-            const activeBidsFiltered = allBids.filter((b: any) => 
+            const activeBidsFiltered = allBids.filter((b: Bid) =>
                 !b.lecturer_recommendation || b.lecturer_recommendation === 'ACCEPT'
             );
             setBidCount(activeBidsFiltered.length);

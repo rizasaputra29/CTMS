@@ -97,8 +97,9 @@ export default function DosenTitlesPage() {
             let currentPeriodId = periodId || selectedPeriod;
             if (!currentPeriodId) {
                 const perRes = await api.get('/periods-list');
-                setPeriods(perRes.data || []);
-                const active = (perRes.data || []).find((p: { is_active: boolean }) => p.is_active);
+                const periodsData = perRes.data?.data || [];
+                setPeriods(periodsData);
+                const active = periodsData.find((p: { is_active: boolean }) => p.is_active);
                 if (active) currentPeriodId = active.id.toString();
                 setSelectedPeriod(currentPeriodId);
             }
@@ -215,9 +216,12 @@ export default function DosenTitlesPage() {
             toast.success('Approval withdrawn successfully');
             setWithdrawDialog({ open: false, reason: '', loading: false });
             fetchTitles(selectedPeriod);
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to withdraw approval', error);
-            toast.error(error.response?.data?.message || 'Failed to withdraw approval');
+            const errorMessage = api.isAxiosError(error)
+                ? error.response?.data?.message
+                : 'Failed to withdraw approval';
+            toast.error(errorMessage || 'Failed to withdraw approval');
             setWithdrawDialog(prev => ({ ...prev, loading: false }));
         }
     };

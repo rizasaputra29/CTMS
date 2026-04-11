@@ -28,7 +28,7 @@ interface PhaseRequirement {
     id?: number;
     phase: string;
     name: string;
-    description: string;
+    description: string | null;
     is_required: boolean;
 }
 
@@ -56,10 +56,11 @@ export default function AdminDocumentRequirementsPage() {
     const fetchPeriods = useCallback(async () => {
         try {
             const res = await api.get('/periods-list');
-            setPeriods(res.data);
-            if (res.data.length > 0) {
-                const active = res.data.find((p: Period) => p.is_active);
-                setSelectedPeriodId(active?.id?.toString() || res.data[0].id.toString());
+            const periodsData = res.data?.data || [];
+            setPeriods(periodsData);
+            if (periodsData.length > 0) {
+                const active = periodsData.find((p: Period) => p.is_active);
+                setSelectedPeriodId(active?.id?.toString() || periodsData[0].id.toString());
             }
         } catch (error) {
             console.error('Failed to fetch periods', error);
@@ -71,7 +72,12 @@ export default function AdminDocumentRequirementsPage() {
         setLoading(true);
         try {
             const res = await api.get(`/admin/document-requirements/period/${selectedPeriodId}`);
-            setRequirements(res.data.data || []);
+            const data = res.data?.data || [];
+            // Normalize data: convert null descriptions to empty strings
+            setRequirements(data.map((r: PhaseRequirement) => ({
+                ...r,
+                description: r.description || ''
+            })));
         } catch (error) {
             console.error('Failed to fetch requirements', error);
             toast.error('Failed to load document requirements');

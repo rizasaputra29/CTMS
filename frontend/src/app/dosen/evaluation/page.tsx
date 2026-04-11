@@ -69,7 +69,7 @@ export default function DosenExaminerPage() {
         const fetchPeriods = async () => {
             try {
                 const res = await api.get('/periods-list');
-                setPeriods(res.data);
+                setPeriods(res.data?.data || []);
             } catch (err) {
                 console.error('Failed to fetch periods', err);
             }

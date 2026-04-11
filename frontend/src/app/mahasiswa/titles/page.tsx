@@ -116,8 +116,9 @@ export default function TitlesMarketplacePage() {
             let currentPeriodId = periodId || selectedPeriod;
             if (!currentPeriodId) {
                 const perRes = await api.get('/periods-list');
-                setPeriods(perRes.data || []);
-                const active = (perRes.data || []).find((p: { is_active: boolean }) => p.is_active);
+                const periodsData = perRes.data?.data || [];
+                setPeriods(periodsData);
+                const active = periodsData.find((p: { is_active: boolean }) => p.is_active);
                 if (active) currentPeriodId = active.id.toString();
                 setSelectedPeriod(currentPeriodId);
             }
@@ -168,7 +169,7 @@ export default function TitlesMarketplacePage() {
         } finally {
             setLoading(false);
         }
-    }, [router, selectedPeriod]);
+    }, [router, selectedPeriod, user?.id]);
 
     useEffect(() => {
         if (authLoading) return;

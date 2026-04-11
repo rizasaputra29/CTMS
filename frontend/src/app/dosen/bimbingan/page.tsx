@@ -89,7 +89,7 @@ export default function DosenBimbinganPage() {
             // Fetch periods if not already fetched
             if (periods.length === 0) {
                 const periodsRes = await api.get('/periods-list');
-                setPeriods(periodsRes.data);
+                setPeriods(periodsRes.data?.data || []);
             }
 
             const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';

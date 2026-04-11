@@ -8,15 +8,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-    DialogTrigger,
-} from "@/components/ui/dialog"
-import {
     Select,
     SelectContent,
     SelectItem,
@@ -24,8 +15,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, CalendarIcon, Edit, Loader2, Users, BookOpen, GraduationCap } from 'lucide-react';
+import { Plus, Trash2, CalendarIcon, Edit, Loader2 } from 'lucide-react';
+import { PeriodStepperDialog } from '@/components/period/period-stepper-dialog';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import { format } from "date-fns"
@@ -50,31 +41,11 @@ interface Period {
     max_supervise_load: number | null;
 }
 
-const emptyForm = {
-    name: '',
-    start_date: '',
-    end_date: '',
-    is_active: false,
-    bidding_start: '',
-    bidding_end: '',
-    pdc1_start: '',
-    pdc1_end: '',
-    pdc2_start: '',
-    pdc2_end: '',
-    expo_date: '',
-    ta_start: '',
-    ta_end: '',
-    min_group_size: 3,
-    max_group_size: 4,
-    max_supervise_load: 5,
-};
-
 export default function AdminPeriodsPage() {
     const [periods, setPeriods] = useState<Period[]>([]);
     const [loading, setLoading] = useState(true);
     const [open, setOpen] = useState(false);
     const [editingPeriod, setEditingPeriod] = useState<Period | null>(null);
-    const [submitting, setSubmitting] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
 
@@ -88,12 +59,10 @@ export default function AdminPeriodsPage() {
         });
     }, [periods, searchQuery, statusFilter]);
 
-    const [formData, setFormData] = useState({ ...emptyForm });
-
     const fetchPeriods = useCallback(async () => {
         try {
             const response = await api.get('/admin/periods');
-            setPeriods(response.data);
+            setPeriods(response.data?.data || []);
         } catch (error) {
             console.error('Failed to fetch periods', error);
             toast.error('Failed to load periods');
@@ -108,67 +77,16 @@ export default function AdminPeriodsPage() {
 
     const resetForm = () => {
         setEditingPeriod(null);
-        setFormData({ ...emptyForm });
     };
 
     const startEdit = (period: Period) => {
         setEditingPeriod(period);
-        setFormData({
-            name: period.name,
-            start_date: period.start_date ? period.start_date.split('T')[0] : '',
-            end_date: period.end_date ? period.end_date.split('T')[0] : '',
-            is_active: period.is_active,
-            bidding_start: period.bidding_start ? period.bidding_start.split('T')[0] : '',
-            bidding_end: period.bidding_end ? period.bidding_end.split('T')[0] : '',
-            pdc1_start: period.pdc1_start ? period.pdc1_start.split('T')[0] : '',
-            pdc1_end: period.pdc1_end ? period.pdc1_end.split('T')[0] : '',
-            pdc2_start: period.pdc2_start ? period.pdc2_start.split('T')[0] : '',
-            pdc2_end: period.pdc2_end ? period.pdc2_end.split('T')[0] : '',
-            expo_date: period.expo_date ? period.expo_date.split('T')[0] : '',
-            ta_start: period.ta_start ? period.ta_start.split('T')[0] : '',
-            ta_end: period.ta_end ? period.ta_end.split('T')[0] : '',
-            min_group_size: period.min_group_size ?? 3,
-            max_group_size: period.max_group_size ?? 4,
-            max_supervise_load: period.max_supervise_load ?? 5,
-        });
         setOpen(true);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmitting(true);
-
-        // Build payload, converting empty strings to null
-        const payload: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(formData)) {
-            if (typeof value === 'string' && value === '') {
-                payload[key] = null;
-            } else {
-                payload[key] = value;
-            }
-        }
-
-        try {
-            if (editingPeriod) {
-                await api.put(`/admin/periods/${editingPeriod.id}`, payload);
-                toast.success('Period updated successfully');
-            } else {
-                await api.post('/admin/periods', payload);
-                toast.success('Period created successfully');
-            }
-            setOpen(false);
-            resetForm();
-            fetchPeriods();
-        } catch (error: unknown) {
-            console.error('Failed to save period', error);
-            if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to save period');
-            } else {
-                toast.error('Failed to save period');
-            }
-        } finally {
-            setSubmitting(false);
-        }
+    const handleSuccess = () => {
+        resetForm();
+        fetchPeriods();
     };
 
     const handleDelete = async (id: number) => {
@@ -228,197 +146,20 @@ export default function AdminPeriodsPage() {
                     <h1 className="text-3xl font-bold tracking-tight">Academic Periods</h1>
                     <p className="text-muted-foreground">Manage semesters, phase dates, bidding windows, and group configurations.</p>
                 </div>
-                <Dialog open={open} onOpenChange={(val) => {
+                <Button onClick={() => setOpen(true)}>
+                    <Plus className="mr-2 h-4 w-4" /> New Period
+                </Button>
+            </div>
+
+            <PeriodStepperDialog
+                open={open}
+                onOpenChange={(val) => {
                     setOpen(val);
                     if (!val) resetForm();
-                }}>
-                    <DialogTrigger asChild>
-                        <Button>
-                            <Plus className="mr-2 h-4 w-4" /> New Period
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
-                        <form onSubmit={handleSubmit}>
-                            <DialogHeader>
-                                <DialogTitle>{editingPeriod ? 'Edit Period' : 'New Academic Period'}</DialogTitle>
-                                <DialogDescription>
-                                    {editingPeriod ? 'Update period configuration and phase dates.' : 'Define a new semester with phase dates and group rules.'}
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div className="grid gap-6 py-4">
-                                {/* Basic Info */}
-                                <div className="space-y-4">
-                                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <CalendarIcon className="h-4 w-4" /> Basic Information
-                                    </h4>
-                                    <div className="grid gap-3">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="name">Period Name</Label>
-                                            <Input
-                                                id="name"
-                                                placeholder="e.g. Semester Ganjil 2025/2026"
-                                                value={formData.name}
-                                                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                                required
-                                            />
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="start_date">Start Date</Label>
-                                                <Input
-                                                    id="start_date"
-                                                    type="date"
-                                                    value={formData.start_date}
-                                                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
-                                                    required
-                                                />
-                                            </div>
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="end_date">End Date</Label>
-                                                <Input
-                                                    id="end_date"
-                                                    type="date"
-                                                    value={formData.end_date}
-                                                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
-                                                    required
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center space-x-2">
-                                            <Switch
-                                                id="is-active"
-                                                checked={formData.is_active}
-                                                onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                                            />
-                                            <Label htmlFor="is-active">Set as Active Period</Label>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <Separator />
-
-                                {/* Bidding Window */}
-                                <div className="space-y-4">
-                                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <BookOpen className="h-4 w-4" /> Bidding Window
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="bidding_start">Bidding Start</Label>
-                                            <Input
-                                                id="bidding_start"
-                                                type="date"
-                                                value={formData.bidding_start}
-                                                onChange={(e) => setFormData({ ...formData, bidding_start: e.target.value })}
-                                            />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="bidding_end">Bidding End</Label>
-                                            <Input
-                                                id="bidding_end"
-                                                type="date"
-                                                value={formData.bidding_end}
-                                                onChange={(e) => setFormData({ ...formData, bidding_end: e.target.value })}
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <Separator />
-
-                                {/* Phase Dates */}
-                                <div className="space-y-4">
-                                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <GraduationCap className="h-4 w-4" /> Phase Dates
-                                    </h4>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="pdc1_start">PDC1 Start</Label>
-                                            <Input id="pdc1_start" type="date" value={formData.pdc1_start}
-                                                onChange={(e) => setFormData({ ...formData, pdc1_start: e.target.value })} />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="pdc1_end">PDC1 End</Label>
-                                            <Input id="pdc1_end" type="date" value={formData.pdc1_end}
-                                                onChange={(e) => setFormData({ ...formData, pdc1_end: e.target.value })} />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="pdc2_start">PDC2 Start</Label>
-                                            <Input id="pdc2_start" type="date" value={formData.pdc2_start}
-                                                onChange={(e) => setFormData({ ...formData, pdc2_start: e.target.value })} />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="pdc2_end">PDC2 End</Label>
-                                            <Input id="pdc2_end" type="date" value={formData.pdc2_end}
-                                                onChange={(e) => setFormData({ ...formData, pdc2_end: e.target.value })} />
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="expo_date">Expo Date</Label>
-                                            <Input id="expo_date" type="date" value={formData.expo_date}
-                                                onChange={(e) => setFormData({ ...formData, expo_date: e.target.value })} />
-                                        </div>
-                                        <div /> {/* spacer */}
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="ta_start">TA Defense Start</Label>
-                                            <Input id="ta_start" type="date" value={formData.ta_start}
-                                                onChange={(e) => setFormData({ ...formData, ta_start: e.target.value })} />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="ta_end">TA Defense End</Label>
-                                            <Input id="ta_end" type="date" value={formData.ta_end}
-                                                onChange={(e) => setFormData({ ...formData, ta_end: e.target.value })} />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <Separator />
-
-                                {/* Group Config */}
-                                <div className="space-y-4">
-                                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                                        <Users className="h-4 w-4" /> Group Configuration
-                                    </h4>
-                                    <div className="grid grid-cols-3 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="min_group_size">Min Group Size</Label>
-                                            <Input id="min_group_size" type="number" min={1} max={10}
-                                                value={formData.min_group_size}
-                                                onChange={(e) => setFormData({ ...formData, min_group_size: parseInt(e.target.value) || 1 })} />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="max_group_size">Max Group Size</Label>
-                                            <Input id="max_group_size" type="number" min={1} max={10}
-                                                value={formData.max_group_size}
-                                                onChange={(e) => setFormData({ ...formData, max_group_size: parseInt(e.target.value) || 1 })} />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="max_supervise_load">Max Supervise Load</Label>
-                                            <Input id="max_supervise_load" type="number" min={1} max={50}
-                                                value={formData.max_supervise_load}
-                                                onChange={(e) => setFormData({ ...formData, max_supervise_load: parseInt(e.target.value) || 1 })} />
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <DialogFooter>
-                                <Button type="button" variant="outline" onClick={() => { setOpen(false); resetForm(); }}>
-                                    Cancel
-                                </Button>
-                                <Button type="submit" disabled={submitting}>
-                                    {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                    {editingPeriod ? 'Save Changes' : 'Create Period'}
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    </DialogContent>
-                </Dialog>
-            </div>
+                }}
+                editingPeriod={editingPeriod}
+                onSuccess={handleSuccess}
+            />
 
             {/* Search and Filter */}
             <div className="flex flex-col sm:flex-row gap-4">

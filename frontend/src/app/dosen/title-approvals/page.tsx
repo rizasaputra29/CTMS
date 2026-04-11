@@ -89,7 +89,7 @@ export default function TitleApprovalsPage() {
             // Fetch periods if not already fetched
             if (periods.length === 0) {
                 const periodsRes = await api.get('/periods-list');
-                const fetchedPeriods = periodsRes.data || [];
+                const fetchedPeriods = periodsRes.data?.data || [];
                 setPeriods(fetchedPeriods);
                 
                 // If no period selected yet, default to active

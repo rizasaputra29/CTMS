@@ -41,8 +41,9 @@ export default function AdminTitlesPage() {
             let currentPeriodId = periodId || selectedPeriod;
             if (!currentPeriodId) {
                 const perRes = await api.get('/admin/periods');
-                setPeriods(perRes.data || []);
-                const active = (perRes.data || []).find((p: Period) => p.is_active);
+                const periodsData = perRes.data?.data || [];
+                setPeriods(periodsData);
+                const active = periodsData.find((p: Period) => p.is_active);
                 if (active) currentPeriodId = active.id.toString();
                 setSelectedPeriod(currentPeriodId);
             }

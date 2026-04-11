@@ -54,7 +54,7 @@ export default function DosenSupervisedGroupsPage() {
             // Fetch periods if not already fetched
             if (periods.length === 0) {
                 const periodsRes = await api.get('/periods-list');
-                setPeriods(periodsRes.data);
+                setPeriods(periodsRes.data?.data || []);
             }
 
             const url = periodId && periodId !== 'all' 

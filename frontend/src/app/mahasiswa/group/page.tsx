@@ -7,7 +7,7 @@ import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut, Lightbulb, Check, CalendarDays } from 'lucide-react';
+import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut, Check, CalendarDays } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -110,7 +110,7 @@ export default function MahasiswaGroupPage() {
         fetchGroup();
         // Fetch all periods to allow selection with status labels
         api.get('/periods-list').then(res => {
-            const periods = res.data || [];
+            const periods = res.data?.data || [];
             setAvailablePeriods(periods);
             if (periods.length > 0) {
                 // Find first active, non-finalized one, or just the first one
@@ -150,7 +150,7 @@ export default function MahasiswaGroupPage() {
             try {
                 const response = await api.get('/notifications/unread');
                 const withdrawalNotif = response.data?.find(
-                    (n: any) => n.type === 'title_approval_withdrawn'
+                    (n: { type: string; message: string }) => n.type === 'title_approval_withdrawn'
                 );
 
                 if (withdrawalNotif) {
@@ -166,7 +166,7 @@ export default function MahasiswaGroupPage() {
                     // Refresh group to update status
                     fetchGroup();
                 }
-            } catch (error) {
+            } catch {
                 // Silently fail on notification check
             }
         };

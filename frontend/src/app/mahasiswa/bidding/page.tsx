@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Gavel, Trash2, UserCheck, Lock, AlertTriangle, ArrowUp, ArrowDown, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -244,12 +243,6 @@ export default function BiddingPage() {
             case 'REJECTED': return 'destructive' as const;
             default: return 'secondary' as const;
         }
-    };
-
-    const getRecVariant = (rec: string | null) => {
-        if (rec === 'ACCEPT') return 'default' as const;
-        if (rec === 'REJECT') return 'destructive' as const;
-        return 'outline' as const;
     };
 
     if (loading) {

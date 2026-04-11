@@ -78,8 +78,8 @@ export default function AdminExpoPage() {
                 api.get(`/admin/expo-events${query}`),
                 api.get('/admin/periods'),
             ]);
-            setEvents(evtRes.data || []);
-            const allPeriods = perRes.data || [];
+            setEvents(evtRes.data?.data || []);
+            const allPeriods = perRes.data?.data || [];
             setPeriods(allPeriods);
             
             if (!selectedPeriod && !periodId) {

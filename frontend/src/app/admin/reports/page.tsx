@@ -27,8 +27,9 @@ export default function AdminReportsPage() {
     const fetchPeriods = useCallback(async () => {
         try {
             const res = await api.get('/admin/periods');
-            setPeriods(res.data || []);
-            const active = (res.data || []).find((p: Period) => p.is_active);
+            const periodsData = res.data?.data || [];
+            setPeriods(periodsData);
+            const active = periodsData.find((p: Period) => p.is_active);
             if (active) setSelectedPeriod(active.id.toString());
         } catch { /* ignore */ }
     }, []);
