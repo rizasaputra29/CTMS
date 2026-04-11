@@ -1,0 +1,738 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Stepper, StepperContent, StepperActions } from '@/components/ui/stepper';
+import { Separator } from '@/components/ui/separator';
+import { CalendarIcon, BookOpen, GraduationCap, Users, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
+import { toast } from "sonner";
+import api from '@/lib/api';
+
+interface PeriodStepperDialogProps {
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    editingPeriod?: Period | null;
+    onSuccess: () => void;
+}
+
+interface Period {
+    id: number;
+    name: string;
+    start_date: string;
+    end_date: string;
+    is_active: boolean;
+    bidding_start: string | null;
+    bidding_end: string | null;
+    bidding_reminder_at?: string | null;
+    pdc1_start: string | null;
+    pdc1_end: string | null;
+    pdc1_reminder_at?: string | null;
+    pdc1_locked_at?: string | null;
+    pdc2_start: string | null;
+    pdc2_end: string | null;
+    pdc2_reminder_at?: string | null;
+    pdc2_locked_at?: string | null;
+    expo_date: string | null;
+    expo_reminder_at?: string | null;
+    expo_locked_at?: string | null;
+    ta_start: string | null;
+    ta_end: string | null;
+    ta_reminder_at?: string | null;
+    ta_locked_at?: string | null;
+    min_group_size: number | null;
+    max_group_size: number | null;
+    max_supervise_load: number | null;
+}
+
+const steps = [
+    { title: 'Basic Info', description: 'Period details' },
+    { title: 'Evaluation Setup', description: 'Check templates' },
+    { title: 'Phase Dates', description: 'Schedule phases' },
+    { title: 'Group Config', description: 'Group settings' },
+    { title: 'Review', description: 'Confirm details' },
+];
+
+const emptyForm = {
+    name: '',
+    start_date: '',
+    end_date: '',
+    is_active: false,
+    bidding_start: '',
+    bidding_end: '',
+    bidding_reminder_at: '',
+    pdc1_start: '',
+    pdc1_end: '',
+    pdc1_reminder_at: '',
+    pdc1_locked_at: '',
+    pdc2_start: '',
+    pdc2_end: '',
+    pdc2_reminder_at: '',
+    pdc2_locked_at: '',
+    expo_date: '',
+    expo_reminder_at: '',
+    expo_locked_at: '',
+    ta_start: '',
+    ta_end: '',
+    ta_reminder_at: '',
+    ta_locked_at: '',
+    min_group_size: 3,
+    max_group_size: 4,
+    max_supervise_load: 5,
+};
+
+export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSuccess }: PeriodStepperDialogProps) {
+    const [currentStep, setCurrentStep] = useState(0);
+    const [formData, setFormData] = useState({ ...emptyForm });
+    const [submitting, setSubmitting] = useState(false);
+    const [evaluationSetup, setEvaluationSetup] = useState<{ hasTemplates: boolean; message: string } | null>(null);
+    const [checkingSetup, setCheckingSetup] = useState(false);
+
+    // Reset form when dialog opens/closes or editingPeriod changes
+    useEffect(() => {
+        if (open) {
+            if (editingPeriod) {
+                setFormData({
+                    name: editingPeriod.name,
+                    start_date: editingPeriod.start_date ? editingPeriod.start_date.split('T')[0] : '',
+                    end_date: editingPeriod.end_date ? editingPeriod.end_date.split('T')[0] : '',
+                    is_active: editingPeriod.is_active,
+                    bidding_start: editingPeriod.bidding_start ? editingPeriod.bidding_start.split('T')[0] : '',
+                    bidding_end: editingPeriod.bidding_end ? editingPeriod.bidding_end.split('T')[0] : '',
+                    bidding_reminder_at: editingPeriod.bidding_reminder_at ? editingPeriod.bidding_reminder_at.split('T')[0] : '',
+                    pdc1_start: editingPeriod.pdc1_start ? editingPeriod.pdc1_start.split('T')[0] : '',
+                    pdc1_end: editingPeriod.pdc1_end ? editingPeriod.pdc1_end.split('T')[0] : '',
+                    pdc1_reminder_at: editingPeriod.pdc1_reminder_at ? editingPeriod.pdc1_reminder_at.split('T')[0] : '',
+                    pdc1_locked_at: editingPeriod.pdc1_locked_at ? editingPeriod.pdc1_locked_at.split('T')[0] : '',
+                    pdc2_start: editingPeriod.pdc2_start ? editingPeriod.pdc2_start.split('T')[0] : '',
+                    pdc2_end: editingPeriod.pdc2_end ? editingPeriod.pdc2_end.split('T')[0] : '',
+                    pdc2_reminder_at: editingPeriod.pdc2_reminder_at ? editingPeriod.pdc2_reminder_at.split('T')[0] : '',
+                    pdc2_locked_at: editingPeriod.pdc2_locked_at ? editingPeriod.pdc2_locked_at.split('T')[0] : '',
+                    expo_date: editingPeriod.expo_date ? editingPeriod.expo_date.split('T')[0] : '',
+                    expo_reminder_at: editingPeriod.expo_reminder_at ? editingPeriod.expo_reminder_at.split('T')[0] : '',
+                    expo_locked_at: editingPeriod.expo_locked_at ? editingPeriod.expo_locked_at.split('T')[0] : '',
+                    ta_start: editingPeriod.ta_start ? editingPeriod.ta_start.split('T')[0] : '',
+                    ta_end: editingPeriod.ta_end ? editingPeriod.ta_end.split('T')[0] : '',
+                    ta_reminder_at: editingPeriod.ta_reminder_at ? editingPeriod.ta_reminder_at.split('T')[0] : '',
+                    ta_locked_at: editingPeriod.ta_locked_at ? editingPeriod.ta_locked_at.split('T')[0] : '',
+                    min_group_size: editingPeriod.min_group_size ?? 3,
+                    max_group_size: editingPeriod.max_group_size ?? 4,
+                    max_supervise_load: editingPeriod.max_supervise_load ?? 5,
+                });
+            } else {
+                setFormData({ ...emptyForm });
+            }
+            setCurrentStep(0);
+            checkEvaluationSetup();
+        }
+    }, [open, editingPeriod]);
+
+    const checkEvaluationSetup = async () => {
+        setCheckingSetup(true);
+        try {
+            // Check if evaluation criteria/templates exist
+            const response = await api.get('/admin/evaluation-setup/check');
+            setEvaluationSetup(response.data);
+        } catch {
+            // If endpoint doesn't exist, assume setup is OK (backward compatibility)
+            setEvaluationSetup({ hasTemplates: true, message: 'Evaluation setup available' });
+        } finally {
+            setCheckingSetup(false);
+        }
+    };
+
+    const handleNext = () => {
+        if (currentStep === 0 && !validateBasicInfo()) return;
+        if (currentStep === 1 && !evaluationSetup?.hasTemplates) {
+            toast.error('Please complete evaluation setup first');
+            return;
+        }
+        if (currentStep < steps.length - 1) {
+            setCurrentStep(currentStep + 1);
+        }
+    };
+
+    const handleBack = () => {
+        if (currentStep > 0) {
+            setCurrentStep(currentStep - 1);
+        }
+    };
+
+    const validateBasicInfo = () => {
+        if (!formData.name.trim()) {
+            toast.error('Period name is required');
+            return false;
+        }
+        if (!formData.start_date) {
+            toast.error('Start date is required');
+            return false;
+        }
+        if (!formData.end_date) {
+            toast.error('End date is required');
+            return false;
+        }
+        if (formData.start_date > formData.end_date) {
+            toast.error('End date must be after start date');
+            return false;
+        }
+        return true;
+    };
+
+    const handleSubmit = async () => {
+        setSubmitting(true);
+
+        // Build payload, converting empty strings to null
+        const payload: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(formData)) {
+            if (typeof value === 'string' && value === '') {
+                payload[key] = null;
+            } else {
+                payload[key] = value;
+            }
+        }
+
+        try {
+            if (editingPeriod) {
+                await api.put(`/admin/periods/${editingPeriod.id}`, payload);
+                toast.success('Period updated successfully');
+            } else {
+                await api.post('/admin/periods', payload);
+                toast.success('Period created successfully');
+            }
+            onOpenChange(false);
+            onSuccess();
+        } catch (error: unknown) {
+            console.error('Failed to save period', error);
+            if (api.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Failed to save period');
+            } else {
+                toast.error('Failed to save period');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const updateForm = (key: string, value: unknown) => {
+        setFormData(prev => ({ ...prev, [key]: value }));
+    };
+
+    // Step 1: Basic Info
+    const BasicInfoStep = () => (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                <CalendarIcon className="h-4 w-4" />
+                <span>Enter the basic information for this academic period</span>
+            </div>
+            <div className="grid gap-4">
+                <div className="grid gap-2">
+                    <Label htmlFor="name">Period Name *</Label>
+                    <Input
+                        id="name"
+                        placeholder="e.g. Semester Ganjil 2025/2026"
+                        value={formData.name}
+                        onChange={(e) => updateForm('name', e.target.value)}
+                    />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="grid gap-2">
+                        <Label htmlFor="start_date">Start Date *</Label>
+                        <Input
+                            id="start_date"
+                            type="date"
+                            value={formData.start_date}
+                            onChange={(e) => updateForm('start_date', e.target.value)}
+                        />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label htmlFor="end_date">End Date *</Label>
+                        <Input
+                            id="end_date"
+                            type="date"
+                            value={formData.end_date}
+                            onChange={(e) => updateForm('end_date', e.target.value)}
+                        />
+                    </div>
+                </div>
+                <div className="flex items-center space-x-2 pt-2">
+                    <Switch
+                        id="is-active"
+                        checked={formData.is_active}
+                        onCheckedChange={(checked) => updateForm('is_active', checked)}
+                    />
+                    <Label htmlFor="is-active">Set as Active Period</Label>
+                </div>
+            </div>
+        </div>
+    );
+
+    // Step 2: Evaluation Setup Check
+    const EvaluationSetupStep = () => (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                <BookOpen className="h-4 w-4" />
+                <span>Verify evaluation templates are configured</span>
+            </div>
+            {checkingSetup ? (
+                <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                </div>
+            ) : evaluationSetup ? (
+                <div className={`p-4 rounded-lg border ${evaluationSetup.hasTemplates ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                    <div className="flex items-start gap-3">
+                        {evaluationSetup.hasTemplates ? (
+                            <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                        ) : (
+                            <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                        )}
+                        <div>
+                            <h4 className={`font-medium ${evaluationSetup.hasTemplates ? 'text-green-900' : 'text-yellow-900'}`}>
+                                {evaluationSetup.hasTemplates ? 'Evaluation Setup Ready' : 'Evaluation Setup Required'}
+                            </h4>
+                            <p className={`text-sm mt-1 ${evaluationSetup.hasTemplates ? 'text-green-700' : 'text-yellow-700'}`}>
+                                {evaluationSetup.message}
+                            </p>
+                            {!evaluationSetup.hasTemplates && (
+                                <Button 
+                                    variant="outline" 
+                                    size="sm" 
+                                    className="mt-3"
+                                    onClick={() => window.open('/admin/evaluation-setup', '_blank')}
+                                >
+                                    Go to Evaluation Setup
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+            <p className="text-xs text-muted-foreground">
+                Evaluation templates must be configured before creating a period to ensure proper grading workflows.
+            </p>
+        </div>
+    );
+
+    // Step 3: Phase Dates
+    const PhaseDatesStep = () => (
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                <GraduationCap className="h-4 w-4" />
+                <span>Set dates for each phase of the academic period</span>
+            </div>
+            <div className="grid gap-4">
+                {/* Bidding Window */}
+                <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                    <Label className="font-medium flex items-center gap-2">
+                        Bidding Window
+                        <span className="text-xs font-normal text-muted-foreground">(Main dates)</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="bidding_start" className="text-xs text-muted-foreground">Start</Label>
+                            <Input
+                                id="bidding_start"
+                                type="date"
+                                value={formData.bidding_start}
+                                onChange={(e) => updateForm('bidding_start', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="bidding_end" className="text-xs text-muted-foreground">End</Label>
+                            <Input
+                                id="bidding_end"
+                                type="date"
+                                value={formData.bidding_end}
+                                onChange={(e) => updateForm('bidding_end', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid gap-2 pt-2">
+                        <Label htmlFor="bidding_reminder_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                            Reminder Date
+                            <span className="text-[10px] text-blue-600">(When to notify)</span>
+                        </Label>
+                        <Input
+                            id="bidding_reminder_at"
+                            type="date"
+                            value={formData.bidding_reminder_at}
+                            onChange={(e) => updateForm('bidding_reminder_at', e.target.value)}
+                            className="h-8"
+                        />
+                    </div>
+                </div>
+                <Separator />
+                {/* PDC1 Phase */}
+                <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                    <Label className="font-medium flex items-center gap-2">
+                        PDC1 Phase
+                        <span className="text-xs font-normal text-muted-foreground">(Main dates)</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc1_start" className="text-xs text-muted-foreground">Start</Label>
+                            <Input
+                                id="pdc1_start"
+                                type="date"
+                                value={formData.pdc1_start}
+                                onChange={(e) => updateForm('pdc1_start', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc1_end" className="text-xs text-muted-foreground">End</Label>
+                            <Input
+                                id="pdc1_end"
+                                type="date"
+                                value={formData.pdc1_end}
+                                onChange={(e) => updateForm('pdc1_end', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc1_reminder_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Reminder
+                                <span className="text-[10px] text-blue-600">(Notify)</span>
+                            </Label>
+                            <Input
+                                id="pdc1_reminder_at"
+                                type="date"
+                                value={formData.pdc1_reminder_at}
+                                onChange={(e) => updateForm('pdc1_reminder_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc1_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Lock Date
+                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
+                            </Label>
+                            <Input
+                                id="pdc1_locked_at"
+                                type="date"
+                                value={formData.pdc1_locked_at}
+                                onChange={(e) => updateForm('pdc1_locked_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <Separator />
+                {/* PDC2 Phase */}
+                <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                    <Label className="font-medium flex items-center gap-2">
+                        PDC2 Phase
+                        <span className="text-xs font-normal text-muted-foreground">(Main dates)</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc2_start" className="text-xs text-muted-foreground">Start</Label>
+                            <Input
+                                id="pdc2_start"
+                                type="date"
+                                value={formData.pdc2_start}
+                                onChange={(e) => updateForm('pdc2_start', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc2_end" className="text-xs text-muted-foreground">End</Label>
+                            <Input
+                                id="pdc2_end"
+                                type="date"
+                                value={formData.pdc2_end}
+                                onChange={(e) => updateForm('pdc2_end', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc2_reminder_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Reminder
+                                <span className="text-[10px] text-blue-600">(Notify)</span>
+                            </Label>
+                            <Input
+                                id="pdc2_reminder_at"
+                                type="date"
+                                value={formData.pdc2_reminder_at}
+                                onChange={(e) => updateForm('pdc2_reminder_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="pdc2_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Lock Date
+                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
+                            </Label>
+                            <Input
+                                id="pdc2_locked_at"
+                                type="date"
+                                value={formData.pdc2_locked_at}
+                                onChange={(e) => updateForm('pdc2_locked_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <Separator />
+                {/* EXPO */}
+                <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                    <Label className="font-medium flex items-center gap-2">
+                        Expo Date
+                        <span className="text-xs font-normal text-muted-foreground">(Main date)</span>
+                    </Label>
+                    <div className="grid gap-2">
+                        <Label htmlFor="expo_date" className="text-xs text-muted-foreground">Date</Label>
+                        <Input
+                            id="expo_date"
+                            type="date"
+                            value={formData.expo_date}
+                            onChange={(e) => updateForm('expo_date', e.target.value)}
+                        />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="expo_reminder_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Reminder
+                                <span className="text-[10px] text-blue-600">(Notify)</span>
+                            </Label>
+                            <Input
+                                id="expo_reminder_at"
+                                type="date"
+                                value={formData.expo_reminder_at}
+                                onChange={(e) => updateForm('expo_reminder_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="expo_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Lock Date
+                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
+                            </Label>
+                            <Input
+                                id="expo_locked_at"
+                                type="date"
+                                value={formData.expo_locked_at}
+                                onChange={(e) => updateForm('expo_locked_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <Separator />
+                {/* TA Defense */}
+                <div className="space-y-2 p-3 bg-muted/30 rounded-lg">
+                    <Label className="font-medium flex items-center gap-2">
+                        TA Defense Period
+                        <span className="text-xs font-normal text-muted-foreground">(Main dates)</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="ta_start" className="text-xs text-muted-foreground">Start</Label>
+                            <Input
+                                id="ta_start"
+                                type="date"
+                                value={formData.ta_start}
+                                onChange={(e) => updateForm('ta_start', e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="ta_end" className="text-xs text-muted-foreground">End</Label>
+                            <Input
+                                id="ta_end"
+                                type="date"
+                                value={formData.ta_end}
+                                onChange={(e) => updateForm('ta_end', e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="grid gap-2">
+                            <Label htmlFor="ta_reminder_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Reminder
+                                <span className="text-[10px] text-blue-600">(Notify)</span>
+                            </Label>
+                            <Input
+                                id="ta_reminder_at"
+                                type="date"
+                                value={formData.ta_reminder_at}
+                                onChange={(e) => updateForm('ta_reminder_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="ta_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
+                                Lock Date
+                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
+                            </Label>
+                            <Input
+                                id="ta_locked_at"
+                                type="date"
+                                value={formData.ta_locked_at}
+                                onChange={(e) => updateForm('ta_locked_at', e.target.value)}
+                                className="h-8"
+                            />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    // Step 4: Group Config
+    const GroupConfigStep = () => (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                <Users className="h-4 w-4" />
+                <span>Configure group size limits and supervision load</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+                <div className="grid gap-2">
+                    <Label htmlFor="min_group_size">Min Group Size</Label>
+                    <Input
+                        id="min_group_size"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={formData.min_group_size}
+                        onChange={(e) => updateForm('min_group_size', parseInt(e.target.value) || 1)}
+                    />
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="max_group_size">Max Group Size</Label>
+                    <Input
+                        id="max_group_size"
+                        type="number"
+                        min={1}
+                        max={10}
+                        value={formData.max_group_size}
+                        onChange={(e) => updateForm('max_group_size', parseInt(e.target.value) || 1)}
+                    />
+                </div>
+                <div className="grid gap-2">
+                    <Label htmlFor="max_supervise_load">Max Supervise Load</Label>
+                    <Input
+                        id="max_supervise_load"
+                        type="number"
+                        min={1}
+                        max={50}
+                        value={formData.max_supervise_load}
+                        onChange={(e) => updateForm('max_supervise_load', parseInt(e.target.value) || 1)}
+                    />
+                </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+                Max supervise load is the maximum number of groups a lecturer can supervise in this period.
+            </p>
+        </div>
+    );
+
+    // Step 5: Review
+    const ReviewStep = () => (
+        <div className="space-y-4">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+                <CheckCircle className="h-4 w-4" />
+                <span>Review your configuration before saving</span>
+            </div>
+            <div className="space-y-3 text-sm">
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Period Name</span>
+                    <span className="font-medium">{formData.name || '—'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Duration</span>
+                    <span className="font-medium">
+                        {formData.start_date || '—'} to {formData.end_date || '—'}
+                    </span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Active Status</span>
+                    <span className="font-medium">{formData.is_active ? 'Active' : 'Inactive'}</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Bidding Window</span>
+                    <span className="font-medium">
+                        {formData.bidding_start || '—'} to {formData.bidding_end || '—'}
+                    </span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Group Size</span>
+                    <span className="font-medium">{formData.min_group_size} - {formData.max_group_size} members</span>
+                </div>
+                <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Max Supervise Load</span>
+                    <span className="font-medium">{formData.max_supervise_load} groups/lecturer</span>
+                </div>
+                <div className="flex justify-between py-2">
+                    <span className="text-muted-foreground">Evaluation Setup</span>
+                    <span className={`font-medium ${evaluationSetup?.hasTemplates ? 'text-green-600' : 'text-yellow-600'}`}>
+                        {evaluationSetup?.hasTemplates ? '✓ Ready' : '⚠ Required'}
+                    </span>
+                </div>
+            </div>
+        </div>
+    );
+
+    const stepComponents = [BasicInfoStep, EvaluationSetupStep, PhaseDatesStep, GroupConfigStep, ReviewStep];
+    const CurrentStepComponent = stepComponents[currentStep];
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                    <DialogTitle>{editingPeriod ? 'Edit Period' : 'New Academic Period'}</DialogTitle>
+                    <DialogDescription>
+                        {editingPeriod 
+                            ? 'Update period configuration in steps.' 
+                            : 'Create a new period with step-by-step configuration.'}
+                    </DialogDescription>
+                </DialogHeader>
+
+                <Stepper 
+                    steps={steps} 
+                    currentStep={currentStep} 
+                    className="mb-6"
+                />
+
+                <StepperContent>
+                    <CurrentStepComponent />
+                </StepperContent>
+
+                <StepperActions>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        onClick={currentStep === 0 ? () => onOpenChange(false) : handleBack}
+                        disabled={submitting}
+                    >
+                        {currentStep === 0 ? 'Cancel' : 'Back'}
+                    </Button>
+                    
+                    {currentStep === steps.length - 1 ? (
+                        <Button 
+                            onClick={handleSubmit} 
+                            disabled={submitting || !evaluationSetup?.hasTemplates}
+                        >
+                            {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            {editingPeriod ? 'Save Changes' : 'Create Period'}
+                        </Button>
+                    ) : (
+                        <Button 
+                            onClick={handleNext}
+                            disabled={currentStep === 1 && !evaluationSetup?.hasTemplates}
+                        >
+                            Next
+                        </Button>
+                    )}
+                </StepperActions>
+            </DialogContent>
+        </Dialog>
+    );
+}

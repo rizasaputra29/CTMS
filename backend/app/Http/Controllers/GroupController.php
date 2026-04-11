@@ -78,6 +78,21 @@ class GroupController extends Controller
     }
 
     /**
+     * Display a single group with full details.
+     */
+    public function show(Group $group)
+    {
+        $group->load([
+            'title.lecturer',
+            'members.student',
+            'period',
+            'supervisions.supervisor',
+        ]);
+
+        return response()->json(['data' => $group]);
+    }
+
+    /**
      * List all available periods for student registration.
      * Criteria: Active and NOT Finalized.
      */

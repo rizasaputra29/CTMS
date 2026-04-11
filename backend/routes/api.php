@@ -81,6 +81,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::apiResource('periods', PeriodController::class);
         Route::apiResource('users', UserController::class);
         Route::get('/groups', [GroupController::class, 'listGroups']);
+        Route::get('/groups/{group}', [GroupController::class, 'show']);
         Route::get('/schedules', [ScheduleController::class, 'index']);
 
         // Finalization
@@ -97,7 +98,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Admin Finalization Dashboard
         Route::get('/finalization/dashboard', [FinalizationController::class, 'adminDashboard']);
+        Route::get('/finalization/lecturers', [FinalizationController::class, 'getAvailableLecturers']);
         Route::post('/finalization/set-supervisor', [FinalizationController::class, 'setSupervisor']);
+        Route::post('/finalization/batch-set-supervisor', [FinalizationController::class, 'batchSetSupervisor']);
         Route::post('/finalization/execute', [FinalizationController::class, 'executeFinalization']);
         Route::post('/finalization/rollback', [FinalizationController::class, 'rollbackFinalization']);
         Route::get('/finalization/export', [FinalizationController::class, 'export']);
@@ -154,9 +157,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/document-requirements', [PhaseDocumentRequirementController::class, 'index']);
         Route::get('/document-requirements/period/{periodId}', [PhaseDocumentRequirementController::class, 'byPeriod']);
         Route::post('/document-requirements', [PhaseDocumentRequirementController::class, 'store']);
+        Route::put('/document-requirements/bulk', [PhaseDocumentRequirementController::class, 'bulkUpdate']);
         Route::put('/document-requirements/{id}', [PhaseDocumentRequirementController::class, 'update']);
         Route::delete('/document-requirements/{id}', [PhaseDocumentRequirementController::class, 'destroy']);
-        Route::put('/document-requirements/bulk', [PhaseDocumentRequirementController::class, 'bulkUpdate']);
 
         // Digital Signatures (admin)
         Route::post('/digital-signatures/sign', [DigitalSignatureController::class, 'sign']);
