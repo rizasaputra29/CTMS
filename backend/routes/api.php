@@ -106,6 +106,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/finalization/rollback', [FinalizationController::class, 'rollbackFinalization']);
         Route::get('/finalization/export', [FinalizationController::class, 'export']);
 
+        // Manual Grouping (Admin)
+        Route::get('/finalization/available-groups', [FinalizationController::class, 'getAvailableGroupsForManualGrouping']);
+        Route::post('/finalization/create-manual-group', [FinalizationController::class, 'createManualGroup']);
+        Route::post('/finalization/add-to-existing-group', [FinalizationController::class, 'addToExistingGroup']);
+        Route::get('/finalization/available-titles', [FinalizationController::class, 'getAvailableTitles']);
+        Route::post('/finalization/assign-title', [FinalizationController::class, 'assignTitle']);
+
         // V4: Expo Event Management
         Route::apiResource('expo-events', ExpoEventController::class);
         Route::put('/expo-events/{expoEvent}/publish', [ExpoEventController::class, 'publish']);

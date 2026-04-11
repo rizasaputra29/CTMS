@@ -56,6 +56,7 @@ import {
 import { useFinalizationDashboard } from '@/hooks/use-finalization-dashboard';
 import { useSupervisorLoad } from '@/hooks/use-supervisor-load';
 import { useFinalizationActions } from '@/hooks/use-finalization-actions';
+import { useManualGrouping } from '@/hooks/use-manual-grouping';
 import { FinalizationExecuteDialog } from '@/components/finalization/finalization-execute-dialog';
 import { ManualGroupingDialog } from '@/components/finalization/manual-grouping-dialog';
 import Link from 'next/link';
@@ -97,10 +98,63 @@ export default function FinalizationPage() {
     exportReport,
   } = useFinalizationActions();
 
+  const {
+    availableGroups,
+    availableTitles,
+    creatingGroup,
+    addingMembers,
+    fetchAvailableGroups,
+    fetchAvailableTitles,
+    createManualGroup,
+    addToExistingGroup,
+  } = useManualGrouping();
+
   // Local state
   const [showExecuteDialog, setShowExecuteDialog] = useState(false);
   const [showGroupingDialog, setShowGroupingDialog] = useState(false);
   const [settingRow, setSettingRow] = useState<number | null>(null);
+
+  // Fetch available groups when dialog opens
+  const handleOpenGroupingDialog = useCallback(async (open: boolean) => {
+    setShowGroupingDialog(open);
+    if (open && period) {
+      await Promise.all([
+        fetchAvailableGroups(period.id),
+        fetchAvailableTitles(period.id),
+      ]);
+    }
+  }, [period, fetchAvailableGroups, fetchAvailableTitles]);
+
+  // Handlers for manual grouping
+  const handleCreateGroup = useCallback(async (
+    studentIds: number[],
+    titleId?: number,
+    newTitle?: { title: string; description?: string }
+  ) => {
+    if (!period) return;
+    
+    const success = await createManualGroup({
+      studentIds,
+      periodId: period.id,
+      titleId,
+      newTitle,
+    });
+    
+    if (success) {
+      refresh();
+    }
+  }, [period, createManualGroup, refresh]);
+
+  const handleAddToExistingGroup = useCallback(async (studentIds: number[], groupId: number) => {
+    const success = await addToExistingGroup({
+      groupId,
+      studentIds,
+    });
+    
+    if (success) {
+      refresh();
+    }
+  }, [addToExistingGroup, refresh]);
 
   // Derived data
   const isPaginatedData = data && 'data' in data;
@@ -1042,16 +1096,13 @@ export default function FinalizationPage() {
 
       <ManualGroupingDialog
         open={showGroupingDialog}
-        onOpenChange={setShowGroupingDialog}
+        onOpenChange={handleOpenGroupingDialog}
         studentsWithoutGroup={activeTab === 'others' && activeSubTab === 'no_group' ? (tableData as Student[]) : []}
-        existingGroups={[]}
-        loading={false}
-        onCreateGroup={async () => {
-          alert('Fitur ini memerlukan endpoint backend tambahan');
-        }}
-        onAddToExisting={async () => {
-          alert('Fitur ini memerlukan endpoint backend tambahan');
-        }}
+        existingGroups={availableGroups}
+        availableTitles={availableTitles}
+        loading={creatingGroup || addingMembers}
+        onCreateGroup={handleCreateGroup}
+        onAddToExisting={handleAddToExistingGroup}
       />
     </div>
   );

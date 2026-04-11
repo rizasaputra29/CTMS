@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Bid;
 use App\Models\Group;
+use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\Title;
 use App\Services\BiddingService;
@@ -1255,6 +1256,328 @@ class FinalizationController extends Controller
                     'related_id' => $group->id,
                 ]);
             }
+        }
+    }
+
+    /**
+     * Get available groups that can accept new members for manual grouping.
+     */
+    public function getAvailableGroupsForManualGrouping(Request $request)
+    {
+        $period = $this->resolvePeriod($request);
+        $maxSize = $period->max_group_size ?? 4;
+
+        // Get groups with available capacity
+        $groups = Group::with(['members.student', 'title.lecturer'])
+            ->where('period_id', $period->id)
+            ->whereNotIn('status', ['CLOSED', 'DISSOLVED', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
+            ->get()
+            ->filter(function ($group) use ($maxSize) {
+                return $group->members->count() < $maxSize;
+            })
+            ->values();
+
+        return response()->json([
+            'groups' => $groups,
+            'max_group_size' => $maxSize,
+        ]);
+    }
+
+    /**
+     * Create a new group manually with selected students and optional title.
+     */
+    public function createManualGroup(Request $request)
+    {
+        $request->validate([
+            'student_ids' => 'required|array|min:1',
+            'student_ids.*' => 'exists:users,id',
+            'period_id' => 'required|exists:periods,id',
+            'title_id' => 'nullable|exists:titles,id',
+            'new_title' => 'nullable|array',
+            'new_title.title' => 'required_with:new_title|string|max:500',
+            'new_title.description' => 'nullable|string',
+        ]);
+
+        $period = Period::findOrFail($request->period_id);
+        $user = $request->user();
+
+        // Only admin can do manual grouping
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat melakukan grouping manual.'], 403);
+        }
+
+        $maxSize = $period->max_group_size ?? 4;
+        $studentCount = count($request->student_ids);
+
+        // Validate student count doesn't exceed max
+        if ($studentCount > $maxSize) {
+            return response()->json([
+                'message' => "Jumlah mahasiswa ({$studentCount}) melebihi batas maksimal grup ({$maxSize})."
+            ], 400);
+        }
+
+        // Validate students are registered for this period and don't have groups
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
+            $q->where('period_id', $period->id)
+              ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+        })->whereIn('student_id', $request->student_ids)
+          ->pluck('student_id');
+
+        if ($studentsWithGroups->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Beberapa mahasiswa sudah memiliki grup.',
+                'student_ids_with_groups' => $studentsWithGroups,
+            ], 400);
+        }
+
+        // Validate students are registered for this period
+        $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $period->id)
+            ->whereIn('user_id', $request->student_ids)
+            ->pluck('user_id');
+
+        $unregisteredIds = collect($request->student_ids)->diff($registeredStudentIds);
+        if ($unregisteredIds->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Beberapa mahasiswa belum terdaftar di periode ini.',
+                'unregistered_ids' => $unregisteredIds,
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $titleId = $request->title_id;
+
+            // Create new title if provided
+            if ($request->has('new_title') && $request->new_title) {
+                $title = Title::create([
+                    'title' => $request->new_title['title'],
+                    'description' => $request->new_title['description'] ?? null,
+                    'period_id' => $period->id,
+                    'lecturer_id' => $user->id,
+                    'title_source' => 'LECTURER',
+                    'quota' => 1,
+                    'supervisor_approval_status' => 'APPROVED',
+                ]);
+                $titleId = $title->id;
+            }
+
+            // Create the group
+            $group = Group::create([
+                'period_id' => $period->id,
+                'status' => 'READY_FOR_FINALIZATION',
+                'title_id' => $titleId,
+                'group_mode' => 'GROUP',
+                'has_existing_group' => false,
+            ]);
+
+            // Add members
+            $isFirst = true;
+            foreach ($request->student_ids as $studentId) {
+                GroupMember::create([
+                    'group_id' => $group->id,
+                    'student_id' => $studentId,
+                    'is_leader' => $isFirst,
+                    'period_id' => $period->id,
+                ]);
+                $isFirst = false;
+            }
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $period->id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'MANUAL_GROUP_CREATED',
+                'new_values' => [
+                    'student_ids' => $request->student_ids,
+                    'title_id' => $titleId,
+                    'status' => 'READY_FOR_FINALIZATION',
+                ],
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Grup berhasil dibuat.',
+                'group' => $group->fresh(['members.student', 'title']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal membuat grup: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Add students to an existing group.
+     */
+    public function addToExistingGroup(Request $request)
+    {
+        $request->validate([
+            'group_id' => 'required|exists:groups,id',
+            'student_ids' => 'required|array|min:1',
+            'student_ids.*' => 'exists:users,id',
+        ]);
+
+        $user = $request->user();
+        $group = Group::with(['members', 'period'])->findOrFail($request->group_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat menambahkan anggota.'], 403);
+        }
+
+        // Validate group is in valid status
+        if (in_array($group->status, ['CLOSED', 'DISSOLVED', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])) {
+            return response()->json(['message' => 'Grup tidak dapat menerima anggota baru.'], 400);
+        }
+
+        $maxSize = $group->period->max_group_size ?? 4;
+        $currentCount = $group->members->count();
+        $newCount = count($request->student_ids);
+
+        // Validate capacity
+        if ($currentCount + $newCount > $maxSize) {
+            return response()->json([
+                'message' => "Kapasitas grup tidak cukup. Saat ini: {$currentCount}, ditambah: {$newCount}, maksimal: {$maxSize}."
+            ], 400);
+        }
+
+        // Validate students don't have groups in this period
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($group) {
+            $q->where('period_id', $group->period_id)
+              ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+        })->whereIn('student_id', $request->student_ids)
+          ->pluck('student_id');
+
+        if ($studentsWithGroups->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Beberapa mahasiswa sudah memiliki grup.',
+                'student_ids_with_groups' => $studentsWithGroups,
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Add members
+            foreach ($request->student_ids as $studentId) {
+                GroupMember::create([
+                    'group_id' => $group->id,
+                    'student_id' => $studentId,
+                    'is_leader' => false,
+                    'period_id' => $group->period_id,
+                ]);
+            }
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $group->period_id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'MEMBERS_ADDED_MANUAL',
+                'new_values' => [
+                    'added_student_ids' => $request->student_ids,
+                    'new_member_count' => $currentCount + $newCount,
+                ],
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Anggota berhasil ditambahkan.',
+                'group' => $group->fresh(['members.student', 'title']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal menambahkan anggota: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Get available titles that can be assigned to groups.
+     */
+    public function getAvailableTitles(Request $request)
+    {
+        $period = $this->resolvePeriod($request);
+
+        // Get titles without assigned groups
+        $emptyTitles = Title::with('lecturer')
+            ->where('period_id', $period->id)
+            ->whereNull('proposed_by_group_id')
+            ->where('supervisor_approval_status', 'APPROVED')
+            ->get()
+            ->filter(function ($title) {
+                // Check if title has remaining quota
+                $currentAllocations = Group::where('title_id', $title->id)
+                    ->whereNotIn('status', ['CLOSED', 'DISSOLVED'])
+                    ->count();
+                return $currentAllocations < $title->quota;
+            })
+            ->values();
+
+        return response()->json([
+            'titles' => $emptyTitles,
+        ]);
+    }
+
+    /**
+     * Assign a title to a group.
+     */
+    public function assignTitle(Request $request)
+    {
+        $request->validate([
+            'group_id' => 'required|exists:groups,id',
+            'title_id' => 'required|exists:titles,id',
+        ]);
+
+        $user = $request->user();
+        $group = Group::with('period')->findOrFail($request->group_id);
+        $title = Title::findOrFail($request->title_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat menetapkan judul.'], 403);
+        }
+
+        // Validate title is in same period
+        if ($title->period_id !== $group->period_id) {
+            return response()->json(['message' => 'Judul tidak dalam periode yang sama.'], 400);
+        }
+
+        // Validate title has remaining quota
+        $currentAllocations = Group::where('title_id', $title->id)
+            ->whereNotIn('status', ['CLOSED', 'DISSOLVED'])
+            ->count();
+        if ($currentAllocations >= $title->quota) {
+            return response()->json(['message' => 'Judul sudah penuh.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldTitleId = $group->title_id;
+
+            $group->update([
+                'title_id' => $title->id,
+            ]);
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $group->period_id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'TITLE_ASSIGNED',
+                'old_values' => ['title_id' => $oldTitleId],
+                'new_values' => ['title_id' => $title->id],
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Judul berhasil ditetapkan.',
+                'group' => $group->fresh(['title', 'members.student']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal menetapkan judul: ' . $e->getMessage()], 500);
         }
     }
 }
