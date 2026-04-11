@@ -83,12 +83,32 @@ export default function AdminSchedulePage() {
     const [rejectType, setRejectType] = useState<'SEMPRO' | 'EXPO' | 'TA_DEFENSE'>('SEMPRO');
     const [rejectReason, setRejectReason] = useState('');
 
+    // Approve dialog state
+    const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+    const [approveId, setApproveId] = useState<number | null>(null);
+    const [approveType, setApproveType] = useState<'SEMPRO' | 'EXPO' | 'TA_DEFENSE'>('SEMPRO');
+    const [approveData, setApproveData] = useState<{
+        date: string;
+        start_time: string;
+        end_time: string;
+        room: string;
+        examiner_1_id: string;
+        examiner_2_id: string;
+    }>({
+        date: '',
+        start_time: '',
+        end_time: '',
+        room: '',
+        examiner_1_id: '',
+        examiner_2_id: '',
+    });
+
     const fetchAll = useCallback(async (periodId?: string) => {
         try {
             const currentPeriod = periodId || selectedPeriod;
             if (!currentPeriod && !periodId) {
                 const perRes = await api.get('/admin/periods');
-                const perData = perRes.data || [];
+                const perData = perRes.data?.data || [];
                 setPeriods(perData);
                 const active = perData.find((p: Period) => p.is_active);
                 if (active) setSelectedPeriod(active.id.toString());
@@ -177,15 +197,43 @@ export default function AdminSchedulePage() {
         return 'secondary' as const;
     };
 
-    const handleApprove = async (id: number, type: 'SEMPRO' | 'EXPO' | 'TA_DEFENSE') => {
+    const handleApprove = async (id: number, type: 'SEMPRO' | 'EXPO' | 'TA_DEFENSE', schedule?: Schedule | TaDefenseSchedule) => {
+        // Open approve dialog with schedule data
+        setApproveId(id);
+        setApproveType(type);
+        setApproveData({
+            date: schedule?.date || '',
+            start_time: schedule?.start_time || '',
+            end_time: schedule?.end_time || '',
+            room: schedule?.room || '',
+            examiner_1_id: (schedule as Schedule)?.examiner1?.id?.toString() || '',
+            examiner_2_id: (schedule as Schedule)?.examiner2?.id?.toString() || '',
+        });
+        setApproveDialogOpen(true);
+    };
+
+    const submitApprove = async () => {
+        if (!approveId) return;
+        
         try {
-            const endpoint = type === 'TA_DEFENSE'
-                ? `/admin/ta-defense/schedules/${id}/approve`
-                : type === 'SEMPRO'
-                    ? `/admin/sempro/schedules/${id}/approve`
-                    : `/admin/expo/schedules/${id}/approve`;
-            await api.put(endpoint);
-            toast.success(`${type} schedule approved!`);
+            const endpoint = approveType === 'TA_DEFENSE'
+                ? `/admin/ta-defense/schedules/${approveId}/approve`
+                : approveType === 'SEMPRO'
+                    ? `/admin/sempro/schedules/${approveId}/approve`
+                    : `/admin/expo/schedules/${approveId}/approve`;
+            
+            await api.put(endpoint, {
+                date: approveData.date,
+                start_time: approveData.start_time,
+                end_time: approveData.end_time,
+                room: approveData.room,
+                examiner_1_id: Number(approveData.examiner_1_id),
+                examiner_2_id: Number(approveData.examiner_2_id),
+            });
+            
+            toast.success(`${approveType} schedule approved!`);
+            setApproveDialogOpen(false);
+            setApproveId(null);
             fetchAll();
         } catch (error) {
             if (api.isAxiosError(error)) {
@@ -241,7 +289,7 @@ export default function AdminSchedulePage() {
             </CardContent>
             {s.status === 'PENDING_APPROVAL' && (
                 <div className="px-6 pb-4 flex gap-2">
-                    <Button size="sm" onClick={() => handleApprove(s.id, s.type as 'SEMPRO' | 'EXPO')}>Approve</Button>
+                    <Button size="sm" onClick={() => handleApprove(s.id, s.type as 'SEMPRO' | 'EXPO', s)}>Approve</Button>
                     <Button size="sm" variant="destructive" onClick={() => { setRejectId(s.id); setRejectType(s.type as 'SEMPRO' | 'EXPO'); }}>Reject</Button>
                 </div>
             )}
@@ -280,7 +328,7 @@ export default function AdminSchedulePage() {
             </CardContent>
             {s.status === 'PENDING_APPROVAL' && (
                 <div className="px-6 pb-4 flex gap-2">
-                    <Button size="sm" onClick={() => handleApprove(s.id, 'TA_DEFENSE')}>Approve</Button>
+                    <Button size="sm" onClick={() => handleApprove(s.id, 'TA_DEFENSE', s)}>Approve</Button>
                     <Button size="sm" variant="destructive" onClick={() => { setRejectId(s.id); setRejectType('TA_DEFENSE'); }}>Reject</Button>
                 </div>
             )}
@@ -443,6 +491,103 @@ export default function AdminSchedulePage() {
                             <Button type="submit" disabled={submitting}>{submitting ? 'Scheduling...' : 'Create Schedule'}</Button>
                         </DialogFooter>
                     </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Approve Dialog with Examiner Selection */}
+            <Dialog open={approveDialogOpen} onOpenChange={(open) => { 
+                if (!open) { 
+                    setApproveDialogOpen(false); 
+                    setApproveId(null);
+                }
+            }}>
+                <DialogContent className="sm:max-w-[520px]">
+                    <DialogHeader>
+                        <DialogTitle>Approve {approveType} Schedule</DialogTitle>
+                        <DialogDescription>Set schedule details and assign examiners.</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-3 gap-2">
+                            <div>
+                                <Label>Date</Label>
+                                <Input 
+                                    type="date" 
+                                    value={approveData.date} 
+                                    onChange={e => setApproveData({...approveData, date: e.target.value})} 
+                                    required 
+                                />
+                            </div>
+                            <div>
+                                <Label>Start Time</Label>
+                                <Input 
+                                    type="time" 
+                                    value={approveData.start_time} 
+                                    onChange={e => setApproveData({...approveData, start_time: e.target.value})} 
+                                    required 
+                                />
+                            </div>
+                            <div>
+                                <Label>End Time</Label>
+                                <Input 
+                                    type="time" 
+                                    value={approveData.end_time} 
+                                    onChange={e => setApproveData({...approveData, end_time: e.target.value})} 
+                                    required 
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label>Room</Label>
+                            <Input 
+                                value={approveData.room} 
+                                onChange={e => setApproveData({...approveData, room: e.target.value})} 
+                                placeholder="e.g. Lab 301" 
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-2">
+                                <Label>Examiner 1</Label>
+                                <Select 
+                                    value={approveData.examiner_1_id} 
+                                    onValueChange={(val) => setApproveData({...approveData, examiner_1_id: val})}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select examiner 1..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {dosens.map(d => (
+                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Examiner 2</Label>
+                                <Select 
+                                    value={approveData.examiner_2_id} 
+                                    onValueChange={(val) => setApproveData({...approveData, examiner_2_id: val})}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select examiner 2..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {dosens.filter(d => d.id.toString() !== approveData.examiner_1_id).map(d => (
+                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setApproveDialogOpen(false); setApproveId(null); }}>Cancel</Button>
+                        <Button 
+                            onClick={submitApprove} 
+                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || !approveData.examiner_1_id || !approveData.examiner_2_id}
+                        >
+                            Approve Schedule
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 
