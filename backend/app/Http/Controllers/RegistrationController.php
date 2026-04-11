@@ -46,7 +46,18 @@ class RegistrationController extends Controller
             return response()->json(['message' => 'Registration for this period is closed.'], 400);
         }
 
-        // Check if already registered
+        // Guard: User can only be registered in ONE period at a time
+        $existingRegistration = PeriodRegistration::where('user_id', $user->id)
+            ->first();
+
+        if ($existingRegistration) {
+            $existingPeriod = Period::find($existingRegistration->period_id);
+            return response()->json([
+                'message' => "You are already registered in period '{$existingPeriod->name}'. You must leave your current group before registering for a new period."
+            ], 400);
+        }
+
+        // Check if already registered for this specific period (redundant but safe)
         $existing = PeriodRegistration::where('user_id', $user->id)
             ->where('period_id', $period->id)
             ->first();

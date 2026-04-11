@@ -88,9 +88,10 @@ export default function MahasiswaGroupPage() {
     const selectedPeriodData = availablePeriods.find(p => p.id.toString() === selectedPeriodId);
     const isPeriodFinalized = !!selectedPeriodData && (selectedPeriodData as { is_finalized?: boolean }).is_finalized;
 
-    const fetchGroup = useCallback(async () => {
+    const fetchGroup = useCallback(async (periodId?: string) => {
         try {
-            const response = await api.get('/mahasiswa/group');
+            const params = periodId ? { period_id: periodId } : undefined;
+            const response = await api.get('/mahasiswa/group', { params });
             setMyGroup(response.data.group);
         } catch (error) {
             console.error('Failed to fetch group', error);
@@ -107,7 +108,6 @@ export default function MahasiswaGroupPage() {
             return;
         }
 
-        fetchGroup();
         // Fetch all periods to allow selection with status labels
         api.get('/periods-list').then(res => {
             const periods = res.data?.data || [];
@@ -119,7 +119,17 @@ export default function MahasiswaGroupPage() {
                 setRegistrationPeriod(active.is_active && !active.is_finalized ? active : null);
             }
         }).catch(() => {}).finally(() => setPeriodLoading(false));
-    }, [authLoading, fetchGroup, router, user]);
+    }, [authLoading, router, user]);
+
+    // Fetch group when period is selected
+    useEffect(() => {
+        if (selectedPeriodId) {
+            fetchGroup(selectedPeriodId);
+        } else {
+            // Try to fetch without period_id (backend will find registered period)
+            fetchGroup();
+        }
+    }, [selectedPeriodId, fetchGroup]);
 
     useEffect(() => {
         if (selectedPeriodId && !myGroup) {

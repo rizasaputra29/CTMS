@@ -34,19 +34,38 @@ class GroupController extends Controller
     {
         $user = $request->user();
         
-        // Get current active period to scope the query
-        $currentPeriod = Period::where('is_active', true)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        // Determine which period to use
+        $period = null;
+        
+        // 1. If period_id is provided in request, use it
+        if ($request->has('period_id')) {
+            $period = Period::find($request->period_id);
+        }
+        
+        // 2. If no period_id, find the period the user is registered in
+        if (!$period) {
+            $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
+                ->first();
+            if ($registration) {
+                $period = Period::find($registration->period_id);
+            }
+        }
+        
+        // 3. Fallback to current active period (backward compatibility)
+        if (!$period) {
+            $period = Period::where('is_active', true)
+                ->orderBy('created_at', 'desc')
+                ->first();
+        }
 
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('period_id', $currentPeriod?->id)
+            ->where('period_id', $period?->id)
             ->whereHas('group', function ($q) {
                 $q->whereNotIn('status', ['CLOSED']);
             })
             ->first();
 
-        if (!$membership || !$currentPeriod) {
+        if (!$membership || !$period) {
             return response()->json(['group' => null]);
         }
 
