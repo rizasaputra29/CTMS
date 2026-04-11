@@ -9,14 +9,16 @@ use Illuminate\Support\Facades\DB;
 
 class PeriodController extends Controller
 {
+    use ApiResponseTrait;
     public function index()
     {
-        return Period::orderBy('created_at', 'desc')->get();
+        $periods = Period::orderBy('created_at', 'desc')->get();
+        return $this->successResponse($periods, 'Periods retrieved successfully');
     }
 
     public function show(Period $period)
     {
-        return response()->json($period);
+        return $this->successResponse($period, 'Period retrieved successfully');
     }
 
     public function store(Request $request)
@@ -30,14 +32,23 @@ class PeriodController extends Controller
             // Bidding config
             'bidding_start' => 'nullable|date',
             'bidding_end' => 'nullable|date|after_or_equal:bidding_start',
+            'bidding_reminder_at' => 'nullable|date',
             // Phase dates
             'pdc1_start' => 'nullable|date',
             'pdc1_end' => 'nullable|date|after_or_equal:pdc1_start',
+            'pdc1_reminder_at' => 'nullable|date',
+            'pdc1_locked_at' => 'nullable|date',
             'pdc2_start' => 'nullable|date',
             'pdc2_end' => 'nullable|date|after_or_equal:pdc2_start',
+            'pdc2_reminder_at' => 'nullable|date',
+            'pdc2_locked_at' => 'nullable|date',
             'expo_date' => 'nullable|date',
+            'expo_reminder_at' => 'nullable|date',
+            'expo_locked_at' => 'nullable|date',
             'ta_start' => 'nullable|date',
             'ta_end' => 'nullable|date|after_or_equal:ta_start',
+            'ta_reminder_at' => 'nullable|date',
+            'ta_locked_at' => 'nullable|date',
             // Group config
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
@@ -50,7 +61,7 @@ class PeriodController extends Controller
         $period = Period::create($validated);
         Cache::forget('active_period');
 
-        return response()->json($period->fresh(), 201);
+        return $this->createdResponse($period->fresh(), 'Period created successfully');
     }
 
     public function update(Request $request, Period $period)
@@ -64,14 +75,23 @@ class PeriodController extends Controller
             // Bidding config
             'bidding_start' => 'nullable|date',
             'bidding_end' => 'nullable|date|after_or_equal:bidding_start',
+            'bidding_reminder_at' => 'nullable|date',
             // Phase dates
             'pdc1_start' => 'nullable|date',
             'pdc1_end' => 'nullable|date|after_or_equal:pdc1_start',
+            'pdc1_reminder_at' => 'nullable|date',
+            'pdc1_locked_at' => 'nullable|date',
             'pdc2_start' => 'nullable|date',
             'pdc2_end' => 'nullable|date|after_or_equal:pdc2_start',
+            'pdc2_reminder_at' => 'nullable|date',
+            'pdc2_locked_at' => 'nullable|date',
             'expo_date' => 'nullable|date',
+            'expo_reminder_at' => 'nullable|date',
+            'expo_locked_at' => 'nullable|date',
             'ta_start' => 'nullable|date',
             'ta_end' => 'nullable|date|after_or_equal:ta_start',
+            'ta_reminder_at' => 'nullable|date',
+            'ta_locked_at' => 'nullable|date',
             // Group config
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
@@ -84,21 +104,21 @@ class PeriodController extends Controller
         $period->update($validated);
         Cache::forget('active_period');
 
-        return response()->json($period->fresh());
+        return $this->successResponse($period->fresh(), 'Period updated successfully');
     }
 
     public function destroy(Period $period)
     {
         // Prevent deleting active period
         if ($period->is_active) {
-            return response()->json(['message' => 'Cannot delete the active period. Deactivate it first.'], 400);
+            return $this->errorResponse('Cannot delete the active period. Deactivate it first.', 400);
         }
 
         // Soft delete
         $period->delete();
         Cache::forget('active_period');
 
-        return response()->json(['message' => 'Period archived successfully.']);
+        return $this->successResponse(null, 'Period archived successfully');
     }
 
     /**
@@ -112,6 +132,6 @@ class PeriodController extends Controller
             ->orderBy('created_at', 'desc')
             ->first();
 
-        return response()->json(['period' => $period]);
+        return $this->successResponse(['period' => $period], 'Registration period retrieved successfully');
     }
 }

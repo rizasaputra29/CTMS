@@ -1,461 +1,1058 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { AlertTitle } from '@/components/ui/alert';
-import {
-    Loader2, ShieldCheck, Lock, Users, BookOpen, CheckCircle2,
-    XCircle, ChevronDown, User, RotateCcw, Search
-} from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useState, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select';
 import {
-    Collapsible,
-    CollapsibleContent,
-    CollapsibleTrigger,
-} from '@/components/ui/collapsible';
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from '@/components/ui/pagination';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Search,
+  RefreshCw,
+  Users,
+  GraduationCap,
+  AlertTriangle,
+  CheckCircle,
+  Shield,
+  FileDown,
+  ChevronDown,
+  UserPlus,
+  CalendarDays,
+  ArrowRight,
+  FileText,
+  Settings,
+} from 'lucide-react';
+import { useFinalizationDashboard } from '@/hooks/use-finalization-dashboard';
+import { useSupervisorLoad } from '@/hooks/use-supervisor-load';
+import { useFinalizationActions } from '@/hooks/use-finalization-actions';
+import { FinalizationExecuteDialog } from '@/components/finalization/finalization-execute-dialog';
+import { ManualGroupingDialog } from '@/components/finalization/manual-grouping-dialog';
+import Link from 'next/link';
+import api from '@/lib/api';
 import { toast } from 'sonner';
 
-interface Bid {
-    id: number;
-    group_id: number;
-    title_id: number;
-    priority: number;
-    status: string;
-    lecturer_recommendation: string | null;
-    group: {
-        id: number;
-        status: string;
-        members: { id: number; student: { name: string; email: string }; is_leader: boolean }[];
-        supervisor_proposals: { supervisor1: { name: string } | null; supervisor2: { name: string } | null } | null;
-    };
-}
-
-interface TitleWithBids {
-    id: number;
-    title: string;
-    quota: number;
-    current_allocations: number;
-    remaining_quota: number;
-    lecturer: { id: number; name: string };
-    bids: Bid[];
-}
-
-interface Lecturer {
-    lecturer: { id: number; name: string; email: string };
-    current_load: number;
-    max_load: number;
-    is_overloaded: boolean;
-}
-
-interface Period {
-    id: number;
-    name: string;
-    is_active: boolean;
-    is_finalized: boolean;
-}
-
-interface ReadinessStats {
-    total_registered: number;
-    total_assigned: number;
-    total_unassigned: number;
-    total_groups: number;
-    total_invalid_groups: number;
-    unassigned_students: { id: number, name: string, email: string }[];
-    invalid_groups: { id: number, status: string, member_count: number, issues: string[] }[];
-}
+import type { Group, Student, DashboardTab, OthersSubTab } from '@/types/finalization';
 
 export default function FinalizationPage() {
-    const [titles, setTitles] = useState<TitleWithBids[]>([]);
-    const [periods, setPeriods] = useState<Period[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-    const [lecturers, setLecturers] = useState<Lecturer[]>([]);
-    const [readinessStats, setReadinessStats] = useState<ReadinessStats | null>(null);
-    const [isLocked, setIsLocked] = useState(false);
-    const [isFinalized, setIsFinalized] = useState(false);
-    const [loading, setLoading] = useState(true);
-    const [submitting, setSubmitting] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
+  const searchParams = useSearchParams();
+  const periodId = searchParams.get('period_id')
+    ? parseInt(searchParams.get('period_id')!)
+    : undefined;
 
-    const filteredTitles = useMemo(() => {
-        if (!searchQuery) return titles;
-        const lowerQuery = searchQuery.toLowerCase();
+  // Hooks
+  const {
+    period,
+    periods,
+    stats,
+    data,
+    activeTab,
+    activeSubTab,
+    filters,
+    loading,
+    showPeriodSelector,
+    setActiveTab,
+    setActiveSubTab,
+    setSearch,
+    setPage,
+    refresh,
+    selectPeriod,
+  } = useFinalizationDashboard(periodId);
+
+  const { lecturers } = useSupervisorLoad(period?.id);
+  const {
+    executeFinalization,
+    executingFinalization,
+    exporting,
+    exportReport,
+  } = useFinalizationActions();
+
+  // Local state
+  const [showExecuteDialog, setShowExecuteDialog] = useState(false);
+  const [showGroupingDialog, setShowGroupingDialog] = useState(false);
+  const [settingRow, setSettingRow] = useState<number | null>(null);
+
+  // Derived data
+  const isPaginatedData = data && 'data' in data;
+  const tableData = useMemo(() => isPaginatedData ? data.data : [], [isPaginatedData, data]);
+  const pagination = isPaginatedData
+    ? {
+        currentPage: data.current_page,
+        lastPage: data.last_page,
+        total: data.total,
+        perPage: data.per_page,
+      }
+    : null;
+
+  const kelompokFinalGroups = useMemo(() => {
+    if (activeTab !== 'final' || !isPaginatedData) return [];
+    return data.data as Group[];
+  }, [activeTab, data, isPaginatedData]);
+
+  // Per-row supervisor set handler
+  const handleSetSupervisorForGroup = useCallback(
+    async (groupId: number, supervisorId: number, role: 'supervisor_1_id' | 'supervisor_2_id') => {
+      setSettingRow(groupId);
+      try {
+        const payload: Record<string, number | boolean | undefined> = {
+          group_id: groupId,
+          mark_final: false,
+        };
+        // We need to keep existing values. Find the group in tableData
+        const group = (tableData as Group[]).find((g) => g.id === groupId);
+        if (role === 'supervisor_1_id') {
+          payload.supervisor_1_id = supervisorId;
+          payload.supervisor_2_id = group?.supervisor_2_id;
+        } else {
+          payload.supervisor_1_id = group?.supervisor_1_id || group?.title?.lecturer?.id;
+          payload.supervisor_2_id = supervisorId;
+        }
+
+        await api.post('/admin/finalization/set-supervisor', payload);
+        toast.success('Supervisor berhasil ditetapkan');
+        refresh();
+      } catch (err) {
+        const message = api.isAxiosError(err)
+          ? err.response?.data?.message || 'Gagal menetapkan supervisor'
+          : 'Terjadi kesalahan';
+        toast.error(message);
+      } finally {
+        setSettingRow(null);
+      }
+    },
+    [tableData, refresh]
+  );
+
+  // Mark group as Kelompok Final
+  const handleMarkKelompokFinal = useCallback(
+    async (groupId: number) => {
+      setSettingRow(groupId);
+      try {
+        const group = (tableData as Group[]).find((g) => g.id === groupId);
         
-        return titles.filter(t => {
-            const titleMatch = t.title.toLowerCase().includes(lowerQuery);
-            const lecturerMatch = t.lecturer.name.toLowerCase().includes(lowerQuery);
-            const bidMatch = t.bids.some(b => 
-                b.group.members.some(m => m.student.name.toLowerCase().includes(lowerQuery)) ||
-                b.group.id.toString().includes(lowerQuery)
-            );
-            return titleMatch || lecturerMatch || bidMatch;
+        const sv1 = group?.supervisor_1_id || group?.title?.lecturer?.id;
+        
+        if (!sv1) {
+          toast.error('Supervisor 1 harus ditetapkan terlebih dahulu');
+          return;
+        }
+        if (!group?.supervisor_2_id) {
+          toast.error('Supervisor 2 harus ditetapkan terlebih dahulu');
+          return;
+        }
+        // Use set-supervisor endpoint with mark_final=true to promote to KELOMPOK_FINAL
+        await api.post('/admin/finalization/set-supervisor', {
+          group_id: groupId,
+          supervisor_1_id: sv1,
+          supervisor_2_id: group.supervisor_2_id,
+          mark_final: true,
         });
-    }, [titles, searchQuery]);
+        toast.success('Kelompok berhasil ditandai sebagai Kelompok Final');
+        refresh();
+      } catch (err) {
+        const message = api.isAxiosError(err)
+          ? err.response?.data?.message || 'Gagal menandai kelompok final'
+          : 'Terjadi kesalahan';
+        toast.error(message);
+      } finally {
+        setSettingRow(null);
+      }
+    },
+    [tableData, refresh]
+  );
 
-    const fetchData = useCallback(async (periodId?: string) => {
-        setLoading(true);
-        try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
-                const perRes = await api.get('/admin/periods');
-                setPeriods(perRes.data || []);
-                const active = (perRes.data || []).find((p: Period) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
-            }
+  const handleExecuteFinalization = async () => {
+    if (!period) return;
 
-            if (!currentPeriodId) {
-                setLoading(false);
-                return;
-            }
+    const success = await executeFinalization({
+      period_id: period.id,
+      confirmation: true,
+    });
 
-            const [finRes, loadRes] = await Promise.all([
-                api.get(`/admin/finalization?period_id=${currentPeriodId}`),
-                api.get(`/admin/finalization/dosen-load?period_id=${currentPeriodId}`),
-            ]);
-            setTitles(finRes.data.data || []);
-            setReadinessStats(finRes.data.readiness_stats || null);
-            setIsLocked(finRes.data.is_locked || false);
-            setLecturers(loadRes.data.data || []);
-
-            // Track finalization status for selected period
-            const currentPer = (periods.length > 0 ? periods : (await api.get('/admin/periods')).data || []).find((p: Period) => p.id.toString() === currentPeriodId);
-            setIsFinalized(currentPer?.is_finalized || false);
-        } catch (err) {
-            console.error('Failed to fetch finalization data', err);
-        } finally {
-            setLoading(false);
-        }
-    }, [selectedPeriod, periods]);
-
-    useEffect(() => {
-        // Initial fetch handled gracefully by the dependency injection
-        if (!selectedPeriod) fetchData();
-    }, [fetchData, selectedPeriod]);
-
-    const handlePeriodChange = (val: string) => {
-        setSelectedPeriod(val);
-        const per = periods.find(p => p.id.toString() === val);
-        setIsFinalized(per?.is_finalized || false);
-        fetchData(val);
-    };
-
-    const handleLockBidding = async () => {
-        if (!confirm('Lock bidding? No more bids can be submitted after locking.')) return;
-        try {
-            await api.post(`/admin/finalization/lock?period_id=${selectedPeriod}`);
-            toast.success('Bidding locked.');
-            setIsLocked(true);
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to lock');
-            else toast.error('Failed to lock');
-        }
-    };
-
-    const handleUnlockBidding = async () => {
-        if (!confirm('Unlock bidding? Students will be able to bid again.')) return;
-        try {
-            await api.post(`/admin/finalization/unlock?period_id=${selectedPeriod}`);
-            toast.success('Bidding unlocked.');
-            setIsLocked(false);
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to unlock');
-            else toast.error('Failed to unlock');
-        }
-    };
-
-    const handleBatchFinalize = async () => {
-        if (!confirm('Run batch finalization? This will automatically allocate ACCEPTED bids based on priority and lock bidding if not already locked.')) return;
-        setSubmitting(true);
-        try {
-            const res = await api.post(`/admin/finalization/finalize-period`, { period_id: Number(selectedPeriod) });
-            toast.success(`Batch finalization complete. Assigned ${res.data.total_allocated} groups. Skipped ${res.data.total_skipped}.`);
-            setIsFinalized(true);
-            fetchData(selectedPeriod);
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to finalize');
-            else toast.error('Failed to finalize');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    const handleRunMatchmaker = async () => {
-        if (!confirm('Run Auto-Matchmaker? This will automatically group isolated students into incomplete groups and form new groups.')) return;
-        setSubmitting(true);
-        try {
-            const res = await api.post(`/admin/finalization/run-automatchmaker`, { period_id: Number(selectedPeriod) });
-            toast.success(`Matchmaker complete! Ghost students processed: ${res.data.stats.ghosts_processed}. Groups filled: ${res.data.stats.groups_filled}. Merged: ${res.data.stats.groups_merged}. Created: ${res.data.stats.blank_groups_created}.`);
-            fetchData(selectedPeriod);
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to run matchmaker');
-            else toast.error('Failed to run matchmaker');
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
+    if (success) {
+      setShowExecuteDialog(false);
+      refresh();
     }
+  };
 
+  const handleExport = async (format: 'excel' | 'pdf') => {
+    if (!period) return;
+    await exportReport({ period_id: period.id, format });
+  };
+
+  // Status badge helper
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> =
+      {
+        READY_FOR_FINALIZATION: { variant: 'secondary', label: 'Siap Finalisasi' },
+        KELOMPOK_FINAL: { variant: 'default', label: 'Kelompok Final' },
+        PDC1_ACTIVE: { variant: 'default', label: 'PDC1' },
+        PDC2_ACTIVE: { variant: 'default', label: 'PDC2' },
+        FORMING: { variant: 'outline', label: 'Forming' },
+        FORMING_SOLO: { variant: 'outline', label: 'Solo Seeker' },
+        READY_FOR_BIDDING: { variant: 'outline', label: 'Ready Bidding' },
+        TITLE_APPROVED: { variant: 'secondary', label: 'Title Approved' },
+        WAITING_SUPERVISOR_APPROVAL: { variant: 'outline', label: 'Waiting Approval' },
+        CLOSED: { variant: 'destructive', label: 'Ditutup' },
+        DISSOLVED: { variant: 'destructive', label: 'Dibubarkan' },
+      };
+
+    const config = variants[status] || { variant: 'outline' as const, label: status };
+    return <Badge variant={config.variant}>{config.label}</Badge>;
+  };
+
+  // ══════════════════════════════════════════
+  // PERIOD SELECTOR (shown first, before anything)
+  // ══════════════════════════════════════════
+  if (showPeriodSelector || !period) {
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Finalization Dashboard</h1>
-                    <p className="text-muted-foreground">Run admin batch finalization, assign supervisors automatically, and lock bidding.</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                    <Select value={selectedPeriod} onValueChange={handlePeriodChange} disabled={loading}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Select period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {periods.map(p => (
-                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+      <div className="container mx-auto py-6 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Finalisasi Periode</h1>
+          <p className="text-muted-foreground mt-1">
+            Kelola finalisasi grup dan penentuan supervisor
+          </p>
+        </div>
 
-                    {isLocked ? (
-                        <div className="flex items-center gap-2">
-                            <Badge variant="destructive" className="px-3 py-1.5 h-10">
-                                <Lock className="mr-1 h-3 w-3" /> Locked
-                            </Badge>
-                            <Button variant="outline" size="sm" onClick={handleUnlockBidding} className="h-10">
-                                <RotateCcw className="mr-2 h-4 w-4" /> Unlock
-                            </Button>
-                        </div>
-                    ) : (
-                        <Button variant="outline" size="sm" onClick={handleLockBidding} className="h-10">
-                            <Lock className="mr-2 h-4 w-4" /> Lock Bidding
-                        </Button>
-                    )}
-
-                    <Button variant="outline" size="sm" onClick={handleRunMatchmaker} disabled={submitting || !selectedPeriod} className="h-10">
-                        {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Users className="mr-2 h-4 w-4" />}
-                        Auto-Matchmaker
-                    </Button>
-
-                    <Button variant="default" size="sm" onClick={handleBatchFinalize} disabled={submitting || !selectedPeriod || isFinalized} className="h-10">
-                        {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-                        Batch Finalize
-                    </Button>
-
-                    {isFinalized ? (
-                        <Badge variant="default" className="px-3 py-1.5 h-10 bg-green-600 hover:bg-green-700">
-                            <CheckCircle2 className="mr-1 h-3 w-3" /> Finalized
+        <Card className="border-primary/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarDays className="h-5 w-5 text-primary" />
+              Pilih Periode Aktif
+            </CardTitle>
+            <CardDescription>
+              Pilih periode aktif yang ingin Anda finalisasi. Hanya periode dengan status aktif yang ditampilkan.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {periods.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                {periods.map((p) => (
+                  <Card
+                    key={p.id}
+                    className="cursor-pointer transition-all hover:border-primary hover:shadow-md group"
+                    onClick={() => selectPeriod(p.id)}
+                  >
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <CardTitle className="text-base group-hover:text-primary transition-colors">
+                          {p.name}
+                        </CardTitle>
+                        <Badge variant="default" className="bg-green-600 text-xs">
+                          Aktif
                         </Badge>
-                    ) : null}
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <p className="text-xs text-muted-foreground">
+                        Max Beban: {p.max_supervisor_load || 8} grup
+                      </p>
+                      <div className="flex items-center gap-1 mt-2 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                        Pilih periode ini <ArrowRight className="h-3 w-3" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <CalendarDays className="mx-auto h-10 w-10 mb-3 opacity-50" />
+                <p className="font-medium">Memuat daftar periode...</p>
+                <p className="text-sm mt-1">Mohon tunggu sebentar</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
-                    {isFinalized && (
-                        <Button variant="outline" size="sm" onClick={async () => {
-                            if (!confirm('Re-open this period for registration? New students will be able to create groups again.')) return;
-                            try {
-                                await api.post('/admin/finalization/reopen', { period_id: Number(selectedPeriod) });
-                                toast.success('Period reopened for registration.');
-                                setIsFinalized(false);
-                            } catch (error) {
-                                if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
-                                else toast.error('Failed');
-                            }
-                        }} className="h-10">
-                            <RotateCcw className="mr-2 h-4 w-4" /> Re-open
-                        </Button>
-                    )}
-                </div>
+  // ══════════════════════════════════════════
+  // DASHBOARD (after period selected)
+  // ══════════════════════════════════════════
+
+  // Loading state
+  if (loading && !data) {
+    return (
+      <div className="container mx-auto py-6 space-y-6">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-8 w-[300px]" />
+          <Skeleton className="h-10 w-[120px]" />
+        </div>
+        <div className="grid grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-24" />
+          ))}
+        </div>
+        <Skeleton className="h-[400px]" />
+      </div>
+    );
+  }
+
+  // Pagination renderer
+  const renderPagination = () => {
+    if (!pagination || pagination.lastPage <= 1) return null;
+    return (
+      <div className="mt-4">
+        <Pagination>
+          <PaginationContent>
+            <PaginationItem>
+              <PaginationPrevious
+                onClick={() => setPage(Math.max(1, pagination.currentPage - 1))}
+                className={pagination.currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
+              />
+            </PaginationItem>
+            {[...Array(pagination.lastPage)].map((_, i) => (
+              <PaginationItem key={i}>
+                <PaginationLink
+                  onClick={() => setPage(i + 1)}
+                  isActive={pagination.currentPage === i + 1}
+                >
+                  {i + 1}
+                </PaginationLink>
+              </PaginationItem>
+            ))}
+            <PaginationItem>
+              <PaginationNext
+                onClick={() => setPage(Math.min(pagination.lastPage, pagination.currentPage + 1))}
+                className={pagination.currentPage === pagination.lastPage ? 'pointer-events-none opacity-50' : ''}
+              />
+            </PaginationItem>
+          </PaginationContent>
+        </Pagination>
+      </div>
+    );
+  };
+
+  return (
+    <div className="container mx-auto py-6 space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Finalisasi Periode</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <p className="text-muted-foreground mr-2">
+              Kelola finalisasi grup dan penentuan supervisor
+            </p>
+            <Select 
+              value={period?.id.toString()} 
+              onValueChange={(val) => selectPeriod(parseInt(val))}
+            >
+              <SelectTrigger className="w-[200px] h-8 text-xs font-semibold">
+                <SelectValue placeholder="Pilih Periode..." />
+              </SelectTrigger>
+              <SelectContent>
+                {periods.map(p => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name} {p.is_active ? '(Aktif)' : ''}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={refresh} disabled={loading}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={exporting}>
+                <FileDown className="mr-2 h-4 w-4" />
+                Export
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleExport('excel')}>
+                Export Excel (CSV)
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExport('pdf')}>
+                Export PDF (HTML)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Siap Finalisasi</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total_ready}</div>
+              <p className="text-xs text-muted-foreground">Grup READY_FOR_FINALIZATION</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Kelompok Final</CardTitle>
+              <CheckCircle className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{stats.total_kelompok_final}</div>
+              <p className="text-xs text-muted-foreground">Sudah di-set supervisor</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Tanpa Kelompok</CardTitle>
+              <GraduationCap className="h-4 w-4 text-orange-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-orange-600">{stats.total_no_group}</div>
+              <p className="text-xs text-muted-foreground">Mahasiswa perlu grouping</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Belum Siap</CardTitle>
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">{stats.total_not_ready}</div>
+              <p className="text-xs text-muted-foreground">Grup belum READY</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Document Requirements Status */}
+      {stats?.document_requirements && (
+        <Card className={stats.document_requirements.all_configured ? 'border-green-200 bg-green-50/30' : 'border-yellow-200 bg-yellow-50/30'}>
+          <CardHeader className="pb-3">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Document Requirements Status</CardTitle>
+              </div>
+              <Link href="/admin/document-requirements">
+                <Button variant="outline" size="sm">
+                  <Settings className="mr-2 h-3 w-3" />
+                  Configure
+                </Button>
+              </Link>
             </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 mb-3">
+              {stats.document_requirements.all_configured ? (
+                <>
+                  <CheckCircle className="h-5 w-5 text-green-600" />
+                  <span className="text-sm font-medium text-green-700">All phases configured</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                  <span className="text-sm font-medium text-yellow-700">
+                    {stats.document_requirements.configured_phases} of {stats.document_requirements.total_phases} phases configured
+                  </span>
+                </>
+              )}
+            </div>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+              {Object.entries(stats.document_requirements.phases).map(([phase, status]) => (
+                <div 
+                  key={phase} 
+                  className={`p-2 rounded text-center text-xs ${
+                    status.configured 
+                      ? 'bg-green-100 text-green-700 border border-green-200' 
+                      : 'bg-gray-100 text-gray-500 border border-gray-200'
+                  }`}
+                >
+                  <div className="font-medium">{phase}</div>
+                  <div className="text-[10px]">
+                    {status.configured ? `${status.count} docs` : 'Not set'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <div className="flex flex-col sm:flex-row gap-4">
-                <div className="relative flex-1">
+      {/* Main Tabs */}
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DashboardTab)}>
+        <TabsList className="grid w-full grid-cols-3">
+          <TabsTrigger value="ready" className="relative">
+            Siap Finalisasi
+            {stats && stats.total_ready > 0 && (
+              <Badge variant="secondary" className="ml-2">{stats.total_ready}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="final" className="relative">
+            Kelompok Final
+            {stats && stats.total_kelompok_final > 0 && (
+              <Badge variant="default" className="ml-2">{stats.total_kelompok_final}</Badge>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="others" className="relative">
+            Perlu Perhatian
+            {stats && (stats.total_no_group + stats.total_not_ready) > 0 && (
+              <Badge variant="destructive" className="ml-2">
+                {stats.total_no_group + stats.total_not_ready}
+              </Badge>
+            )}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ═══════════ Tab 1: Siap Finalisasi (READY_FOR_FINALIZATION) ═══════════ */}
+        <TabsContent value="ready" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Grup Siap Finalisasi</CardTitle>
+                <CardDescription>
+                  Grup dengan status READY_FOR_FINALIZATION. Pilih supervisor lalu tandai sebagai Kelompok Final.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Search */}
+              <div className="flex items-center gap-2 mb-4">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Cari grup, mahasiswa, atau judul..."
+                    value={filters.search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              {/* Table with inline supervisor dropdowns */}
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nama Kelompok</TableHead>
+                      <TableHead>Judul</TableHead>
+                      <TableHead>Anggota</TableHead>
+                      <TableHead>Supervisor 1</TableHead>
+                      <TableHead>Supervisor 2</TableHead>
+                      <TableHead>Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : tableData.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          Tidak ada grup dengan status READY_FOR_FINALIZATION
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (tableData as Group[]).map((group) => (
+                        <TableRow key={group.id}>
+                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell>
+                            {group.title ? (
+                              <div>
+                                <p className="font-medium text-sm truncate max-w-[180px]">{group.title.title}</p>
+                                <p className="text-xs text-muted-foreground">{group.title.lecturer?.name}</p>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {group.members?.slice(0, 2).map((member) => (
+                                <span key={member.id} className="text-sm">{member.student.name}</span>
+                              ))}
+                              {group.members && group.members.length > 2 && (
+                                <span className="text-xs text-muted-foreground">
+                                  +{group.members.length - 2} lainnya
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          {/* Supervisor 1 Dropdown */}
+                          <TableCell>
+                            <Select
+                              value={group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString() ?? undefined}
+                              onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_1_id')}
+                              disabled={settingRow === group.id}
+                            >
+                              <SelectTrigger className="w-[160px] h-8 text-xs">
+                                <SelectValue placeholder="Pilih SV1" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {lecturers.map((lec) => (
+                                  <SelectItem
+                                    key={lec.id}
+                                    value={lec.id.toString()}
+                                    disabled={lec.is_overloaded || lec.id.toString() === group.supervisor_2_id?.toString()}
+                                  >
+                                    <div className="flex items-center justify-between w-full gap-2">
+                                      <span className="truncate">{lec.name}</span>
+                                      <span className="text-xs text-muted-foreground shrink-0">
+                                        {lec.current_load}/{lec.max_load}
+                                      </span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          {/* Supervisor 2 Dropdown */}
+                          <TableCell>
+                            <Select
+                              value={group.supervisor_2_id?.toString() ?? undefined}
+                              onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_2_id')}
+                              disabled={settingRow === group.id}
+                            >
+                              <SelectTrigger className="w-[160px] h-8 text-xs">
+                                <SelectValue placeholder="Pilih SV2" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {lecturers.map((lec) => (
+                                  <SelectItem
+                                    key={lec.id}
+                                    value={lec.id.toString()}
+                                    disabled={lec.is_overloaded || lec.id.toString() === (group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString())}
+                                  >
+                                    <div className="flex items-center justify-between w-full gap-2">
+                                      <span className="truncate">{lec.name}</span>
+                                      <span className="text-xs text-muted-foreground shrink-0">
+                                        {lec.current_load}/{lec.max_load}
+                                      </span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </TableCell>
+                          {/* Action: Mark KELOMPOK_FINAL */}
+                          <TableCell>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              disabled={!group.supervisor_1_id || settingRow === group.id}
+                              onClick={() => handleMarkKelompokFinal(group.id)}
+                              className="text-xs h-8"
+                            >
+                              {settingRow === group.id ? (
+                                <RefreshCw className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <>
+                                  <Shield className="mr-1 h-3 w-3" />
+                                  Kelompok Final
+                                </>
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {renderPagination()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ═══════════ Tab 2: Kelompok Final (KELOMPOK_FINAL) ═══════════ */}
+        <TabsContent value="final" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex justify-between items-center">
+                <div>
+                  <CardTitle>Kelompok Final</CardTitle>
+                  <CardDescription>
+                    Grup yang sudah di-set supervisor dan ditandai KELOMPOK_FINAL. Siap untuk eksekusi finalisasi.
+                  </CardDescription>
+                </div>
+                {stats?.can_finalize && (
+                  <Button onClick={() => setShowExecuteDialog(true)} variant="default">
+                    <Shield className="mr-2 h-4 w-4" />
+                    Eksekusi Finalisasi
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              {/* Search */}
+              <div className="flex items-center gap-2 mb-4">
+                <div className="relative flex-1 max-w-sm">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Cari grup, mahasiswa, atau supervisor..."
+                    value={filters.search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nama Kelompok</TableHead>
+                      <TableHead>Judul</TableHead>
+                      <TableHead>Anggota</TableHead>
+                      <TableHead>Supervisor 1</TableHead>
+                      <TableHead>Supervisor 2</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
+                    ) : tableData.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                          Belum ada kelompok final. Set supervisor di tab &quot;Siap Finalisasi&quot; terlebih dahulu.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      (tableData as Group[]).map((group) => (
+                        <TableRow key={group.id}>
+                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell>
+                            {group.title ? (
+                              <div>
+                                <p className="font-medium text-sm truncate max-w-[180px]">{group.title.title}</p>
+                                <p className="text-xs text-muted-foreground">{group.title.lecturer?.name}</p>
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-1">
+                              {group.members?.slice(0, 2).map((member) => (
+                                <span key={member.id} className="text-sm">{member.student.name}</span>
+                              ))}
+                              {group.members && group.members.length > 2 && (
+                                <span className="text-xs text-muted-foreground">
+                                  +{group.members.length - 2} lainnya
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {group.supervisor1 ? (
+                              <Badge variant="default">{group.supervisor1.name}</Badge>
+                            ) : (
+                              <Badge variant="destructive">Perlu SV1</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {group.supervisor2 ? (
+                              <Badge variant="outline">{group.supervisor2.name}</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>{getStatusBadge(group.status)}</TableCell>
+                        </TableRow>
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {renderPagination()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ═══════════ Tab 3: Perlu Perhatian (Belum Ready) ═══════════ */}
+        <TabsContent value="others" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Perlu Perhatian</CardTitle>
+              <CardDescription>
+                Mahasiswa dan grup yang belum mencapai status READY_FOR_FINALIZATION
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Sub Tabs */}
+              <Tabs
+                value={activeSubTab}
+                onValueChange={(v) => setActiveSubTab(v as OthersSubTab)}
+              >
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="no_group">
+                    Tanpa Kelompok
+                    {stats && stats.total_no_group > 0 && (
+                      <Badge variant="destructive" className="ml-2">{stats.total_no_group}</Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="no_title">
+                    Tanpa Judul
+                    {stats && stats.total_no_title > 0 && (
+                      <Badge variant="secondary" className="ml-2">{stats.total_no_title}</Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="not_ready">
+                    Belum Siap
+                    {stats && stats.total_not_ready > 0 && (
+                      <Badge variant="secondary" className="ml-2">{stats.total_not_ready}</Badge>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Sub Tab: No Group */}
+                <TabsContent value="no_group" className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <div className="relative flex-1 max-w-sm">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Cari mahasiswa..."
+                        value={filters.search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <Button onClick={() => setShowGroupingDialog(true)}>
+                      <UserPlus className="mr-2 h-4 w-4" />
+                      Grouping Manual
+                    </Button>
+                  </div>
+
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nama</TableHead>
+                          <TableHead>NIM</TableHead>
+                          <TableHead>Email</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-8">
+                              <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                            </TableCell>
+                          </TableRow>
+                        ) : tableData.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                              Semua mahasiswa sudah memiliki kelompok
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          (tableData as Student[]).map((student) => (
+                            <TableRow key={student.id}>
+                              <TableCell className="font-medium">{student.name}</TableCell>
+                              <TableCell>{student.nim}</TableCell>
+                              <TableCell>{student.email}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </TabsContent>
+
+                {/* Sub Tab: No Title */}
+                <TabsContent value="no_title" className="space-y-4">
+                  <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search by title, lecturer, student name, or group ID..."
-                        className="pl-9"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Cari grup..."
+                      value={filters.search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9"
                     />
-                </div>
-            </div>
+                  </div>
 
-            {/* Readiness Highlights (Rule Enforcement) */}
-            {readinessStats && (
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <Card className={readinessStats.total_unassigned > 0 ? 'border-amber-200 bg-amber-50' : ''}>
-                        <CardHeader className="pb-2">
-                            <CardDescription className="text-xs font-semibold">Registered Students</CardDescription>
-                            <CardTitle className="text-2xl">{readinessStats.total_registered}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-xs text-muted-foreground flex justify-between">
-                                <span>Assigned: {readinessStats.total_assigned}</span>
-                                <span className={readinessStats.total_unassigned > 0 ? 'text-amber-600 font-bold' : ''}>
-                                    Unassigned: {readinessStats.total_unassigned}
-                                </span>
-                            </div>
-                        </CardContent>
-                    </Card>
-                    <Card className={readinessStats.total_invalid_groups > 0 ? 'border-destructive/20 bg-destructive/5' : ''}>
-                        <CardHeader className="pb-2">
-                            <CardDescription className="text-xs font-semibold">Total Groups</CardDescription>
-                            <CardTitle className="text-2xl">{readinessStats.total_groups}</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-xs text-muted-foreground flex justify-between">
-                                <span>Ready: {readinessStats.total_groups - readinessStats.total_invalid_groups}</span>
-                                <span className={readinessStats.total_invalid_groups > 0 ? 'text-destructive font-bold' : ''}>
-                                    Invalid: {readinessStats.total_invalid_groups}
-                                </span>
-                            </div>
-                        </CardContent>
-                    </Card>
-                    
-                    {/* Collapsible Issues (if any) */}
-                    {(readinessStats.total_unassigned > 0 || readinessStats.total_invalid_groups > 0) && (
-                        <Card className="md:col-span-2 border-amber-500/50 bg-amber-50">
-                            <CardHeader className="pb-2">
-                                <CardTitle className="text-sm flex items-center gap-2">
-                                    <AlertTitle className="text-amber-800 flex items-center">
-                                        <XCircle className="h-4 w-4 mr-2" /> Issues Blocking Finalization
-                                    </AlertTitle>
-                                </CardTitle>
-                            </CardHeader>
-                            <CardContent className="max-h-[100px] overflow-y-auto text-xs space-y-1">
-                                {readinessStats.unassigned_students.map(s => (
-                                    <div key={s.id} className="text-amber-800">• Mahasiswa tanpa kelompok: <strong>{s.name}</strong></div>
-                                ))}
-                                {readinessStats.invalid_groups.map(g => (
-                                    <div key={g.id} className="text-destructive">• Kelompok #{g.id} ({g.status}): {g.issues.join(', ')}</div>
-                                ))}
-                            </CardContent>
-                            <CardFooter className="pt-0 pb-2">
-                                <p className="text-[10px] text-amber-700 italic">Run Auto-Matchmaker or manual fix to resolve these.</p>
-                            </CardFooter>
-                        </Card>
-                    )}
-                    
-                    {readinessStats.total_unassigned === 0 && readinessStats.total_invalid_groups === 0 && !isFinalized && (
-                        <Card className="md:col-span-2 border-green-200 bg-green-50">
-                            <CardHeader>
-                                <CardTitle className="text-sm text-green-700 flex items-center gap-2">
-                                    <CheckCircle2 className="h-4 w-4" /> Period is Ready
-                                </CardTitle>
-                                <CardDescription className="text-xs text-green-600">
-                                    All registered students are assigned and all groups meet the requirements.
-                                </CardDescription>
-                            </CardHeader>
-                        </Card>
-                    )}
-                </div>
-            )}
-
-            {/* Supervisor Load Summary */}
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base flex items-center gap-2">
-                        <User className="h-4 w-4" /> Supervisor Load
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        {lecturers.slice(0, 8).map((l, i) => (
-                            <div key={i} className={`p-3 rounded-lg border text-sm ${l.is_overloaded ? 'bg-destructive/10 border-destructive/30' : 'bg-muted/50'}`}>
-                                <div className="font-medium truncate">{l.lecturer.name}</div>
-                                <div className="text-muted-foreground">
-                                    {l.current_load}/{l.max_load} groups
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nama Kelompok</TableHead>
+                          <TableHead>Anggota</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-8">
+                              <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                            </TableCell>
+                          </TableRow>
+                        ) : tableData.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
+                              Semua grup sudah memiliki judul
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          (tableData as Group[]).map((group) => (
+                            <TableRow key={group.id}>
+                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  {group.members?.slice(0, 2).map((member) => (
+                                    <span key={member.id} className="text-sm">{member.student.name}</span>
+                                  ))}
+                                  {group.members && group.members.length > 2 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      +{group.members.length - 2} lainnya
+                                    </span>
+                                  )}
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
+                              </TableCell>
+                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </TabsContent>
 
-            {/* Title-centric bid list */}
-            {filteredTitles.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Titles Found</h2>
-                    <p className="text-muted-foreground">Try adjusting your search query or period filter.</p>
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    {filteredTitles.map((title) => (
-                        <Collapsible key={title.id}>
-                            <Card>
-                                <CollapsibleTrigger className="w-full">
-                                    <CardHeader className="pb-3">
-                                        <div className="flex items-center justify-between">
-                                            <div className="text-left">
-                                                <CardTitle className="text-base">{title.title}</CardTitle>
-                                                <CardDescription>by {title.lecturer.name}</CardDescription>
-                                            </div>
-                                            <div className="flex items-center gap-3">
-                                                <Badge variant={title.remaining_quota > 0 ? 'outline' : 'destructive'}>
-                                                    {title.remaining_quota}/{title.quota} slots
-                                                </Badge>
-                                                <Badge variant="secondary">{title.bids.length} bids</Badge>
-                                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                            </div>
-                                        </div>
-                                    </CardHeader>
-                                </CollapsibleTrigger>
-                                <CollapsibleContent>
-                                    <CardContent className="pt-0">
-                                        {title.bids.length === 0 ? (
-                                            <p className="text-sm text-muted-foreground py-3">No bids for this title.</p>
-                                        ) : (
-                                            <div className="space-y-3">
-                                                {title.bids.map((bid) => (
-                                                    <div key={bid.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-sm">
-                                                                P{bid.priority}
-                                                            </div>
-                                                            <div>
-                                                                <div className="font-medium text-sm">
-                                                                    {bid.group.members.map(m => m.student.name).join(', ')}
-                                                                </div>
-                                                                <div className="text-xs text-muted-foreground">
-                                                                    Group #{bid.group_id} · {bid.group.status}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-2">
-                                                            {bid.lecturer_recommendation && (
-                                                                <Badge variant={bid.lecturer_recommendation === 'ACCEPT' ? 'default' : 'destructive'}>
-                                                                    {bid.lecturer_recommendation}
-                                                                </Badge>
-                                                            )}
-                                                            <Badge variant={bid.status === 'ACCEPTED' ? 'default' : bid.status === 'REJECTED' ? 'destructive' : 'secondary'}>
-                                                                {bid.status}
-                                                            </Badge>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </CardContent>
-                                </CollapsibleContent>
-                            </Card>
-                        </Collapsible>
-                    ))}
-                </div>
-            )}
+                {/* Sub Tab: Not Ready (FORMING, FORMING_SOLO, READY_FOR_BIDDING, TITLE_APPROVED, etc.) */}
+                <TabsContent value="not_ready" className="space-y-4">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Cari grup..."
+                      value={filters.search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
 
-        </div>
-    );
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nama Kelompok</TableHead>
+                          <TableHead>Anggota</TableHead>
+                          <TableHead>Judul</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {loading ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8">
+                              <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                            </TableCell>
+                          </TableRow>
+                        ) : tableData.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                              Semua grup sudah siap atau sudah difinalisasi
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          (tableData as Group[]).map((group) => (
+                            <TableRow key={group.id}>
+                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-1">
+                                  {group.members?.slice(0, 2).map((member) => (
+                                    <span key={member.id} className="text-sm">{member.student.name}</span>
+                                  ))}
+                                  {group.members && group.members.length > 2 && (
+                                    <span className="text-xs text-muted-foreground">
+                                      +{group.members.length - 2} lainnya
+                                    </span>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                {group.title ? (
+                                  <p className="text-sm truncate max-w-[200px]">{group.title.title}</p>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </TabsContent>
+              </Tabs>
+
+              {renderPagination()}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Dialogs */}
+      <FinalizationExecuteDialog
+        open={showExecuteDialog}
+        onOpenChange={setShowExecuteDialog}
+        groups={kelompokFinalGroups}
+        stats={stats}
+        loading={executingFinalization}
+        onConfirm={handleExecuteFinalization}
+      />
+
+      <ManualGroupingDialog
+        open={showGroupingDialog}
+        onOpenChange={setShowGroupingDialog}
+        studentsWithoutGroup={activeTab === 'others' && activeSubTab === 'no_group' ? (tableData as Student[]) : []}
+        existingGroups={[]}
+        loading={false}
+        onCreateGroup={async () => {
+          alert('Fitur ini memerlukan endpoint backend tambahan');
+        }}
+        onAddToExisting={async () => {
+          alert('Fitur ini memerlukan endpoint backend tambahan');
+        }}
+      />
+    </div>
+  );
 }

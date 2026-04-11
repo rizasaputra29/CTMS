@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\ApiResponseTrait;
 use App\Models\PhaseDocumentRequirement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class PhaseDocumentRequirementController extends Controller
 {
+    use ApiResponseTrait;
+
     const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
 
     public function index(Request $request)
@@ -25,7 +28,7 @@ class PhaseDocumentRequirementController extends Controller
 
         $requirements = $query->orderBy('phase')->orderBy('name')->get();
 
-        return response()->json(['data' => $requirements]);
+        return $this->successResponse($requirements, 'Document requirements retrieved successfully');
     }
 
     public function byPeriod($periodId)
@@ -35,7 +38,7 @@ class PhaseDocumentRequirementController extends Controller
             ->orderBy('name')
             ->get();
 
-        return response()->json(['data' => $requirements]);
+        return $this->successResponse($requirements, 'Document requirements retrieved successfully');
     }
 
     public function store(Request $request)
@@ -49,15 +52,12 @@ class PhaseDocumentRequirementController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return $this->validationErrorResponse($validator->errors());
         }
 
         $requirement = PhaseDocumentRequirement::create($request->all());
 
-        return response()->json([
-            'message' => 'Document requirement created successfully',
-            'data' => $requirement
-        ], 201);
+        return $this->createdResponse($requirement, 'Document requirement created successfully');
     }
 
     public function update(Request $request, string $id)
@@ -72,15 +72,12 @@ class PhaseDocumentRequirementController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return $this->validationErrorResponse($validator->errors());
         }
 
         $requirement->update($request->all());
 
-        return response()->json([
-            'message' => 'Document requirement updated successfully',
-            'data' => $requirement
-        ]);
+        return $this->successResponse($requirement, 'Document requirement updated successfully');
     }
 
     public function destroy(string $id)
@@ -88,7 +85,7 @@ class PhaseDocumentRequirementController extends Controller
         $requirement = PhaseDocumentRequirement::findOrFail($id);
         $requirement->delete();
 
-        return response()->json(['message' => 'Document requirement deleted successfully']);
+        return $this->successResponse(null, 'Document requirement deleted successfully');
     }
 
     public function bulkUpdate(Request $request)
@@ -103,7 +100,7 @@ class PhaseDocumentRequirementController extends Controller
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return $this->validationErrorResponse($validator->errors());
         }
 
         $periodId = $request->period_id;
@@ -122,9 +119,6 @@ class PhaseDocumentRequirementController extends Controller
             ]);
         }
 
-        return response()->json([
-            'message' => 'Document requirements updated successfully',
-            'data' => $created
-        ]);
+        return $this->successResponse($created, 'Document requirements updated successfully');
     }
 }
