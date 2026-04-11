@@ -13,22 +13,45 @@ class UserController extends Controller
     {
         $query = User::with('roles');
 
-        if ($request->has('role')) {
-            $roleSlug = $request->role;
-            $query->whereHas('roles', function ($q) use ($roleSlug) {
-                $q->where('slug', $roleSlug);
+        // Filter berdasarkan role tab
+        $roleFilter = $request->input('role', 'all');
+        if ($roleFilter !== 'all') {
+            $query->whereHas('roles', function ($q) use ($roleFilter) {
+                $q->where('slug', $roleFilter);
             });
         }
 
+        // Load registeredPeriods untuk mahasiswa
+        if ($roleFilter === 'mahasiswa' || $roleFilter === 'all') {
+            $query->with(['registeredPeriods' => function ($q) {
+                $q->select('periods.id', 'periods.name');
+            }]);
+        }
+
+        // Filter pencarian (nama/email/nim/nip)
         if ($request->has('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%")
+                    ->orWhere('nim', 'like', "%{$search}%")
+                    ->orWhere('nip', 'like', "%{$search}%");
             });
         }
 
-        return $query->orderBy('name')->paginate(100);
+        // Sorting
+        $sortBy = $request->input('sort_by', 'name');
+        $sortOrder = $request->input('sort_order', 'asc');
+        $allowedSortFields = ['name', 'email', 'created_at', 'nim', 'nip'];
+
+        if (in_array($sortBy, $allowedSortFields)) {
+            $query->orderBy($sortBy, $sortOrder);
+        }
+
+        // Pagination: 20 item per halaman
+        $users = $query->paginate(20);
+
+        return response()->json($users);
     }
 
     public function store(Request $request)
