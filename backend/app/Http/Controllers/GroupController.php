@@ -11,6 +11,7 @@ use App\Models\Period;
 use App\Models\User;
 use App\Models\Notification;
 use App\Models\GroupInvitation;
+use App\Models\PeriodRegistration;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -157,6 +158,17 @@ class GroupController extends Controller
             return response()->json(['message' => 'Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.'], 400);
         }
 
+        // ⚠ STRICT: Check student not already in ANY active group across all periods
+        $anyExistingMembership = GroupMember::where('student_id', $user->id)
+            ->whereHas('group', function ($q) {
+                $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+            })
+            ->exists();
+
+        if ($anyExistingMembership) {
+            return response()->json(['message' => 'Anda sudah memiliki kelompok aktif. Hanya boleh 1 kelompok per mahasiswa.'], 400);
+        }
+
         DB::beginTransaction();
         try {
             $group = Group::create([
@@ -217,6 +229,17 @@ class GroupController extends Controller
 
         if ($existingMembership) {
             return response()->json(['message' => 'Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.'], 400);
+        }
+
+        // ⚠ STRICT: Check student not already in ANY active group across all periods
+        $anyExistingMembership = GroupMember::where('student_id', $user->id)
+            ->whereHas('group', function ($q) {
+                $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+            })
+            ->exists();
+
+        if ($anyExistingMembership) {
+            return response()->json(['message' => 'Anda sudah memiliki kelompok aktif. Hanya boleh 1 kelompok per mahasiswa.'], 400);
         }
 
         DB::beginTransaction();
@@ -455,12 +478,37 @@ class GroupController extends Controller
             return response()->json(['message' => 'Kelompok sudah penuh. Cari kelompok lain atau buat kelompok baru.'], 400);
         }
 
+        // Check if user is registered for the group's period
+        // If not, auto-register them to maintain data consistency
+        $isRegistered = PeriodRegistration::where('user_id', $user->id)
+            ->where('period_id', $group->period_id)
+            ->exists();
+
+        $autoRegistered = false;
+        if (!$isRegistered) {
+            PeriodRegistration::create([
+                'user_id' => $user->id,
+                'period_id' => $group->period_id,
+            ]);
+            $autoRegistered = true;
+        }
+
         DB::beginTransaction();
         try {
             $this->groupService->handleJoinGroup($user, $group);
             
             DB::commit();
-            return response()->json(['message' => 'Invitation accepted.']);
+
+            $response = [
+                'message' => 'Invitation accepted.',
+                'auto_registered' => $autoRegistered,
+            ];
+
+            if ($autoRegistered) {
+                $response['message'] = "You have been automatically registered for {$group->period->name} and added to the group.";
+            }
+
+            return response()->json($response);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to accept invitation: ' . $e->getMessage()], 500);

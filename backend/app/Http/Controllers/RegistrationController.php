@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Period;
 use App\Models\PeriodRegistration;
+use App\Models\GroupMember;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -83,5 +84,56 @@ class RegistrationController extends Controller
             DB::rollBack();
             return response()->json(['message' => 'Registration failed: ' . $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Get the authenticated user's currently registered period.
+     * Auto-registers user if they have a group but no registration.
+     */
+    public function myPeriod(Request $request)
+    {
+        $user = $request->user();
+        
+        $registration = PeriodRegistration::where('user_id', $user->id)
+            ->with('period')
+            ->first();
+
+        // If no registration found, check if user has a group membership
+        if (!$registration) {
+            $groupMembership = GroupMember::where('student_id', $user->id)
+                ->whereHas('group', function ($q) {
+                    $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+                })
+                ->with('group')
+                ->first();
+
+            if ($groupMembership) {
+                // Auto-create registration for the group's period
+                $registration = PeriodRegistration::create([
+                    'user_id' => $user->id,
+                    'period_id' => $groupMembership->group->period_id,
+                ]);
+
+                $registration->load('period');
+
+                return response()->json([
+                    'period' => $registration->period,
+                    'registration' => $registration,
+                    'auto_registered' => true,
+                    'message' => "You have been automatically registered for {$registration->period->name} based on your group membership.",
+                ]);
+            }
+
+            return response()->json([
+                'period' => null,
+                'message' => 'Not registered for any period',
+            ]);
+        }
+
+        return response()->json([
+            'period' => $registration->period,
+            'registration' => $registration,
+            'auto_registered' => false,
+        ]);
     }
 }

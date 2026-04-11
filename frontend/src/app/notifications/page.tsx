@@ -67,8 +67,15 @@ export default function NotificationsPage() {
 
     const handleInvitation = async (invitationId: number, action: 'accept' | 'reject', notificationId: number) => {
         try {
-            await api.post(`/mahasiswa/group-invitations/${invitationId}/${action}`);
-            toast.success(`Invitation ${action}ed successfully`);
+            const response = await api.post(`/mahasiswa/group-invitations/${invitationId}/${action}`);
+            
+            // Show auto-registration notification if applicable
+            if (action === 'accept' && response.data?.auto_registered) {
+                toast.success(response.data?.message || 'You have been automatically registered and added to the group.');
+            } else {
+                toast.success(`Invitation ${action}ed successfully`);
+            }
+            
             setInvitationActions(prev => ({ ...prev, [notificationId]: action }));
             markAsRead(notificationId);
         } catch (error) {

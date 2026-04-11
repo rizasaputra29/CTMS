@@ -117,7 +117,13 @@ export default function ProposeTitlePage() {
     const hasActiveBid = activeBids.length > 0 && !group?.is_solo;
     const hasActiveProposalFlag = group?.has_active_proposal === true;
     const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
-    const canPropose = hasGroup && !hasTitle && !hasActiveBid && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '') && isLeader;
+    
+    // Member count validation for non-solo groups
+    const memberCount = group?.members?.length || 0;
+    const minGroupSize = 3;
+    const hasEnoughMembers = group?.is_solo || memberCount >= minGroupSize;
+    
+    const canPropose = hasGroup && !hasTitle && !hasActiveBid && !hasActiveProposalFlag && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '') && isLeader && hasEnoughMembers;
 
     const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
@@ -272,6 +278,18 @@ export default function ProposeTitlePage() {
                     <AlertTitle>No Group</AlertTitle>
                     <AlertDescription>
                         You must <a href="/mahasiswa/group" className="font-medium underline">create a group</a> first before proposing a title.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {hasGroup && isLeader && !group?.is_solo && memberCount < minGroupSize && (
+                <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Anggota Kelompok Kurang</AlertTitle>
+                    <AlertDescription>
+                        Kelompok harus memiliki minimal {minGroupSize} anggota untuk mengajukan judul. 
+                        Saat ini kelompok Anda memiliki {memberCount} anggota. 
+                        Tambahkan anggota di <Link href="/mahasiswa/group" className="underline font-semibold">My Group</Link>.
                     </AlertDescription>
                 </Alert>
             )}

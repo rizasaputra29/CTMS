@@ -94,6 +94,13 @@ class BidController extends Controller
             ], 403);
         }
 
+        // Solo seeker check - Solo groups cannot bid on lecturer titles
+        if ($group->is_solo) {
+            return response()->json([
+                'message' => 'Kelompok solo seeker hanya dapat mengajukan judul sendiri. Silakan bubarkan grup dan buat grup normal jika ingin bidding pada judul dosen.',
+            ], 403);
+        }
+
         // Status check - FORMING_SOLO can only propose their own title, cannot bid on lecturer titles
         if ($group->status === 'FORMING_SOLO') {
             return response()->json([

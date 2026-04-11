@@ -48,6 +48,7 @@ export function AppSidebar() {
     const pathname = usePathname();
     const [unreadCount, setUnreadCount] = useState(0);
     const [peerReviewActive, setPeerReviewActive] = useState(false);
+    const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
 
     // Fetch unread notification count
     useEffect(() => {
@@ -73,7 +74,29 @@ export function AppSidebar() {
 
         fetchUnread();
         fetchPeerReviewStatus();
-        // Removed the setInterval to prevent excessive polling and lag
+
+        // Check period registration for mahasiswa
+        const checkRegistration = async () => {
+            if (activeRole === 'mahasiswa') {
+                try {
+                    const res = await api.get('/mahasiswa/my-period');
+                    setIsRegistered(!!res.data?.period);
+                } catch {
+                    setIsRegistered(false);
+                }
+            }
+        };
+        checkRegistration();
+
+        // Listen for registration complete event
+        const handleRegistrationComplete = () => {
+            checkRegistration();
+        };
+        window.addEventListener('registration-complete', handleRegistrationComplete);
+
+        return () => {
+            window.removeEventListener('registration-complete', handleRegistrationComplete);
+        };
     }, [user, activeRole]);
 
     type NavItem = {
@@ -124,6 +147,7 @@ export function AppSidebar() {
         ],
         mahasiswa: [
             { title: 'Dashboard', url: '/mahasiswa/dashboard', icon: LayoutDashboard },
+            { title: 'Registration', url: '/mahasiswa/registration', icon: CalendarIcon },
             {
                 title: 'Group & Titles',
                 icon: Users,
@@ -244,36 +268,54 @@ export function AppSidebar() {
                                 const hasActiveSubitem = item.items?.some(sub => pathname === sub.url);
                                 const isDefaultOpen = isItemActive || hasActiveSubitem;
 
+                                // Check if this item should be disabled for unregistered mahasiswa
+                                const isMahasiswa = activeRole === 'mahasiswa';
+                                const isRegistrationItem = item.title === 'Registration' || item.url === '/mahasiswa/registration';
+                                const isDashboardItem = item.title === 'Dashboard' || item.url === '/mahasiswa/dashboard';
+                                const isDisabled = isMahasiswa && isRegistered === false && !isRegistrationItem && !isDashboardItem;
+
                                 if (item.items && item.items.length > 0) {
                                     return (
                                         <Collapsible
                                             key={item.title}
                                             asChild
-                                            defaultOpen={isDefaultOpen}
+                                            defaultOpen={isDefaultOpen && !isDisabled}
                                             className="group/collapsible"
                                         >
                                             <SidebarMenuItem>
-                                                <CollapsibleTrigger asChild>
-                                                    <SidebarMenuButton tooltip={item.title} isActive={hasActiveSubitem}>
+                                                <CollapsibleTrigger asChild disabled={isDisabled}>
+                                                    <SidebarMenuButton 
+                                                        tooltip={isDisabled ? 'Register for a period first' : item.title} 
+                                                        isActive={hasActiveSubitem}
+                                                        className={isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                                    >
                                                         {item.icon && <item.icon />}
                                                         <span>{item.title}</span>
-                                                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                                                        {!isDisabled && (
+                                                            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+                                                        )}
                                                     </SidebarMenuButton>
                                                 </CollapsibleTrigger>
-                                                <CollapsibleContent>
-                                                    <SidebarMenuSub>
-                                                        {item.items.map((subItem) => (
-                                                            <SidebarMenuSubItem key={subItem.title}>
-                                                                <SidebarMenuSubButton asChild isActive={pathname === subItem.url}>
-                                                                    <Link href={subItem.url}>
-                                                                        {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
-                                                                        <span>{subItem.title}</span>
-                                                                    </Link>
-                                                                </SidebarMenuSubButton>
-                                                            </SidebarMenuSubItem>
-                                                        ))}
-                                                    </SidebarMenuSub>
-                                                </CollapsibleContent>
+                                                {!isDisabled && (
+                                                    <CollapsibleContent>
+                                                        <SidebarMenuSub>
+                                                            {item.items.map((subItem) => (
+                                                                <SidebarMenuSubItem key={subItem.title}>
+                                                                    <SidebarMenuSubButton 
+                                                                        asChild 
+                                                                        isActive={pathname === subItem.url}
+                                                                        disabled={isDisabled}
+                                                                    >
+                                                                        <Link href={subItem.url} className={isDisabled ? 'pointer-events-none opacity-50' : ''}>
+                                                                            {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
+                                                                            <span>{subItem.title}</span>
+                                                                        </Link>
+                                                                    </SidebarMenuSubButton>
+                                                                </SidebarMenuSubItem>
+                                                            ))}
+                                                        </SidebarMenuSub>
+                                                    </CollapsibleContent>
+                                                )}
                                             </SidebarMenuItem>
                                         </Collapsible>
                                     );
@@ -281,8 +323,13 @@ export function AppSidebar() {
 
                                 return (
                                     <SidebarMenuItem key={item.title}>
-                                        <SidebarMenuButton asChild isActive={isItemActive} tooltip={item.title}>
-                                            <Link href={item.url!}>
+                                        <SidebarMenuButton 
+                                            asChild 
+                                            isActive={isItemActive} 
+                                            tooltip={isDisabled ? 'Register for a period first' : item.title}
+                                            className={isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                        >
+                                            <Link href={item.url!} className={isDisabled ? 'pointer-events-none' : ''}>
                                                 {item.icon && <item.icon />}
                                                 <span>{item.title}</span>
                                             </Link>

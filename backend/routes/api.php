@@ -32,6 +32,7 @@ use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\DigitalSignatureController;
 use App\Http\Controllers\ReportExportController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 
@@ -249,6 +250,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ────────────────────────────────
     Route::middleware(['role:mahasiswa'])->prefix('mahasiswa')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'mahasiswa']);
+        Route::get('/my-period', [RegistrationController::class, 'myPeriod']);
         Route::get('/titles', [TitleController::class, 'index']);
         Route::get('/titles/{title}', [TitleController::class, 'show']);
 
