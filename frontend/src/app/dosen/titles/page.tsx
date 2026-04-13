@@ -34,8 +34,7 @@ import {
 import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from "sonner";
-
-const SPECIALIZATIONS = ['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'];
+import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
 
 interface Title {
     id: number;
@@ -357,20 +356,11 @@ export default function DosenTitlesPage() {
                                             required
                                         />
                                     </div>
-                                    <div className="grid gap-2">
-                                        <Label>Specializations</Label>
-                                        <div className="flex flex-wrap gap-3">
-                                            {SPECIALIZATIONS.map(spec => (
-                                                <label key={spec} className="flex items-center gap-2 cursor-pointer">
-                                                    <Checkbox
-                                                        checked={formData.specializations.includes(spec)}
-                                                        onCheckedChange={() => toggleFormSpec(spec)}
-                                                    />
-                                                    <span className="text-sm">{spec}</span>
-                                                </label>
-                                            ))}
-                                        </div>
-                                    </div>
+                                    <SpecializationSelector
+                                        selected={formData.specializations}
+                                        onChange={(specializations) => setFormData({ ...formData, specializations })}
+                                        required
+                                    />
                                     <div className="grid gap-2">
                                         <Label htmlFor="quota">Quota (Groups)</Label>
                                         <Input

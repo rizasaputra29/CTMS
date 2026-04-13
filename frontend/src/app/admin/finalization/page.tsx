@@ -129,7 +129,7 @@ export default function FinalizationPage() {
   const handleCreateGroup = useCallback(async (
     studentIds: number[],
     titleId?: number,
-    newTitle?: { title: string; description?: string }
+    newTitle?: { title: string; description?: string; specializations: string[] }
   ) => {
     if (!period) return;
     

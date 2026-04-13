@@ -34,6 +34,7 @@ interface UseManualGroupingReturn {
     newTitle?: {
       title: string;
       description?: string;
+      specializations: string[];
     };
   }) => Promise<boolean>;
   addToExistingGroup: (data: {

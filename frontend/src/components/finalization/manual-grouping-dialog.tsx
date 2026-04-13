@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/select';
 
 import { AlertTriangle, UserPlus, Users, Info, FileText, Plus } from 'lucide-react';
+import { SpecializationSelector } from '@/components/ui/specialization-selector';
 import type { Student, Group } from '@/types/finalization';
 
 interface AvailableTitle {
@@ -48,7 +49,7 @@ interface ManualGroupingDialogProps {
   onCreateGroup: (
     studentIds: number[],
     titleId?: number,
-    newTitle?: { title: string; description?: string }
+    newTitle?: { title: string; description?: string; specializations: string[] }
   ) => Promise<void>;
   onAddToExisting: (studentIds: number[], groupId: number) => Promise<void>;
 }
@@ -71,6 +72,7 @@ export function ManualGroupingDialog({
   const [titleMode, setTitleMode] = useState<'none' | 'existing' | 'new'>('none');
   const [selectedTitleId, setSelectedTitleId] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState({ title: '', description: '' });
+  const [newTitleSpecializations, setNewTitleSpecializations] = useState<string[]>([]);
 
   const handleClose = () => {
     setSelectedStudents([]);
@@ -79,6 +81,7 @@ export function ManualGroupingDialog({
     setTitleMode('none');
     setSelectedTitleId(null);
     setNewTitle({ title: '', description: '' });
+    setNewTitleSpecializations([]);
     onOpenChange(false);
   };
 
@@ -95,7 +98,7 @@ export function ManualGroupingDialog({
 
     if (mode === 'create') {
       let titleId: number | undefined;
-      let newTitleData: { title: string; description?: string } | undefined;
+      let newTitleData: { title: string; description?: string; specializations: string[] } | undefined;
 
       if (titleMode === 'existing' && selectedTitleId) {
         titleId = selectedTitleId;
@@ -103,6 +106,7 @@ export function ManualGroupingDialog({
         newTitleData = {
           title: newTitle.title.trim(),
           description: newTitle.description.trim() || undefined,
+          specializations: newTitleSpecializations,
         };
       }
 
@@ -123,7 +127,10 @@ export function ManualGroupingDialog({
     
     if (mode === 'create') {
       if (titleMode === 'existing' && !selectedTitleId) return false;
-      if (titleMode === 'new' && !newTitle.title.trim()) return false;
+      if (titleMode === 'new') {
+        if (!newTitle.title.trim()) return false;
+        if (newTitleSpecializations.length === 0) return false;
+      }
       return true;
     }
     
@@ -251,7 +258,9 @@ export function ManualGroupingDialog({
                   {titleMode === 'new' && (
                     <div className="space-y-3">
                       <div className="space-y-2">
-                        <Label htmlFor="new-title">Judul Baru</Label>
+                        <Label htmlFor="new-title">
+                          Judul Baru <span className="text-destructive">*</span>
+                        </Label>
                         <Input
                           id="new-title"
                           placeholder="Masukkan judul..."
@@ -259,6 +268,11 @@ export function ManualGroupingDialog({
                           onChange={(e) => setNewTitle({ ...newTitle, title: e.target.value })}
                         />
                       </div>
+                      <SpecializationSelector
+                        selected={newTitleSpecializations}
+                        onChange={setNewTitleSpecializations}
+                        required
+                      />
                       <div className="space-y-2">
                         <Label htmlFor="new-description">Deskripsi (Opsional)</Label>
                         <Textarea

@@ -68,7 +68,7 @@ export function useFinalizationDashboard(
   // Fetch active periods
   const fetchActivePeriods = useCallback(async () => {
     try {
-      const response = await api.get<Period[]>('/admin/periods', {
+      const response = await api.get<{ success: boolean; message: string; data: Period[] }>('/admin/periods', {
         params: { is_active: true },
       });
       setPeriods(response.data?.data || []);

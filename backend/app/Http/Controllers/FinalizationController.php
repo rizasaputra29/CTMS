@@ -1296,6 +1296,8 @@ class FinalizationController extends Controller
             'new_title' => 'nullable|array',
             'new_title.title' => 'required_with:new_title|string|max:500',
             'new_title.description' => 'nullable|string',
+            'new_title.specializations' => 'required_with:new_title|array|min:1',
+            'new_title.specializations.*' => 'string|in:Software,Embedded,Network,Multimedia,AI,Blockchain',
         ]);
 
         $period = Period::findOrFail($request->period_id);
@@ -1352,6 +1354,7 @@ class FinalizationController extends Controller
                 $title = Title::create([
                     'title' => $request->new_title['title'],
                     'description' => $request->new_title['description'] ?? null,
+                    'specializations' => $request->new_title['specializations'] ?? [],
                     'period_id' => $period->id,
                     'lecturer_id' => $user->id,
                     'title_source' => 'LECTURER',
