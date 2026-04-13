@@ -68,6 +68,7 @@ interface Group {
     id: number;
     title_id: number | null;
     status: string;
+    is_solo?: boolean;
     title?: { id: number; title: string };
     members: { id: number; student_id: number; is_leader: boolean }[];
     period?: { max_group_size: number };
@@ -232,7 +233,9 @@ export default function TitlesMarketplacePage() {
             setRequestDialogOpen(false);
             setJoinMessage('');
             setSelectedGroupId(null);
-            fetchData();
+            if (registeredPeriod?.id) {
+                fetchData(registeredPeriod.id);
+            }
         } catch (error) {
             if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to send join request');

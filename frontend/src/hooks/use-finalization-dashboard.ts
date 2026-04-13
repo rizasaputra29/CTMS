@@ -71,7 +71,7 @@ export function useFinalizationDashboard(
       const response = await api.get<Period[]>('/admin/periods', {
         params: { is_active: true },
       });
-      setPeriods(response.data?.data || []);
+      setPeriods(response.data || []);
     } catch (err) {
       console.error('Failed to fetch active periods', err);
     }

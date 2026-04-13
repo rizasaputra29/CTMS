@@ -304,9 +304,9 @@ export function AppSidebar() {
                                                                     <SidebarMenuSubButton 
                                                                         asChild 
                                                                         isActive={pathname === subItem.url}
-                                                                        disabled={isDisabled}
+                                                                        className={isDisabled ? 'pointer-events-none opacity-50' : ''}
                                                                     >
-                                                                        <Link href={subItem.url} className={isDisabled ? 'pointer-events-none opacity-50' : ''}>
+                                                                        <Link href={subItem.url}>
                                                                             {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
                                                                             <span>{subItem.title}</span>
                                                                         </Link>

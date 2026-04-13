@@ -1,29 +1,10 @@
 import { useState, useCallback } from 'react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import type { Group, Student } from '@/types/finalization';
+import type { Group, Student, GroupMember, GroupStatus } from '@/types/finalization';
 
-interface AvailableGroup {
-  id: number;
-  name: string;
-  members: Array<{
-    id: number;
-    student: {
-      id: number;
-      name: string;
-      nim: string;
-    };
-  }>;
-  title?: {
-    id: number;
-    title: string;
-    lecturer?: {
-      id: number;
-      name: string;
-    };
-  };
-  status: string;
-}
+// Use Group type directly since backend returns full Group objects
+type AvailableGroup = Group;
 
 interface AvailableTitle {
   id: number;
