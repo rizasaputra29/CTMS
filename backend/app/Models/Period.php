@@ -36,7 +36,7 @@ class Period extends Model
         'ta_locked_at',
         'min_group_size',
         'max_group_size',
-        'max_supervise_load',
+        'max_supervisor_load',
         'allow_solo',
         'require_all_students_grouped',
     ];
