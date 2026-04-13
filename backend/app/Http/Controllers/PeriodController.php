@@ -52,7 +52,7 @@ class PeriodController extends Controller
             // Group config
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
-            'max_supervise_load' => 'nullable|integer|min:1|max:50',
+            'max_supervisor_load' => 'nullable|integer|min:1|max:50',
             'require_all_students_grouped' => 'boolean',
         ]);
 
@@ -95,7 +95,7 @@ class PeriodController extends Controller
             // Group config
             'min_group_size' => 'nullable|integer|min:1|max:10',
             'max_group_size' => 'nullable|integer|min:1|max:10',
-            'max_supervise_load' => 'nullable|integer|min:1|max:50',
+            'max_supervisor_load' => 'nullable|integer|min:1|max:50',
             'require_all_students_grouped' => 'boolean',
         ]);
 
