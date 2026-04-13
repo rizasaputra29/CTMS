@@ -229,54 +229,6 @@ class FinalizationController extends Controller
     }
 
     /**
-     * Manually lock bidding.
-     */
-    public function lock(Request $request)
-    {
-        $request->validate([
-            'period_id' => 'required|exists:periods,id',
-        ]);
-
-        $period = $this->resolvePeriod($request);
-
-        $this->biddingService->lockBidding($period);
-
-        \App\Models\AuditLog::create([
-            'user_id' => $request->user()->id,
-            'action' => 'BIDDING_LOCK',
-            'target_type' => 'Period',
-            'target_id' => $period->id,
-            'payload' => ['locked_at' => now()->toISOString()],
-        ]);
-
-        return response()->json(['message' => 'Bidding locked successfully.', 'period' => $period->fresh()]);
-    }
-
-    /**
-     * Manually unlock bidding.
-     */
-    public function unlock(Request $request)
-    {
-        $request->validate([
-            'period_id' => 'required|exists:periods,id',
-        ]);
-
-        $period = $this->resolvePeriod($request);
-
-        $this->biddingService->unlockBidding($period);
-
-        \App\Models\AuditLog::create([
-            'user_id' => $request->user()->id,
-            'action' => 'BIDDING_UNLOCK',
-            'target_type' => 'Period',
-            'target_id' => $period->id,
-            'payload' => ['unlocked_at' => now()->toISOString()],
-        ]);
-
-        return response()->json(['message' => 'Bidding unlocked successfully.', 'period' => $period->fresh()]);
-    }
-
-    /**
      * Run the Auto-Matchmaker bot to form complete groups from isolated/ghost students.
      */
     public function runAutoMatchmaker(Request $request)

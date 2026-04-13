@@ -19,29 +19,25 @@ export interface Period {
   pdc1_start: string | null;
   pdc1_end: string | null;
   pdc1_reminder_at?: string | null;
-  pdc1_locked_at?: string | null;
   
   // PDC2 Phase
   pdc2_start: string | null;
   pdc2_end: string | null;
   pdc2_reminder_at?: string | null;
-  pdc2_locked_at?: string | null;
   
   // Expo
   expo_date: string | null;
   expo_reminder_at?: string | null;
-  expo_locked_at?: string | null;
   
   // TA Defense
   ta_start: string | null;
   ta_end: string | null;
   ta_reminder_at?: string | null;
-  ta_locked_at?: string | null;
   
   // Group configuration
   min_group_size: number | null;
   max_group_size: number | null;
-  max_supervise_load: number | null;
+  max_supervisor_load: number | null;
   allow_solo?: boolean;
   require_all_students_grouped?: boolean;
 }

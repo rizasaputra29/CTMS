@@ -22,19 +22,5 @@ class BiddingService
         return $period->isBiddingLocked();
     }
 
-    /**
-     * Manually lock bidding (admin action).
-     */
-    public function lockBidding(Period $period): void
-    {
-        $period->update(['bidding_locked_at' => now()]);
-    }
 
-    /**
-     * Manually unlock bidding (admin action).
-     */
-    public function unlockBidding(Period $period): void
-    {
-        $period->update(['bidding_locked_at' => null]);
-    }
 }

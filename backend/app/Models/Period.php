@@ -17,23 +17,18 @@ class Period extends Model
         'is_finalized',
         'bidding_start',
         'bidding_end',
-        'bidding_locked_at',
         'bidding_reminder_at',
         'pdc1_start',
         'pdc1_end',
         'pdc1_reminder_at',
-        'pdc1_locked_at',
         'pdc2_start',
         'pdc2_end',
         'pdc2_reminder_at',
-        'pdc2_locked_at',
         'expo_date',
         'expo_reminder_at',
-        'expo_locked_at',
         'ta_start',
         'ta_end',
         'ta_reminder_at',
-        'ta_locked_at',
         'min_group_size',
         'max_group_size',
         'max_supervisor_load',
@@ -51,34 +46,25 @@ class Period extends Model
         'allow_solo' => 'boolean',
         'bidding_start' => 'datetime',
         'bidding_end' => 'datetime',
-        'bidding_locked_at' => 'datetime',
         'bidding_reminder_at' => 'datetime',
         'pdc1_start' => 'date',
         'pdc1_end' => 'date',
         'pdc1_reminder_at' => 'datetime',
-        'pdc1_locked_at' => 'datetime',
         'pdc2_start' => 'date',
         'pdc2_end' => 'date',
         'pdc2_reminder_at' => 'datetime',
-        'pdc2_locked_at' => 'datetime',
         'expo_date' => 'date',
         'expo_reminder_at' => 'datetime',
-        'expo_locked_at' => 'datetime',
         'ta_start' => 'date',
         'ta_end' => 'date',
         'ta_reminder_at' => 'datetime',
-        'ta_locked_at' => 'datetime',
     ];
 
     /**
-     * Check if bidding is locked — either admin locked manually or bidding_end passed.
+     * Check if bidding is locked — bidding_end has passed.
      */
     public function isBiddingLocked(): bool
     {
-        if ($this->bidding_locked_at !== null) {
-            return true;
-        }
-
         if ($this->bidding_end && now()->isAfter($this->bidding_end)) {
             return true;
         }
