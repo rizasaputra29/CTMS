@@ -141,7 +141,7 @@ class FinalizationController extends Controller
 
         $loadData = $this->finalizationService->getSupervisorLoad(
             $period->id,
-            $period->max_supervise_load ?? 8
+            $period->max_supervisor_load ?? 8
         );
 
         return response()->json(['data' => $loadData]);
@@ -1075,7 +1075,7 @@ class FinalizationController extends Controller
 
         $lecturers->each(function ($lecturer) use ($period, $loadService, $maxLoad) {
             $load = $loadService->getLoad($lecturer->id, $period->id);
-            $lecturer->current_load = $load['confirmed_load'] ?? 0;
+            $lecturer->current_load = $load['current_load'] ?? 0;
             $lecturer->max_load = $maxLoad;
             $lecturer->remaining_capacity = max(0, $maxLoad - $lecturer->current_load);
             $lecturer->is_overloaded = $lecturer->current_load >= $maxLoad;
