@@ -74,7 +74,7 @@ const emptyForm = {
     pdc2_reminder_at: '',
     expo_date: '',
     expo_reminder_at: '',
-    ta_start: ''
+    ta_start: '',
     ta_end: '',
     ta_reminder_at: '',
     min_group_size: 3,
