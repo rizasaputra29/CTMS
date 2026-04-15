@@ -3,8 +3,22 @@
  * Types for the admin finalization dashboard
  */
 
-// Group status types
-export type GroupStatus =
+// Backend Group status types (actual statuses from database)
+export type BackendGroupStatus =
+  | 'FORMING'
+  | 'FORMING_SOLO'
+  | 'READY_FOR_BIDDING'
+  | 'TITLE_PROPOSED'
+  | 'TITLE_APPROVED'
+  | 'READY_FOR_FINALIZATION'
+  | 'KELOMPOK_FINAL'
+  | 'PDC1_ACTIVE'
+  | 'PDC2_ACTIVE'
+  | 'CLOSED'
+  | 'DISSOLVED';
+
+// UI Category types for grouping groups in tabs
+export type GroupStatusCategory =
   | 'NO_GROUP'
   | 'HAS_GROUP_NO_TITLE'
   | 'NOT_READY'
@@ -14,6 +28,9 @@ export type GroupStatus =
   | 'PDC2_ACTIVE'
   | 'CLOSED'
   | 'DISSOLVED';
+
+// For backward compatibility, alias GroupStatus to the backend type
+export type GroupStatus = BackendGroupStatus;
 
 // Tab types for dashboard
 export type DashboardTab = 'ready' | 'final' | 'others';
@@ -41,6 +58,8 @@ export interface Period {
   name: string;
   is_active: boolean;
   max_supervisor_load?: number;
+  min_group_size?: number;
+  max_group_size?: number;
   start_date?: string;
   end_date?: string;
 }

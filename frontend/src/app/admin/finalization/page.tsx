@@ -36,6 +36,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Search,
@@ -90,7 +99,7 @@ export default function FinalizationPage() {
     selectPeriod,
   } = useFinalizationDashboard(periodId);
 
-  const { lecturers } = useSupervisorLoad(period?.id);
+  const { lecturers: supervisorLecturers } = useSupervisorLoad(period?.id);
   const {
     executeFinalization,
     executingFinalization,
@@ -101,7 +110,7 @@ export default function FinalizationPage() {
   const {
     availableGroups,
     availableTitles,
-    lecturers,
+    lecturers: manualGroupingLecturers,
     creatingGroup,
     addingMembers,
     promotingToReady,
@@ -117,6 +126,8 @@ export default function FinalizationPage() {
   // Local state
   const [showExecuteDialog, setShowExecuteDialog] = useState(false);
   const [showGroupingDialog, setShowGroupingDialog] = useState(false);
+  const [showAssignTitleDialog, setShowAssignTitleDialog] = useState(false);
+  const [selectedGroupForAction, setSelectedGroupForAction] = useState<Group | null>(null);
   const [settingRow, setSettingRow] = useState<number | null>(null);
 
   // Fetch available groups when dialog opens
@@ -177,9 +188,14 @@ export default function FinalizationPage() {
     }
   }, [assignTitle, refresh]);
 
-  // Handler for promoting TITLE_APPROVED group to READY_FOR_FINALIZATION
-  const handlePromoteToReady = useCallback(async (groupId: number) => {
-    const success = await promoteToReadyForFinalization({ groupId });
+  const handleAddMemberToGroup = useCallback((group: Group) => {
+    setSelectedGroupForAction(group);
+    // Open manual grouping dialog with pre-selected group
+    setShowGroupingDialog(true);
+  }, []);
+
+  const handleFinalizeGroup = useCallback(async (group: Group) => {
+    const success = await promoteToReadyForFinalization({ groupId: group.id });
     if (success) {
       refresh();
     }
@@ -702,7 +718,7 @@ export default function FinalizationPage() {
                                 <SelectValue placeholder="Pilih SV1" />
                               </SelectTrigger>
                               <SelectContent>
-                                {lecturers.map((lec) => (
+                                {supervisorLecturers.map((lec) => (
                                   <SelectItem
                                     key={lec.id}
                                     value={lec.id.toString()}
@@ -730,7 +746,7 @@ export default function FinalizationPage() {
                                 <SelectValue placeholder="Pilih SV2" />
                               </SelectTrigger>
                               <SelectContent>
-                                {lecturers.map((lec) => (
+                                {supervisorLecturers.map((lec) => (
                                   <SelectItem
                                     key={lec.id}
                                     value={lec.id.toString()}
@@ -1053,14 +1069,15 @@ export default function FinalizationPage() {
 
                   <div className="rounded-md border">
                     <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Nama Kelompok</TableHead>
-                          <TableHead>Anggota</TableHead>
-                          <TableHead>Judul</TableHead>
-                          <TableHead>Status</TableHead>
-                        </TableRow>
-                      </TableHeader>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Nama Kelompok</TableHead>
+                            <TableHead>Anggota</TableHead>
+                            <TableHead>Judul</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead className="w-[120px]">Aksi</TableHead>
+                          </TableRow>
+                        </TableHeader>
                       <TableBody>
                         {loading ? (
                           <TableRow>
@@ -1098,6 +1115,38 @@ export default function FinalizationPage() {
                                 )}
                               </TableCell>
                               <TableCell>{getStatusBadge(group.status)}</TableCell>
+                              <TableCell>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                      <Settings className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end">
+                                    {group.status === 'FORMING' && (
+                                      <DropdownMenuItem onClick={() => handleAddMemberToGroup(group)}>
+                                        <UserPlus className="mr-2 h-4 w-4" />
+                                        Tambah Anggota
+                                      </DropdownMenuItem>
+                                    )}
+                                    {group.status === 'READY_FOR_BIDDING' && (
+                                      <DropdownMenuItem onClick={() => {
+                                        setSelectedGroupForAction(group);
+                                        setShowAssignTitleDialog(true);
+                                      }}>
+                                        <FileText className="mr-2 h-4 w-4" />
+                                        Assign Judul
+                                      </DropdownMenuItem>
+                                    )}
+                                    {group.status === 'TITLE_APPROVED' && (
+                                      <DropdownMenuItem onClick={() => handleFinalizeGroup(group)}>
+                                        <CheckCircle className="mr-2 h-4 w-4" />
+                                        Finalisasi
+                                      </DropdownMenuItem>
+                                    )}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </TableCell>
                             </TableRow>
                           ))
                         )}
@@ -1129,10 +1178,59 @@ export default function FinalizationPage() {
         studentsWithoutGroup={activeTab === 'others' && activeSubTab === 'no_group' ? (tableData as Student[]) : []}
         existingGroups={availableGroups}
         availableTitles={availableTitles}
+        lecturers={manualGroupingLecturers}
         loading={creatingGroup || addingMembers}
+        minGroupSize={period?.min_group_size ?? 3}
+        maxGroupSize={period?.max_group_size ?? 4}
         onCreateGroup={handleCreateGroup}
         onAddToExisting={handleAddToExistingGroup}
       />
+
+      {/* Dialog for assigning title to READY_FOR_BIDDING group */}
+      <Dialog open={showAssignTitleDialog} onOpenChange={setShowAssignTitleDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Assign Judul ke Grup</DialogTitle>
+            <DialogDescription>
+              Pilih judul yang akan di-assign ke grup {selectedGroupForAction?.name}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Pilih Judul</Label>
+              <Select
+                onValueChange={(value) => {
+                  if (selectedGroupForAction) {
+                    handleAssignTitleToGroup(selectedGroupForAction.id, parseInt(value));
+                    setShowAssignTitleDialog(false);
+                  }
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih judul..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTitles.map((title) => (
+                    <SelectItem key={title.id} value={title.id.toString()}>
+                      <div className="flex flex-col">
+                        <span>{title.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {title.lecturer?.name} (Quota: {title.quota})
+                        </span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAssignTitleDialog(false)}>
+              Batal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
