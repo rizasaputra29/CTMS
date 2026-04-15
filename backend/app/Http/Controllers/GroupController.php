@@ -589,8 +589,31 @@ class GroupController extends Controller
 
         DB::beginTransaction();
         try {
-            $memberStudent = User::find($member->student_id);
-            $this->groupService->handleLeaveGroup($memberStudent);
+            $removedStudentId = $member->student_id;
+
+            // 1. Hapus membership dari grup (tanpa membuat grup solo baru)
+            $member->delete();
+
+            // 2. Handle grup lama - update status sesuai jumlah anggota yang tersisa
+            $remainingMembers = GroupMember::where('group_id', $group->id)->count();
+            if ($remainingMembers === 0) {
+                // Arsipkan grup jika kosong
+                $group->update(['status' => 'DISSOLVED']);
+                Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+            } else {
+                // Evaluasi ulang status grup (FORMING, READY_FOR_BIDDING, dll)
+                $this->groupService->evaluateGroupReadiness($group);
+            }
+
+            // 3. Kirim notifikasi ke member yang di-kick
+            Notification::create([
+                'user_id' => $removedStudentId,
+                'type' => 'REMOVED_FROM_GROUP',
+                'title' => 'Dikeluarkan dari Grup',
+                'message' => 'Anda telah dikeluarkan dari grup oleh ketua grup.',
+                'related_type' => 'Group',
+                'related_id' => $group->id,
+            ]);
 
             DB::commit();
 
