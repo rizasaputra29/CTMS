@@ -420,6 +420,7 @@ export function ManualGroupingDialog({
                         <div className="space-y-2">
                           <Label>Dosen Pemilik Judul</Label>
                           <Select
+                            disabled={lecturers.length === 0}
                             value={selectedLecturerId?.toString() || ''}
                             onValueChange={(value) => setSelectedLecturerId(parseInt(value))}
                           >
@@ -434,6 +435,11 @@ export function ManualGroupingDialog({
                               ))}
                             </SelectContent>
                           </Select>
+                          {lecturers.length === 0 && (
+                            <p className="text-xs text-muted-foreground">
+                              Daftar dosen belum tersedia. Tutup dan buka ulang dialog untuk memuat ulang data.
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>

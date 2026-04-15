@@ -94,12 +94,14 @@ export function useManualGrouping(): UseManualGroupingReturn {
     try {
       const params = periodId ? { period_id: periodId } : {};
       const response = await api.get('/admin/finalization/available-titles', { params });
+      console.log('Fetched available titles:', response.data.titles);
       setAvailableTitles(response.data.titles || []);
     } catch (err) {
       const message = api.isAxiosError(err)
         ? err.response?.data?.message || 'Gagal memuat judul yang tersedia'
         : 'Terjadi kesalahan';
       toast.error(message);
+      console.error('Error fetching titles:', err);
       setAvailableTitles([]);
     } finally {
       setFetchingTitles(false);
@@ -111,12 +113,14 @@ export function useManualGrouping(): UseManualGroupingReturn {
     try {
       const params = periodId ? { period_id: periodId } : {};
       const response = await api.get('/admin/finalization/lecturers', { params });
+      console.log('Fetched lecturers:', response.data.lecturers);
       setLecturers(response.data.lecturers || []);
     } catch (err) {
       const message = api.isAxiosError(err)
         ? err.response?.data?.message || 'Gagal memuat dosen'
         : 'Terjadi kesalahan';
       toast.error(message);
+      console.error('Error fetching lecturers:', err);
       setLecturers([]);
     } finally {
       setFetchingLecturers(false);
@@ -154,7 +158,12 @@ export function useManualGrouping(): UseManualGroupingReturn {
       }
 
       if (option === 'add_title' && newTitle) {
-        payload.new_title = newTitle;
+        payload.new_title = {
+          title: newTitle.title,
+          description: newTitle.description,
+          specializations: newTitle.specializations,
+          lecturer_id: newTitle.lecturerId,
+        };
       }
 
       await api.post('/admin/finalization/create-manual-group', payload);

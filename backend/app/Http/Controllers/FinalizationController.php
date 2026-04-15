@@ -1513,10 +1513,9 @@ class FinalizationController extends Controller
 
         // Get titles without assigned groups
         // Include:
-        // 1. Titles created by lecturers (period_id matches)
-        // 2. Titles proposed by groups in this period (marketplace titles)
+        // 1. Titles created by lecturers (period_id matches) - can have NULL or APPROVED status
+        // 2. Titles proposed by groups in this period (marketplace titles) - must be APPROVED
         // Only check:
-        // - Status is APPROVED
         // - Has remaining quota (not full)
         $emptyTitles = Title::with('lecturer', 'proposedByGroup')
             ->where(function ($query) use ($period) {
@@ -1525,7 +1524,12 @@ class FinalizationController extends Controller
                         $gq->where('period_id', $period->id);
                     });
             })
-            ->where('supervisor_approval_status', 'APPROVED')
+            ->where(function ($query) {
+                // Include titles that are APPROVED OR have NULL supervisor_approval_status
+                // (lecturer-created titles may have NULL status)
+                $query->where('supervisor_approval_status', 'APPROVED')
+                    ->orWhereNull('supervisor_approval_status');
+            })
             ->get()
             ->filter(function ($title) {
                 // Check if title has remaining quota

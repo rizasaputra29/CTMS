@@ -134,11 +134,17 @@ export default function FinalizationPage() {
   const handleOpenGroupingDialog = useCallback(async (open: boolean) => {
     setShowGroupingDialog(open);
     if (open && period) {
-      await Promise.all([
-        fetchAvailableGroups(period.id),
-        fetchAvailableTitles(period.id),
-        fetchLecturers(period.id),
-      ]);
+      console.log('Opening dialog, fetching data for period:', period.id);
+      try {
+        await Promise.all([
+          fetchAvailableGroups(period.id),
+          fetchAvailableTitles(period.id),
+          fetchLecturers(period.id),
+        ]);
+        console.log('Data fetching completed');
+      } catch (err) {
+        console.error('Error fetching dialog data:', err);
+      }
     }
   }, [period, fetchAvailableGroups, fetchAvailableTitles, fetchLecturers]);
 
@@ -191,8 +197,17 @@ export default function FinalizationPage() {
   const handleAddMemberToGroup = useCallback((group: Group) => {
     setSelectedGroupForAction(group);
     // Open manual grouping dialog with pre-selected group
-    setShowGroupingDialog(true);
-  }, []);
+    handleOpenGroupingDialog(true);
+  }, [handleOpenGroupingDialog]);
+
+  const handleOpenAssignTitleDialog = useCallback(async (group: Group) => {
+    setSelectedGroupForAction(group);
+    setShowAssignTitleDialog(true);
+
+    if (period) {
+      await fetchAvailableTitles(period.id);
+    }
+  }, [period, fetchAvailableTitles]);
 
   const handleFinalizeGroup = useCallback(async (group: Group) => {
     const success = await promoteToReadyForFinalization({ groupId: group.id });
@@ -954,7 +969,7 @@ export default function FinalizationPage() {
                         className="pl-9"
                       />
                     </div>
-                    <Button onClick={() => setShowGroupingDialog(true)}>
+                    <Button onClick={() => handleOpenGroupingDialog(true)}>
                       <UserPlus className="mr-2 h-4 w-4" />
                       Grouping Manual
                     </Button>
@@ -1130,10 +1145,7 @@ export default function FinalizationPage() {
                                       </DropdownMenuItem>
                                     )}
                                     {group.status === 'READY_FOR_BIDDING' && (
-                                      <DropdownMenuItem onClick={() => {
-                                        setSelectedGroupForAction(group);
-                                        setShowAssignTitleDialog(true);
-                                      }}>
+                                      <DropdownMenuItem onClick={() => handleOpenAssignTitleDialog(group)}>
                                         <FileText className="mr-2 h-4 w-4" />
                                         Assign Judul
                                       </DropdownMenuItem>
@@ -1199,6 +1211,7 @@ export default function FinalizationPage() {
             <div className="space-y-2">
               <Label>Pilih Judul</Label>
               <Select
+                disabled={availableTitles.length === 0}
                 onValueChange={(value) => {
                   if (selectedGroupForAction) {
                     handleAssignTitleToGroup(selectedGroupForAction.id, parseInt(value));
@@ -1222,6 +1235,11 @@ export default function FinalizationPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {availableTitles.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Belum ada judul marketplace yang tersedia untuk periode ini.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
