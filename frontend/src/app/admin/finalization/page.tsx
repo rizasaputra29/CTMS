@@ -137,7 +137,7 @@ export default function FinalizationPage() {
       await Promise.all([
         fetchAvailableGroups(period.id),
         fetchAvailableTitles(period.id),
-        fetchLecturers(),
+        fetchLecturers(period.id),
       ]);
     }
   }, [period, fetchAvailableGroups, fetchAvailableTitles, fetchLecturers]);

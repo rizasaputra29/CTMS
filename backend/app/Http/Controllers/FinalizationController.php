@@ -1510,15 +1510,12 @@ class FinalizationController extends Controller
         ]);
 
         // Get titles without assigned groups
-        // Include both:
-        // 1. Titles with proposed_by_group_id = NULL (dosen-created titles)
-        // 2. Titles from LECTURER source that haven't been assigned to any group yet
+        // Only check:
+        // 1. Period ID matches
+        // 2. Status is APPROVED
+        // 3. Has remaining quota (not full)
         $emptyTitles = Title::with('lecturer')
             ->where('period_id', $period->id)
-            ->where(function ($query) {
-                $query->whereNull('proposed_by_group_id')
-                      ->orWhere('title_source', 'LECTURER');
-            })
             ->where('supervisor_approval_status', 'APPROVED')
             ->get()
             ->filter(function ($title) {
