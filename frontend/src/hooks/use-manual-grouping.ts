@@ -35,7 +35,7 @@ interface UseManualGroupingReturn {
   fetchingLecturers: boolean;
   fetchAvailableGroups: (periodId?: number) => Promise<void>;
   fetchAvailableTitles: (periodId?: number) => Promise<void>;
-  fetchLecturers: () => Promise<void>;
+  fetchLecturers: (periodId?: number) => Promise<void>;
   createManualGroup: (data: {
     studentIds: number[];
     periodId: number;
@@ -106,11 +106,12 @@ export function useManualGrouping(): UseManualGroupingReturn {
     }
   }, []);
 
-  const fetchLecturers = useCallback(async () => {
+  const fetchLecturers = useCallback(async (periodId?: number) => {
     setFetchingLecturers(true);
     try {
-      const response = await api.get('/admin/lecturers');
-      setLecturers(response.data.data || []);
+      const params = periodId ? { period_id: periodId } : {};
+      const response = await api.get('/admin/finalization/lecturers', { params });
+      setLecturers(response.data.lecturers || []);
     } catch (err) {
       const message = api.isAxiosError(err)
         ? err.response?.data?.message || 'Gagal memuat dosen'

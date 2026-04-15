@@ -12,6 +12,7 @@ use App\Services\FinalizationService;
 use App\Services\AutoMatchmakerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class FinalizationController extends Controller
 {
@@ -1500,10 +1501,24 @@ class FinalizationController extends Controller
     {
         $period = $this->resolvePeriod($request);
 
+        // Debug logging
+        \Log::info('getAvailableTitles called', [
+            'period_id' => $period->id,
+            'total_titles_in_period' => Title::where('period_id', $period->id)->count(),
+            'approved_titles' => Title::where('period_id', $period->id)->where('supervisor_approval_status', 'APPROVED')->count(),
+            'with_null_proposed_by' => Title::where('period_id', $period->id)->whereNull('proposed_by_group_id')->count(),
+        ]);
+
         // Get titles without assigned groups
+        // Include both:
+        // 1. Titles with proposed_by_group_id = NULL (dosen-created titles)
+        // 2. Titles from LECTURER source that haven't been assigned to any group yet
         $emptyTitles = Title::with('lecturer')
             ->where('period_id', $period->id)
-            ->whereNull('proposed_by_group_id')
+            ->where(function ($query) {
+                $query->whereNull('proposed_by_group_id')
+                      ->orWhere('title_source', 'LECTURER');
+            })
             ->where('supervisor_approval_status', 'APPROVED')
             ->get()
             ->filter(function ($title) {
@@ -1511,9 +1526,24 @@ class FinalizationController extends Controller
                 $currentAllocations = Group::where('title_id', $title->id)
                     ->whereNotIn('status', ['CLOSED', 'DISSOLVED'])
                     ->count();
-                return $currentAllocations < $title->quota;
+                $hasQuota = $currentAllocations < $title->quota;
+                
+                \Log::debug('Title quota check', [
+                    'title_id' => $title->id,
+                    'title' => $title->title,
+                    'current_allocations' => $currentAllocations,
+                    'quota' => $title->quota,
+                    'has_quota' => $hasQuota,
+                ]);
+                
+                return $hasQuota;
             })
             ->values();
+
+        \Log::info('getAvailableTitles result', [
+            'count' => $emptyTitles->count(),
+            'title_ids' => $emptyTitles->pluck('id')->toArray(),
+        ]);
 
         return response()->json([
             'titles' => $emptyTitles,

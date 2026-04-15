@@ -638,6 +638,54 @@ class GroupController extends Controller
     }
 
     /**
+     * Leave the group completely - removes membership without creating solo group.
+     * This allows the student to have no group association (like being deleted from the system).
+     */
+    public function leaveGroupCompletely(Request $request)
+    {
+        $user = $request->user();
+
+        $membership = GroupMember::where('student_id', $user->id)->first();
+        if (!$membership) {
+            return response()->json(['message' => 'Anda belum memiliki kelompok.'], 400);
+        }
+
+        // Only allow if group is in FORMING or FORMING_SOLO status
+        $group = Group::with('period')->find($membership->group_id);
+        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
+            return response()->json([
+                'message' => 'Hanya dapat keluar sepenuhnya dari grup dengan status FORMING.',
+                'current_status' => $group->status,
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Delete the membership completely (no solo group created)
+            $membership->delete();
+
+            // Handle old group
+            $remainingMembers = GroupMember::where('group_id', $group->id)->count();
+            if ($remainingMembers === 0) {
+                // Archive the group by setting status to DISSOLVED
+                $group->update(['status' => 'DISSOLVED']);
+                \Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+            } else {
+                $this->groupService->evaluateGroupReadiness($group);
+            }
+
+            DB::commit();
+            return response()->json([
+                'message' => 'Anda telah keluar dari grup dan tidak memiliki kelompok aktif.',
+                'group_dissolved' => $remainingMembers === 0,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal keluar dari grup: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Propose preferred supervisors (group leader only, when READY_FOR_BIDDING).
      */
     public function proposeSupervisors(Request $request)

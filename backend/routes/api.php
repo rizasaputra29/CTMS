@@ -270,6 +270,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/group/store-solo', [GroupController::class, 'storeSolo']);
         Route::delete('/group', [GroupController::class, 'deleteGroup']);
         Route::post('/group/leave', [GroupController::class, 'leaveGroup']);
+        Route::post('/group/leave-completely', [GroupController::class, 'leaveGroupCompletely']);
         Route::post('/group/add-member', [GroupController::class, 'addMember']);
          Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
          Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
