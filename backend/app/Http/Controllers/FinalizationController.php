@@ -1017,7 +1017,9 @@ class FinalizationController extends Controller
     {
         $period = $this->resolvePeriod($request);
 
-        $lecturers = \App\Models\User::whereIn('role', ['dosen', 'kaprodi', 'admin'])
+        $lecturers = \App\Models\User::whereHas('roles', function ($q) {
+                $q->whereIn('slug', ['dosen', 'kaprodi', 'admin']);
+            })
             ->select('id', 'name', 'email', 'nip')
             ->orderBy('name', 'asc')
             ->get();
@@ -1510,12 +1512,19 @@ class FinalizationController extends Controller
         ]);
 
         // Get titles without assigned groups
+        // Include:
+        // 1. Titles created by lecturers (period_id matches)
+        // 2. Titles proposed by groups in this period (marketplace titles)
         // Only check:
-        // 1. Period ID matches
-        // 2. Status is APPROVED
-        // 3. Has remaining quota (not full)
-        $emptyTitles = Title::with('lecturer')
-            ->where('period_id', $period->id)
+        // - Status is APPROVED
+        // - Has remaining quota (not full)
+        $emptyTitles = Title::with('lecturer', 'proposedByGroup')
+            ->where(function ($query) use ($period) {
+                $query->where('period_id', $period->id)
+                    ->orWhereHas('proposedByGroup', function ($gq) use ($period) {
+                        $gq->where('period_id', $period->id);
+                    });
+            })
             ->where('supervisor_approval_status', 'APPROVED')
             ->get()
             ->filter(function ($title) {
