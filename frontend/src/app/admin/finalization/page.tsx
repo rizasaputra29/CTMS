@@ -101,12 +101,17 @@ export default function FinalizationPage() {
   const {
     availableGroups,
     availableTitles,
+    lecturers,
     creatingGroup,
     addingMembers,
+    promotingToReady,
     fetchAvailableGroups,
     fetchAvailableTitles,
+    fetchLecturers,
     createManualGroup,
     addToExistingGroup,
+    assignTitle,
+    promoteToReadyForFinalization,
   } = useManualGrouping();
 
   // Local state
@@ -121,21 +126,29 @@ export default function FinalizationPage() {
       await Promise.all([
         fetchAvailableGroups(period.id),
         fetchAvailableTitles(period.id),
+        fetchLecturers(),
       ]);
     }
-  }, [period, fetchAvailableGroups, fetchAvailableTitles]);
+  }, [period, fetchAvailableGroups, fetchAvailableTitles, fetchLecturers]);
 
   // Handlers for manual grouping
-  const handleCreateGroup = useCallback(async (
-    studentIds: number[],
-    titleId?: number,
-    newTitle?: { title: string; description?: string; specializations: string[] }
-  ) => {
+  const handleCreateGroup = useCallback(async ({
+    studentIds,
+    option,
+    titleId,
+    newTitle,
+  }: {
+    studentIds: number[];
+    option: 'no_title' | 'assign_title' | 'add_title';
+    titleId?: number;
+    newTitle?: { title: string; description?: string; specializations: string[]; lecturerId: number };
+  }) => {
     if (!period) return;
     
     const success = await createManualGroup({
       studentIds,
       periodId: period.id,
+      option,
       titleId,
       newTitle,
     });
@@ -155,6 +168,22 @@ export default function FinalizationPage() {
       refresh();
     }
   }, [addToExistingGroup, refresh]);
+
+  // Handler for assigning title to READY_FOR_BIDDING group
+  const handleAssignTitleToGroup = useCallback(async (groupId: number, titleId: number) => {
+    const success = await assignTitle({ groupId, titleId });
+    if (success) {
+      refresh();
+    }
+  }, [assignTitle, refresh]);
+
+  // Handler for promoting TITLE_APPROVED group to READY_FOR_FINALIZATION
+  const handlePromoteToReady = useCallback(async (groupId: number) => {
+    const success = await promoteToReadyForFinalization({ groupId });
+    if (success) {
+      refresh();
+    }
+  }, [promoteToReadyForFinalization, refresh]);
 
   // Derived data
   const isPaginatedData = data && 'data' in data;

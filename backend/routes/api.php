@@ -112,6 +112,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/finalization/add-to-existing-group', [FinalizationController::class, 'addToExistingGroup']);
         Route::get('/finalization/available-titles', [FinalizationController::class, 'getAvailableTitles']);
         Route::post('/finalization/assign-title', [FinalizationController::class, 'assignTitle']);
+        Route::post('/finalization/promote-to-ready', [FinalizationController::class, 'promoteToReadyForFinalization']);
 
         // V4: Expo Event Management
         Route::apiResource('expo-events', ExpoEventController::class);

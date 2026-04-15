@@ -1236,7 +1236,12 @@ class FinalizationController extends Controller
     }
 
     /**
-     * Create a new group manually with selected students and optional title.
+     * Create a new group manually with selected students and title options.
+     * 
+     * Three options:
+     * 1. Tanpa Judul (no_title): Members >= min_size → READY_FOR_BIDDING, < min_size → FORMING
+     * 2. Assign Judul (assign_title): min_size <= members <= max_size → READY_FOR_FINALIZATION
+     * 3. Tambah Judul (add_title): min_size <= members <= max_size → READY_FOR_FINALIZATION, with lecturer as owner
      */
     public function createManualGroup(Request $request)
     {
@@ -1244,22 +1249,26 @@ class FinalizationController extends Controller
             'student_ids' => 'required|array|min:1',
             'student_ids.*' => 'exists:users,id',
             'period_id' => 'required|exists:periods,id',
-            'title_id' => 'nullable|exists:titles,id',
-            'new_title' => 'nullable|array',
+            'option' => 'required|in:no_title,assign_title,add_title',
+            'title_id' => 'nullable|required_if:option,assign_title|exists:titles,id',
+            'new_title' => 'nullable|required_if:option,add_title|array',
             'new_title.title' => 'required_with:new_title|string|max:500',
             'new_title.description' => 'nullable|string',
             'new_title.specializations' => 'required_with:new_title|array|min:1',
             'new_title.specializations.*' => 'string|in:Software,Embedded,Network,Multimedia,AI,Blockchain',
+            'new_title.lecturer_id' => 'required_with:new_title|exists:users,id',
         ]);
 
         $period = Period::findOrFail($request->period_id);
         $user = $request->user();
+        $option = $request->option;
 
         // Only admin can do manual grouping
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan grouping manual.'], 403);
         }
 
+        $minSize = $period->min_group_size ?? 3;
         $maxSize = $period->max_group_size ?? 4;
         $studentCount = count($request->student_ids);
 
@@ -1268,6 +1277,15 @@ class FinalizationController extends Controller
             return response()->json([
                 'message' => "Jumlah mahasiswa ({$studentCount}) melebihi batas maksimal grup ({$maxSize})."
             ], 400);
+        }
+
+        // For assign_title and add_title options, strict validation: min_size <= members <= max_size
+        if (in_array($option, ['assign_title', 'add_title'])) {
+            if ($studentCount < $minSize || $studentCount > $maxSize) {
+                return response()->json([
+                    'message' => "Untuk opsi judul, jumlah anggota harus antara {$minSize} dan {$maxSize}."
+                ], 400);
+            }
         }
 
         // Validate students are registered for this period and don't have groups
@@ -1299,27 +1317,37 @@ class FinalizationController extends Controller
 
         DB::beginTransaction();
         try {
-            $titleId = $request->title_id;
+            $titleId = null;
+            $groupStatus = 'FORMING';
 
-            // Create new title if provided
-            if ($request->has('new_title') && $request->new_title) {
+            // Determine status based on option and member count
+            if ($option === 'no_title') {
+                // Tanpa Judul: FORMING if < min_size, READY_FOR_BIDDING if >= min_size
+                $groupStatus = $studentCount >= $minSize ? 'READY_FOR_BIDDING' : 'FORMING';
+            } elseif ($option === 'assign_title') {
+                // Assign Judul: Assign existing title, status READY_FOR_FINALIZATION
+                $titleId = $request->title_id;
+                $groupStatus = 'READY_FOR_FINALIZATION';
+            } elseif ($option === 'add_title') {
+                // Tambah Judul: Create new title with lecturer as owner
                 $title = Title::create([
                     'title' => $request->new_title['title'],
                     'description' => $request->new_title['description'] ?? null,
                     'specializations' => $request->new_title['specializations'] ?? [],
                     'period_id' => $period->id,
-                    'lecturer_id' => $user->id,
+                    'lecturer_id' => $request->new_title['lecturer_id'],
                     'title_source' => 'LECTURER',
                     'quota' => 1,
                     'supervisor_approval_status' => 'APPROVED',
                 ]);
                 $titleId = $title->id;
+                $groupStatus = 'READY_FOR_FINALIZATION';
             }
 
             // Create the group
             $group = Group::create([
                 'period_id' => $period->id,
-                'status' => 'READY_FOR_FINALIZATION',
+                'status' => $groupStatus,
                 'title_id' => $titleId,
                 'group_mode' => 'GROUP',
                 'has_existing_group' => false,
@@ -1345,8 +1373,9 @@ class FinalizationController extends Controller
                 'action' => 'MANUAL_GROUP_CREATED',
                 'new_values' => [
                     'student_ids' => $request->student_ids,
+                    'option' => $option,
                     'title_id' => $titleId,
-                    'status' => 'READY_FOR_FINALIZATION',
+                    'status' => $groupStatus,
                 ],
             ]);
 
@@ -1423,6 +1452,16 @@ class FinalizationController extends Controller
                 ]);
             }
 
+            $oldStatus = $group->status;
+            $newStatus = $oldStatus;
+
+            // Auto-promote FORMING to READY_FOR_BIDDING if member count >= min_size
+            $minSize = $group->period->min_group_size ?? 3;
+            if ($oldStatus === 'FORMING' && ($currentCount + $newCount) >= $minSize) {
+                $group->update(['status' => 'READY_FOR_BIDDING']);
+                $newStatus = 'READY_FOR_BIDDING';
+            }
+
             // Audit log
             \App\Models\FinalizationAudit::create([
                 'period_id' => $group->period_id,
@@ -1432,13 +1471,20 @@ class FinalizationController extends Controller
                 'new_values' => [
                     'added_student_ids' => $request->student_ids,
                     'new_member_count' => $currentCount + $newCount,
+                    'old_status' => $oldStatus,
+                    'new_status' => $newStatus,
                 ],
             ]);
 
             DB::commit();
 
+            $message = 'Anggota berhasil ditambahkan.';
+            if ($newStatus !== $oldStatus) {
+                $message .= " Status grup otomatis berubah dari {$oldStatus} ke {$newStatus}.";
+            }
+
             return response()->json([
-                'message' => 'Anggota berhasil ditambahkan.',
+                'message' => $message,
                 'group' => $group->fresh(['members.student', 'title']),
             ]);
         } catch (\Exception $e) {
@@ -1509,9 +1555,19 @@ class FinalizationController extends Controller
         DB::beginTransaction();
         try {
             $oldTitleId = $group->title_id;
+            $oldStatus = $group->status;
+
+            // Determine new status
+            // If group was READY_FOR_BIDDING, change to TITLE_APPROVED
+            // Otherwise keep current status
+            $newStatus = $oldStatus;
+            if ($oldStatus === 'READY_FOR_BIDDING') {
+                $newStatus = 'TITLE_APPROVED';
+            }
 
             $group->update([
                 'title_id' => $title->id,
+                'status' => $newStatus,
             ]);
 
             // Audit log
@@ -1520,19 +1576,115 @@ class FinalizationController extends Controller
                 'group_id' => $group->id,
                 'user_id' => $user->id,
                 'action' => 'TITLE_ASSIGNED',
-                'old_values' => ['title_id' => $oldTitleId],
-                'new_values' => ['title_id' => $title->id],
+                'old_values' => [
+                    'title_id' => $oldTitleId,
+                    'status' => $oldStatus,
+                ],
+                'new_values' => [
+                    'title_id' => $title->id,
+                    'status' => $newStatus,
+                ],
             ]);
 
             DB::commit();
 
+            $message = 'Judul berhasil ditetapkan.';
+            if ($newStatus !== $oldStatus) {
+                $message .= " Status grup berubah dari {$oldStatus} ke {$newStatus}.";
+            }
+
             return response()->json([
-                'message' => 'Judul berhasil ditetapkan.',
+                'message' => $message,
                 'group' => $group->fresh(['title', 'members.student']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Gagal menetapkan judul: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Promote TITLE_APPROVED group to READY_FOR_FINALIZATION.
+     * Admin can do this when group has title and proper member count.
+     */
+    public function promoteToReadyForFinalization(Request $request)
+    {
+        $request->validate([
+            'group_id' => 'required|exists:groups,id',
+        ]);
+
+        $user = $request->user();
+        $group = Group::with(['members', 'period', 'title'])->findOrFail($request->group_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat melakukan ini.'], 403);
+        }
+
+        // Validate group is in TITLE_APPROVED status
+        if ($group->status !== 'TITLE_APPROVED') {
+            return response()->json([
+                'message' => 'Grup harus dalam status TITLE_APPROVED untuk dipromosikan.'
+            ], 400);
+        }
+
+        // Validate group has title assigned
+        if (!$group->title_id) {
+            return response()->json([
+                'message' => 'Grup harus memiliki judul untuk dipromosikan.'
+            ], 400);
+        }
+
+        // Validate member count is within range
+        $minSize = $group->period->min_group_size ?? 3;
+        $maxSize = $group->period->max_group_size ?? 4;
+        $memberCount = $group->members->count();
+
+        if ($memberCount < $minSize || $memberCount > $maxSize) {
+            return response()->json([
+                'message' => "Jumlah anggota ({$memberCount}) harus antara {$minSize} dan {$maxSize}."
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldStatus = $group->status;
+
+            $group->update([
+                'status' => 'READY_FOR_FINALIZATION',
+            ]);
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $group->period_id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'PROMOTED_TO_READY_FOR_FINALIZATION',
+                'old_values' => ['status' => $oldStatus],
+                'new_values' => ['status' => 'READY_FOR_FINALIZATION'],
+            ]);
+
+            // Notify members
+            foreach ($group->members as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'GROUP_PROMOTED',
+                    'title' => 'Grup Siap Finalisasi',
+                    'message' => 'Grup Anda telah dipromosikan ke status Ready for Finalization.',
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Grup berhasil dipromosikan ke Ready for Finalization.',
+                'group' => $group->fresh(['title', 'members.student']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal mempromosikan grup: ' . $e->getMessage()], 500);
         }
     }
 }

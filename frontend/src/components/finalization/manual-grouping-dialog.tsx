@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -39,18 +39,32 @@ interface AvailableTitle {
   };
 }
 
+interface Lecturer {
+  id: number;
+  name: string;
+}
+
 interface ManualGroupingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   studentsWithoutGroup: Student[];
   existingGroups: Group[];
   availableTitles: AvailableTitle[];
+  lecturers: Lecturer[];
   loading: boolean;
-  onCreateGroup: (
-    studentIds: number[],
-    titleId?: number,
-    newTitle?: { title: string; description?: string; specializations: string[] }
-  ) => Promise<void>;
+  minGroupSize: number;
+  maxGroupSize: number;
+  onCreateGroup: (data: {
+    studentIds: number[];
+    option: 'no_title' | 'assign_title' | 'add_title';
+    titleId?: number;
+    newTitle?: {
+      title: string;
+      description?: string;
+      specializations: string[];
+      lecturerId: number;
+    };
+  }) => Promise<void>;
   onAddToExisting: (studentIds: number[], groupId: number) => Promise<void>;
 }
 
@@ -60,7 +74,10 @@ export function ManualGroupingDialog({
   studentsWithoutGroup,
   existingGroups,
   availableTitles,
+  lecturers,
   loading,
+  minGroupSize,
+  maxGroupSize,
   onCreateGroup,
   onAddToExisting,
 }: ManualGroupingDialogProps) {
@@ -68,20 +85,32 @@ export function ManualGroupingDialog({
   const [mode, setMode] = useState<'create' | 'add'>('create');
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   
-  // Title selection state for create mode
-  const [titleMode, setTitleMode] = useState<'none' | 'existing' | 'new'>('none');
+  // Create group options: 'no_title' | 'assign_title' | 'add_title'
+  const [createOption, setCreateOption] = useState<'no_title' | 'assign_title' | 'add_title'>('no_title');
+  
+  // For assign_title option
   const [selectedTitleId, setSelectedTitleId] = useState<number | null>(null);
+  
+  // For add_title option
   const [newTitle, setNewTitle] = useState({ title: '', description: '' });
   const [newTitleSpecializations, setNewTitleSpecializations] = useState<string[]>([]);
+  const [selectedLecturerId, setSelectedLecturerId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      // Reset form when dialog opens
+      setSelectedStudents([]);
+      setMode('create');
+      setSelectedGroupId(null);
+      setCreateOption('no_title');
+      setSelectedTitleId(null);
+      setNewTitle({ title: '', description: '' });
+      setNewTitleSpecializations([]);
+      setSelectedLecturerId(null);
+    }
+  }, [open]);
 
   const handleClose = () => {
-    setSelectedStudents([]);
-    setMode('create');
-    setSelectedGroupId(null);
-    setTitleMode('none');
-    setSelectedTitleId(null);
-    setNewTitle({ title: '', description: '' });
-    setNewTitleSpecializations([]);
     onOpenChange(false);
   };
 
@@ -97,20 +126,36 @@ export function ManualGroupingDialog({
     if (selectedStudents.length === 0) return;
 
     if (mode === 'create') {
-      let titleId: number | undefined;
-      let newTitleData: { title: string; description?: string; specializations: string[] } | undefined;
-
-      if (titleMode === 'existing' && selectedTitleId) {
-        titleId = selectedTitleId;
-      } else if (titleMode === 'new' && newTitle.title.trim()) {
-        newTitleData = {
-          title: newTitle.title.trim(),
-          description: newTitle.description.trim() || undefined,
-          specializations: newTitleSpecializations,
-        };
+      if (createOption === 'assign_title') {
+        if (!selectedTitleId) {
+          return;
+        }
+        await onCreateGroup({
+          studentIds: selectedStudents,
+          option: 'assign_title',
+          titleId: selectedTitleId,
+        });
+      } else if (createOption === 'add_title') {
+        if (!newTitle.title.trim() || newTitleSpecializations.length === 0 || !selectedLecturerId) {
+          return;
+        }
+        await onCreateGroup({
+          studentIds: selectedStudents,
+          option: 'add_title',
+          newTitle: {
+            title: newTitle.title.trim(),
+            description: newTitle.description.trim() || undefined,
+            specializations: newTitleSpecializations,
+            lecturerId: selectedLecturerId,
+          },
+        });
+      } else {
+        // no_title
+        await onCreateGroup({
+          studentIds: selectedStudents,
+          option: 'no_title',
+        });
       }
-
-      await onCreateGroup(selectedStudents, titleId, newTitleData);
     } else if (mode === 'add' && selectedGroupId) {
       await onAddToExisting(selectedStudents, selectedGroupId);
     }
@@ -119,18 +164,31 @@ export function ManualGroupingDialog({
   };
 
   const availableGroups = existingGroups.filter(
-    (g) => g.members.length < 3 && g.status !== 'CLOSED' && g.status !== 'DISSOLVED'
+    (g) => g.members.length < maxGroupSize && 
+           g.status !== 'CLOSED' && 
+           g.status !== 'DISSOLVED' &&
+           g.status !== 'PDC1_ACTIVE' &&
+           g.status !== 'PDC2_ACTIVE'
   );
 
   const canSubmit = () => {
     if (selectedStudents.length === 0) return false;
     
     if (mode === 'create') {
-      if (titleMode === 'existing' && !selectedTitleId) return false;
-      if (titleMode === 'new') {
+      // Strict validation for assign_title and add_title
+      if (createOption === 'assign_title' || createOption === 'add_title') {
+        const count = selectedStudents.length;
+        if (count < minGroupSize || count > maxGroupSize) return false;
+      }
+      
+      if (createOption === 'assign_title' && !selectedTitleId) return false;
+      
+      if (createOption === 'add_title') {
         if (!newTitle.title.trim()) return false;
         if (newTitleSpecializations.length === 0) return false;
+        if (!selectedLecturerId) return false;
       }
+      
       return true;
     }
     
@@ -141,9 +199,12 @@ export function ManualGroupingDialog({
     return false;
   };
 
+  const selectedCount = selectedStudents.length;
+  const isValidForTitleOptions = selectedCount >= minGroupSize && selectedCount <= maxGroupSize;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[650px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-5 w-5" />
@@ -195,39 +256,101 @@ export function ManualGroupingDialog({
                 </Button>
               </div>
 
-              {/* Create Mode: Title Selection */}
+              {/* Create Mode: 3 Options */}
               {mode === 'create' && (
-                <div className="rounded-lg border p-3 space-y-3">
-                  <Label className="flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Judul (Opsional)
-                  </Label>
+                <div className="rounded-lg border p-4 space-y-4">
+                  <Label className="text-base font-medium">Pilih Opsi Pembuatan Grup</Label>
                   
-                  <Select
-                    value={titleMode}
-                    onValueChange={(value: 'none' | 'existing' | 'new') => {
-                      setTitleMode(value);
-                      setSelectedTitleId(null);
-                      setNewTitle({ title: '', description: '' });
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Pilih opsi judul" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">Tanpa Judul (Nanti)</SelectItem>
-                      <SelectItem value="existing">Pilih Judul Tersedia</SelectItem>
-                      <SelectItem value="new">Buat Judul Baru</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="grid grid-cols-1 gap-3">
+                    {/* Option 1: Tanpa Judul */}
+                    <div
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        createOption === 'no_title'
+                          ? 'bg-primary/5 border-primary'
+                          : 'hover:bg-muted'
+                      }`}
+                      onClick={() => setCreateOption('no_title')}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-4 h-4 rounded-full border mt-1 ${
+                          createOption === 'no_title' ? 'bg-primary border-primary' : 'border-gray-300'
+                        }`} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">Tanpa Judul</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Status: FORMING jika &lt; {minGroupSize} anggota, READY_FOR_BIDDING jika ≥ {minGroupSize}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
 
-                  {titleMode === 'existing' && (
-                    <div className="space-y-2">
-                      <Label className="text-sm text-muted-foreground">Pilih Judul</Label>
+                    {/* Option 2: Assign Judul */}
+                    <div
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        createOption === 'assign_title'
+                          ? 'bg-primary/5 border-primary'
+                          : 'hover:bg-muted'
+                      } ${!isValidForTitleOptions ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => isValidForTitleOptions && setCreateOption('assign_title')}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-4 h-4 rounded-full border mt-1 ${
+                          createOption === 'assign_title' ? 'bg-primary border-primary' : 'border-gray-300'
+                        }`} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">Assign Judul</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Status: READY_FOR_FINALIZATION (wajib {minGroupSize}-{maxGroupSize} anggota)
+                          </p>
+                          {!isValidForTitleOptions && selectedCount > 0 && (
+                            <p className="text-xs text-red-500 mt-1">
+                              Pilih {minGroupSize}-{maxGroupSize} anggota untuk opsi ini
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Option 3: Tambah Judul */}
+                    <div
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        createOption === 'add_title'
+                          ? 'bg-primary/5 border-primary'
+                          : 'hover:bg-muted'
+                      } ${!isValidForTitleOptions ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      onClick={() => isValidForTitleOptions && setCreateOption('add_title')}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={`w-4 h-4 rounded-full border mt-1 ${
+                          createOption === 'add_title' ? 'bg-primary border-primary' : 'border-gray-300'
+                        }`} />
+                        <div className="flex-1">
+                          <h4 className="font-medium">Tambah Judul Baru</h4>
+                          <p className="text-sm text-muted-foreground">
+                            Status: READY_FOR_FINALIZATION (wajib {minGroupSize}-{maxGroupSize} anggota + pilih dosen)
+                          </p>
+                          {!isValidForTitleOptions && selectedCount > 0 && (
+                            <p className="text-xs text-red-500 mt-1">
+                              Pilih {minGroupSize}-{maxGroupSize} anggota untuk opsi ini
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Option 2 Details: Select Title */}
+                  {createOption === 'assign_title' && isValidForTitleOptions && (
+                    <div className="space-y-3 pt-2 border-t">
+                      <Label className="flex items-center gap-2">
+                        <FileText className="h-4 w-4" />
+                        Pilih Judul Tersedia
+                      </Label>
+                      
                       {availableTitles.length === 0 ? (
                         <Alert className="bg-muted">
                           <AlertDescription className="text-sm">
-                            Tidak ada judul yang tersedia. Buat judul baru atau pilih tanpa judul.
+                            Tidak ada judul yang tersedia. Pilih opsi Tambah Judul Baru.
                           </AlertDescription>
                         </Alert>
                       ) : (
@@ -255,40 +378,70 @@ export function ManualGroupingDialog({
                     </div>
                   )}
 
-                  {titleMode === 'new' && (
-                    <div className="space-y-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="new-title">
-                          Judul Baru <span className="text-destructive">*</span>
-                        </Label>
-                        <Input
-                          id="new-title"
-                          placeholder="Masukkan judul..."
-                          value={newTitle.title}
-                          onChange={(e) => setNewTitle({ ...newTitle, title: e.target.value })}
-                        />
-                      </div>
-                      <SpecializationSelector
-                        selected={newTitleSpecializations}
-                        onChange={setNewTitleSpecializations}
-                        required
-                      />
-                      <div className="space-y-2">
-                        <Label htmlFor="new-description">Deskripsi (Opsional)</Label>
-                        <Textarea
-                          id="new-description"
-                          placeholder="Masukkan deskripsi..."
-                          value={newTitle.description}
-                          onChange={(e) => setNewTitle({ ...newTitle, description: e.target.value })}
-                          rows={3}
-                        />
+                  {/* Option 3 Details: Create New Title */}
+                  {createOption === 'add_title' && isValidForTitleOptions && (
+                    <div className="space-y-3 pt-2 border-t">
+                      <Label className="flex items-center gap-2">
+                        <Plus className="h-4 w-4" />
+                        Buat Judul Baru
+                      </Label>
+                      
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="new-title">Judul</Label>
+                          <Input
+                            id="new-title"
+                            placeholder="Masukkan judul..."
+                            value={newTitle.title}
+                            onChange={(e) => setNewTitle({ ...newTitle, title: e.target.value })}
+                          />
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="new-description">Deskripsi (Opsional)</Label>
+                          <Textarea
+                            id="new-description"
+                            placeholder="Masukkan deskripsi..."
+                            value={newTitle.description}
+                            onChange={(e) => setNewTitle({ ...newTitle, description: e.target.value })}
+                            rows={3}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Peminatan</Label>
+                          <SpecializationSelector
+                            selected={newTitleSpecializations}
+                            onChange={setNewTitleSpecializations}
+                            required
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Dosen Pemilik Judul</Label>
+                          <Select
+                            value={selectedLecturerId?.toString() || ''}
+                            onValueChange={(value) => setSelectedLecturerId(parseInt(value))}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Pilih dosen" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {lecturers.map((lecturer) => (
+                                <SelectItem key={lecturer.id} value={lecturer.id.toString()}>
+                                  {lecturer.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Add to Existing Mode: Group Selection */}
+              {/* Add to Existing Mode */}
               {mode === 'add' && availableGroups.length > 0 && (
                 <div className="rounded-lg border p-3 space-y-2">
                   <Label>Pilih Grup Tujuan</Label>
@@ -306,10 +459,10 @@ export function ManualGroupingDialog({
                         <div>
                           <p className="font-medium text-sm">{group.name}</p>
                           <p className="text-xs text-muted-foreground">
-                            {group.title?.title || 'Belum ada judul'}
+                            {group.title?.title || 'Belum ada judul'} • {group.status}
                           </p>
                         </div>
-                        <Badge variant="secondary">{group.members.length}/3 anggota</Badge>
+                        <Badge variant="secondary">{group.members.length}/{maxGroupSize} anggota</Badge>
                       </div>
                     ))}
                   </div>
@@ -321,7 +474,12 @@ export function ManualGroupingDialog({
                 <div className="flex items-center justify-between">
                   <Label>Pilih Mahasiswa</Label>
                   <span className="text-xs text-muted-foreground">
-                    {selectedStudents.length} dipilih
+                    {selectedCount} dipilih
+                    {(createOption === 'assign_title' || createOption === 'add_title') && (
+                      <span className={`ml-2 ${isValidForTitleOptions ? 'text-green-600' : 'text-red-500'}`}>
+                        (wajib {minGroupSize}-{maxGroupSize})
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="h-[200px] rounded-lg border overflow-y-auto">
@@ -364,8 +522,8 @@ export function ManualGroupingDialog({
               disabled={loading || !canSubmit()}
             >
               {mode === 'create'
-                ? `Buat Grup (${selectedStudents.length})`
-                : `Tambah ke Grup (${selectedStudents.length})`}
+                ? `Buat Grup (${selectedCount})`
+                : `Tambah ke Grup (${selectedCount})`}
             </Button>
           )}
         </DialogFooter>

@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import type { Group, Student, GroupMember, GroupStatus } from '@/types/finalization';
+import type { Group, Student } from '@/types/finalization';
 
 // Use Group type directly since backend returns full Group objects
 type AvailableGroup = Group;
@@ -17,24 +17,35 @@ interface AvailableTitle {
   };
 }
 
+interface Lecturer {
+  id: number;
+  name: string;
+}
+
 interface UseManualGroupingReturn {
   availableGroups: AvailableGroup[];
   availableTitles: AvailableTitle[];
+  lecturers: Lecturer[];
   loading: boolean;
   creatingGroup: boolean;
   addingMembers: boolean;
+  promotingToReady: boolean;
   fetchingGroups: boolean;
   fetchingTitles: boolean;
+  fetchingLecturers: boolean;
   fetchAvailableGroups: (periodId?: number) => Promise<void>;
   fetchAvailableTitles: (periodId?: number) => Promise<void>;
+  fetchLecturers: () => Promise<void>;
   createManualGroup: (data: {
     studentIds: number[];
     periodId: number;
+    option: 'no_title' | 'assign_title' | 'add_title';
     titleId?: number;
     newTitle?: {
       title: string;
       description?: string;
       specializations: string[];
+      lecturerId: number;
     };
   }) => Promise<boolean>;
   addToExistingGroup: (data: {
@@ -45,15 +56,21 @@ interface UseManualGroupingReturn {
     groupId: number;
     titleId: number;
   }) => Promise<boolean>;
+  promoteToReadyForFinalization: (data: {
+    groupId: number;
+  }) => Promise<boolean>;
 }
 
 export function useManualGrouping(): UseManualGroupingReturn {
   const [availableGroups, setAvailableGroups] = useState<AvailableGroup[]>([]);
   const [availableTitles, setAvailableTitles] = useState<AvailableTitle[]>([]);
+  const [lecturers, setLecturers] = useState<Lecturer[]>([]);
   const [fetchingGroups, setFetchingGroups] = useState(false);
   const [fetchingTitles, setFetchingTitles] = useState(false);
+  const [fetchingLecturers, setFetchingLecturers] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [addingMembers, setAddingMembers] = useState(false);
+  const [promotingToReady, setPromotingToReady] = useState(false);
 
   const fetchAvailableGroups = useCallback(async (periodId?: number) => {
     setFetchingGroups(true);
@@ -89,18 +106,38 @@ export function useManualGrouping(): UseManualGroupingReturn {
     }
   }, []);
 
+  const fetchLecturers = useCallback(async () => {
+    setFetchingLecturers(true);
+    try {
+      const response = await api.get('/admin/lecturers');
+      setLecturers(response.data.data || []);
+    } catch (err) {
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Gagal memuat dosen'
+        : 'Terjadi kesalahan';
+      toast.error(message);
+      setLecturers([]);
+    } finally {
+      setFetchingLecturers(false);
+    }
+  }, []);
+
   const createManualGroup = useCallback(async ({
     studentIds,
     periodId,
+    option,
     titleId,
     newTitle,
   }: {
     studentIds: number[];
     periodId: number;
+    option: 'no_title' | 'assign_title' | 'add_title';
     titleId?: number;
     newTitle?: {
       title: string;
       description?: string;
+      specializations: string[];
+      lecturerId: number;
     };
   }): Promise<boolean> => {
     setCreatingGroup(true);
@@ -108,13 +145,14 @@ export function useManualGrouping(): UseManualGroupingReturn {
       const payload: Record<string, unknown> = {
         student_ids: studentIds,
         period_id: periodId,
+        option,
       };
 
-      if (titleId) {
+      if (option === 'assign_title' && titleId) {
         payload.title_id = titleId;
       }
 
-      if (newTitle) {
+      if (option === 'add_title' && newTitle) {
         payload.new_title = newTitle;
       }
 
@@ -181,18 +219,46 @@ export function useManualGrouping(): UseManualGroupingReturn {
     }
   }, []);
 
+  const promoteToReadyForFinalization = useCallback(async ({
+    groupId,
+  }: {
+    groupId: number;
+  }): Promise<boolean> => {
+    setPromotingToReady(true);
+    try {
+      await api.post('/admin/finalization/promote-to-ready', {
+        group_id: groupId,
+      });
+      toast.success('Grup berhasil dipromosikan ke Ready for Finalization');
+      return true;
+    } catch (err) {
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Gagal mempromosikan grup'
+        : 'Terjadi kesalahan';
+      toast.error(message);
+      return false;
+    } finally {
+      setPromotingToReady(false);
+    }
+  }, []);
+
   return {
     availableGroups,
     availableTitles,
-    loading: fetchingGroups || fetchingTitles || creatingGroup || addingMembers,
+    lecturers,
+    loading: fetchingGroups || fetchingTitles || fetchingLecturers || creatingGroup || addingMembers || promotingToReady,
     creatingGroup,
     addingMembers,
+    promotingToReady,
     fetchingGroups,
     fetchingTitles,
+    fetchingLecturers,
     fetchAvailableGroups,
     fetchAvailableTitles,
+    fetchLecturers,
     createManualGroup,
     addToExistingGroup,
     assignTitle,
+    promoteToReadyForFinalization,
   };
 }
