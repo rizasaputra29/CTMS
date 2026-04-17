@@ -37,21 +37,17 @@ interface Period {
     pdc1_start: string | null;
     pdc1_end: string | null;
     pdc1_reminder_at?: string | null;
-    pdc1_locked_at?: string | null;
     pdc2_start: string | null;
     pdc2_end: string | null;
     pdc2_reminder_at?: string | null;
-    pdc2_locked_at?: string | null;
     expo_date: string | null;
     expo_reminder_at?: string | null;
-    expo_locked_at?: string | null;
     ta_start: string | null;
     ta_end: string | null;
     ta_reminder_at?: string | null;
-    ta_locked_at?: string | null;
     min_group_size: number | null;
     max_group_size: number | null;
-    max_supervise_load: number | null;
+    max_supervisor_load: number | null;
 }
 
 const steps = [
@@ -73,21 +69,17 @@ const emptyForm = {
     pdc1_start: '',
     pdc1_end: '',
     pdc1_reminder_at: '',
-    pdc1_locked_at: '',
     pdc2_start: '',
     pdc2_end: '',
     pdc2_reminder_at: '',
-    pdc2_locked_at: '',
     expo_date: '',
     expo_reminder_at: '',
-    expo_locked_at: '',
     ta_start: '',
     ta_end: '',
     ta_reminder_at: '',
-    ta_locked_at: '',
     min_group_size: 3,
     max_group_size: 4,
-    max_supervise_load: 5,
+    max_supervisor_load: 5,
 };
 
 export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSuccess }: PeriodStepperDialogProps) {
@@ -112,21 +104,17 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                     pdc1_start: editingPeriod.pdc1_start ? editingPeriod.pdc1_start.split('T')[0] : '',
                     pdc1_end: editingPeriod.pdc1_end ? editingPeriod.pdc1_end.split('T')[0] : '',
                     pdc1_reminder_at: editingPeriod.pdc1_reminder_at ? editingPeriod.pdc1_reminder_at.split('T')[0] : '',
-                    pdc1_locked_at: editingPeriod.pdc1_locked_at ? editingPeriod.pdc1_locked_at.split('T')[0] : '',
                     pdc2_start: editingPeriod.pdc2_start ? editingPeriod.pdc2_start.split('T')[0] : '',
                     pdc2_end: editingPeriod.pdc2_end ? editingPeriod.pdc2_end.split('T')[0] : '',
                     pdc2_reminder_at: editingPeriod.pdc2_reminder_at ? editingPeriod.pdc2_reminder_at.split('T')[0] : '',
-                    pdc2_locked_at: editingPeriod.pdc2_locked_at ? editingPeriod.pdc2_locked_at.split('T')[0] : '',
                     expo_date: editingPeriod.expo_date ? editingPeriod.expo_date.split('T')[0] : '',
                     expo_reminder_at: editingPeriod.expo_reminder_at ? editingPeriod.expo_reminder_at.split('T')[0] : '',
-                    expo_locked_at: editingPeriod.expo_locked_at ? editingPeriod.expo_locked_at.split('T')[0] : '',
                     ta_start: editingPeriod.ta_start ? editingPeriod.ta_start.split('T')[0] : '',
                     ta_end: editingPeriod.ta_end ? editingPeriod.ta_end.split('T')[0] : '',
                     ta_reminder_at: editingPeriod.ta_reminder_at ? editingPeriod.ta_reminder_at.split('T')[0] : '',
-                    ta_locked_at: editingPeriod.ta_locked_at ? editingPeriod.ta_locked_at.split('T')[0] : '',
                     min_group_size: editingPeriod.min_group_size ?? 3,
                     max_group_size: editingPeriod.max_group_size ?? 4,
-                    max_supervise_load: editingPeriod.max_supervise_load ?? 5,
+                    max_supervisor_load: editingPeriod.max_supervisor_load ?? 5,
                 });
             } else {
                 setFormData({ ...emptyForm });
@@ -410,19 +398,6 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                                 className="h-8"
                             />
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="pdc1_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
-                                Lock Date
-                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
-                            </Label>
-                            <Input
-                                id="pdc1_locked_at"
-                                type="date"
-                                value={formData.pdc1_locked_at}
-                                onChange={(e) => updateForm('pdc1_locked_at', e.target.value)}
-                                className="h-8"
-                            />
-                        </div>
                     </div>
                 </div>
                 <Separator />
@@ -466,19 +441,6 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                                 className="h-8"
                             />
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="pdc2_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
-                                Lock Date
-                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
-                            </Label>
-                            <Input
-                                id="pdc2_locked_at"
-                                type="date"
-                                value={formData.pdc2_locked_at}
-                                onChange={(e) => updateForm('pdc2_locked_at', e.target.value)}
-                                className="h-8"
-                            />
-                        </div>
                     </div>
                 </div>
                 <Separator />
@@ -508,19 +470,6 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                                 type="date"
                                 value={formData.expo_reminder_at}
                                 onChange={(e) => updateForm('expo_reminder_at', e.target.value)}
-                                className="h-8"
-                            />
-                        </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="expo_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
-                                Lock Date
-                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
-                            </Label>
-                            <Input
-                                id="expo_locked_at"
-                                type="date"
-                                value={formData.expo_locked_at}
-                                onChange={(e) => updateForm('expo_locked_at', e.target.value)}
                                 className="h-8"
                             />
                         </div>
@@ -567,19 +516,6 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                                 className="h-8"
                             />
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="ta_locked_at" className="text-xs text-muted-foreground flex items-center gap-1">
-                                Lock Date
-                                <span className="text-[10px] text-red-600">(Lock submissions)</span>
-                            </Label>
-                            <Input
-                                id="ta_locked_at"
-                                type="date"
-                                value={formData.ta_locked_at}
-                                onChange={(e) => updateForm('ta_locked_at', e.target.value)}
-                                className="h-8"
-                            />
-                        </div>
                     </div>
                 </div>
             </div>
@@ -617,14 +553,14 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                     />
                 </div>
                 <div className="grid gap-2">
-                    <Label htmlFor="max_supervise_load">Max Supervise Load</Label>
+                    <Label htmlFor="max_supervisor_load">Max Supervisor Load</Label>
                     <Input
-                        id="max_supervise_load"
+                        id="max_supervisor_load"
                         type="number"
                         min={1}
                         max={50}
-                        value={formData.max_supervise_load}
-                        onChange={(e) => updateForm('max_supervise_load', parseInt(e.target.value) || 1)}
+                        value={formData.max_supervisor_load}
+                        onChange={(e) => updateForm('max_supervisor_load', parseInt(e.target.value) || 1)}
                     />
                 </div>
             </div>
@@ -667,8 +603,8 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                     <span className="font-medium">{formData.min_group_size} - {formData.max_group_size} members</span>
                 </div>
                 <div className="flex justify-between py-2 border-b">
-                    <span className="text-muted-foreground">Max Supervise Load</span>
-                    <span className="font-medium">{formData.max_supervise_load} groups/lecturer</span>
+                    <span className="text-muted-foreground">Max Supervisor Load</span>
+                    <span className="font-medium">{formData.max_supervisor_load} groups/lecturer</span>
                 </div>
                 <div className="flex justify-between py-2">
                     <span className="text-muted-foreground">Evaluation Setup</span>

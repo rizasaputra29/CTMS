@@ -32,6 +32,7 @@ use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\DigitalSignatureController;
 use App\Http\Controllers\ReportExportController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 
@@ -104,6 +105,14 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/finalization/execute', [FinalizationController::class, 'executeFinalization']);
         Route::post('/finalization/rollback', [FinalizationController::class, 'rollbackFinalization']);
         Route::get('/finalization/export', [FinalizationController::class, 'export']);
+
+        // Manual Grouping (Admin)
+        Route::get('/finalization/available-groups', [FinalizationController::class, 'getAvailableGroupsForManualGrouping']);
+        Route::post('/finalization/create-manual-group', [FinalizationController::class, 'createManualGroup']);
+        Route::post('/finalization/add-to-existing-group', [FinalizationController::class, 'addToExistingGroup']);
+        Route::get('/finalization/available-titles', [FinalizationController::class, 'getAvailableTitles']);
+        Route::post('/finalization/assign-title', [FinalizationController::class, 'assignTitle']);
+        Route::post('/finalization/promote-to-ready', [FinalizationController::class, 'promoteToReadyForFinalization']);
 
         // V4: Expo Event Management
         Route::apiResource('expo-events', ExpoEventController::class);
@@ -249,6 +258,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ────────────────────────────────
     Route::middleware(['role:mahasiswa'])->prefix('mahasiswa')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'mahasiswa']);
+        Route::get('/my-period', [RegistrationController::class, 'myPeriod']);
         Route::get('/titles', [TitleController::class, 'index']);
         Route::get('/titles/{title}', [TitleController::class, 'show']);
 
@@ -260,6 +270,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/group/store-solo', [GroupController::class, 'storeSolo']);
         Route::delete('/group', [GroupController::class, 'deleteGroup']);
         Route::post('/group/leave', [GroupController::class, 'leaveGroup']);
+        Route::post('/group/leave-completely', [GroupController::class, 'leaveGroupCompletely']);
         Route::post('/group/add-member', [GroupController::class, 'addMember']);
          Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
          Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);

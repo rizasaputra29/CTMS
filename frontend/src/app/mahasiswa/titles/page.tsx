@@ -30,13 +30,6 @@ import {
     Search, Loader2, Info, Lock, 
     BookOpen, Lightbulb, Send, User, Check
 } from 'lucide-react';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import Link from 'next/link';
@@ -75,9 +68,17 @@ interface Group {
     id: number;
     title_id: number | null;
     status: string;
+    is_solo?: boolean;
     title?: { id: number; title: string };
     members: { id: number; student_id: number; is_leader: boolean }[];
     period?: { max_group_size: number };
+}
+
+interface RegisteredPeriod {
+    id: number;
+    name: string;
+    is_active: boolean;
+    is_finalized: boolean;
 }
 
 export default function TitlesMarketplacePage() {
@@ -87,13 +88,12 @@ export default function TitlesMarketplacePage() {
     const [studentIdeas, setStudentIdeas] = useState<StudentIdea[]>([]);
     const [group, setGroup] = useState<Group | null>(null);
     const [loading, setLoading] = useState(true);
+    const [registeredPeriod, setRegisteredPeriod] = useState<RegisteredPeriod | null>(null);
     
     // UI State
     const [, setActiveTab] = useState('lecturer');
     const [search, setSearch] = useState('');
     const [filterSpecs, setFilterSpecs] = useState<string[]>([]);
-    const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean; is_finalized?: boolean }[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
 
     // Bidding/Join State
     const [, setBiddingId] = useState<number | null>(null);
@@ -104,32 +104,45 @@ export default function TitlesMarketplacePage() {
     const [joinMessage, setJoinMessage] = useState('');
     const [submitting, setSubmitting] = useState(false);
 
-    const selectedPeriodData = useMemo(() => {
-        return periods.find(p => p.id.toString() === selectedPeriod);
-    }, [periods, selectedPeriod]);
+    const isPeriodFinalized = !!registeredPeriod?.is_finalized;
 
-    const isPeriodFinalized = !!selectedPeriodData?.is_finalized;
+    const fetchRegisteredPeriod = useCallback(async () => {
+        try {
+            const response = await api.get('/mahasiswa/my-period');
+            const periodData = response.data?.period;
 
-    const fetchData = useCallback(async (periodId?: string) => {
+            if (!periodData) {
+                toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                router.replace('/mahasiswa/registration');
+                return null;
+            }
+
+            setRegisteredPeriod(periodData);
+            return periodData;
+        } catch (error) {
+            if (axios.isAxiosError(error) && error.response?.status === 401) {
+                toast.error('Sesi Anda sudah habis. Silakan masuk kembali.');
+                router.replace('/login');
+                return null;
+            }
+
+            if (axios.isAxiosError(error) && error.response?.status === 404) {
+                toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                router.replace('/mahasiswa/registration');
+                return null;
+            }
+
+            console.error('Failed to fetch registered period', error);
+            toast.error('Gagal memuat data periode. Silakan coba lagi.');
+            return null;
+        }
+    }, [router]);
+
+    const fetchData = useCallback(async (periodId: number) => {
         setLoading(true);
         try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
-                const perRes = await api.get('/periods-list');
-                const periodsData = perRes.data?.data || [];
-                setPeriods(periodsData);
-                const active = periodsData.find((p: { is_active: boolean }) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
-            }
-
-            if (!currentPeriodId) {
-                setLoading(false);
-                return;
-            }
-
             const [titlesRes, groupRes] = await Promise.all([
-                api.get(`/mahasiswa/titles?period_id=${currentPeriodId}`),
+                api.get(`/mahasiswa/titles?period_id=${periodId}`),
                 api.get('/mahasiswa/group'),
             ]);
             
@@ -166,10 +179,11 @@ export default function TitlesMarketplacePage() {
             }
 
             console.error('Failed to fetch marketplace data', error);
+            toast.error('Gagal memuat data judul. Silakan coba lagi.');
         } finally {
             setLoading(false);
         }
-    }, [router, selectedPeriod, user?.id]);
+    }, [router, user?.id]);
 
     useEffect(() => {
         if (authLoading) return;
@@ -179,8 +193,16 @@ export default function TitlesMarketplacePage() {
             return;
         }
 
-        if (!selectedPeriod) fetchData();
-    }, [authLoading, fetchData, router, selectedPeriod, user]);
+        // Fetch registered period first, then fetch titles
+        const init = async () => {
+            const period = await fetchRegisteredPeriod();
+            if (period) {
+                await fetchData(period.id);
+            }
+        };
+        
+        init();
+    }, [authLoading, fetchData, fetchRegisteredPeriod, router, user]);
 
     // --- Actions ---
     const handleBid = async (titleId: number) => {
@@ -211,7 +233,9 @@ export default function TitlesMarketplacePage() {
             setRequestDialogOpen(false);
             setJoinMessage('');
             setSelectedGroupId(null);
-            fetchData();
+            if (registeredPeriod?.id) {
+                fetchData(registeredPeriod.id);
+            }
         } catch (error) {
             if (api.isAxiosError(error)) {
                 toast.error(error.response?.data?.message || 'Failed to send join request');
@@ -306,18 +330,11 @@ export default function TitlesMarketplacePage() {
                     <p className="text-muted-foreground">Temukan topik skripsi atau bergabung dengan ide mahasiswa lain.</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <Select value={selectedPeriod} onValueChange={(val: string) => { setSelectedPeriod(val); fetchData(val); }} disabled={loading}>
-                        <SelectTrigger className="w-[240px]">
-                            <SelectValue placeholder="Select period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {periods.map(p => (
-                                <SelectItem key={p.id} value={p.id.toString()}>
-                                    {p.name} {p.is_active && !p.is_finalized ? "(Open)" : ""}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    {registeredPeriod && (
+                        <Badge variant="outline" className="text-sm px-3 py-1">
+                            Period: {registeredPeriod.name}
+                        </Badge>
+                    )}
                 </div>
             </div>
 
@@ -327,7 +344,7 @@ export default function TitlesMarketplacePage() {
                     <Lock className="h-4 w-4" />
                     <AlertTitle>View-Only Mode</AlertTitle>
                     <AlertDescription>
-                        Pendaftaran untuk periode **{selectedPeriodData?.name}** sudah ditutup. Anda masih bisa melihat judul sebagai arsip, tetapi tidak dapat melakukan bidding atau meminta bergabung.
+                        Pendaftaran untuk periode **{registeredPeriod?.name}** sudah ditutup. Anda masih bisa melihat judul sebagai arsip, tetapi tidak dapat melakukan bidding atau meminta bergabung.
                     </AlertDescription>
                 </Alert>
             )}
@@ -343,13 +360,24 @@ export default function TitlesMarketplacePage() {
                 </Alert>
             )}
 
-            {group && memberCount < 3 && (
+            {group && !group?.is_solo && memberCount < 3 && (
                 <Alert variant="destructive">
                     <Lock className="h-4 w-4" />
                     <AlertTitle>Bidding Locked</AlertTitle>
                     <AlertDescription>
-                        Kelompok Anda memiliki {memberCount} anggota. **Minimal 3 anggota** diperlukan untuk melakukan bidding pada judul dari Dosen. 
+                        Kelompok Anda memiliki {memberCount} anggota. **Minimal 3 anggota** diperlukan untuk melakukan bidding pada judul dari Dosen.
                         Silakan tambahkan anggota di menu <Link href="/mahasiswa/group" className="underline font-bold">Grup Saya</Link>.
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {group?.is_solo && (
+                <Alert>
+                    <Info className="h-4 w-4" />
+                    <AlertTitle>Solo Seeker Mode</AlertTitle>
+                    <AlertDescription>
+                        Sebagai solo seeker, Anda hanya dapat <Link href="/mahasiswa/propose-title" className="font-medium underline">mengajukan judul sendiri</Link>.
+                        Jika ingin bidding pada judul dosen, silakan <Link href="/mahasiswa/group" className="font-medium underline">bubarkan grup</Link> dan buat grup normal.
                     </AlertDescription>
                 </Alert>
             )}

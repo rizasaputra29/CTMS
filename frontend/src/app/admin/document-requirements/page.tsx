@@ -324,7 +324,7 @@ export default function AdminDocumentRequirementsPage() {
                                                 </Label>
                                                 <Input
                                                     placeholder="Description"
-                                                    value={req.description}
+                                                    value={req.description ?? ''}
                                                     onChange={(e) => handleUpdateDescription(req.name, e.target.value)}
                                                     className="mt-1 h-8 text-sm"
                                                 />

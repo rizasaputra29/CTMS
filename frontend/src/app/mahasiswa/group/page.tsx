@@ -7,7 +7,7 @@ import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut, Check, CalendarDays } from 'lucide-react';
+import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -19,15 +19,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
 import { toast } from "sonner";
 import { useAuth } from '@/context/AuthContext';
 
@@ -74,26 +65,30 @@ export default function MahasiswaGroupPage() {
     const [leaving, setLeaving] = useState(false);
     const [joinRequests, setJoinRequests] = useState<{id: number; status: string; message: string | null; requester: {id: number; name: string; email: string}}[]>([]);
     const [processingJoinRequest, setProcessingJoinRequest] = useState<number | null>(null);
-    const [registrationPeriod, setRegistrationPeriod] = useState<{id: number; name: string} | null>(null);
-    const [availablePeriods, setAvailablePeriods] = useState<{id: number; name: string; is_active: boolean; is_finalized?: boolean}[]>([]);
-    const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
-    const [periodLoading, setPeriodLoading] = useState(true);
-    const [isRegistered, setIsRegistered] = useState(false);
-    const [registering, setRegistering] = useState(false);
     const [markingReady, setMarkingReady] = useState(false);
     const [cancellingReady, setCancellingReady] = useState(false);
     const [confirmDialogOpen, setConfirmDialogOpen] = useState(false);
     const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-
-    const selectedPeriodData = availablePeriods.find(p => p.id.toString() === selectedPeriodId);
-    const isPeriodFinalized = !!selectedPeriodData && (selectedPeriodData as { is_finalized?: boolean }).is_finalized;
+    const [notRegistered, setNotRegistered] = useState(false);
 
     const fetchGroup = useCallback(async () => {
         try {
             const response = await api.get('/mahasiswa/group');
             setMyGroup(response.data.group);
-        } catch (error) {
-            console.error('Failed to fetch group', error);
+            setNotRegistered(false);
+        } catch (error: unknown) {
+            if (api.isAxiosError(error)) {
+                const errorMessage = error.response?.data?.message || '';
+                // Check if error is about not being registered
+                if (error.response?.status === 404 || 
+                    errorMessage.toLowerCase().includes('not registered') ||
+                    errorMessage.toLowerCase().includes('belum terdaftar')) {
+                    setNotRegistered(true);
+                } else {
+                    console.error('Failed to fetch group', error);
+                    toast.error('Gagal memuat data kelompok. Silakan coba lagi.');
+                }
+            }
         } finally {
             setLoading(false);
         }
@@ -108,26 +103,7 @@ export default function MahasiswaGroupPage() {
         }
 
         fetchGroup();
-        // Fetch all periods to allow selection with status labels
-        api.get('/periods-list').then(res => {
-            const periods = res.data?.data || [];
-            setAvailablePeriods(periods);
-            if (periods.length > 0) {
-                // Find first active, non-finalized one, or just the first one
-                const active = periods.find((p: { is_active: boolean; is_finalized?: boolean }) => p.is_active && !p.is_finalized) || periods[0];
-                setSelectedPeriodId(active.id.toString());
-                setRegistrationPeriod(active.is_active && !active.is_finalized ? active : null);
-            }
-        }).catch(() => {}).finally(() => setPeriodLoading(false));
-    }, [authLoading, fetchGroup, router, user]);
-
-    useEffect(() => {
-        if (selectedPeriodId && !myGroup) {
-            api.get(`/mahasiswa/periods/${selectedPeriodId}/check-registration`)
-                .then(res => setIsRegistered(res.data.is_registered))
-                .catch(() => setIsRegistered(false));
-        }
-    }, [selectedPeriodId, myGroup]);
+    }, [authLoading, router, user, fetchGroup]);
 
     // Fetch join requests if Solo Leader
     const fetchJoinRequests = useCallback(async () => {
@@ -217,18 +193,37 @@ export default function MahasiswaGroupPage() {
     const isLeader = myGroup?.members.some(m => m.is_leader && m.student.id === user?.id);
 
     const handleCreateGroup = async () => {
-        if (!selectedPeriodId) {
-            toast.error('Please select a registration period first.');
-            return;
-        }
         setCreating(true);
         try {
-            await api.post('/mahasiswa/group', { period_id: selectedPeriodId });
+            // First, fetch the registered period to ensure we use the correct period_id
+            const periodRes = await api.get('/mahasiswa/my-period');
+            const periodId = periodRes.data?.period?.id;
+
+            if (!periodId) {
+                toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                setNotRegistered(true);
+                return;
+            }
+
+            const response = await api.post('/mahasiswa/group', { period_id: periodId });
             toast.success('Group created! You are the group leader.');
-            fetchGroup();
+
+            // Directly use the group data from response to avoid race condition
+            setMyGroup(response.data?.group || null);
+            setNotRegistered(false);
+
+            // Dispatch event to notify other components
+            window.dispatchEvent(new Event('group-created'));
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to create group');
+                const errorMessage = error.response?.data?.message || '';
+                if (errorMessage.toLowerCase().includes('not registered') ||
+                    errorMessage.toLowerCase().includes('belum terdaftar')) {
+                    toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                    setNotRegistered(true);
+                } else {
+                    toast.error(error.response?.data?.message || 'Failed to create group');
+                }
             } else {
                 toast.error('Failed to create group');
             }
@@ -237,37 +232,38 @@ export default function MahasiswaGroupPage() {
         }
     };
 
-    const handleRegister = async () => {
-        if (!selectedPeriodId) return;
-        setRegistering(true);
-        try {
-            await api.post('/mahasiswa/periods/register', { period_id: selectedPeriodId });
-            toast.success('Successfully registered for this period!');
-            setIsRegistered(true);
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Registration failed');
-            } else {
-                toast.error('Registration failed');
-            }
-        } finally {
-            setRegistering(false);
-        }
-    };
-
     const handleCreateSoloGroup = async () => {
-        if (!selectedPeriodId) {
-            toast.error('Please select a registration period first.');
-            return;
-        }
         setCreatingSolo(true);
         try {
-            await api.post('/mahasiswa/group/store-solo', { period_id: selectedPeriodId });
+            // First, fetch the registered period to ensure we use the correct period_id
+            const periodRes = await api.get('/mahasiswa/my-period');
+            const periodId = periodRes.data?.period?.id;
+
+            if (!periodId) {
+                toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                setNotRegistered(true);
+                return;
+            }
+
+            const response = await api.post('/mahasiswa/group/store-solo', { period_id: periodId });
             toast.success('Solo Group created! You can now propose an idea to find members.');
-            fetchGroup();
+
+            // Directly use the group data from response to avoid race condition
+            setMyGroup(response.data?.group || null);
+            setNotRegistered(false);
+
+            // Dispatch event to notify other components
+            window.dispatchEvent(new Event('group-created'));
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to register as solo seeker');
+                const errorMessage = error.response?.data?.message || '';
+                if (errorMessage.toLowerCase().includes('not registered') ||
+                    errorMessage.toLowerCase().includes('belum terdaftar')) {
+                    toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
+                    setNotRegistered(true);
+                } else {
+                    toast.error(error.response?.data?.message || 'Failed to register as solo seeker');
+                }
             } else {
                 toast.error('Failed to register as solo seeker');
             }
@@ -371,21 +367,21 @@ export default function MahasiswaGroupPage() {
         setCancellingReady(true);
         try {
             await api.post(`/mahasiswa/group/cancel-ready-for-finalization`, { group_id: myGroup.id });
-            toast.success('Finalisasi berhasil dibatalkan. Kelompok kembali ke status siap bidding.');
+            toast.success('Status siap finalisasi dibatalkan.');
             setCancelDialogOpen(false);
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Gagal membatalkan finalisasi');
+                toast.error(error.response?.data?.message || 'Gagal membatalkan status');
             } else {
-                toast.error('Gagal membatalkan finalisasi');
+                toast.error('Gagal membatalkan status');
             }
         } finally {
             setCancellingReady(false);
         }
     };
 
-    if (loading) {
+    if (authLoading || loading) {
         return (
             <div className="flex justify-center items-center h-64">
                 <Loader2 className="h-8 w-8 animate-spin" />
@@ -393,80 +389,67 @@ export default function MahasiswaGroupPage() {
         );
     }
 
-    // No Group — show create group button
+    // No Group — show create group options
     if (!myGroup) {
-        const noPeriodOpen = !periodLoading && !registrationPeriod;
         return (
             <div className="space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">My Group</h1>
                     <p className="text-muted-foreground">Create a group to start your capstone journey.</p>
                 </div>
-                {registrationPeriod && (
-                    <Alert>
-                        <CalendarDays className="h-4 w-4" />
-                        <AlertTitle>Periode Pendaftaran Aktif</AlertTitle>
-                        <AlertDescription>
-                            Anda akan mendaftar ke periode: <strong>{registrationPeriod.name}</strong>
-                        </AlertDescription>
-                    </Alert>
-                )}
-                {noPeriodOpen && (
+
+                {notRegistered && (
                     <Alert variant="destructive">
                         <Info className="h-4 w-4" />
-                        <AlertTitle>Pendaftaran Ditutup</AlertTitle>
+                        <AlertTitle>Belum Terdaftar</AlertTitle>
                         <AlertDescription>
-                            Tidak ada periode pendaftaran yang terbuka saat ini. Silakan hubungi admin.
+                            Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu untuk membuat kelompok.
                         </AlertDescription>
                     </Alert>
                 )}
+
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <Users className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
                     <h2 className="text-xl font-bold mb-2">No Group Yet</h2>
-                    <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-                        Pilih periode pendaftaran untuk memulai perjalanan capstone Anda.
+                    <p className="text-muted-foreground mb-6 max-w-md mx-auto">
+                        {notRegistered 
+                            ? "Anda perlu mendaftar pada suatu periode terlebih dahulu untuk membuat kelompok."
+                            : "Pilih cara Anda ingin memulai perjalanan capstone."
+                        }
                     </p>
-                    <div className="max-w-xs mx-auto mb-6">
-                        <Label className="mb-2 block text-left">Pilih Periode Registration</Label>
-                        <Select value={selectedPeriodId} onValueChange={setSelectedPeriodId}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Pilih Periode" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectGroup>
-                                    <SelectLabel>Daftar Periode</SelectLabel>
-                                    {availablePeriods.map(p => (
-                                        <SelectItem key={p.id} value={p.id.toString()}>
-                                            {p.name} {p.is_active && !p.is_finalized ? "(Open)" : ""}
-                                        </SelectItem>
-                                    ))}
-                                </SelectGroup>
-                            </SelectContent>
-                        </Select>
-                    </div>
                     
-                    {!isRegistered && !isPeriodFinalized && !noPeriodOpen && (
-                        <div className="max-w-md mx-auto mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-                            <p className="text-sm text-amber-800 mb-4">
-                                Anda belum terdaftar untuk periode ini. Silakan mendaftar terlebih dahulu untuk memulai pengerjaan Tugas Akhir.
-                            </p>
-                            <Button onClick={handleRegister} disabled={registering} className="w-full bg-amber-600 hover:bg-amber-700">
-                                {registering ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-                                Register for Period
+                    {notRegistered ? (
+                        <div className="max-w-md mx-auto">
+                            <Button asChild size="lg">
+                                <Link href="/mahasiswa/registration">
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Daftar ke Periode
+                                </Link>
+                            </Button>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col sm:flex-row justify-center gap-4 max-w-md mx-auto">
+                            <Button 
+                                onClick={handleCreateGroup} 
+                                disabled={creating || creatingSolo} 
+                                size="lg"
+                                className="flex-1"
+                            >
+                                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+                                Create Group
+                            </Button>
+                            <Button 
+                                onClick={handleCreateSoloGroup} 
+                                disabled={creating || creatingSolo} 
+                                size="lg" 
+                                variant="secondary"
+                                className="flex-1"
+                            >
+                                {creatingSolo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BookOpen className="mr-2 h-4 w-4" />}
+                                Solo Seeker
                             </Button>
                         </div>
                     )}
-
-                    <div className="flex justify-center gap-4">
-                        <Button onClick={handleCreateGroup} disabled={creating || creatingSolo || isPeriodFinalized || noPeriodOpen || !isRegistered} size="lg">
-                            {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
-                            Create Group
-                        </Button>
-                        <Button onClick={handleCreateSoloGroup} disabled={creating || creatingSolo || isPeriodFinalized || noPeriodOpen || !isRegistered} size="lg" variant="secondary">
-                            {creatingSolo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BookOpen className="mr-2 h-4 w-4" />}
-                            Solo Seeker (Idea Magnet)
-                        </Button>
-                    </div>
                     <p className="text-sm text-muted-foreground mt-4">
                         Or <Link href="/mahasiswa/titles" className="underline font-medium text-primary hover:text-primary/80">browse the Titles Marketplace</Link> to find a Solo Seeker&apos;s idea to join.
                     </p>
@@ -480,7 +463,6 @@ export default function MahasiswaGroupPage() {
     const maxMembers = myGroup.period?.max_group_size ?? 4;
     const spotsRemaining = maxMembers - myGroup.members.length;
     const hasTitle = !!myGroup.title_id;
-    const hasEnoughMembers = myGroup.members.length >= minMembers;
     const isSoloSeeker = myGroup.is_solo && ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
 
     const getStatusBadgeVariant = (status: string) => {
@@ -491,375 +473,266 @@ export default function MahasiswaGroupPage() {
             case 'FORMING': return 'secondary' as const;
             case 'FORMING_SOLO': return 'secondary' as const;
             case 'READY_FOR_BIDDING': return 'outline' as const;
-            default: return 'outline' as const;
+            case 'READY_FOR_FINALIZATION': return 'outline' as const;
+            case 'CLOSED': return 'secondary' as const;
+            default: return 'secondary' as const;
         }
     };
 
     const getStatusLabel = (status: string) => {
         switch (status) {
-            case 'READY_FOR_BIDDING': return hasTitle ? 'Ready for Finalization' : 'Ready for Bidding';
-            case 'FORMING': return 'Incomplete Group';
-            case 'FORMING_SOLO': return 'Solo Seeker';
+            case 'APPROVED': return 'APPROVED';
+            case 'REJECTED': return 'REJECTED';
+            case 'PENDING': return 'PENDING';
+            case 'FORMING': return 'FORMING';
+            case 'FORMING_SOLO': return 'SOLO SEEKER';
+            case 'READY_FOR_BIDDING': return 'READY FOR BIDDING';
+            case 'READY_FOR_FINALIZATION': return 'READY FOR FINALIZATION';
+            case 'CLOSED': return 'CLOSED';
             default: return status;
         }
     };
 
-    const getMemberCountColor = (): string => {
-        const current = myGroup?.members.length || 0;
-        if (current >= maxMembers) return 'text-orange-600';  // At max
-        if (current < minMembers) return 'text-red-600';      // Below minimum
-        return 'text-green-600';                               // Healthy
-    };
-
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">My Group</h1>
-                    <p className="text-muted-foreground">Manage your thesis group and members.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    {isLeader && spotsRemaining > 0 && (
-                        <Button onClick={() => setAddOpen(true)}>
-                            <UserPlus className="mr-2 h-4 w-4" /> Add Member
-                        </Button>
-                    )}
-                    {isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO', 'TITLE_APPROVED'].includes(myGroup.status) && (
-                        <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
-                            {deleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
-                            Delete Group
-                        </Button>
-                    )}
-                    {!isLeader && !['APPROVED', 'CLOSED'].includes(myGroup.status) && (
-                        <Button variant="destructive" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
-                            {leaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LogOut className="mr-2 h-4 w-4" />}
-                            Leave Group
-                        </Button>
-                    )}
+                    <p className="text-muted-foreground">Kelola kelompok dan anggota capstone Anda.</p>
                 </div>
             </div>
 
-            {/* Group Info Card */}
             <Card>
                 <CardHeader>
-                    {hasTitle ? (
-                        <>
-                            <CardTitle>{myGroup.title!.title}</CardTitle>
-                            <CardDescription>Lecturer: {myGroup.title!.lecturer.name}</CardDescription>
-                        </>
-                    ) : (
-                        <>
-                            <CardTitle className="text-muted-foreground">No title selected</CardTitle>
-                            <CardDescription>Bid for a title or propose your own to get started.</CardDescription>
-                        </>
-                    )}
-                </CardHeader>
-                <CardContent>
-                    <div className="mb-6 flex items-center gap-4">
-                        <div className="flex items-center gap-2">
-                            <span className="font-semibold">Status:</span>
-                            <Badge variant={getStatusBadgeVariant(myGroup.status)}>
-                                {getStatusLabel(myGroup.status)}
-                            </Badge>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            <CardTitle className="text-2xl">Group Details</CardTitle>
+                            <CardDescription>
+                                Status: <Badge variant={getStatusBadgeVariant(myGroup.status)}>{getStatusLabel(myGroup.status)}</Badge>
+                            </CardDescription>
                         </div>
-                        <div className={`text-sm font-semibold ${getMemberCountColor()}`}>
-                            {myGroup.members.length}/{maxMembers} members (min {minMembers})
+                        <div className="flex gap-2">
+                            {isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO', 'TITLE_APPROVED'].includes(myGroup.status) && (
+                                <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
+                                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                                    Delete Group
+                                </Button>
+                            )}
+                            {!isLeader && !['APPROVED', 'CLOSED'].includes(myGroup.status) && (
+                                <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
+                                    {leaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4 mr-1" />}
+                                    Leave Group
+                                </Button>
+                            )}
                         </div>
-                        {myGroup.members.length >= maxMembers && (
-                            <p className="text-xs text-orange-600">
-                                ⚠️ Group at maximum capacity. Title hidden from marketplace.
-                            </p>
-                        )}
                     </div>
-                    
-                    <h3 className="font-semibold mb-3">Members:</h3>
-                    <div className="grid gap-3">
-                        {myGroup.members.map((member) => (
-                            <div key={member.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
-                                <div className="flex items-center gap-3">
-                                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                        <Users className="h-4 w-4 text-primary" />
-                                    </div>
-                                    <div>
-                                        <div className="font-medium">{member.student.name}</div>
-                                        <div className="text-xs text-muted-foreground">{member.student.email}</div>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    {member.is_leader && <Badge variant="outline">Leader</Badge>}
-                                    {isLeader && !member.is_leader && (
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-destructive hover:text-destructive"
-                                            onClick={() => handleRemoveMember(member.id, member.student.name)}
-                                        >
-                                            <X className="h-4 w-4" />
-                                        </Button>
-                                    )}
+                </CardHeader>
+                <CardContent className="space-y-6">
+                    {/* Title Info */}
+                    {myGroup.title ? (
+                        <div className="p-4 bg-muted rounded-lg">
+                            <div className="flex items-start gap-3">
+                                <BookOpen className="h-5 w-5 mt-0.5 text-primary" />
+                                <div>
+                                    <h3 className="font-medium">{myGroup.title.title}</h3>
+                                    <p className="text-sm text-muted-foreground">Lecturer: {myGroup.title.lecturer.name}</p>
                                 </div>
                             </div>
-                        ))}
-                    </div>
-                </CardContent>
-                {spotsRemaining > 0 && (
-                    <CardFooter className="bg-muted/20 border-t p-6">
-                        <p className="text-sm text-muted-foreground">
-                            {spotsRemaining} spot{spotsRemaining > 1 ? 's' : ''} remaining. {isLeader ? 'Click "Add Member" to invite students by email.' : 'Ask your group leader to add members.'}
-                        </p>
-                    </CardFooter>
-                 )}
-                 
-                 {/* Finalization Buttons - for FORMING_SOLO/READY_FOR_BIDDING with min members met or READY_FOR_FINALIZATION */}
-                 {isLeader && myGroup.members.length >= minMembers && (
-                     <CardFooter className="bg-muted/20 border-t p-6 flex gap-3">
-                         {(myGroup.status === 'READY_FOR_BIDDING' || 
-                           myGroup.status === 'TITLE_APPROVED' ||
-                           (myGroup.status === 'FORMING_SOLO' && myGroup.title?.id)) && (
-                            <>
-                                <Button 
-                                    onClick={() => setConfirmDialogOpen(true)}
-                                    disabled={markingReady}
-                                    className="flex-1"
-                                >
-                                    {markingReady ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Check className="mr-2 h-4 w-4" />
-                                            Siap Finalisasi
-                                        </>
-                                    )}
-                                </Button>
-                            </>
-                        )}
-                        {myGroup.status === 'READY_FOR_FINALIZATION' && (
-                            <>
-                                <Button 
-                                    variant="outline"
-                                    onClick={() => setCancelDialogOpen(true)}
-                                    disabled={cancellingReady}
-                                    className="flex-1"
-                                >
-                                    {cancellingReady ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Processing...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <X className="mr-2 h-4 w-4" />
-                                            Batalkan Finalisasi
-                                        </>
-                                    )}
-                                </Button>
-                            </>
-                        )}
-                    </CardFooter>
-                )}
-            </Card>
-
-            {/* Next Steps — shown only when group has no title */}
-            {!hasTitle && ['READY_FOR_BIDDING', 'FORMING_SOLO', 'FORMING'].includes(myGroup.status) && (
-                <>
-                {!hasEnoughMembers && !isSoloSeeker && (
-                    <Alert>
-                        <Info className="h-4 w-4" />
-                        <AlertTitle>Add More Members</AlertTitle>
-                        <AlertDescription>
-                            Your group needs at least {minMembers} members before you can bid or propose. Currently {myGroup.members.length}/{minMembers}.
-                        </AlertDescription>
-                    </Alert>
-                )}
-                <div className={`grid gap-4 ${isSoloSeeker ? 'md:grid-cols-2' : 'md:grid-cols-2'}`}>
-                    {/* Bidding Card — HIDDEN for Solo Seekers (FORMING_SOLO) */}
-                    {myGroup.status !== 'FORMING_SOLO' && (
-                        <Card className={`border-dashed border-2 ${!hasEnoughMembers ? 'opacity-60' : ''}`}>
-                            <CardHeader>
-                                <CardTitle className="text-base flex items-center gap-2">
-                                    <BookOpen className="h-5 w-5" /> Bid for a Title
-                                </CardTitle>
-                                <CardDescription>Browse available titles from lecturers and bid for one.</CardDescription>
-                            </CardHeader>
-                            <CardFooter>
-                                <Button variant="outline" className="w-full" asChild disabled={!hasEnoughMembers}>
-                                    <Link href="/mahasiswa/titles">Browse Marketplace</Link>
-                                </Button>
-                            </CardFooter>
-                        </Card>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-muted/50 rounded-lg border border-dashed">
+                            <div className="flex items-center gap-3 text-muted-foreground">
+                                <PenLine className="h-5 w-5" />
+                                <span>No title assigned yet. Browse the <Link href="/mahasiswa/titles" className="underline text-primary">Titles Marketplace</Link> to bid on a title.</span>
+                            </div>
+                        </div>
                     )}
-                    <Card className="border-dashed border-2">
-                        <CardHeader>
-                            <CardTitle className="text-base flex items-center gap-2">
-                                <PenLine className="h-5 w-5" /> Propose Your Own Title
-                            </CardTitle>
-                            <CardDescription>
-                                {myGroup.status === 'FORMING_SOLO' 
-                                    ? "Ajukan judul tugas akhir Anda sendiri. Setelah disetujui, mahasiswa lain dapat bergabung ke kelompok Anda."
-                                    : hasEnoughMembers 
-                                        ? "Submit your own title idea and choose a supervisor."
-                                        : "Ajukan judul Anda sendiri. Butuh minimal " + minMembers + " anggota."}
-                            </CardDescription>
-                        </CardHeader>
-                        <CardFooter>
-                            <Button variant="outline" className="w-full" asChild disabled={!hasEnoughMembers && myGroup.status !== 'FORMING_SOLO'}>
-                                <Link href="/mahasiswa/propose-title">Propose Title</Link>
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                    {/* Propose Title Card */}
-                    <Card className="border-dashed border-2">
-                        <CardHeader>
-                            <CardTitle className="text-base flex items-center gap-2">
-                                <PenLine className="h-5 w-5" /> Propose Your Own Title
-                            </CardTitle>
-                            <CardDescription>
-                                {myGroup.status === 'FORMING_SOLO' 
-                                    ? "Ajukan judul tugas akhir Anda sendiri. Setelah disetujui, mahasiswa lain dapat bergabung ke kelompok Anda."
-                                    : hasEnoughMembers 
-                                        ? "Submit your own title idea and choose a supervisor."
-                                        : "Ajukan judul Anda sendiri. Butuh minimal " + minMembers + " anggota."}
-                            </CardDescription>
-                        </CardHeader>
-                        <CardFooter>
-                            <Button variant="outline" className="w-full" asChild disabled={!hasEnoughMembers && myGroup.status !== 'FORMING_SOLO'}>
-                                <Link href="/mahasiswa/propose-title">Propose Title</Link>
-                            </Button>
-                        </CardFooter>
-                    </Card>
-                </div>
-                </>)}
 
-            {/* Incoming Join Requests — Solo Leader only */}
-            {isLeader && isSoloSeeker && joinRequests.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="text-base flex items-center gap-2">
-                            <UserPlus className="h-5 w-5" /> Incoming Join Requests
-                        </CardTitle>
-                        <CardDescription>Students who want to join your group. Accept or reject their requests.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="grid gap-3">
-                            {joinRequests.map((req) => (
-                                <div key={req.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg border">
+                    {/* Members List */}
+                    <div>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="font-medium">Members ({myGroup.members.length}/{maxMembers})</h3>
+                            {isLeader && spotsRemaining > 0 && myGroup.status !== 'READY_FOR_FINALIZATION' && (
+                                <Button size="sm" onClick={() => setAddOpen(true)}>
+                                    <UserPlus className="h-4 w-4 mr-1" />
+                                    Add Member
+                                </Button>
+                            )}
+                        </div>
+                        <div className="space-y-2">
+                            {myGroup.members.map((member) => (
+                                <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 rounded-full bg-amber-500/10 flex items-center justify-center">
-                                            <Users className="h-4 w-4 text-amber-600" />
+                                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                            <Users className="h-4 w-4 text-primary" />
                                         </div>
                                         <div>
-                                            <div className="font-medium text-sm">{req.requester.name}</div>
-                                            <div className="text-xs text-muted-foreground">{req.requester.email}</div>
-                                            {req.message && (
-                                                <div className="text-xs text-muted-foreground mt-1 italic">&ldquo;{req.message}&rdquo;</div>
-                                            )}
+                                            <p className="font-medium">{member.student.name}</p>
+                                            <p className="text-sm text-muted-foreground">{member.student.email}</p>
                                         </div>
+                                        {member.is_leader && (
+                                            <Badge variant="secondary" className="ml-2">Leader</Badge>
+                                        )}
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="default"
-                                            size="sm"
-                                            onClick={() => handleAcceptJoinRequest(req.id)}
-                                            disabled={processingJoinRequest === req.id}
+                                    {isLeader && !member.is_leader && myGroup.status !== 'READY_FOR_FINALIZATION' && (
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            onClick={() => handleRemoveMember(member.id, member.student.name)}
                                         >
-                                            {processingJoinRequest === req.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <Check className="mr-1 h-3 w-3" />}
-                                            Accept
+                                            <X className="h-4 w-4 text-destructive" />
                                         </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            className="text-destructive hover:text-destructive"
-                                            onClick={() => handleRejectJoinRequest(req.id)}
-                                            disabled={processingJoinRequest === req.id}
-                                        >
-                                            <X className="mr-1 h-3 w-3" /> Reject
-                                        </Button>
-                                    </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
-                    </CardContent>
-                </Card>
-            )}
+                    </div>
 
+                    {/* Solo Seeker: Join Requests */}
+                    {isSoloSeeker && isLeader && joinRequests.length > 0 && (
+                        <div className="border-t pt-6">
+                            <h3 className="font-medium mb-4">Join Requests ({joinRequests.length})</h3>
+                            <div className="space-y-3">
+                                {joinRequests.map((request) => (
+                                    <div key={request.id} className="p-4 border rounded-lg bg-muted/30">
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <p className="font-medium">{request.requester.name}</p>
+                                                <p className="text-sm text-muted-foreground">{request.requester.email}</p>
+                                                {request.message && (
+                                                    <p className="text-sm mt-2 italic">&ldquo;{request.message}&rdquo;</p>
+                                                )}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button 
+                                                    size="sm" 
+                                                    variant="outline"
+                                                    onClick={() => handleRejectJoinRequest(request.id)}
+                                                    disabled={processingJoinRequest === request.id}
+                                                >
+                                                    {processingJoinRequest === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reject'}
+                                                </Button>
+                                                <Button 
+                                                    size="sm"
+                                                    onClick={() => handleAcceptJoinRequest(request.id)}
+                                                    disabled={processingJoinRequest === request.id}
+                                                >
+                                                    {processingJoinRequest === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </CardContent>
+                <CardFooter className="flex flex-col items-start gap-4 border-t pt-6">
+                    {/* Status Messages */}
+                    {myGroup.members.length < minMembers && !hasTitle && (
+                        <Alert>
+                            <Info className="h-4 w-4" />
+                            <AlertTitle>Need More Members</AlertTitle>
+                            <AlertDescription>
+                                You need at least {minMembers} members to bid on a title. Current: {myGroup.members.length}/{minMembers}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
+                    {/* Ready for Finalization Button */}
+                    {isLeader && myGroup.members.length >= minMembers && (
+                        <div className="w-full">
+                            {(myGroup.status === 'READY_FOR_BIDDING' || 
+                              myGroup.status === 'TITLE_APPROVED' ||
+                              (myGroup.status === 'FORMING_SOLO' && myGroup.title?.id)) && (
+                                <Button 
+                                    onClick={() => setConfirmDialogOpen(true)} 
+                                    className="w-full"
+                                    size="lg"
+                                >
+                                    Mark Ready for Finalization
+                                </Button>
+                            )}
+                            {myGroup.status === 'READY_FOR_FINALIZATION' && (
+                                <Button 
+                                    onClick={() => setCancelDialogOpen(true)} 
+                                    variant="outline"
+                                    className="w-full"
+                                    size="lg"
+                                >
+                                    Cancel Ready for Finalization
+                                </Button>
+                            )}
+                        </div>
+                    )}
+                </CardFooter>
+            </Card>
 
             {/* Add Member Dialog */}
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
-                <DialogContent className="sm:max-w-[425px]">
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Add Member</DialogTitle>
+                        <DialogDescription>
+                            Enter the email address of the student you want to invite.
+                        </DialogDescription>
+                    </DialogHeader>
                     <form onSubmit={handleAddMember}>
-                        <DialogHeader>
-                            <DialogTitle>Add Group Member</DialogTitle>
-                            <DialogDescription>
-                                Enter the student&apos;s email address to add them to your group.
-                            </DialogDescription>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="email">Student Email</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="student@university.ac.id"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    required
-                                />
-                            </div>
+                        <div className="py-4">
+                            <Label htmlFor="email">Email</Label>
+                            <Input 
+                                id="email" 
+                                type="email" 
+                                placeholder="student@example.com" 
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                            />
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
                             <Button type="submit" disabled={submitting}>
-                                {submitting ? 'Adding...' : 'Add Member'}
+                                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                Add Member
                             </Button>
                         </DialogFooter>
                     </form>
                 </DialogContent>
             </Dialog>
 
-            {/* Confirm Finalization Dialog */}
+            {/* Confirm Ready Dialog */}
             <Dialog open={confirmDialogOpen} onOpenChange={setConfirmDialogOpen}>
-                <DialogContent className="sm:max-w-[425px]">
+                <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Siap Finalisasi Kelompok?</DialogTitle>
+                        <DialogTitle>Mark Ready for Finalization</DialogTitle>
                         <DialogDescription>
-                            Setelah ini, kelompok Anda akan masuk ke tahap finalisasi admin. Anda tidak bisa menambah atau mengurangi anggota lagi.
+                            This action will mark your group as ready for finalization. You will not be able to add or remove members after this.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="bg-muted p-3 rounded-lg text-sm">
-                            <strong>Anggota Kelompok ({myGroup?.members.length}):</strong>
-                            <ul className="mt-2 space-y-1">
-                                {myGroup?.members.map(m => (
-                                    <li key={m.id}>• {m.student.name} {m.is_leader && '(Leader)'}</li>
-                                ))}
-                            </ul>
-                        </div>
-                    </div>
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setConfirmDialogOpen(false)}>Batal</Button>
+                        <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
                         <Button onClick={handleMarkReadyForFinalization} disabled={markingReady}>
-                            {markingReady ? 'Processing...' : 'Lanjutkan'}
+                            {markingReady ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Confirm
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* Cancel Finalization Dialog */}
+            {/* Cancel Ready Dialog */}
             <Dialog open={cancelDialogOpen} onOpenChange={setCancelDialogOpen}>
-                <DialogContent className="sm:max-w-[425px]">
+                <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Batalkan Finalisasi?</DialogTitle>
+                        <DialogTitle>Cancel Ready for Finalization</DialogTitle>
                         <DialogDescription>
-                            Kelompok akan kembali ke status siap bidding. Anda bisa membatalkan jika ada perubahan.
+                            This will cancel your group&apos;s ready for finalization status. You will be able to add or remove members again.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button type="button" variant="outline" onClick={() => setCancelDialogOpen(false)}>Tidak, Lanjutkan</Button>
-                        <Button variant="destructive" onClick={handleCancelFinalization} disabled={cancellingReady}>
-                            {cancellingReady ? 'Processing...' : 'Ya, Batalkan'}
+                        <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={handleCancelFinalization} disabled={cancellingReady} variant="destructive">
+                            {cancellingReady ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Confirm Cancel
                         </Button>
                     </DialogFooter>
                 </DialogContent>

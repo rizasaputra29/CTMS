@@ -38,7 +38,7 @@ interface Period {
     ta_end: string | null;
     min_group_size: number | null;
     max_group_size: number | null;
-    max_supervise_load: number | null;
+    max_supervisor_load: number | null;
 }
 
 export default function AdminPeriodsPage() {
@@ -260,9 +260,9 @@ export default function AdminPeriodsPage() {
                                         </span>
                                     </div>
                                     <div className="flex items-center justify-between text-sm">
-                                        <span className="text-muted-foreground">Max Supervise Load</span>
+                                        <span className="text-muted-foreground">Max Supervisor Load</span>
                                         <span className="font-mono text-xs">
-                                            {period.max_supervise_load ?? '—'} groups/dosen
+                                            {period.max_supervisor_load ?? '—'} groups/dosen
                                         </span>
                                     </div>
                                 </div>

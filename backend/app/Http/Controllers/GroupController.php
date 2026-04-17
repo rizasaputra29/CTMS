@@ -11,6 +11,7 @@ use App\Models\Period;
 use App\Models\User;
 use App\Models\Notification;
 use App\Models\GroupInvitation;
+use App\Models\PeriodRegistration;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -34,19 +35,38 @@ class GroupController extends Controller
     {
         $user = $request->user();
         
-        // Get current active period to scope the query
-        $currentPeriod = Period::where('is_active', true)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        // Determine which period to use
+        $period = null;
+        
+        // 1. If period_id is provided in request, use it
+        if ($request->has('period_id')) {
+            $period = Period::find($request->period_id);
+        }
+        
+        // 2. If no period_id, find the period the user is registered in
+        if (!$period) {
+            $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
+                ->first();
+            if ($registration) {
+                $period = Period::find($registration->period_id);
+            }
+        }
+        
+        // 3. Fallback to current active period (backward compatibility)
+        if (!$period) {
+            $period = Period::where('is_active', true)
+                ->orderBy('created_at', 'desc')
+                ->first();
+        }
 
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('period_id', $currentPeriod?->id)
+            ->where('period_id', $period?->id)
             ->whereHas('group', function ($q) {
                 $q->whereNotIn('status', ['CLOSED']);
             })
             ->first();
 
-        if (!$membership || !$currentPeriod) {
+        if (!$membership || !$period) {
             return response()->json(['group' => null]);
         }
 
@@ -138,6 +158,17 @@ class GroupController extends Controller
             return response()->json(['message' => 'Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.'], 400);
         }
 
+        // ⚠ STRICT: Check student not already in ANY active group across all periods
+        $anyExistingMembership = GroupMember::where('student_id', $user->id)
+            ->whereHas('group', function ($q) {
+                $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+            })
+            ->exists();
+
+        if ($anyExistingMembership) {
+            return response()->json(['message' => 'Anda sudah memiliki kelompok aktif. Hanya boleh 1 kelompok per mahasiswa.'], 400);
+        }
+
         DB::beginTransaction();
         try {
             $group = Group::create([
@@ -198,6 +229,17 @@ class GroupController extends Controller
 
         if ($existingMembership) {
             return response()->json(['message' => 'Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.'], 400);
+        }
+
+        // ⚠ STRICT: Check student not already in ANY active group across all periods
+        $anyExistingMembership = GroupMember::where('student_id', $user->id)
+            ->whereHas('group', function ($q) {
+                $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+            })
+            ->exists();
+
+        if ($anyExistingMembership) {
+            return response()->json(['message' => 'Anda sudah memiliki kelompok aktif. Hanya boleh 1 kelompok per mahasiswa.'], 400);
         }
 
         DB::beginTransaction();
@@ -436,12 +478,37 @@ class GroupController extends Controller
             return response()->json(['message' => 'Kelompok sudah penuh. Cari kelompok lain atau buat kelompok baru.'], 400);
         }
 
+        // Check if user is registered for the group's period
+        // If not, auto-register them to maintain data consistency
+        $isRegistered = PeriodRegistration::where('user_id', $user->id)
+            ->where('period_id', $group->period_id)
+            ->exists();
+
+        $autoRegistered = false;
+        if (!$isRegistered) {
+            PeriodRegistration::create([
+                'user_id' => $user->id,
+                'period_id' => $group->period_id,
+            ]);
+            $autoRegistered = true;
+        }
+
         DB::beginTransaction();
         try {
             $this->groupService->handleJoinGroup($user, $group);
             
             DB::commit();
-            return response()->json(['message' => 'Invitation accepted.']);
+
+            $response = [
+                'message' => 'Invitation accepted.',
+                'auto_registered' => $autoRegistered,
+            ];
+
+            if ($autoRegistered) {
+                $response['message'] = "You have been automatically registered for {$group->period->name} and added to the group.";
+            }
+
+            return response()->json($response);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to accept invitation: ' . $e->getMessage()], 500);
@@ -522,8 +589,31 @@ class GroupController extends Controller
 
         DB::beginTransaction();
         try {
-            $memberStudent = User::find($member->student_id);
-            $this->groupService->handleLeaveGroup($memberStudent);
+            $removedStudentId = $member->student_id;
+
+            // 1. Hapus membership dari grup (tanpa membuat grup solo baru)
+            $member->delete();
+
+            // 2. Handle grup lama - update status sesuai jumlah anggota yang tersisa
+            $remainingMembers = GroupMember::where('group_id', $group->id)->count();
+            if ($remainingMembers === 0) {
+                // Arsipkan grup jika kosong
+                $group->update(['status' => 'DISSOLVED']);
+                Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+            } else {
+                // Evaluasi ulang status grup (FORMING, READY_FOR_BIDDING, dll)
+                $this->groupService->evaluateGroupReadiness($group);
+            }
+
+            // 3. Kirim notifikasi ke member yang di-kick
+            Notification::create([
+                'user_id' => $removedStudentId,
+                'type' => 'REMOVED_FROM_GROUP',
+                'title' => 'Dikeluarkan dari Grup',
+                'message' => 'Anda telah dikeluarkan dari grup oleh ketua grup.',
+                'related_type' => 'Group',
+                'related_id' => $group->id,
+            ]);
 
             DB::commit();
 
@@ -567,6 +657,54 @@ class GroupController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to leave group: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Leave the group completely - removes membership without creating solo group.
+     * This allows the student to have no group association (like being deleted from the system).
+     */
+    public function leaveGroupCompletely(Request $request)
+    {
+        $user = $request->user();
+
+        $membership = GroupMember::where('student_id', $user->id)->first();
+        if (!$membership) {
+            return response()->json(['message' => 'Anda belum memiliki kelompok.'], 400);
+        }
+
+        // Only allow if group is in FORMING or FORMING_SOLO status
+        $group = Group::with('period')->find($membership->group_id);
+        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
+            return response()->json([
+                'message' => 'Hanya dapat keluar sepenuhnya dari grup dengan status FORMING.',
+                'current_status' => $group->status,
+            ], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Delete the membership completely (no solo group created)
+            $membership->delete();
+
+            // Handle old group
+            $remainingMembers = GroupMember::where('group_id', $group->id)->count();
+            if ($remainingMembers === 0) {
+                // Archive the group by setting status to DISSOLVED
+                $group->update(['status' => 'DISSOLVED']);
+                \Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+            } else {
+                $this->groupService->evaluateGroupReadiness($group);
+            }
+
+            DB::commit();
+            return response()->json([
+                'message' => 'Anda telah keluar dari grup dan tidak memiliki kelompok aktif.',
+                'group_dissolved' => $remainingMembers === 0,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Gagal keluar dari grup: ' . $e->getMessage()], 500);
         }
     }
 

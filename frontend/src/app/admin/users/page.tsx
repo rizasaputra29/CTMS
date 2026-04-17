@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from "sonner";
 
 interface Role {
@@ -34,25 +34,48 @@ interface Role {
     slug: string;
 }
 
+interface RegisteredPeriod {
+    id: number;
+    name: string;
+}
+
 interface User {
     id: number;
     name: string;
     email: string;
-    role: string; // legacy compatibility
+    nim?: string;
+    nip?: string;
+    is_active: boolean;
+    role: string;
     roles: Role[];
+    registered_periods?: RegisteredPeriod[];
     created_at: string;
 }
 
-type SortKey = 'name' | 'email' | 'role' | 'created_at';
+type SortKey = 'name' | 'email' | 'created_at' | 'nim' | 'nip';
 type SortDir = 'asc' | 'desc';
+type RoleTab = 'all' | 'mahasiswa' | 'dosen' | 'admin';
+
+interface PaginationData {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+}
 
 export default function AdminUsersPage() {
     const [users, setUsers] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [roleFilter, setRoleFilter] = useState<string>('all');
+    const [activeTab, setActiveTab] = useState<RoleTab>('all');
     const [sortKey, setSortKey] = useState<SortKey>('name');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [pagination, setPagination] = useState<PaginationData>({
+        current_page: 1,
+        last_page: 1,
+        per_page: 20,
+        total: 0,
+    });
 
     // Create/Edit State
     const [open, setOpen] = useState(false);
@@ -64,29 +87,56 @@ export default function AdminUsersPage() {
         roles: ['mahasiswa'],
     });
 
-    const fetchUsers = useCallback(async () => {
+    const fetchUsers = useCallback(async (page: number = 1) => {
         setLoading(true);
         try {
-            const params: Record<string, string> = {};
-            if (roleFilter !== 'all') params.role = roleFilter;
-            if (search) params.search = search;
+            const params: Record<string, string> = {
+                page: page.toString(),
+                sort_by: sortKey,
+                sort_order: sortDir,
+            };
+            
+            if (activeTab !== 'all') {
+                params.role = activeTab;
+            }
+            if (search) {
+                params.search = search;
+            }
 
             const response = await api.get('/admin/users', { params });
             setUsers(response.data.data);
+            setPagination({
+                current_page: response.data.current_page,
+                last_page: response.data.last_page,
+                per_page: response.data.per_page,
+                total: response.data.total,
+            });
         } catch (error) {
             console.error('Failed to fetch users', error);
             toast.error('Failed to load users');
         } finally {
             setLoading(false);
         }
-    }, [roleFilter, search]);
+    }, [activeTab, search, sortKey, sortDir]);
 
     useEffect(() => {
         const debounce = setTimeout(() => {
-            fetchUsers();
+            fetchUsers(1);
         }, 500);
         return () => clearTimeout(debounce);
     }, [fetchUsers]);
+
+    const handleTabChange = (tab: RoleTab) => {
+        setActiveTab(tab);
+        // Reset sort key when changing tabs for better UX
+        if (tab === 'mahasiswa') {
+            setSortKey('nim');
+        } else if (tab === 'dosen') {
+            setSortKey('nip');
+        } else {
+            setSortKey('name');
+        }
+    };
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -97,22 +147,11 @@ export default function AdminUsersPage() {
         }
     };
 
-    const sortedUsers = useMemo(() => {
-        const sorted = [...users];
-        sorted.sort((a, b) => {
-            let cmp = 0;
-            if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
-            else if (sortKey === 'email') cmp = a.email.localeCompare(b.email);
-            else if (sortKey === 'role') {
-                const aRoles = (a.roles?.map(r => r.slug) || [a.role]).join(',');
-                const bRoles = (b.roles?.map(r => r.slug) || [b.role]).join(',');
-                cmp = aRoles.localeCompare(bRoles);
-            }
-            else if (sortKey === 'created_at') cmp = (a.created_at || '').localeCompare(b.created_at || '');
-            return sortDir === 'asc' ? cmp : -cmp;
-        });
-        return sorted;
-    }, [users, sortKey, sortDir]);
+    const handlePageChange = (page: number) => {
+        if (page >= 1 && page <= pagination.last_page) {
+            fetchUsers(page);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -125,7 +164,7 @@ export default function AdminUsersPage() {
                 toast.success('User created successfully');
             }
             setOpen(false);
-            fetchUsers();
+            fetchUsers(pagination.current_page);
             resetForm();
         } catch (error: unknown) {
             console.error('Failed to save user', error);
@@ -142,7 +181,7 @@ export default function AdminUsersPage() {
         try {
             await api.delete(`/admin/users/${id}`);
             toast.success('User deleted');
-            fetchUsers();
+            fetchUsers(pagination.current_page);
         } catch (error) {
             console.error('Failed to delete user', error);
             toast.error('Failed to delete user');
@@ -171,13 +210,148 @@ export default function AdminUsersPage() {
     };
 
     const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort(sortKeyName)}>
+        <TableHead 
+            className="cursor-pointer select-none hover:bg-muted/50" 
+            onClick={() => handleSort(sortKeyName)}
+        >
             <div className="flex items-center gap-1">
                 {label}
-                <ArrowUpDown className="h-3 w-3 opacity-50" />
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-50'}`} />
             </div>
         </TableHead>
     );
+
+    // Dynamic columns based on active tab
+    const renderTableHeaders = () => {
+        const baseHeaders = [
+            <SortHeader key="name" label="Name" sortKeyName="name" />,
+            <TableHead key="email">Email</TableHead>,
+        ];
+
+        if (activeTab === 'mahasiswa') {
+            return [
+                ...baseHeaders,
+                <SortHeader key="nim" label="NIM" sortKeyName="nim" />,
+                <TableHead key="period">Periode</TableHead>,
+                <TableHead key="joined">Joined</TableHead>,
+                <TableHead key="actions" className="text-right">Actions</TableHead>,
+            ];
+        } else if (activeTab === 'dosen') {
+            return [
+                ...baseHeaders,
+                <SortHeader key="nip" label="NIP" sortKeyName="nip" />,
+                <TableHead key="role">Role</TableHead>,
+                <TableHead key="joined">Joined</TableHead>,
+                <TableHead key="actions" className="text-right">Actions</TableHead>,
+            ];
+        } else {
+            return [
+                ...baseHeaders,
+                <TableHead key="role">Role</TableHead>,
+                <TableHead key="joined">Joined</TableHead>,
+                <TableHead key="actions" className="text-right">Actions</TableHead>,
+            ];
+        }
+    };
+
+    const renderTableCell = (user: User, column: string) => {
+        switch (column) {
+            case 'name':
+                return <TableCell className="font-medium">{user.name}</TableCell>;
+            case 'email':
+                return <TableCell className="text-muted-foreground">{user.email}</TableCell>;
+            case 'nim':
+                return <TableCell>{user.nim || '-'}</TableCell>;
+            case 'nip':
+                return <TableCell>{user.nip || '-'}</TableCell>;
+            case 'period':
+                return (
+                    <TableCell>
+                        {user.registered_periods && user.registered_periods.length > 0 ? (
+                            <Badge variant="secondary">
+                                {user.registered_periods[0].name}
+                            </Badge>
+                        ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                        )}
+                    </TableCell>
+                );
+            case 'role':
+                return (
+                    <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                            {(user.roles?.map(r => r.slug) || [user.role]).map((slug) => (
+                                <Badge
+                                    key={`${user.id}-${slug}`}
+                                    variant={slug === 'admin' ? 'default' : slug === 'dosen' ? 'secondary' : 'outline'}
+                                >
+                                    {slug}
+                                </Badge>
+                            ))}
+                        </div>
+                    </TableCell>
+                );
+            case 'joined':
+                return (
+                    <TableCell className="text-muted-foreground">
+                        {new Date(user.created_at).toLocaleDateString()}
+                    </TableCell>
+                );
+            case 'actions':
+                return (
+                    <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(user)}>
+                                <Edit className="h-4 w-4" />
+                            </Button>
+                            {user.id !== 1 && (
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(user.id)}>
+                                    <Trash2 className="h-4 w-4" />
+                                </Button>
+                            )}
+                        </div>
+                    </TableCell>
+                );
+            default:
+                return null;
+        }
+    };
+
+    const renderTableRow = (user: User) => {
+        if (activeTab === 'mahasiswa') {
+            return (
+                <TableRow key={user.id}>
+                    {renderTableCell(user, 'name')}
+                    {renderTableCell(user, 'email')}
+                    {renderTableCell(user, 'nim')}
+                    {renderTableCell(user, 'period')}
+                    {renderTableCell(user, 'joined')}
+                    {renderTableCell(user, 'actions')}
+                </TableRow>
+            );
+        } else if (activeTab === 'dosen') {
+            return (
+                <TableRow key={user.id}>
+                    {renderTableCell(user, 'name')}
+                    {renderTableCell(user, 'email')}
+                    {renderTableCell(user, 'nip')}
+                    {renderTableCell(user, 'role')}
+                    {renderTableCell(user, 'joined')}
+                    {renderTableCell(user, 'actions')}
+                </TableRow>
+            );
+        } else {
+            return (
+                <TableRow key={user.id}>
+                    {renderTableCell(user, 'name')}
+                    {renderTableCell(user, 'email')}
+                    {renderTableCell(user, 'role')}
+                    {renderTableCell(user, 'joined')}
+                    {renderTableCell(user, 'actions')}
+                </TableRow>
+            );
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -276,13 +450,13 @@ export default function AdminUsersPage() {
                 <div className="relative flex-1">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
-                        placeholder="Search users by name or email..."
+                        placeholder="Search by name, email, NIM, or NIP..."
                         className="pl-9"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                <Tabs value={roleFilter} onValueChange={setRoleFilter}>
+                <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as RoleTab)}>
                     <TabsList>
                         <TabsTrigger value="all">All</TabsTrigger>
                         <TabsTrigger value="mahasiswa">Mahasiswa</TabsTrigger>
@@ -302,54 +476,50 @@ export default function AdminUsersPage() {
                     No users found.
                 </div>
             ) : (
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <SortHeader label="Name" sortKeyName="name" />
-                                <SortHeader label="Email" sortKeyName="email" />
-                                <SortHeader label="Role" sortKeyName="role" />
-                                <SortHeader label="Joined" sortKeyName="created_at" />
-                                <TableHead className="text-right">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {sortedUsers.map(user => (
-                                <TableRow key={user.id}>
-                                    <TableCell className="font-medium">{user.name}</TableCell>
-                                    <TableCell className="text-muted-foreground">{user.email}</TableCell>
-                                    <TableCell>
-                                        <div className="flex flex-wrap gap-1">
-                                            {(user.roles?.map(r => r.slug) || [user.role]).map((slug) => (
-                                                <Badge
-                                                    key={`${user.id}-${slug}`}
-                                                    variant={slug === 'admin' ? 'default' : slug === 'dosen' ? 'secondary' : 'outline'}
-                                                >
-                                                    {slug}
-                                                </Badge>
-                                            ))}
-                                        </div>
-                                    </TableCell>
-                                    <TableCell className="text-muted-foreground">
-                                        {new Date(user.created_at).toLocaleDateString()}
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <div className="flex justify-end gap-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(user)}>
-                                                <Edit className="h-4 w-4" />
-                                            </Button>
-                                            {user.id !== 1 && (
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(user.id)}>
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            )}
-                                        </div>
-                                    </TableCell>
+                <>
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    {renderTableHeaders()}
                                 </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
+                            </TableHeader>
+                            <TableBody>
+                                {users.map(user => renderTableRow(user))}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    {/* Pagination */}
+                    <div className="flex items-center justify-between">
+                        <p className="text-sm text-muted-foreground">
+                            Showing {((pagination.current_page - 1) * pagination.per_page) + 1} - {Math.min(pagination.current_page * pagination.per_page, pagination.total)} of {pagination.total} users
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(pagination.current_page - 1)}
+                                disabled={pagination.current_page === 1}
+                            >
+                                <ChevronLeft className="h-4 w-4 mr-1" />
+                                Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground px-2">
+                                Page {pagination.current_page} of {pagination.last_page}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handlePageChange(pagination.current_page + 1)}
+                                disabled={pagination.current_page === pagination.last_page}
+                            >
+                                Next
+                                <ChevronRight className="h-4 w-4 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+                </>
             )}
         </div>
     );

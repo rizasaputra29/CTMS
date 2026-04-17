@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 interface MahasiswaStats {
     has_group: boolean;
@@ -40,17 +41,45 @@ export default function MahasiswaDashboard() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const fetchStats = async () => {
+        const checkRegistration = async () => {
             try {
-                const response = await api.get('/mahasiswa/dashboard');
-                setStats(response.data);
+                const response = await api.get('/mahasiswa/my-period');
+                const hasRegistration = !!response.data?.period;
+
+                // Redirect to registration if not registered
+                if (!hasRegistration) {
+                    window.location.href = '/mahasiswa/registration';
+                    return;
+                }
+
+                // Show notification if auto-registered
+                if (response.data?.auto_registered) {
+                    toast.success(response.data?.message || 'You have been automatically registered based on your group membership.');
+                }
+
+                // Fetch dashboard stats only if registered
+                const statsResponse = await api.get('/mahasiswa/dashboard');
+                setStats(statsResponse.data);
             } catch (error) {
-                console.error('Failed to fetch dashboard stats', error);
+                console.error('Failed to check registration', error);
+                // Only redirect to registration on 404 (endpoint not found) or successful response with no period
+                // For other errors (500, network error), show error instead
+                if (api.isAxiosError(error) && error.response?.status === 404) {
+                    // Endpoint not found, assume not registered
+                    window.location.href = '/mahasiswa/registration';
+                } else if (api.isAxiosError(error) && error.response?.status === 200) {
+                    // Success response but no period data
+                    window.location.href = '/mahasiswa/registration';
+                } else {
+                    // Other errors - show error message instead of redirecting
+                    setLoading(false);
+                    toast.error('Failed to load registration data. Please try again.');
+                }
             } finally {
                 setLoading(false);
             }
         };
-        fetchStats();
+        checkRegistration();
     }, []);
 
     if (loading) {
