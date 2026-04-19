@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import type { Group, Student } from '@/types/finalization';
+import type { Group } from '@/types/finalization';
 
 // Use Group type directly since backend returns full Group objects
 type AvailableGroup = Group;

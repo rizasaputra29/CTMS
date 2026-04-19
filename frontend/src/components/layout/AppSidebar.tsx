@@ -49,6 +49,9 @@ export function AppSidebar() {
     const [unreadCount, setUnreadCount] = useState(0);
     const [peerReviewActive, setPeerReviewActive] = useState(false);
     const [isRegistered, setIsRegistered] = useState<boolean | null>(null);
+    const [groupStatus, setGroupStatus] = useState<string | null>(null);
+    const [supervisorEvalCount, setSupervisorEvalCount] = useState(0);
+    const [examinerEvalCount, setExaminerEvalCount] = useState(0);
 
     // Fetch unread notification count
     useEffect(() => {
@@ -72,8 +75,62 @@ export function AppSidebar() {
             }
         };
 
+        const fetchSupervisorEvalCount = async () => {
+            if (activeRole === 'dosen') {
+                try {
+                    const res = await api.get('/dosen/supervisor-evaluation/pending-count');
+                    setSupervisorEvalCount(res.data?.count || 0);
+                } catch {
+                    // Silently fail
+                }
+            }
+        };
+
+        const fetchExaminerEvalCount = async () => {
+            if (activeRole === 'dosen') {
+                try {
+                    interface Evaluation {
+                        status: string;
+                    }
+                    interface ScheduleItem {
+                        evaluations?: Evaluation[];
+                    }
+                    const res = await api.get('/dosen/seminar-schedules/examiner');
+                    const seminars: ScheduleItem[] = res.data?.data?.seminars || [];
+                    const defenses: ScheduleItem[] = res.data?.data?.ta_defenses || [];
+
+                    // Count pending evaluations
+                    const pendingSeminars = seminars.filter((s) =>
+                        s.evaluations?.some((e) => e.status === 'PENDING')
+                    ).length;
+                    const pendingDefenses = defenses.filter((d) =>
+                        d.evaluations?.some((e) => e.status === 'PENDING')
+                    ).length;
+
+                    setExaminerEvalCount(pendingSeminars + pendingDefenses);
+                } catch {
+                    // Silently fail
+                }
+            }
+        };
+
         fetchUnread();
         fetchPeerReviewStatus();
+        fetchSupervisorEvalCount();
+        fetchExaminerEvalCount();
+        
+        // Check TA status for mahasiswa
+        const fetchTAStatus = async () => {
+            if (activeRole === 'mahasiswa') {
+                try {
+                    await api.get('/mahasiswa/ta-status');
+                    // TA status data is available
+                } catch {
+                    // Silently fail
+                }
+            }
+        };
+        fetchTAStatus();
 
         // Check period registration for mahasiswa
         const checkRegistration = async () => {
@@ -99,6 +156,15 @@ export function AppSidebar() {
         };
     }, [user, activeRole]);
 
+    // Fetch group status for menu availability check
+    useEffect(() => {
+        if (activeRole === 'mahasiswa' && isRegistered) {
+            api.get('/mahasiswa/group')
+                .then(res => setGroupStatus(res.data.group?.status || null))
+                .catch(() => setGroupStatus(null));
+        }
+    }, [activeRole, isRegistered]);
+
     type NavItem = {
         title: string;
         url?: string;
@@ -122,25 +188,31 @@ export function AppSidebar() {
                 title: 'Evaluation Setup',
                 icon: ListChecks,
                 items: [
-                    { title: 'Assessments', url: '/admin/assessments', icon: ListChecks },
+                    { title: 'Assessment Bank', url: '/admin/assessment-bank', icon: BookOpen },
+                    { title: 'Active Components', url: '/admin/assessments', icon: ListChecks },
+                    { title: 'Period Config', url: '/admin/period-assessment-config', icon: Settings },
                     { title: 'Peer Review', url: '/admin/peer-review', icon: Star },
                 ]
             },
             {
-                title: 'Operations',
-                icon: ShieldCheck,
+                title: 'Management',
+                icon: Settings,
                 items: [
                     { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
                     { title: 'Groups', url: '/admin/groups', icon: Users },
                     { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
                     { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
+                    { title: 'TA Defense', url: '/admin/ta-defense', icon: GraduationCap },
                 ]
             },
             {
                 title: 'Analytics',
                 icon: BarChart3,
                 items: [
+                    { title: 'Evaluation Summary', url: '/admin/analytics/evaluation-summary', icon: FileText },
                     { title: 'Grade Check', url: '/admin/grade-consistency', icon: GitCompare },
+                    { title: 'Grade Config', url: '/admin/grade-configuration', icon: GraduationCap },
+                    { title: 'Peer Review Dashboard', url: '/admin/peer-review-dashboard', icon: Users },
                     { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
                 ]
             },
@@ -172,6 +244,7 @@ export function AppSidebar() {
                 items: [
                     { title: 'Seminar & Defense', url: '/mahasiswa/schedules', icon: ClipboardCheck },
                     { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
+                    { title: 'TA Defense', url: '/mahasiswa/ta-defense', icon: GraduationCap },
                 ]
             },
             {
@@ -209,6 +282,7 @@ export function AppSidebar() {
                     { title: 'Bimbingan Schedule', url: '/dosen/schedule', icon: CalendarIcon },
                     { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
                     { title: 'Evaluate Students', url: '/dosen/evaluation', icon: GraduationCap },
+                    { title: 'Supervisor Evaluation', url: '/dosen/supervisor-evaluation', icon: Star },
                 ]
             },
         ],
@@ -217,6 +291,33 @@ export function AppSidebar() {
     // Collect all nav items from all roles (don't filter by activeRole)
     const userRoles = user?.roles || [user?.role || 'mahasiswa'];
     
+    // Helper function to check if menu should be disabled based on group status
+    // Menus that require PDC1_ACTIVE or higher: 'Progress & Docs', 'Schedules', 'Evaluations'
+    const isMenuDisabledByStatus = (menuTitle: string): boolean => {
+        const pdc1RequiredMenus = ['Progress & Docs', 'Schedules', 'Evaluations'];
+        
+        // If not a PDC1-required menu, always enabled
+        if (!pdc1RequiredMenus.includes(menuTitle)) return false;
+        
+        // If no group status (not in a group yet), disable PDC1 menus
+        if (!groupStatus) return true;
+        
+        // Statuses that allow PDC1 menus (PDC1_ACTIVE and onwards)
+        const allowedStatuses = [
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'PDC2_COMPLETED',
+            'CLOSED'
+        ];
+        
+        return !allowedStatuses.includes(groupStatus);
+    };
+
     // Deduplicate items by title to avoid repeated blocks if roles overlap
     const seenTitles = new Set();
     const items: NavItem[] = [];
@@ -272,50 +373,67 @@ export function AppSidebar() {
                                 const isMahasiswa = activeRole === 'mahasiswa';
                                 const isRegistrationItem = item.title === 'Registration' || item.url === '/mahasiswa/registration';
                                 const isDashboardItem = item.title === 'Dashboard' || item.url === '/mahasiswa/dashboard';
-                                const isDisabled = isMahasiswa && isRegistered === false && !isRegistrationItem && !isDashboardItem;
+                                const isUnregistered = isMahasiswa && isRegistered === false && !isRegistrationItem && !isDashboardItem;
+                                const isDisabledByStatus = isMahasiswa && isMenuDisabledByStatus(item.title);
+                                const isDisabled = isUnregistered || isDisabledByStatus;
+
+                                // Determine tooltip message based on disabled reason
+                                const getTooltipMessage = () => {
+                                    if (isUnregistered) return 'Register for a period first';
+                                    if (isDisabledByStatus) return 'Available after PDC1 starts';
+                                    return item.title;
+                                };
 
                                 if (item.items && item.items.length > 0) {
                                     return (
                                         <Collapsible
                                             key={item.title}
                                             asChild
-                                            defaultOpen={isDefaultOpen && !isDisabled}
+                                            defaultOpen={isDefaultOpen}
                                             className="group/collapsible"
                                         >
                                             <SidebarMenuItem>
-                                                <CollapsibleTrigger asChild disabled={isDisabled}>
+                                                <CollapsibleTrigger asChild>
                                                     <SidebarMenuButton 
-                                                        tooltip={isDisabled ? 'Register for a period first' : item.title} 
+                                                        tooltip={getTooltipMessage()} 
                                                         isActive={hasActiveSubitem}
-                                                        className={isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
+                                                        className={isDisabled ? 'opacity-50' : ''}
                                                     >
                                                         {item.icon && <item.icon />}
                                                         <span>{item.title}</span>
-                                                        {!isDisabled && (
-                                                            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
-                                                        )}
+                                                        <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
                                                     </SidebarMenuButton>
                                                 </CollapsibleTrigger>
-                                                {!isDisabled && (
-                                                    <CollapsibleContent>
-                                                        <SidebarMenuSub>
-                                                            {item.items.map((subItem) => (
-                                                                <SidebarMenuSubItem key={subItem.title}>
-                                                                    <SidebarMenuSubButton 
-                                                                        asChild 
-                                                                        isActive={pathname === subItem.url}
-                                                                        className={isDisabled ? 'pointer-events-none opacity-50' : ''}
-                                                                    >
-                                                                        <Link href={subItem.url}>
+                                                <CollapsibleContent>
+                                                    <SidebarMenuSub>
+                                                        {item.items.map((subItem) => (
+                                                            <SidebarMenuSubItem key={subItem.title}>
+                                                                <SidebarMenuSubButton 
+                                                                    asChild 
+                                                                    isActive={pathname === subItem.url}
+                                                                    className={isDisabled ? 'pointer-events-none opacity-50' : ''}
+                                                                >
+                                                                    <Link href={subItem.url} className="flex items-center justify-between w-full">
+                                                                        <div className="flex items-center">
                                                                             {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
                                                                             <span>{subItem.title}</span>
-                                                                        </Link>
-                                                                    </SidebarMenuSubButton>
-                                                                </SidebarMenuSubItem>
-                                                            ))}
-                                                        </SidebarMenuSub>
-                                                    </CollapsibleContent>
-                                                )}
+                                                                        </div>
+                                                                        {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
+                                                                            <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+                                                                                {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
+                                                                            </span>
+                                                                        )}
+                                                                        {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
+                                                                            <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+                                                                                {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
+                                                                            </span>
+                                                                        )}
+                                                                    </Link>
+                                                                </SidebarMenuSubButton>
+                                                            </SidebarMenuSubItem>
+                                                        ))}
+                                                    </SidebarMenuSub>
+                                                </CollapsibleContent>
                                             </SidebarMenuItem>
                                         </Collapsible>
                                     );
@@ -326,7 +444,7 @@ export function AppSidebar() {
                                         <SidebarMenuButton 
                                             asChild 
                                             isActive={isItemActive} 
-                                            tooltip={isDisabled ? 'Register for a period first' : item.title}
+                                            tooltip={getTooltipMessage()}
                                             className={isDisabled ? 'opacity-50 cursor-not-allowed' : ''}
                                         >
                                             <Link href={item.url!} className={isDisabled ? 'pointer-events-none' : ''}>

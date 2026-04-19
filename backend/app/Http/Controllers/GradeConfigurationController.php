@@ -1,0 +1,253 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Period;
+use App\Models\AssessmentScore;
+use App\Models\PeriodAssessmentComponent;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class GradeConfigurationController extends Controller
+{
+    private const DEFAULT_PDC1_WEIGHTS = [
+        'SEMPRO' => 60,
+        'BIMBINGAN_SEMPRO' => 40
+    ];
+
+    private const DEFAULT_PDC2_WEIGHTS = [
+        'EXPO' => 50,
+        'BIMBINGAN_EXPO' => 25,
+        'MILESTONE' => 25
+    ];
+
+    /**
+     * Get grade weight configuration for PDC1
+     */
+    public function getPDC1Weights(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+        
+        $weights = $period->grade_configuration['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS;
+
+        return response()->json([
+            'period_id' => $periodId,
+            'period_name' => $period->name,
+            'pdc1_weights' => $weights,
+            'total_weight' => array_sum($weights)
+        ]);
+    }
+
+    /**
+     * Get grade weight configuration for PDC2
+     */
+    public function getPDC2Weights(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+        
+        $weights = $period->grade_configuration['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS;
+
+        return response()->json([
+            'period_id' => $periodId,
+            'period_name' => $period->name,
+            'pdc2_weights' => $weights,
+            'total_weight' => array_sum($weights)
+        ]);
+    }
+
+    /**
+     * Update grade weight configuration
+     */
+    public function updateWeights(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+
+        $validated = $request->validate([
+            'pdc1_weights' => 'nullable|array',
+            'pdc1_weights.SEMPRO' => 'nullable|numeric|min:0',
+            'pdc1_weights.BIMBINGAN_SEMPRO' => 'nullable|numeric|min:0',
+            'pdc2_weights' => 'nullable|array',
+            'pdc2_weights.EXPO' => 'nullable|numeric|min:0',
+            'pdc2_weights.BIMBINGAN_EXPO' => 'nullable|numeric|min:0',
+            'pdc2_weights.MILESTONE' => 'nullable|numeric|min:0',
+        ]);
+
+        $gradeConfig = $period->grade_configuration ?? [];
+
+        if (isset($validated['pdc1_weights'])) {
+            $gradeConfig['pdc1'] = array_merge(
+                $gradeConfig['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS,
+                $validated['pdc1_weights']
+            );
+        }
+
+        if (isset($validated['pdc2_weights'])) {
+            $gradeConfig['pdc2'] = array_merge(
+                $gradeConfig['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
+                $validated['pdc2_weights']
+            );
+        }
+
+        $period->update(['grade_configuration' => $gradeConfig]);
+
+        return response()->json([
+            'message' => 'Grade configuration updated successfully',
+            'period_id' => $periodId,
+            'grade_configuration' => $gradeConfig
+        ]);
+    }
+
+    /**
+     * Calculate PDC1 grade for a group
+     */
+    public function calculatePDC1Grade(Request $request, int $groupId): JsonResponse
+    {
+        $group = \App\Models\Group::with('period')->findOrFail($groupId);
+        $period = $group->period;
+        
+        $weights = $period->grade_configuration['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS;
+        
+        $grades = [];
+        $totalWeightedScore = 0;
+        $totalWeight = 0;
+
+        foreach ($weights as $type => $weight) {
+            $scores = AssessmentScore::where('group_id', $groupId)
+                ->where('evaluation_type', $type)
+                ->get();
+
+            if ($scores->isEmpty()) {
+                $grades[$type] = [
+                    'status' => 'not_evaluated',
+                    'average_score' => null,
+                    'weight' => $weight,
+                    'weighted_score' => null
+                ];
+                continue;
+            }
+
+            // Calculate average score for this evaluation type
+            $avgScore = $scores->avg('score');
+            $weightedScore = ($avgScore * $weight) / 100;
+            
+            $grades[$type] = [
+                'status' => 'evaluated',
+                'average_score' => round($avgScore, 2),
+                'weight' => $weight,
+                'weighted_score' => round($weightedScore, 2)
+            ];
+            
+            $totalWeightedScore += $weightedScore;
+            $totalWeight += $weight;
+        }
+
+        return response()->json([
+            'group_id' => $groupId,
+            'group_name' => $group->name,
+            'period_id' => $period->id,
+            'pdc1_grades' => $grades,
+            'final_pdc1_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
+            'total_weight' => $totalWeight
+        ]);
+    }
+
+    /**
+     * Calculate PDC2 grade for a group
+     */
+    public function calculatePDC2Grade(Request $request, int $groupId): JsonResponse
+    {
+        $group = \App\Models\Group::with('period')->findOrFail($groupId);
+        $period = $group->period;
+        
+        $weights = $period->grade_configuration['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS;
+        
+        $grades = [];
+        $totalWeightedScore = 0;
+        $totalWeight = 0;
+
+        foreach ($weights as $type => $weight) {
+            $scores = AssessmentScore::where('group_id', $groupId)
+                ->where('evaluation_type', $type)
+                ->get();
+
+            if ($scores->isEmpty()) {
+                $grades[$type] = [
+                    'status' => 'not_evaluated',
+                    'average_score' => null,
+                    'weight' => $weight,
+                    'weighted_score' => null
+                ];
+                continue;
+            }
+
+            // Calculate average score for this evaluation type
+            $avgScore = $scores->avg('score');
+            $weightedScore = ($avgScore * $weight) / 100;
+            
+            $grades[$type] = [
+                'status' => 'evaluated',
+                'average_score' => round($avgScore, 2),
+                'weight' => $weight,
+                'weighted_score' => round($weightedScore, 2)
+            ];
+            
+            $totalWeightedScore += $weightedScore;
+            $totalWeight += $weight;
+        }
+
+        return response()->json([
+            'group_id' => $groupId,
+            'group_name' => $group->name,
+            'period_id' => $period->id,
+            'pdc2_grades' => $grades,
+            'final_pdc2_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
+            'total_weight' => $totalWeight
+        ]);
+    }
+
+    /**
+     * Get full grade configuration for admin view
+     */
+    public function getFullConfiguration(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+        
+        $config = $period->grade_configuration ?? [];
+
+        return response()->json([
+            'period_id' => $periodId,
+            'period_name' => $period->name,
+            'pdc1' => [
+                'weights' => $config['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS,
+                'components' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
+                'total_weight' => array_sum($config['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS)
+            ],
+            'pdc2' => [
+                'weights' => $config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
+                'components' => ['EXPO', 'BIMBINGAN_EXPO', 'MILESTONE'],
+                'total_weight' => array_sum($config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS)
+            ]
+        ]);
+    }
+
+    /**
+     * Reset grade configuration to defaults
+     */
+    public function resetToDefaults(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+        
+        $gradeConfig = [
+            'pdc1' => self::DEFAULT_PDC1_WEIGHTS,
+            'pdc2' => self::DEFAULT_PDC2_WEIGHTS
+        ];
+
+        $period->update(['grade_configuration' => $gradeConfig]);
+
+        return response()->json([
+            'message' => 'Grade configuration reset to defaults',
+            'period_id' => $periodId,
+            'grade_configuration' => $gradeConfig
+        ]);
+    }
+}

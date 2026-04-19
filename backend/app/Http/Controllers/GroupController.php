@@ -446,6 +446,11 @@ class GroupController extends Controller
             return response()->json(['message' => 'Kelompok tidak tersedia lagi.'], 400);
         }
 
+        // Guard: finalized periods are closed for membership changes
+        if ($group->period && $group->period->is_finalized) {
+            return response()->json(['message' => 'Pendaftaran untuk periode ini sudah ditutup.'], 400);
+        }
+
         // LOCKED: After READY_FOR_FINALIZATION, cannot accept new members
         if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
             return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.'], 400);
@@ -692,7 +697,7 @@ class GroupController extends Controller
             if ($remainingMembers === 0) {
                 // Archive the group by setting status to DISSOLVED
                 $group->update(['status' => 'DISSOLVED']);
-                \Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+                Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
             } else {
                 $this->groupService->evaluateGroupReadiness($group);
             }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\TaSubmission;
 use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -397,7 +398,14 @@ class DocumentController extends Controller
             if ($phase === 'PDC1' && $group->status === 'PDC1_ACTIVE') {
                 $this->stateMachine->transition($group, 'READY_FOR_SEMPRO');
             } elseif ($phase === 'PDC2' && $group->status === 'PDC2_ACTIVE') {
-                $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+                // Check if at least 1 member has uploaded TA draft before transitioning
+                $hasTaDraft = TaSubmission::where('group_id', $groupId)
+                    ->whereIn('status', ['TA_DRAFT', 'SUPERVISOR_APPROVED', 'ADMIN_APPROVED', 'TA_REGISTERED'])
+                    ->exists();
+                
+                if ($hasTaDraft) {
+                    $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+                }
             }
         } catch (\InvalidArgumentException $e) {
             // Transition not valid from current state — ignore

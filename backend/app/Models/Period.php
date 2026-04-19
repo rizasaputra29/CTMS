@@ -34,12 +34,14 @@ class Period extends Model
         'max_supervisor_load',
         'allow_solo',
         'require_all_students_grouped',
+        'grade_configuration',
     ];
 
     protected $casts = [
         'start_date' => 'date',
         'end_date' => 'date',
         'phase_dates' => 'array',
+        'grade_configuration' => 'array',
         'is_active' => 'boolean',
         'is_finalized' => 'boolean',
         'require_all_students_grouped' => 'boolean',
@@ -109,5 +111,21 @@ class Period extends Model
     {
         return $this->belongsToMany(User::class, 'period_registrations')
             ->withTimestamps();
+    }
+
+    /**
+     * Assessment components configured for this period.
+     */
+    public function assessmentComponents()
+    {
+        return $this->hasMany(PeriodAssessmentComponent::class);
+    }
+
+    /**
+     * Peer review indicators configured for this period.
+     */
+    public function peerReviewIndicators()
+    {
+        return $this->hasMany(PeriodPeerReviewIndicator::class);
     }
 }

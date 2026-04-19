@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -96,21 +96,19 @@ export function ManualGroupingDialog({
   const [newTitleSpecializations, setNewTitleSpecializations] = useState<string[]>([]);
   const [selectedLecturerId, setSelectedLecturerId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (open) {
-      // Reset form when dialog opens
-      setSelectedStudents([]);
-      setMode('create');
-      setSelectedGroupId(null);
-      setCreateOption('no_title');
-      setSelectedTitleId(null);
-      setNewTitle({ title: '', description: '' });
-      setNewTitleSpecializations([]);
-      setSelectedLecturerId(null);
-    }
-  }, [open]);
+  const resetForm = () => {
+    setSelectedStudents([]);
+    setMode('create');
+    setSelectedGroupId(null);
+    setCreateOption('no_title');
+    setSelectedTitleId(null);
+    setNewTitle({ title: '', description: '' });
+    setNewTitleSpecializations([]);
+    setSelectedLecturerId(null);
+  };
 
   const handleClose = () => {
+    resetForm();
     onOpenChange(false);
   };
 
@@ -203,7 +201,14 @@ export function ManualGroupingDialog({
   const isValidForTitleOptions = selectedCount >= minGroupSize && selectedCount <= maxGroupSize;
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          handleClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">

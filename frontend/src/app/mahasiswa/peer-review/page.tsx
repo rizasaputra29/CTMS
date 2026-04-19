@@ -24,6 +24,7 @@ export default function MahasiswaPeerReviewPage() {
     const [currentUser, setCurrentUser] = useState<number | null>(null);
     const [hasGroup, setHasGroup] = useState(true);
     const [isLocked, setIsLocked] = useState(false);
+    const [myStatus, setMyStatus] = useState<{ has_completed: boolean; ta_status: string; can_access_ta: boolean; expo_done: boolean } | null>(null);
 
     // scores[reviewee_id][indicator_id] = { score, comment }
     const [scores, setScores] = useState<Record<number, Record<number, { score: number; comment: string }>>>({});
@@ -31,21 +32,27 @@ export default function MahasiswaPeerReviewPage() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get('/mahasiswa/peer-review');
-            setMembers(res.data.members || []);
-            setIndicators(res.data.indicators || []);
-            setExistingReviews(res.data.reviews || []);
-            setCurrentUser(res.data.current_user_id || null);
-            setIsLocked(res.data.is_locked || false);
+            // Fetch peer review form data and my status in parallel
+            const [formRes, statusRes] = await Promise.all([
+                api.get('/mahasiswa/peer-review'),
+                api.get('/mahasiswa/peer-review/my-status')
+            ]);
+            
+            setMembers(formRes.data.members || []);
+            setIndicators(formRes.data.indicators || []);
+            setExistingReviews(formRes.data.reviews || []);
+            setCurrentUser(formRes.data.current_user_id || null);
+            setIsLocked(formRes.data.is_locked || false);
             setHasGroup(true);
+            setMyStatus(statusRes.data);
 
             // Initialize scores from existing reviews
             const initial: typeof scores = {};
-            for (const m of (res.data.members || [])) {
-                if (m.student.id === res.data.current_user_id) continue;
+            for (const m of (formRes.data.members || [])) {
+                if (m.student.id === formRes.data.current_user_id) continue;
                 initial[m.student.id] = {};
-                for (const ind of (res.data.indicators || [])) {
-                    const existing = (res.data.reviews || []).find(
+                for (const ind of (formRes.data.indicators || [])) {
+                    const existing = (formRes.data.reviews || []).find(
                         (r: ExistingReview) => r.reviewee_id === m.student.id && r.indicator_id === ind.id
                     );
                     initial[m.student.id][ind.id] = {
@@ -120,7 +127,10 @@ export default function MahasiswaPeerReviewPage() {
                 <div className="text-center py-12 border rounded-lg border-dashed text-muted-foreground bg-white">
                     <Star className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <h2 className="text-xl font-bold mb-2 text-foreground">Peer Review Locked</h2>
-                    <p>Peer review is locked until your group reaches the <span className="font-semibold">Expo Stage</span>.</p>
+                    <p>Peer review will unlock after <span className="font-semibold">EXPO is completed</span>.</p>
+                    {myStatus && !myStatus.expo_done && (
+                        <p className="mt-2 text-sm">Your group is currently participating in EXPO. Please wait until EXPO is finished.</p>
+                    )}
                 </div>
             </div>
         );
@@ -206,6 +216,37 @@ export default function MahasiswaPeerReviewPage() {
                         </Card>
                     ))}
                 </div>
+            )}
+
+            {/* TA Status Section - Show after peer review completion */}
+            {myStatus?.has_completed && (
+                <Card className="mt-6 border-green-200 bg-green-50">
+                    <CardHeader>
+                        <CardTitle className="text-green-800">Peer Review Completed!</CardTitle>
+                        <CardDescription className="text-green-700">
+                            You have successfully completed peer review for all group members.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <p className="font-medium text-green-800">
+                                    TA Status: {myStatus.ta_status === 'TA_ACTIVE' ? 'Active' : myStatus.ta_status === 'TA_DONE' ? 'Completed' : 'Blocked'}
+                                </p>
+                                <p className="text-sm text-green-700 mt-1">
+                                    {myStatus.can_access_ta 
+                                        ? 'You can now access the TA phase. Upload your documents and schedule your defense.' 
+                                        : 'TA access will be granted shortly.'}
+                                </p>
+                            </div>
+                            {myStatus.can_access_ta && (
+                                <Button variant="outline" className="border-green-600 text-green-700 hover:bg-green-100" onClick={() => window.location.href = '/mahasiswa/ta'}>
+                                    Go to TA Phase
+                                </Button>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
             )}
         </div>
     );

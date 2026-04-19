@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, Plus, Trash2, Save } from 'lucide-react';
+import { Loader2, Plus, Trash2, Save, Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,13 +15,16 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import Link from 'next/link';
 
 interface Period {
     id: number;
     name: string;
     is_active: boolean;
+    is_finalized: boolean;
 }
 
 interface PhaseRequirement {
@@ -52,6 +55,12 @@ export default function AdminDocumentRequirementsPage() {
     const [saving, setSaving] = useState(false);
     const [newDocName, setNewDocName] = useState('');
     const [newDocDesc, setNewDocDesc] = useState('');
+
+    const selectedPeriod = useMemo(() => {
+        return periods.find(p => p.id.toString() === selectedPeriodId);
+    }, [periods, selectedPeriodId]);
+
+    const isPeriodFinalized = selectedPeriod?.is_finalized ?? false;
 
     const fetchPeriods = useCallback(async () => {
         try {
@@ -219,16 +228,41 @@ export default function AdminDocumentRequirementsPage() {
                     <p className="text-muted-foreground">Configure required documents for each phase per period.</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleLoadDefaults}>
+                    <Button 
+                        variant="outline" 
+                        onClick={handleLoadDefaults}
+                        disabled={isPeriodFinalized}
+                    >
                         Load Defaults
                     </Button>
-                    <Button onClick={handleSave} disabled={saving || !selectedPeriodId}>
+                    <Button 
+                        onClick={handleSave} 
+                        disabled={saving || !selectedPeriodId || isPeriodFinalized}
+                    >
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         <Save className="mr-2 h-4 w-4" />
                         Save Changes
                     </Button>
                 </div>
             </div>
+
+            {isPeriodFinalized && (
+                <Alert variant="destructive" className="border-amber-500 bg-amber-50">
+                    <Lock className="h-4 w-4 text-amber-600" />
+                    <AlertTitle className="text-amber-800">Period Finalized</AlertTitle>
+                    <AlertDescription className="text-amber-700">
+                        Document requirements cannot be modified for a finalized period.{" "}
+                        <Link 
+                            href="/admin/finalization" 
+                            className="font-semibold underline hover:text-amber-900 inline-flex items-center gap-1"
+                        >
+                            Reopen period from Finalization page
+                            <ArrowRight className="h-3 w-3" />
+                        </Link>{" "}
+                        to make changes.
+                    </AlertDescription>
+                </Alert>
+            )}
 
             <div className="flex gap-4">
                 <div className="w-[300px]">
@@ -288,8 +322,9 @@ export default function AdminDocumentRequirementsPage() {
                                     value={newDocName}
                                     onChange={(e) => setNewDocName(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAddDocument()}
+                                    disabled={isPeriodFinalized}
                                 />
-                                <Button onClick={handleAddDocument}>
+                                <Button onClick={handleAddDocument} disabled={isPeriodFinalized}>
                                     <Plus className="h-4 w-4" />
                                 </Button>
                             </div>
@@ -297,6 +332,7 @@ export default function AdminDocumentRequirementsPage() {
                                 placeholder="Description (optional)"
                                 value={newDocDesc}
                                 onChange={(e) => setNewDocDesc(e.target.value)}
+                                disabled={isPeriodFinalized}
                             />
 
                             {currentPhaseRequirements.length === 0 ? (
@@ -314,6 +350,7 @@ export default function AdminDocumentRequirementsPage() {
                                                 id={`${req.phase}-${req.name}-required`}
                                                 checked={req.is_required}
                                                 onCheckedChange={() => handleToggleRequired(req.name)}
+                                                disabled={isPeriodFinalized}
                                             />
                                             <div className="flex-1">
                                                 <Label
@@ -327,6 +364,7 @@ export default function AdminDocumentRequirementsPage() {
                                                     value={req.description ?? ''}
                                                     onChange={(e) => handleUpdateDescription(req.name, e.target.value)}
                                                     className="mt-1 h-8 text-sm"
+                                                    disabled={isPeriodFinalized}
                                                 />
                                             </div>
                                             <Button
@@ -334,6 +372,7 @@ export default function AdminDocumentRequirementsPage() {
                                                 size="icon"
                                                 className="text-destructive hover:text-destructive"
                                                 onClick={() => handleRemoveDocument(req.name)}
+                                                disabled={isPeriodFinalized}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>

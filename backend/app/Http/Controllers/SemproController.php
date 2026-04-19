@@ -7,8 +7,10 @@ use App\Models\Group;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Services\GroupStateMachine;
+use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class SemproController extends Controller
 {
@@ -56,10 +58,24 @@ class SemproController extends Controller
             'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
         ]);
 
-        $group = Group::findOrFail($request->group_id);
+        $group = Group::with(['supervisor1', 'supervisor2'])->findOrFail($request->group_id);
 
         if ($group->status !== 'READY_FOR_SEMPRO') {
             return response()->json(['message' => 'Group must be in READY_FOR_SEMPRO status.'], 400);
+        }
+
+        // Validate examiner cannot be supervisor
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+
+        if (in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
         }
 
         // Check existing SEMPRO schedule
@@ -71,9 +87,16 @@ class SemproController extends Controller
             return response()->json(['message' => 'Group already has a SEMPRO schedule.'], 400);
         }
 
+        // Validate examiner constraints (including examiner ≠ supervisor)
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
+        if ($constraintError) {
+            return response()->json(['message' => $constraintError], 400);
+        }
+
         // Double-booking & room conflict check
         $conflicts = $this->schedulingService->validateScheduleConflicts(
-            [$request->examiner_1_id, $request->examiner_2_id],
+            $examinerIds,
             $request->date,
             $request->start_time,
             $request->end_time,
@@ -155,6 +178,10 @@ class SemproController extends Controller
             return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
         }
 
+        // Get schedule for deadline tracking
+        $schedule = SeminarSchedule::find($scheduleId);
+        $deadlinePassed = $schedule && $schedule->evaluation_deadline && now() > $schedule->evaluation_deadline;
+
         try {
             $result = $this->schedulingService->submitSeminarEvaluation(
                 $evaluation->id,
@@ -163,6 +190,27 @@ class SemproController extends Controller
                 $request->result,
                 $user->id
             );
+
+            // Send notification if deadline has passed
+            if ($deadlinePassed) {
+                try {
+                    $notificationService = app(NotificationService::class);
+                    $group = Group::find($schedule->group_id);
+                    $groupName = $group ? $group->name : "Group {$schedule->group_id}";
+                    $deadlineFormatted = $schedule->evaluation_deadline ? date('d M Y H:i', strtotime($schedule->evaluation_deadline)) : 'Unknown';
+                    
+                    $notificationService->send(
+                        $user->id,
+                        'EVALUATION_DEADLINE_PASSED',
+                        'Evaluation Submitted After Deadline',
+                        "Your evaluation for {$groupName} - SEMPRO was submitted after the deadline (due: {$deadlineFormatted}).",
+                        'SeminarSchedule',
+                        $scheduleId
+                    );
+                } catch (\Exception $e) {
+                    Log::error("Failed to send deadline notification: " . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'message' => $result['all_submitted']

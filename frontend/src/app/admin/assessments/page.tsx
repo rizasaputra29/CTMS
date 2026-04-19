@@ -2,185 +2,294 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Loader2, Eye, ArrowLeft } from 'lucide-react';
+import { toast } from 'sonner';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
-    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
-} from '@/components/ui/dialog';
-import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui/select';
 import {
-    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Edit, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import {
+  Alert,
+  AlertDescription,
+} from '@/components/ui/alert';
 
-interface Period { id: number; name: string; is_active: boolean; }
-interface Component {
-    id: number; period_id: number; type: string; code: string;
-    name: string; description: string | null; weight: number; sort_order: number;
+interface Period {
+  id: number;
+  name: string;
+  is_active: boolean;
 }
 
-const TYPES = ['SEMPRO', 'SIDANG_TA', 'BIMBINGAN'];
+interface Component {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  weight: number;
+  type: string;
+  sort_order: number;
+  template_id: number;
+  period_id: number;
+}
 
-export default function AdminAssessmentsPage() {
-    const [periods, setPeriods] = useState<Period[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-    const [selectedType, setSelectedType] = useState<string>('SEMPRO');
-    const [components, setComponents] = useState<Component[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [open, setOpen] = useState(false);
-    const [editing, setEditing] = useState<Component | null>(null);
-    const [form, setForm] = useState({ code: '', name: '', description: '', weight: '25', sort_order: '0' });
+const EVALUATION_TYPES = [
+  { value: 'SEMPRO', label: 'SEMPRO', description: 'Seminar Proposal' },
+  { value: 'SIDANG_TA', label: 'SIDANG_TA', description: 'Sidang Tugas Akhir' },
+  { value: 'EXPO', label: 'EXPO', description: 'Expo' },
+  { value: 'BIMBINGAN', label: 'BIMBINGAN', description: 'Bimbingan Umum' },
+  { value: 'BIMBINGAN_SEMPRO', label: 'BIMBINGAN_SEMPRO', description: 'Penilaian Dosbing SEMPRO' },
+  { value: 'BIMBINGAN_EXPO', label: 'BIMBINGAN_EXPO', description: 'Penilaian Dosbing EXPO' },
+  { value: 'BIMBINGAN_TA', label: 'BIMBINGAN_TA', description: 'Penilaian Dosbing Sidang TA' },
+  { value: 'MILESTONE', label: 'MILESTONE', description: 'Penilaian Milestone' },
+];
 
-    const fetchPeriods = useCallback(async () => {
-        try {
-            const res = await api.get('/admin/periods');
-            const periodsData = res.data?.data || [];
-            setPeriods(periodsData);
-            const active = periodsData.find((p: Period) => p.is_active);
-            if (active) setSelectedPeriod(active.id.toString());
-        } catch { /* ignore */ }
-    }, []);
+export default function AssessmentsPage() {
+  const router = useRouter();
+  const [periods, setPeriods] = useState<Period[]>([]);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<string>('SEMPRO');
+  const [components, setComponents] = useState<Component[]>([]);
+  const [loading, setLoading] = useState(false);
 
-    const fetchComponents = useCallback(async () => {
-        if (!selectedPeriod) return;
-        setLoading(true);
-        try {
-            const res = await api.get('/admin/assessment-components', {
-                params: { period_id: selectedPeriod, type: selectedType },
-            });
-            setComponents(res.data.data || []);
-        } catch { toast.error('Failed to load components'); }
-        finally { setLoading(false); }
-    }, [selectedPeriod, selectedType]);
+  const fetchPeriods = useCallback(async () => {
+    try {
+      const res = await api.get('/admin/periods');
+      const periodsData = res.data?.data || [];
+      setPeriods(periodsData);
+      const active = periodsData.find((p: Period) => p.is_active);
+      if (active) setSelectedPeriod(active.id.toString());
+    } catch {
+      toast.error('Failed to load periods');
+    }
+  }, []);
 
-    useEffect(() => { fetchPeriods(); }, [fetchPeriods]);
-    useEffect(() => { if (selectedPeriod) fetchComponents(); }, [fetchComponents, selectedPeriod]);
+  const fetchComponents = useCallback(async () => {
+    if (!selectedPeriod || !selectedType) return;
+    setLoading(true);
+    try {
+      const res = await api.get('/admin/assessment-components', {
+        params: { period_id: selectedPeriod, type: selectedType },
+      });
+      setComponents(res.data || []);
+    } catch {
+      toast.error('Failed to load components');
+      setComponents([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPeriod, selectedType]);
 
-    const resetForm = () => { setEditing(null); setForm({ code: '', name: '', description: '', weight: '25', sort_order: '0' }); };
+  useEffect(() => {
+    fetchPeriods();
+  }, [fetchPeriods]);
 
-    const startEdit = (c: Component) => {
-        setEditing(c);
-        setForm({ code: c.code, name: c.name, description: c.description || '', weight: c.weight.toString(), sort_order: c.sort_order.toString() });
-        setOpen(true);
-    };
+  useEffect(() => {
+    fetchComponents();
+  }, [fetchComponents]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            const payload = { ...form, period_id: selectedPeriod, type: selectedType, weight: parseFloat(form.weight), sort_order: parseInt(form.sort_order) };
-            if (editing) {
-                await api.put(`/admin/assessment-components/${editing.id}`, payload);
-                toast.success('Component updated');
-            } else {
-                await api.post('/admin/assessment-components', payload);
-                toast.success('Component created');
-            }
-            setOpen(false); resetForm(); fetchComponents();
-        } catch (error: unknown) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to save');
-            else toast.error('Failed to save');
-        }
-    };
+  const totalWeight = components.reduce((sum, c) => sum + Number(c.weight), 0);
+  const typeLabel = EVALUATION_TYPES.find(t => t.value === selectedType)?.label || selectedType;
 
-    const handleDelete = async (id: number) => {
-        if (!confirm('Delete this component?')) return;
-        try { await api.delete(`/admin/assessment-components/${id}`); toast.success('Deleted'); fetchComponents(); }
-        catch { toast.error('Failed to delete'); }
-    };
-
-    const totalWeight = components.reduce((sum, c) => sum + Number(c.weight), 0);
-
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">Assessment Components</h1>
-                <p className="text-muted-foreground">Manage CPMK/CPL assessment components per period and evaluation type.</p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-4">
-                <Select value={selectedPeriod} onValueChange={v => { setSelectedPeriod(v); }}>
-                    <SelectTrigger className="w-[200px]"><SelectValue placeholder="Select period" /></SelectTrigger>
-                    <SelectContent>{periods.map(p => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={selectedType} onValueChange={setSelectedType}>
-                    <SelectTrigger className="w-[200px]"><SelectValue placeholder="Select type" /></SelectTrigger>
-                    <SelectContent>{TYPES.map(t => <SelectItem key={t} value={t}>{t.replace('_', ' ')}</SelectItem>)}</SelectContent>
-                </Select>
-                <div className="ml-auto">
-                    <Dialog open={open} onOpenChange={v => { setOpen(v); if (!v) resetForm(); }}>
-                        <DialogTrigger asChild><Button><Plus className="mr-2 h-4 w-4" /> Add Component</Button></DialogTrigger>
-                        <DialogContent className="sm:max-w-[500px]">
-                            <form onSubmit={handleSubmit}>
-                                <DialogHeader>
-                                    <DialogTitle>{editing ? 'Edit Component' : 'Add Component'}</DialogTitle>
-                                    <DialogDescription>Define a CPMK/CPL assessment component for {selectedType}.</DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-4 py-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2"><Label>Code</Label><Input value={form.code} onChange={e => setForm({ ...form, code: e.target.value })} placeholder="CPMK-1" required /></div>
-                                        <div className="grid gap-2"><Label>Sort Order</Label><Input type="number" value={form.sort_order} onChange={e => setForm({ ...form, sort_order: e.target.value })} /></div>
-                                    </div>
-                                    <div className="grid gap-2"><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Kemampuan Presentasi" required /></div>
-                                    <div className="grid gap-2"><Label>Description</Label><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional description" /></div>
-                                    <div className="grid gap-2"><Label>Weight (%)</Label><Input type="number" step="0.01" min="0" max="100" value={form.weight} onChange={e => setForm({ ...form, weight: e.target.value })} required /></div>
-                                </div>
-                                <DialogFooter><Button type="submit">{editing ? 'Save Changes' : 'Create'}</Button></DialogFooter>
-                            </form>
-                        </DialogContent>
-                    </Dialog>
-                </div>
-            </div>
-
-            {/* Weight indicator */}
-            <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">Total weight:</span>
-                <Badge variant={totalWeight === 100 ? 'default' : 'destructive'}>{totalWeight}%</Badge>
-                {totalWeight !== 100 && <span className="text-sm text-destructive">Should equal 100%</span>}
-            </div>
-
-            {loading ? (
-                <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin" /></div>
-            ) : components.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed text-muted-foreground">No components defined for {selectedType} in this period.</div>
-            ) : (
-                <div className="rounded-md border">
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead className="w-[60px]">#</TableHead>
-                                <TableHead>Code</TableHead>
-                                <TableHead>Name</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead className="w-[100px]">Weight</TableHead>
-                                <TableHead className="text-right w-[100px]">Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {components.map(c => (
-                                <TableRow key={c.id}>
-                                    <TableCell className="text-muted-foreground">{c.sort_order}</TableCell>
-                                    <TableCell><Badge variant="outline">{c.code}</Badge></TableCell>
-                                    <TableCell className="font-medium">{c.name}</TableCell>
-                                    <TableCell className="text-muted-foreground max-w-[300px] truncate">{c.description || '—'}</TableCell>
-                                    <TableCell><Badge variant="secondary">{c.weight}%</Badge></TableCell>
-                                    <TableCell className="text-right">
-                                        <div className="flex justify-end gap-1">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(c)}><Edit className="h-4 w-4" /></Button>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(c.id)}><Trash2 className="h-4 w-4" /></Button>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </div>
-            )}
+  return (
+    <div className="container mx-auto py-6 max-w-7xl">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Active Assessment Components</h1>
+            <p className="text-muted-foreground mt-1">
+              View assessment components configured for each period and evaluation type.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => router.push('/admin/assessment-bank')}>
+            Manage Bank Soal
+          </Button>
         </div>
-    );
+      </div>
+
+      {/* Info Alert */}
+      <Alert className="mb-6">
+        <AlertDescription className="flex items-center justify-between">
+          <span>
+            Components are configured via{' '}
+            <strong>Period Assessment Configuration</strong>.
+            Manage master templates in the{' '}
+            <Button 
+              variant="link" 
+              className="h-auto p-0"
+              onClick={() => router.push('/admin/assessment-bank')}
+            >
+              Assessment Bank
+            </Button>.
+          </span>
+        </AlertDescription>
+      </Alert>
+
+      {/* Filters */}
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Period</label>
+              <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select period" />
+                </SelectTrigger>
+                <SelectContent>
+                  {periods.map((p) => (
+                    <SelectItem key={p.id} value={p.id.toString()}>
+                      {p.name} {p.is_active && '(Active)'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Evaluation Type</label>
+              <Select value={selectedType} onValueChange={setSelectedType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {EVALUATION_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      <div className="flex flex-col">
+                        <span>{type.label}</span>
+                        <span className="text-xs text-muted-foreground">{type.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Components Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>{typeLabel} Components</CardTitle>
+              <CardDescription>
+                {components.length} component{components.length !== 1 ? 's' : ''} configured
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Total Weight:</span>
+              <Badge variant={totalWeight === 100 ? 'default' : 'destructive'}>
+                {totalWeight.toFixed(2)}%
+              </Badge>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="flex justify-center items-center h-64">
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : components.length === 0 ? (
+            <div className="text-center py-12 border rounded-lg border-dashed">
+              <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <p className="text-muted-foreground mb-2">
+                No components configured for {typeLabel} in this period
+              </p>
+              <Button 
+                variant="outline" 
+                onClick={() => router.push('/admin/period-assessment-config')}
+              >
+                Configure Components
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-[80px]">Order</TableHead>
+                      <TableHead className="w-[100px]">Code</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead className="hidden md:table-cell">Description</TableHead>
+                      <TableHead className="w-[100px]">Weight</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {components.map((component) => (
+                      <TableRow key={component.id}>
+                        <TableCell>
+                          <Badge variant="outline">{component.sort_order + 1}</Badge>
+                        </TableCell>
+                        <TableCell className="font-medium">{component.code}</TableCell>
+                        <TableCell>{component.name}</TableCell>
+                        <TableCell className="hidden md:table-cell max-w-[300px] truncate">
+                          {component.description || (
+                            <span className="text-muted-foreground italic">No description</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{component.weight}%</Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {totalWeight !== 100 && (
+                <p className="text-sm text-destructive mt-4">
+                  ⚠️ Total weight should equal 100%. Current total: {totalWeight.toFixed(2)}%
+                </p>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Quick Links */}
+      <div className="grid gap-4 md:grid-cols-2 mt-6">
+        <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => router.push('/admin/assessment-bank')}>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold">Assessment Bank</h3>
+                <p className="text-sm text-muted-foreground">
+                  Manage master component templates
+                </p>
+              </div>
+              <ArrowLeft className="h-5 w-5 text-muted-foreground rotate-180" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="cursor-pointer hover:border-primary transition-colors" onClick={() => router.push('/admin/period-assessment-config')}>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold">Period Configuration</h3>
+                <p className="text-sm text-muted-foreground">
+                  Configure components for each period
+                </p>
+              </div>
+              <ArrowLeft className="h-5 w-5 text-muted-foreground rotate-180" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
 }

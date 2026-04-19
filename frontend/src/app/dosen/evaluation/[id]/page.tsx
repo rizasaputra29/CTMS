@@ -61,7 +61,7 @@ export default function EvaluationDetailPage() {
     useEffect(() => {
         const fetchContext = async () => {
             try {
-                const response = await axios.get(`/api/dosen/evaluation-context/${type}/${id}`)
+                const response = await axios.get(`/dosen/evaluation-context/${type}/${id}`)
                 const data = response.data
                 setContext(data)
 
@@ -123,14 +123,14 @@ export default function EvaluationDetailPage() {
                 scores: Object.entries(scores).map(([key, score]) => {
                     const [componentId, studentId] = key.split('_').map(Number)
                     return {
-                        component_id: componentId,
+                        period_component_id: componentId,
                         student_id: studentId,
                         score: score,
                         notes: notes[key] || ''
                     }
                 })
             }
-            await axios.post('/api/dosen/assessment-scores', scorePayload)
+            await axios.post('/dosen/assessment-scores', scorePayload)
 
             // 2. Finalize evaluation to SemproController or TaDefenseController
             // Need to pick one student's representative score or average if it's a group seminar
@@ -139,8 +139,8 @@ export default function EvaluationDetailPage() {
             const avgScore = Object.values(scores).reduce((a, b) => a + b, 0) / Object.values(scores).length
             
             const finalizeEndpoint = context.type === 'SEMINAR' 
-                ? `/api/dosen/sempro/${context.schedule.id}/evaluate`
-                : `/api/dosen/ta-defense/${context.schedule.id}/evaluate`
+                ? `/dosen/sempro/${context.schedule.id}/evaluate`
+                : `/dosen/ta-defense/${context.schedule.id}/evaluate`
 
             await axios.post(finalizeEndpoint, {
                 rubric_json: { scores, notes }, // Storing the breakdown in the blob too

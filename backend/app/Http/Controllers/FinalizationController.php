@@ -329,24 +329,63 @@ class FinalizationController extends Controller
             return response()->json(['message' => 'Cannot reopen an inactive period.'], 400);
         }
 
-        if (!$period->is_finalized) {
-            return response()->json(['message' => 'Period is not finalized.'], 400);
+        // Check for all groups that have been finalized (PDC1_ACTIVE and beyond)
+        $finalizedStatuses = [
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'PDC2_COMPLETED',
+        ];
+
+        $hasFinalizedGroups = Group::where('period_id', $period->id)
+            ->whereIn('status', $finalizedStatuses)
+            ->exists();
+
+        if (!$period->is_finalized && !$hasFinalizedGroups) {
+            return response()->json(['message' => 'Period is not finalized and has no executed finalization groups.'], 400);
         }
 
-        $period->update(['is_finalized' => false]);
+        DB::beginTransaction();
+        try {
+            // Re-open period registration
+            $period->update(['is_finalized' => false]);
 
-        \App\Models\AuditLog::create([
-            'user_id' => $request->user()->id,
-            'action' => 'PERIOD_REOPENED',
-            'target_type' => 'Period',
-            'target_id' => $period->id,
-            'payload' => ['reopened_at' => now()->toISOString()],
-        ]);
+            // Revert only groups that are still in PDC1_ACTIVE back to KELOMPOK_FINAL
+            // Groups that have progressed further (SEMPRO_DONE, PDC2_ACTIVE, etc.) remain in their current status
+            $revertedCount = Group::where('period_id', $period->id)
+                ->where('status', 'PDC1_ACTIVE')
+                ->update([
+                    'status' => 'KELOMPOK_FINAL',
+                    'finalized_at' => null,
+                    'finalized_by' => null,
+                ]);
 
-        return response()->json([
-            'message' => 'Period reopened for registration.',
-            'period' => $period->fresh(),
-        ]);
+            \App\Models\AuditLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'PERIOD_REOPENED',
+                'target_type' => 'Period',
+                'target_id' => $period->id,
+                'payload' => [
+                    'reopened_at' => now()->toISOString(),
+                    'reverted_count' => $revertedCount,
+                ],
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Period reopened for registration.',
+                'period' => $period->fresh(),
+                'reverted_count' => $revertedCount,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to reopen period: ' . $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -392,14 +431,18 @@ class FinalizationController extends Controller
     {
         // Check document requirements status
         $docRequirementsStatus = $this->getDocumentRequirementsStatus($period);
+        $totalPdc1Active = Group::where('period_id', $period->id)->where('status', 'PDC1_ACTIVE')->count();
 
         return [
             'total_ready' => Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count(),
             'total_kelompok_final' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count(),
+            'total_pdc1_active' => $totalPdc1Active,
             'total_no_group' => $this->getStudentsWithoutGroupsCount($period),
             'total_no_title' => Group::where('period_id', $period->id)->whereNull('title_id')->whereNotIn('status', ['CLOSED', 'DISSOLVED'])->count(),
-            'total_not_ready' => Group::where('period_id', $period->id)->whereNotIn('status', ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])->count(),
+            // "Belum Siap" tab is intentionally limited to TITLE_APPROVED only.
+            'total_not_ready' => Group::where('period_id', $period->id)->where('status', 'TITLE_APPROVED')->count(),
             'can_finalize' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0 && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0,
+            'can_reopen_finalization' => $period->is_finalized || $totalPdc1Active > 0,
             // Document requirements integration
             'document_requirements' => $docRequirementsStatus,
         ];
@@ -575,17 +618,16 @@ class FinalizationController extends Controller
     }
 
     /**
-     * Get groups not ready - only show groups with APPROVED title status.
+     * Get groups for "Belum Siap" tab.
+     *
+     * This tab intentionally shows TITLE_APPROVED only, aligned with
+     * total_not_ready stats.
      */
     private function getGroupsNotReady($period, $perPage, $search)
     {
         $query = Group::with(['members.student', 'title'])
             ->where('period_id', $period->id)
-            ->whereNotIn('status', ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
-            ->whereHas('title', function ($tq) {
-                // Only show groups with approved titles
-                $tq->where('supervisor_approval_status', 'APPROVED');
-            });
+            ->where('status', 'TITLE_APPROVED');
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -753,9 +795,23 @@ class FinalizationController extends Controller
             return response()->json(['message' => 'Periode tidak aktif.'], 400);
         }
 
-        // Validation: ALL groups must be KELOMPOK_FINAL
+        // Validation: ALL groups must be at least KELOMPOK_FINAL or already finalized
+        $allowedStatuses = [
+            'KELOMPOK_FINAL',
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'PDC2_COMPLETED',
+            'CLOSED',
+            'DISSOLVED',
+        ];
+
         $notReadyGroups = Group::where('period_id', $period->id)
-            ->whereNotIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
+            ->whereNotIn('status', $allowedStatuses)
             ->count();
 
         if ($notReadyGroups > 0) {
@@ -820,6 +876,9 @@ class FinalizationController extends Controller
 
                 $finalizedCount++;
             }
+
+            // Lock period after successful admin finalization execution.
+            $period->update(['is_finalized' => true]);
 
             // Notify all groups and lecturers
             $this->notifyFinalizationCompletion($period, $groups, $user);
@@ -914,6 +973,92 @@ class FinalizationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Rollback gagal: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Cancel/Revert KELOMPOK_FINAL: Revert single group back to READY_FOR_FINALIZATION.
+     * Only works if period is not finalized.
+     */
+    public function cancelKelompokFinal(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'group_id' => 'required|exists:groups,id',
+            'reason' => 'nullable|string|max:1000',
+        ]);
+
+        $user = $request->user();
+        $period = Period::findOrFail($request->period_id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat melakukan cancel.'], 403);
+        }
+
+        // Period must not be finalized
+        if ($period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Reopen period terlebih dahulu.'], 400);
+        }
+
+        $group = Group::with('members')->findOrFail($request->group_id);
+
+        // Validate group is in KELOMPOK_FINAL status
+        if ($group->status !== 'KELOMPOK_FINAL') {
+            return response()->json(['message' => 'Grup harus dalam status KELOMPOK_FINAL untuk di-cancel.'], 400);
+        }
+
+        // Validate group belongs to this period
+        if ($group->period_id !== $period->id) {
+            return response()->json(['message' => 'Grup tidak termasuk dalam periode ini.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldStatus = $group->status;
+            $newStatus = 'READY_FOR_FINALIZATION';
+
+            $group->update([
+                'status' => $newStatus,
+                'finalized_at' => null,
+                'finalized_by' => null,
+            ]);
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $period->id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'CANCEL_KELOMPOK_FINAL',
+                'old_values' => ['status' => $oldStatus],
+                'new_values' => ['status' => $newStatus],
+                'notes' => $request->reason,
+            ]);
+
+            // Notify group members
+            $reasonText = $request->reason ? " Alasan: {$request->reason}" : '';
+            foreach ($group->members as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'CANCEL_KELOMPOK_FINAL',
+                    'title' => 'Status Kelompok Final Dibatalkan',
+                    'message' => "Status kelompok final Anda telah dibatalkan.{$reasonText} Silakan konfirmasi ulang supervisor sebelum finalisasi.",
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => "Cancel Kelompok Final berhasil. Grup #{$group->id} dikembalikan ke READY_FOR_FINALIZATION.",
+                'group' => $group->fresh(['members.student', 'title', 'supervisor1', 'supervisor2']),
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Cancel Kelompok Final gagal: ' . $e->getMessage()], 500);
         }
     }
 
@@ -1504,7 +1649,7 @@ class FinalizationController extends Controller
         $period = $this->resolvePeriod($request);
 
         // Debug logging
-        \Log::info('getAvailableTitles called', [
+        Log::info('getAvailableTitles called', [
             'period_id' => $period->id,
             'total_titles_in_period' => Title::where('period_id', $period->id)->count(),
             'approved_titles' => Title::where('period_id', $period->id)->where('supervisor_approval_status', 'APPROVED')->count(),
@@ -1538,7 +1683,7 @@ class FinalizationController extends Controller
                     ->count();
                 $hasQuota = $currentAllocations < $title->quota;
                 
-                \Log::debug('Title quota check', [
+                Log::debug('Title quota check', [
                     'title_id' => $title->id,
                     'title' => $title->title,
                     'current_allocations' => $currentAllocations,
@@ -1550,7 +1695,7 @@ class FinalizationController extends Controller
             })
             ->values();
 
-        \Log::info('getAvailableTitles result', [
+        Log::info('getAvailableTitles result', [
             'count' => $emptyTitles->count(),
             'title_ids' => $emptyTitles->pluck('id')->toArray(),
         ]);

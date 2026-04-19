@@ -64,7 +64,6 @@ export function useSupervisorLoad(periodId?: number): UseSupervisorLoadReturn {
 
   const refresh = useCallback(() => {
     fetchLecturers();
-    toast.success('Lecturer data refreshed');
   }, [fetchLecturers]);
 
   return {

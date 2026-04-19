@@ -82,10 +82,21 @@ class TaDefenseController extends Controller
             }
         }
 
-        // Validate no duplicate (examiner same as supervisor would be caught by UNIQUE constraint)
         // Get supervisors
         $supervisor1 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_1')->first();
         $supervisor2 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_2')->first();
+
+        // Validate examiners cannot be supervisors
+        $supervisorIds = array_filter([
+            $supervisor1?->supervisor_id,
+            $supervisor2?->supervisor_id,
+        ]);
+        if (in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+        if (in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+        }
 
         // Collect ALL examiner IDs for double-booking check
         $allExaminerIds = array_filter([

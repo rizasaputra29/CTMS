@@ -57,6 +57,7 @@ export interface Period {
   id: number;
   name: string;
   is_active: boolean;
+  is_finalized?: boolean;
   max_supervisor_load?: number;
   min_group_size?: number;
   max_group_size?: number;
@@ -161,10 +162,12 @@ export interface DocumentRequirementsStatus {
 export interface DashboardStats {
   total_ready: number;
   total_kelompok_final: number;
+  total_pdc1_active?: number;
   total_no_group: number;
   total_no_title: number;
   total_not_ready: number;
   can_finalize: boolean;
+  can_reopen_finalization?: boolean;
   document_requirements?: DocumentRequirementsStatus;
 }
 
@@ -215,6 +218,13 @@ export interface RollbackFinalizationRequest {
   reason: string;
 }
 
+// Cancel Kelompok Final request
+export interface CancelKelompokFinalRequest {
+  period_id: number;
+  group_id: number;
+  reason?: string;
+}
+
 // Export request
 export interface ExportRequest {
   period_id: number;
@@ -247,4 +257,8 @@ export interface FilterState {
   search: string;
   perPage: number;
   page: number;
+  // Advanced filters
+  supervisorStatus?: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
+  memberCount?: 'all' | 'under_min' | 'in_range' | 'over_max';
+  titleStatus?: 'all' | 'no_title' | 'lecturer_title' | 'marketplace_title';
 }

@@ -231,14 +231,7 @@ export default function DosenTitlesPage() {
         );
     };
 
-    const toggleFormSpec = (spec: string) => {
-        setFormData(prev => ({
-            ...prev,
-            specializations: prev.specializations.includes(spec)
-                ? prev.specializations.filter(s => s !== spec)
-                : [...prev.specializations, spec],
-        }));
-    };
+
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {

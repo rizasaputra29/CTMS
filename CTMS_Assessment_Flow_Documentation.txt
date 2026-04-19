@@ -1,0 +1,602 @@
+================================================================================
+                    CTMS ASSESSMENT FLOW DOCUMENTATION
+                         Complete System Reference
+================================================================================
+
+Generated: April 2026
+System: CTMS (Capstone/TA Management System)
+
+================================================================================
+                           TABLE OF CONTENTS
+================================================================================
+
+1. STATUS FLOW & STATE TRANSITIONS
+   1.1 Group State Machine Flow
+   1.2 All Group Statuses
+   1.3 TA Submission Status
+   1.4 Schedule/Evaluation Statuses
+
+2. API ENDPOINTS BY ROLE
+   2.1 Admin Routes
+   2.2 Dosen Routes
+   2.3 Mahasiswa Routes
+
+3. EVALUATION TYPES
+
+4. DATA MODELS & RELATIONSHIPS
+
+5. COMPLETE WORKFLOW
+
+6. KEY FILES REFERENCE
+
+================================================================================
+                    1. STATUS FLOW & STATE TRANSITIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+1.1 GROUP STATE MACHINE FLOW
+--------------------------------------------------------------------------------
+
+┌─────────────────┐
+│    FORMING      │ ──► (cukup anggota) ──► ┌──────────────────────┐
+└─────────────────┘                          │  READY_FOR_BIDDING   │
+                                             └──────────────────────┘
+                                                        │
+    ┌───────────────────────────────────────────────────┘
+    ▼
+┌──────────────────────────┐
+│ WAITING_SUPERVISOR_      │ ──► (judul disetujui) ──► ┌───────────────┐
+│    APPROVAL              │                           │ TITLE_APPROVED│
+└──────────────────────────┘                           └───────────────┘
+                                                                │
+    ┌───────────────────────────────────────────────────────────┘
+    ▼
+┌──────────────────────┐
+│ READY_FOR_FINALIZATION│ ──► (admin finalisasi) ──► ┌──────────────┐
+└──────────────────────┘                             │ KELOMPOK_FINAL│
+                                                     └──────────────┘
+                                                                │
+    ┌───────────────────────────────────────────────────────────┘
+    ▼
+┌───────────────┐     ┌────────────────┐     ┌───────────────┐
+│  PDC1_ACTIVE  │ ──► │ READY_FOR_SEMPRO│ ──► │  SEMPRO_DONE  │
+└───────────────┘     └────────────────┘     └───────────────┘
+                                                        │
+    ┌───────────────────────────────────────────────────┘
+    ▼
+┌───────────────┐     ┌────────────────────┐     ┌───────────────┐
+│  PDC2_ACTIVE  │ ──► │ PDC2_READY_FOR_EXPO│ ──► │ EXPO_REGISTERED│
+└───────────────┘     └────────────────────┘     └───────────────┘
+                                                        │
+    ┌───────────────────────────────────────────────────┘
+    ▼
+┌──────────────┐     ┌────────────────┐     ┌───────────┐
+│  EXPO_DONE   │ ──► │ PDC2_COMPLETED │ ──► │  CLOSED   │
+└──────────────┘     └────────────────┘     └───────────┘
+
+--------------------------------------------------------------------------------
+1.2 ALL GROUP STATUSES
+--------------------------------------------------------------------------------
+
+SETUP PHASE:
+  FORMING                    - Pembentukan kelompok, anggota belum cukup
+  FORMING_SOLO               - Mencari solo partner
+  READY_FOR_BIDDING          - Siap bidding judul
+  WAITING_SUPERVISOR_APPROVAL- Menunggu approval dosen pembimbing
+  TITLE_APPROVED             - Judul disetujui, open recruitment
+  READY_FOR_FINALIZATION     - Siap finalisasi admin
+  KELOMPOK_FINAL             - Kelompok sudah difinalisasi
+
+PDC1 PHASE:
+  PDC1_ACTIVE                - PDC1 aktif, bimbingan berjalan
+  READY_FOR_SEMPRO           - Siap SEMPRO
+  SEMPRO_DONE                - SEMPRO selesai
+
+PDC2 PHASE:
+  PDC2_ACTIVE                - PDC2 aktif
+  PDC2_READY_FOR_EXPO        - Siap EXPO
+  EXPO_REGISTERED            - EXPO terdaftar
+  EXPO_DONE                  - EXPO selesai
+  PDC2_COMPLETED             - PDC2 selesai, peer review unlocked
+
+FINAL:
+  CLOSED                     - Kelompok ditutup
+  DISSOLVED                  - Kelompok dibubarkan
+
+--------------------------------------------------------------------------------
+1.3 TA SUBMISSION STATUS
+--------------------------------------------------------------------------------
+
+Status              Order   Deskripsi
+────────────────────────────────────────────
+TA_LOCKED           0       TA access dikunci
+TA_DRAFT            1       Draft TA
+TA_REVISED          2       TA direvisi
+TA_READY            3       Siap daftar TA
+TA_REGISTERED       4       TA terdaftar
+TA_SCHEDULED        5       Jadwal sidang TA ditentukan
+TA_DEFENDED         6       Sidang TA selesai
+
+--------------------------------------------------------------------------------
+1.4 SCHEDULE/EVALUATION STATUS
+--------------------------------------------------------------------------------
+
+Schedule Status:
+  SCHEDULED          - Jadwal dibuat
+  COMPLETED          - Semua evaluasi submitted
+  CANCELLED          - Jadwal dibatalkan
+  PENDING_APPROVAL   - Menunggu approval admin
+
+Evaluation Status:
+  PENDING            - Evaluasi belum disubmit
+  SUBMITTED          - Evaluasi sudah disubmit
+  PARTIAL            - Sebagian nilai submitted
+  COMPLETED          - Semua nilai submitted
+
+================================================================================
+                         2. API ENDPOINTS BY ROLE
+================================================================================
+
+--------------------------------------------------------------------------------
+2.1 ADMIN ROUTES (role: admin)
+--------------------------------------------------------------------------------
+
+ASSESSMENT CONFIGURATION:
+  GET    /admin/assessment-templates
+  POST   /admin/assessment-templates
+  PUT    /admin/assessment-templates/{id}
+  DELETE /admin/assessment-templates/{id}
+  GET    /admin/assessment-components
+  POST   /admin/assessment-components
+  POST   /admin/assessment-components/bulk
+  PUT    /admin/assessment-components/{id}
+  DELETE /admin/assessment-components/{id}
+  GET    /admin/periods/{period}/assessment-config
+  POST   /admin/periods/{period}/assessment-config
+  POST   /admin/periods/{period}/assessment-config/copy
+
+SEMPRO SCHEDULING:
+  GET    /admin/sempro/schedules
+  POST   /admin/sempro/schedule
+  PUT    /admin/sempro/schedules/{id}/approve
+  PUT    /admin/sempro/schedules/{id}/reject
+
+EXPO SCHEDULING:
+  GET    /admin/expo/schedules
+  POST   /admin/expo/schedule
+
+TA DEFENSE SCHEDULING:
+  GET    /admin/ta-defense/schedules
+  POST   /admin/ta-defense/schedule
+  PUT    /admin/ta-defense/schedules/{id}/approve
+  PUT    /admin/ta-defense/schedules/{id}/reject
+
+EVALUATION SUMMARY:
+  GET    /admin/supervisor-evaluation/schedules/{id}/summary
+  GET    /admin/supervisor-evaluation/schedules/{id}/export
+  GET    /admin/assessment-scores/summary
+
+GRADE MANAGEMENT:
+  GET    /admin/grade-configuration
+  POST   /admin/grade-configuration
+  POST   /admin/grade-configuration/reset
+  GET    /admin/grade-configuration/pdc1
+  GET    /admin/grade-configuration/pdc2
+  GET    /admin/grade-configuration/calculate/{groupId}
+  GET    /admin/grade-consistency
+  POST   /admin/grade-consistency/generate
+
+PEER REVIEW:
+  GET    /admin/peer-review-templates
+  POST   /admin/peer-review-templates
+  PUT    /admin/peer-review-templates/{id}
+  DELETE /admin/peer-review-templates/{id}
+  GET    /admin/peer-review-dashboard/groups
+  POST   /admin/peer-review-dashboard/send-reminder/{groupId}
+
+--------------------------------------------------------------------------------
+2.2 DOSEN ROUTES (role: dosen)
+--------------------------------------------------------------------------------
+
+EXAMINER EVALUATIONS:
+  POST   /dosen/sempro/{schedule}/evaluate
+  POST   /dosen/expo/{schedule}/evaluate
+  POST   /dosen/ta-defense/{schedule}/evaluate
+
+SUPERVISOR EVALUATIONS (BIMBINGAN):
+  GET    /dosen/supervisor-evaluation/groups
+  GET    /dosen/supervisor-evaluation/schedules
+  GET    /dosen/supervisor-evaluation/pending-count
+  GET    /dosen/supervisor-evaluation/form/{groupId}
+  POST   /dosen/supervisor-evaluation
+
+DASHBOARD:
+  GET    /dosen/seminar-schedules/supervisor
+  GET    /dosen/seminar-schedules/examiner
+  GET    /dosen/evaluation-context/{type}/{id}
+
+ASSESSMENT SCORES:
+  GET    /dosen/assessment-scores
+  POST   /dosen/assessment-scores
+
+PEER REVIEW:
+  GET    /dosen/peer-review
+
+--------------------------------------------------------------------------------
+2.3 MAHASISWA ROUTES (role: mahasiswa)
+--------------------------------------------------------------------------------
+
+  GET    /mahasiswa/seminar-schedules
+  GET    /mahasiswa/ta-defense
+  GET    /mahasiswa/peer-review
+  GET    /mahasiswa/peer-review/status
+  GET    /mahasiswa/peer-review/my-status
+  POST   /mahasiswa/peer-review
+  GET    /mahasiswa/ta-status
+
+================================================================================
+                            3. EVALUATION TYPES
+================================================================================
+
+Type                Evaluator      Deskripsi
+─────────────────────────────────────────────────────────────────────────────
+SEMPRO              Examiner       Seminar Proposal
+SIDANG_TA           Examiner       Sidang TA / Defense
+EXPO                Examiner       Expo presentation
+BIMBINGAN           Supervisor     Bimbingan umum (legacy)
+BIMBINGAN_SEMPRO    Supervisor     Bimbingan untuk SEMPRO
+BIMBINGAN_EXPO      Supervisor     Bimbingan untuk EXPO
+BIMBINGAN_TA        Supervisor     Bimbingan untuk TA
+MILESTONE           Supervisor     Evaluasi milestone
+
+================================================================================
+                       4. DATA MODELS & RELATIONSHIPS
+================================================================================
+
+--------------------------------------------------------------------------------
+4.1 CORE ASSESSMENT MODELS
+--------------------------------------------------------------------------------
+
+ASSESSMENT_SCORES:
+  id                      bigint (PK)
+  period_component_id     bigint (FK)
+  evaluator_id            bigint (FK)
+  group_id                bigint (FK)
+  student_id              bigint (FK, nullable)
+  score                   decimal(5,2)
+  notes                   text (nullable)
+  evaluation_type         string (SEMPRO, SIDANG_TA, EXPO, BIMBINGAN, etc.)
+  created_at              timestamp
+  updated_at              timestamp
+
+  Relationships:
+    - periodComponent() → PeriodAssessmentComponent
+    - evaluator() → User
+    - group() → Group
+    - student() → User
+
+PERIOD_ASSESSMENT_COMPONENTS:
+  id                      bigint (PK)
+  period_id               bigint (FK)
+  template_id             bigint (FK)
+  type                    string
+  sort_order              int
+
+  Relationships:
+    - period() → Period
+    - template() → AssessmentComponentTemplate
+    - scores() → AssessmentScore[]
+
+ASSESSMENT_COMPONENT_TEMPLATES (Bank Soal):
+  id                      bigint (PK)
+  code                    string
+  name                    string
+  description             text (nullable)
+  weight                  decimal
+  is_active               boolean
+  created_by              bigint (FK)
+  sort_order              int
+
+  Relationships:
+    - creator() → User
+    - periodComponents() → PeriodAssessmentComponent[]
+
+--------------------------------------------------------------------------------
+4.2 SEMINAR/DEFENSE MODELS
+--------------------------------------------------------------------------------
+
+SEMINAR_SCHEDULES:
+  id                      bigint (PK)
+  group_id                bigint (FK)
+  type                    string (SEMPRO, EXPO)
+  date                    date
+  start_time              time
+  end_time                time
+  room                    string (nullable)
+  examiner_1_id           bigint (FK)
+  examiner_2_id           bigint (FK)
+  status                  string (SCHEDULED, COMPLETED, CANCELLED)
+  requested_by            bigint (FK, nullable)
+  rejection_reason        text (nullable)
+
+  Relationships:
+    - group() → Group
+    - examiner1() → User
+    - examiner2() → User
+    - evaluations() → SeminarEvaluation[]
+
+SEMINAR_EVALUATIONS:
+  id                      bigint (PK)
+  schedule_id             bigint (FK)
+  examiner_id             bigint (FK)
+  rubric_json             json (nullable)
+  score                   decimal(5,2) (nullable)
+  status                  string (PENDING, SUBMITTED)
+
+  Relationships:
+    - schedule() → SeminarSchedule
+    - examiner() → User
+
+TA_DEFENSE_SCHEDULES:
+  id                      bigint (PK)
+  student_id              bigint (FK)
+  group_id                bigint (FK)
+  date                    date
+  start_time              time
+  end_time                time
+  room                    string (nullable)
+  status                  string (SCHEDULED, COMPLETED, CANCELLED, PENDING_APPROVAL)
+  requested_by            bigint (FK, nullable)
+  rejection_reason        text (nullable)
+
+  Relationships:
+    - student() → User
+    - group() → Group
+    - examiners() → TaDefenseExaminer[]
+    - evaluations() → TaDefenseEvaluation[]
+
+TA_DEFENSE_EXAMINERS:
+  id                      bigint (PK)
+  schedule_id             bigint (FK)
+  examiner_id             bigint (FK)
+  role                    string (SUPERVISOR_1, SUPERVISOR_2, EXAMINER_1, EXAMINER_2)
+
+  Relationships:
+    - schedule() → TaDefenseSchedule
+    - examiner() → User
+
+TA_DEFENSE_EVALUATIONS:
+  id                      bigint (PK)
+  schedule_id             bigint (FK)
+  examiner_id             bigint (FK)
+  rubric_json             json (nullable)
+  score                   decimal(5,2) (nullable)
+  status                  string (PENDING, SUBMITTED)
+
+  Relationships:
+    - schedule() → TaDefenseSchedule
+    - examiner() → User
+
+--------------------------------------------------------------------------------
+4.3 SUPPORTING MODELS
+--------------------------------------------------------------------------------
+
+SUPERVISIONS:
+  id                      bigint (PK)
+  group_id                bigint (FK)
+  supervisor_id           bigint (FK)
+  role                    string (SUPERVISOR_1, SUPERVISOR_2)
+  assigned_by             bigint (FK)
+
+  Relationships:
+    - group() → Group
+    - supervisor() → User
+    - assignedBy() → User
+
+GROUPS:
+  id                      bigint (PK)
+  period_id               bigint (FK)
+  status                  string
+  supervisor_1_id         bigint (FK, nullable)
+  supervisor_2_id         bigint (FK, nullable)
+  title_id                bigint (FK, nullable)
+  ...
+
+  Key Relationships:
+    - members() → GroupMember[]
+    - supervisions() → Supervision[]
+    - schedules() → Schedule[]
+    - seminarSchedules() → SeminarSchedule[]
+    - taDefenseSchedules() → TaDefenseSchedule[]
+
+TA_SUBMISSIONS:
+  id                      bigint (PK)
+  student_id              bigint (FK)
+  group_id                bigint (FK)
+  period_id               bigint (FK)
+  status                  string (TA_LOCKED, TA_DRAFT, TA_REVISED, etc.)
+  file_path               string (nullable)
+  draft_report_path       string (nullable)
+  paper_path              string (nullable)
+  publication_link        string (nullable)
+  feedback                text (nullable)
+  reviewed_by             bigint (FK, nullable)
+
+================================================================================
+                          5. COMPLETE WORKFLOW
+================================================================================
+
+--------------------------------------------------------------------------------
+FASE 1: KONFIGURASI (ADMIN)
+--------------------------------------------------------------------------------
+
+1. Create Assessment Component Templates (Bank Soal)
+   └── Components: code, name, description, weight
+
+2. Configure Period Assessment Components
+   └── Select templates for each evaluation type per period
+
+3. Configure Grade Weights
+   └── PDC1 weights, PDC2 weights
+
+--------------------------------------------------------------------------------
+FASE 2: GROUP FINALIZATION → PDC1_ACTIVE
+--------------------------------------------------------------------------------
+
+Group reaches READY_FOR_FINALIZATION
+    │
+    ▼
+Admin finalizes group
+    │
+    ├──► KELOMPOK_FINAL
+    │
+    └──► PDC1_ACTIVE
+
+Supervisors assigned via supervisions table
+
+--------------------------------------------------------------------------------
+FASE 3: SEMPRO (EXAMINER EVALUATION)
+--------------------------------------------------------------------------------
+
+1. Admin schedules SEMPRO for group
+   └── Creates SeminarSchedule
+   └── Auto-generates SeminarEvaluation rows for examiners (status=PENDING)
+   └── Status: SCHEDULED
+
+2. Examiners submit evaluations
+   └── POST /dosen/sempro/{schedule}/evaluate
+   └── Each examiner submits: rubric_json, score, result (PASS/FAIL)
+   └── Evaluation status: PENDING → SUBMITTED
+
+3. All evaluations submitted → Auto-transition
+   └── Schedule status: COMPLETED
+   └── If PASS: Group → SEMPRO_DONE → PDC2_ACTIVE
+   └── If FAIL: Group → PDC1_ACTIVE (retry)
+
+--------------------------------------------------------------------------------
+FASE 4: BIMBINGAN_SEMPRO (SUPERVISOR EVALUATION)
+--------------------------------------------------------------------------------
+
+1. Supervisors view pending evaluations
+   └── GET /dosen/supervisor-evaluation/schedules
+
+2. Supervisor gets evaluation form
+   └── GET /dosen/supervisor-evaluation/form/{groupId}?type=BIMBINGAN_SEMPRO
+
+3. Supervisor submits scores per student per component
+   └── POST /dosen/supervisor-evaluation
+       └── evaluation_type: BIMBINGAN_SEMPRO
+       └── scores: array of {period_component_id, student_id, score, notes}
+
+4. Check if all bimbingan scores complete
+   └── Checks if both supervisors have submitted scores
+
+5. Trigger grade recalculation when complete
+   └── GradeCalculationService::recalculateAndNotify()
+
+--------------------------------------------------------------------------------
+FASE 5: PDC2_ACTIVE → EXPO (SAME PATTERN)
+--------------------------------------------------------------------------------
+
+Group → PDC2_READY_FOR_EXPO
+    │
+    ▼
+Admin schedules EXPO (Similar to SEMPRO scheduling)
+    │
+    ▼
+Examiners submit EXPO evaluations
+    └── POST /dosen/expo/{schedule}/evaluate
+    │
+    ▼
+If PASS: Group → EXPO_DONE → PDC2_COMPLETED (peer review unlocked)
+    │
+    ▼
+Supervisors submit BIMBINGAN_EXPO + MILESTONE evaluations
+    └── Same supervisor evaluation endpoints
+
+--------------------------------------------------------------------------------
+FASE 6: TA DEFENSE
+--------------------------------------------------------------------------------
+
+Student registers TA → TA_REGISTERED
+    │
+    ▼
+Admin schedules TA Defense
+    └── Creates TaDefenseSchedule
+    └── Auto-attaches supervisors via TaDefenseExaminer
+    └── Adds external examiners
+    └── Auto-generates TaDefenseEvaluation rows (status=PENDING)
+    │
+    ▼
+Examiners submit TA Defense evaluations
+    └── POST /dosen/ta-defense/{schedule}/evaluate
+    │
+    ▼
+All submitted → Auto-determine result
+    ├── If PASS: TaSubmission → TA_DEFENDED
+    ├── If all group members defended: Group → CLOSED
+    └── If FAIL: TaSubmission → TA_REVISED
+    │
+    ▼
+Supervisors submit BIMBINGAN_TA evaluations
+
+--------------------------------------------------------------------------------
+FASE 7: GRADE CALCULATION
+--------------------------------------------------------------------------------
+
+Triggered when all evaluations complete
+    │
+    ▼
+GradeCalculationService::recalculateAndNotify()
+    │
+    ├── Calculates weighted averages
+    │   ├── Per component: score × weight
+    │   ├── Per evaluator group: sum(weighted_scores) / sum(weights)
+    │   └── Final grade based on PDC1/PDC2 weights
+    │
+    └── Admin can view summary
+        └── GET /admin/assessment-scores/summary
+
+================================================================================
+                         6. KEY FILES REFERENCE
+================================================================================
+
+CONTROLLERS:
+  app/Http/Controllers/AssessmentScoreController.php
+  app/Http/Controllers/SupervisorEvaluationController.php
+  app/Http/Controllers/SemproController.php
+  app/Http/Controllers/ExpoController.php
+  app/Http/Controllers/TaDefenseController.php
+  app/Http/Controllers/SeminarDashboardController.php
+  app/Http/Controllers/EvaluationController.php (legacy)
+  app/Http/Controllers/GradeConfigurationController.php
+  app/Http/Controllers/GradeConsistencyController.php
+  app/Http/Controllers/PeerReviewController.php
+
+SERVICES:
+  app/Services/GroupStateMachine.php
+  app/Services/SchedulingService.php
+  app/Services/GradeCalculationService.php
+
+MODELS:
+  app/Models/AssessmentScore.php
+  app/Models/PeriodAssessmentComponent.php
+  app/Models/AssessmentComponentTemplate.php
+  app/Models/SeminarSchedule.php
+  app/Models/SeminarEvaluation.php
+  app/Models/TaDefenseSchedule.php
+  app/Models/TaDefenseEvaluation.php
+  app/Models/TaDefenseExaminer.php
+  app/Models/Supervision.php
+  app/Models/Group.php
+  app/Models/TaSubmission.php
+
+MIDDLEWARE:
+  app/Http/Middleware/RoleMiddleware.php
+
+ROUTES:
+  routes/api.php
+
+================================================================================
+                              END OF DOCUMENT
+================================================================================

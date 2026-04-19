@@ -10,13 +10,17 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export interface ScheduleEvent {
-    id: number;
+    id: number | string;
     group_id: number;
-    type: 'SEMPRO' | 'SIDANG' | 'EXPO' | 'BIMBINGAN';
+    student_id?: number;
+    type: 'SEMPRO' | 'SIDANG' | 'EXPO' | 'BIMBINGAN' | 'TA_DEFENSE';
     date: string;
     room: string;
     mode?: string | null;
     notes?: string | null;
+    student_name?: string;
+    examiner1?: { name: string } | null;
+    examiner2?: { name: string } | null;
     group: {
         title: {
             title: string;
@@ -33,7 +37,7 @@ interface ScheduleCalendarProps {
     canEdit?: boolean;
     onAdd?: (date: Date) => void;
     onEdit?: (schedule: ScheduleEvent) => void;
-    onDelete?: (id: number) => void;
+    onDelete?: (id: number | string) => void;
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
@@ -61,6 +65,12 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: strin
         bgColor: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-900',
         dotColor: 'bg-emerald-500',
     },
+    TA_DEFENSE: {
+        label: 'TA Defense',
+        color: 'text-rose-700 dark:text-rose-400',
+        bgColor: 'bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:border-rose-900',
+        dotColor: 'bg-rose-500',
+    },
 };
 
 export default function ScheduleCalendar({
@@ -77,7 +87,12 @@ export default function ScheduleCalendar({
     const eventsByDate = useMemo(() => {
         const map = new Map<string, ScheduleEvent[]>();
         for (const s of schedules) {
-            const key = format(new Date(s.date), 'yyyy-MM-dd');
+            const dateObj = new Date(s.date);
+            if (isNaN(dateObj.getTime())) {
+                console.warn('Invalid date in schedule:', s);
+                continue;
+            }
+            const key = format(dateObj, 'yyyy-MM-dd');
             if (!map.has(key)) map.set(key, []);
             map.get(key)!.push(s);
         }
@@ -87,9 +102,12 @@ export default function ScheduleCalendar({
     // Events for the selected day
     const selectedDayEvents = useMemo(() => {
         const key = format(selectedDate, 'yyyy-MM-dd');
-        return (eventsByDate.get(key) || []).sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
+        return (eventsByDate.get(key) || []).sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) return 0;
+            return dateA.getTime() - dateB.getTime();
+        });
     }, [selectedDate, eventsByDate]);
 
     // Get unique event types for a given date (for dot colors)
@@ -218,8 +236,13 @@ export default function ScheduleCalendar({
                                                 <h4 className="font-semibold text-sm leading-snug text-black dark:text-white">
                                                     {event.group?.title?.title || 'Untitled Project'}
                                                 </h4>
+                                                {event.type === 'TA_DEFENSE' && event.student_name && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Student: {event.student_name}
+                                                    </p>
+                                                )}
                                             </div>
-                                            {canEdit && (
+                                            {canEdit && event.type === 'BIMBINGAN' && (
                                                 <div className="flex gap-1 shrink-0">
                                                     {onEdit && (
                                                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(event)}>

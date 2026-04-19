@@ -25,7 +25,7 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2, ChevronLeft, ChevronRight, UserX } from 'lucide-react';
 import { toast } from "sonner";
 
 interface Role {
@@ -76,6 +76,7 @@ export default function AdminUsersPage() {
         per_page: 20,
         total: 0,
     });
+    const [kickingUserId, setKickingUserId] = useState<number | null>(null);
 
     // Create/Edit State
     const [open, setOpen] = useState(false);
@@ -185,6 +186,39 @@ export default function AdminUsersPage() {
         } catch (error) {
             console.error('Failed to delete user', error);
             toast.error('Failed to delete user');
+        }
+    };
+
+    const handleKickFromPeriod = async (user: User) => {
+        const registeredPeriod = user.registered_periods?.[0];
+        if (!registeredPeriod) {
+            toast.error('Mahasiswa belum terdaftar pada periode manapun');
+            return;
+        }
+
+        const confirmed = confirm(
+            `Kick ${user.name} dari periode ${registeredPeriod.name}?\n\n` +
+            'Aksi ini akan menghapus registrasi periode, menghapus keanggotaan grup di periode tersebut, dan membatalkan invitation/join request yang masih pending.'
+        );
+
+        if (!confirmed) {
+            return;
+        }
+
+        setKickingUserId(user.id);
+        try {
+            const response = await api.delete(`/admin/periods/${registeredPeriod.id}/students/${user.id}/registration`);
+            toast.success(response.data?.message || 'Mahasiswa berhasil dikeluarkan dari periode');
+            fetchUsers(pagination.current_page);
+        } catch (error: unknown) {
+            console.error('Failed to kick student from period', error);
+            if (axios.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Gagal mengeluarkan mahasiswa dari periode');
+            } else {
+                toast.error('Gagal mengeluarkan mahasiswa dari periode');
+            }
+        } finally {
+            setKickingUserId(null);
         }
     };
 
@@ -304,6 +338,22 @@ export default function AdminUsersPage() {
                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => startEdit(user)}>
                                 <Edit className="h-4 w-4" />
                             </Button>
+                            {activeTab === 'mahasiswa' && user.registered_periods && user.registered_periods.length > 0 && (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 text-orange-600 hover:text-orange-600"
+                                    onClick={() => handleKickFromPeriod(user)}
+                                    disabled={kickingUserId === user.id}
+                                    title="Kick dari periode"
+                                >
+                                    {kickingUserId === user.id ? (
+                                        <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <UserX className="h-4 w-4" />
+                                    )}
+                                </Button>
+                            )}
                             {user.id !== 1 && (
                                 <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(user.id)}>
                                     <Trash2 className="h-4 w-4" />

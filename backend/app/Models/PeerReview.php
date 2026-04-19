@@ -11,6 +11,7 @@ class PeerReview extends Model
         'reviewer_id',
         'reviewee_id',
         'indicator_id',
+        'period_indicator_id',
         'score',
         'comment',
     ];
@@ -37,5 +38,10 @@ class PeerReview extends Model
     public function indicator()
     {
         return $this->belongsTo(PeerReviewIndicator::class, 'indicator_id');
+    }
+
+    public function periodIndicator()
+    {
+        return $this->belongsTo(PeriodPeerReviewIndicator::class, 'period_indicator_id');
     }
 }

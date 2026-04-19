@@ -12,6 +12,7 @@ use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
 use App\Models\AuditLog;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SchedulingService
 {
@@ -66,6 +67,74 @@ class SchedulingService
         }
 
         return null;
+    }
+
+    /**
+     * Check if all supervisors have completed their evaluations for a seminar.
+     * For SEMPRO: checks BIMBINGAN_SEMPRO evaluations
+     * For EXPO: checks BIMBINGAN_EXPO and MILESTONE evaluations
+     *
+     * @param SeminarSchedule $schedule
+     * @return bool
+     */
+    public function checkSupervisorEvaluationsComplete(SeminarSchedule $schedule): bool
+    {
+        $group = Group::find($schedule->group_id);
+        if (!$group) {
+            return false;
+        }
+
+        // Get supervisor IDs
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (empty($supervisorIds)) {
+            return true; // No supervisors, consider complete
+        }
+
+        // Determine evaluation type based on seminar type
+        $evaluationType = match ($schedule->type) {
+            'SEMPRO' => 'BIMBINGAN_SEMPRO',
+            'EXPO' => ['BIMBINGAN_EXPO', 'MILESTONE'],
+            default => null,
+        };
+
+        if (!$evaluationType) {
+            return true; // Unknown type, consider complete
+        }
+
+        // For EXPO, check both BIMBINGAN_EXPO and MILESTONE
+        if (is_array($evaluationType)) {
+            foreach ($evaluationType as $type) {
+                foreach ($supervisorIds as $supervisorId) {
+                    $hasSubmitted = \App\Models\AssessmentScore::where('group_id', $group->id)
+                        ->where('evaluator_id', $supervisorId)
+                        ->where('evaluation_type', $type)
+                        ->exists();
+
+                    if (!$hasSubmitted) {
+                        return false; // Supervisor hasn't submitted this evaluation type
+                    }
+                }
+            }
+            return true;
+        }
+
+        // For SEMPRO (BIMBINGAN_SEMPRO)
+        foreach ($supervisorIds as $supervisorId) {
+            $hasSubmitted = \App\Models\AssessmentScore::where('group_id', $group->id)
+                ->where('evaluator_id', $supervisorId)
+                ->where('evaluation_type', $evaluationType)
+                ->exists();
+
+            if (!$hasSubmitted) {
+                return false; // Supervisor hasn't submitted evaluation
+            }
+        }
+
+        return true;
     }
 
     // ══════════════════════════════════════════
@@ -277,7 +346,15 @@ class SchedulingService
                 ->where('status', 'SUBMITTED')
                 ->count();
 
-            $allSubmitted = $submittedEvals >= $totalEvals;
+            $allExaminerSubmitted = $submittedEvals >= $totalEvals;
+
+            // For SEMPRO and EXPO, also check if supervisors have submitted their evaluations
+            $allSupervisorSubmitted = true;
+            if ($schedule->type === 'SEMPRO' || $schedule->type === 'EXPO') {
+                $allSupervisorSubmitted = $this->checkSupervisorEvaluationsComplete($schedule);
+            }
+
+            $allSubmitted = $allExaminerSubmitted && $allSupervisorSubmitted;
 
             if ($allSubmitted) {
                 $schedule->update(['status' => 'COMPLETED']);
@@ -288,12 +365,24 @@ class SchedulingService
                 if ($schedule->type === 'SEMPRO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
+                        // Auto-transition to PDC2_ACTIVE after SEMPRO completion
+                        $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     } else {
                         $this->stateMachine->transition($group, 'PDC1_ACTIVE');
                     }
                 } elseif ($schedule->type === 'EXPO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'EXPO_DONE');
+
+                        // Unlock peer review for all group members
+                        try {
+                            $peerReviewService = app(\App\Services\PeerReviewService::class);
+                            $peerReviewService->unlockPeerReview($group->id);
+                            Log::info("Peer review unlocked for group {$group->id} after EXPO completion");
+                        } catch (\Exception $e) {
+                            Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
+                            // Don't throw - peer review unlock failure shouldn't break the flow
+                        }
                     } else {
                         $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     }
@@ -395,5 +484,47 @@ class SchedulingService
                 'result' => $allSubmitted ? $result : null,
             ];
         });
+    }
+
+    // ══════════════════════════════════════════
+    // TA Defense Methods
+    // ══════════════════════════════════════════
+
+    /**
+     * Create evaluation records for TA defense examiners
+     */
+    public function createTaDefenseEvaluations(TaDefenseSchedule $schedule): void
+    {
+        // Create evaluation record for examiner 1
+        TaDefenseEvaluation::firstOrCreate([
+            'ta_defense_schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_1_id,
+        ], [
+            'status' => 'PENDING',
+        ]);
+
+        // Create evaluation record for examiner 2
+        TaDefenseEvaluation::firstOrCreate([
+            'ta_defense_schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_2_id,
+        ], [
+            'status' => 'PENDING',
+        ]);
+    }
+
+    /**
+     * Send notifications when TA defense is scheduled
+     */
+    public function notifyTaDefenseScheduled(TaDefenseSchedule $schedule): void
+    {
+        // This will be implemented by NotificationService
+        // For now, just log the notification
+        Log::info('TA Defense scheduled', [
+            'schedule_id' => $schedule->id,
+            'student_id' => $schedule->student_id,
+            'examiner_1' => $schedule->examiner_1_id,
+            'examiner_2' => $schedule->examiner_2_id,
+            'date' => $schedule->date,
+        ]);
     }
 }

@@ -73,14 +73,27 @@ export default function DosenSchedulePage() {
 
             const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
 
+            // Use the new aggregated endpoint that includes BIMBINGAN, SEMPRO/EXPO, and TA_DEFENSE
             const [schedulesRes, groupsRes] = await Promise.all([
-                api.get(`/dosen/schedules${queryParam}`),
+                api.get(`/dosen/all-schedules${queryParam}`),
                 api.get(`/dosen/groups${queryParam}`)
             ]);
-            setSchedules(schedulesRes.data.data);
-            setGroups(groupsRes.data.data);
+            setSchedules(schedulesRes.data.data || []);
+            setGroups(groupsRes.data.data || []);
         } catch (error) {
             console.error('Failed to fetch data', error);
+            // Fallback to legacy endpoint
+            try {
+                const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
+                const [schedulesRes, groupsRes] = await Promise.all([
+                    api.get(`/dosen/schedules${queryParam}`),
+                    api.get(`/dosen/groups${queryParam}`)
+                ]);
+                setSchedules(schedulesRes.data.data || []);
+                setGroups(groupsRes.data.data || []);
+            } catch (fallbackError) {
+                console.error('Failed to fetch fallback data', fallbackError);
+            }
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -123,7 +136,13 @@ export default function DosenSchedulePage() {
         }
     };
 
-    const handleDelete = async (id: number) => {
+    const handleDelete = async (id: number | string) => {
+        // Find the schedule to check its type
+        const schedule = schedules.find(s => s.id === id);
+        if (schedule && schedule.type !== 'BIMBINGAN') {
+            toast.error(`${schedule.type} schedules cannot be deleted from here.`);
+            return;
+        }
         if (!confirm('Are you sure you want to delete this schedule?')) return;
         try {
             await api.delete(`/schedules/${id}`);
@@ -145,7 +164,13 @@ export default function DosenSchedulePage() {
     };
 
     const handleEdit = (schedule: ScheduleEvent) => {
-        setEditingId(schedule.id);
+        // Only allow editing BIMBINGAN schedules
+        // SEMPRO, EXPO, and TA_DEFENSE are view-only
+        if (schedule.type !== 'BIMBINGAN') {
+            toast.info(`${schedule.type} schedules are view-only. Please use the evaluation page for assessments.`);
+            return;
+        }
+        setEditingId(schedule.id as number);
         const d = new Date(schedule.date);
         setFormData({
             group_id: schedule.group_id.toString(),

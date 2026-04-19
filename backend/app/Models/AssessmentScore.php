@@ -8,6 +8,7 @@ class AssessmentScore extends Model
 {
     protected $fillable = [
         'component_id',
+        'period_component_id',
         'evaluator_id',
         'group_id',
         'student_id',
@@ -23,6 +24,11 @@ class AssessmentScore extends Model
     public function component()
     {
         return $this->belongsTo(AssessmentComponent::class, 'component_id');
+    }
+
+    public function periodComponent()
+    {
+        return $this->belongsTo(PeriodAssessmentComponent::class, 'period_component_id');
     }
 
     public function evaluator()

@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 
 class ExpoEventController extends Controller
 {
+    use ApiResponseTrait;
+
     protected ExpoService $expoService;
 
     public function __construct(ExpoService $expoService)
@@ -28,7 +30,8 @@ class ExpoEventController extends Controller
             $query->where('period_id', $request->period_id);
         }
 
-        return response()->json($query->orderBy('date', 'desc')->get());
+        $events = $query->orderBy('date', 'desc')->get();
+        return $this->successResponse($events, 'Expo events retrieved successfully');
     }
 
     public function store(Request $request)

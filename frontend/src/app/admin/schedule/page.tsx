@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Calendar, Clock, MapPin, Users, Plus, Search as SearchIcon } from 'lucide-react';
+import { Loader2, Calendar, Clock, MapPin, Users, Plus, Search as SearchIcon, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import {
     Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
 import { toast } from 'sonner';
+import Link from 'next/link';
 
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
 interface Dosen { id: number; name: string; email: string; }
@@ -286,6 +287,14 @@ export default function AdminSchedulePage() {
                         </Badge>
                     ))}
                 </div>
+                <div className="flex gap-2 mt-2">
+                    <Link href={`/admin/evaluation-summary/${s.id}`}>
+                        <Button size="sm" variant="outline">
+                            <FileText className="mr-1 h-3 w-3" />
+                            Evaluation Summary
+                        </Button>
+                    </Link>
+                </div>
             </CardContent>
             {s.status === 'PENDING_APPROVAL' && (
                 <div className="px-6 pb-4 flex gap-2">
@@ -324,6 +333,11 @@ export default function AdminSchedulePage() {
                             {ev.examiner?.name}: {ev.status === 'SUBMITTED' ? `${ev.score}` : 'PENDING'}
                         </Badge>
                     ))}
+                </div>
+                <div className="flex gap-2 mt-2">
+                    <span className="text-xs text-muted-foreground">
+                        TA Defense evaluation is handled via Supervisor/Examiner pages
+                    </span>
                 </div>
             </CardContent>
             {s.status === 'PENDING_APPROVAL' && (

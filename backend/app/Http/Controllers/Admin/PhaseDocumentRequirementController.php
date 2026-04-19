@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\ApiResponseTrait;
+use App\Models\Period;
 use App\Models\PhaseDocumentRequirement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -13,6 +14,18 @@ class PhaseDocumentRequirementController extends Controller
     use ApiResponseTrait;
 
     const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
+
+    /**
+     * Check if period is finalized and return error if true.
+     */
+    private function checkPeriodNotFinalized(int $periodId): ?\Illuminate\Http\JsonResponse
+    {
+        $period = Period::find($periodId);
+        if ($period && $period->is_finalized) {
+            return $this->errorResponse('Cannot modify document requirements for a finalized period.', 403);
+        }
+        return null;
+    }
 
     public function index(Request $request)
     {
@@ -55,6 +68,12 @@ class PhaseDocumentRequirementController extends Controller
             return $this->validationErrorResponse($validator->errors());
         }
 
+        // Check if period is finalized
+        $errorResponse = $this->checkPeriodNotFinalized($request->period_id);
+        if ($errorResponse) {
+            return $errorResponse;
+        }
+
         $requirement = PhaseDocumentRequirement::create($request->all());
 
         return $this->createdResponse($requirement, 'Document requirement created successfully');
@@ -62,7 +81,12 @@ class PhaseDocumentRequirementController extends Controller
 
     public function update(Request $request, string $id)
     {
-        $requirement = PhaseDocumentRequirement::findOrFail($id);
+        $requirement = PhaseDocumentRequirement::with('period')->findOrFail($id);
+
+        // Check if period is finalized
+        if ($requirement->period && $requirement->period->is_finalized) {
+            return $this->errorResponse('Cannot modify document requirements for a finalized period.', 403);
+        }
 
         $validator = Validator::make($request->all(), [
             'phase' => 'sometimes|string|in:' . implode(',', self::PHASES),
@@ -82,7 +106,13 @@ class PhaseDocumentRequirementController extends Controller
 
     public function destroy(string $id)
     {
-        $requirement = PhaseDocumentRequirement::findOrFail($id);
+        $requirement = PhaseDocumentRequirement::with('period')->findOrFail($id);
+
+        // Check if period is finalized
+        if ($requirement->period && $requirement->period->is_finalized) {
+            return $this->errorResponse('Cannot delete document requirements for a finalized period.', 403);
+        }
+
         $requirement->delete();
 
         return $this->successResponse(null, 'Document requirement deleted successfully');
@@ -101,6 +131,12 @@ class PhaseDocumentRequirementController extends Controller
 
         if ($validator->fails()) {
             return $this->validationErrorResponse($validator->errors());
+        }
+
+        // Check if period is finalized
+        $errorResponse = $this->checkPeriodNotFinalized($request->period_id);
+        if ($errorResponse) {
+            return $errorResponse;
         }
 
         $periodId = $request->period_id;
