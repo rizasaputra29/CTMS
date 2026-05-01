@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -47,6 +48,11 @@ interface EvaluationContext {
     existing_scores: Record<string, { score: string; notes?: string }>;
 }
 
+interface ExistingScoreValue {
+    score?: string | number;
+    notes?: string;
+}
+
 export default function TaEvaluationPage() {
     const { id } = useParams();
     const router = useRouter();
@@ -59,7 +65,7 @@ export default function TaEvaluationPage() {
     useEffect(() => {
         const fetchContext = async () => {
             try {
-                const response = await api.get(`/dosen/ta-defense/${id}/evaluation-context`);
+                const response = await api.get(`/dosen/evaluation-context/TA_DEFENSE/${id}`);
                 const data = response.data.data;
                 setContext(data);
 
@@ -68,15 +74,15 @@ export default function TaEvaluationPage() {
                 const initialNotes: Record<string, string> = {};
                 
                 if (data.existing_scores) {
-                    Object.entries(data.existing_scores).forEach(([key, value]: [string, any]) => {
-                        initialScores[key] = parseFloat(value.score) || 0;
+                    Object.entries(data.existing_scores as Record<string, ExistingScoreValue>).forEach(([key, value]) => {
+                        initialScores[key] = parseFloat(String(value.score)) || 0;
                         if (value.notes) initialNotes[key] = value.notes;
                     });
                 }
                 
                 setScores(initialScores);
                 setNotes(initialNotes);
-            } catch (error) {
+            } catch {
                 toast.error('Failed to load evaluation context');
             } finally {
                 setLoading(false);
@@ -138,8 +144,11 @@ export default function TaEvaluationPage() {
 
             toast.success('Evaluation submitted successfully');
             router.push('/dosen/evaluation');
-        } catch (error: any) {
-            toast.error(error.response?.data?.message || 'Failed to submit evaluation');
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error)
+                ? (error.response?.data?.message as string) || 'Failed to submit evaluation'
+                : 'Failed to submit evaluation';
+            toast.error(message);
         } finally {
             setSubmitting(false);
         }
@@ -207,7 +216,7 @@ export default function TaEvaluationPage() {
                     </div>
                     <div className="flex items-center text-sm">
                         <BookOpen className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>{schedule.group.name}</span>
+                        <span>Group {schedule.group.id}</span>
                     </div>
                     <div className="flex items-center text-sm">
                         <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />

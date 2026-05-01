@@ -43,7 +43,12 @@ class BidController extends Controller
             ->orderBy('priority')
             ->get();
 
-        return response()->json(['data' => $bids]);
+        $group = Group::with(['period', 'members'])->find($membership->group_id);
+
+        return response()->json([
+            'data' => $bids,
+            'flow' => $this->buildBiddingFlowPayload($group, $membership),
+        ]);
     }
 
     /**
@@ -258,6 +263,11 @@ class BidController extends Controller
     {
         $user = $request->user();
 
+        $selectedPeriod = null;
+        if ($request->has('period_id')) {
+            $selectedPeriod = \App\Models\Period::find($request->period_id);
+        }
+
         $query = Bid::with(['group.members.student', 'group.period', 'title', 'proposedSupervisor1', 'proposedSupervisor2'])
             ->whereHas('title', function ($q) use ($user) {
                 $q->where('lecturer_id', $user->id);
@@ -273,7 +283,22 @@ class BidController extends Controller
             ->orderBy('priority')
             ->get();
 
-        return response()->json(['data' => $bids]);
+        $acceptedBidByTitle = Bid::query()
+            ->whereIn('title_id', $bids->pluck('title_id')->filter()->unique())
+            ->where('lecturer_recommendation', 'ACCEPT')
+            ->get()
+            ->groupBy('title_id')
+            ->map(fn ($rows) => $rows->first()->id);
+
+        $bids = $bids->map(function (Bid $bid) use ($acceptedBidByTitle) {
+            $bid->setAttribute('allowed_actions', $this->resolveLecturerBidActions($bid, $acceptedBidByTitle));
+            return $bid;
+        });
+
+        return response()->json([
+            'data' => $bids,
+            'flow' => $this->buildLecturerBidFlowPayload($selectedPeriod),
+        ]);
     }
 
     /**
@@ -477,5 +502,149 @@ class BidController extends Controller
         return response()->json([
             'message' => 'Recommendation submitted.',
         ]);
+    }
+
+    private function buildBiddingFlowPayload(?Group $group, ?GroupMember $membership): array
+    {
+        if (!$group || !$membership) {
+            return [
+                'can_submit_bid' => false,
+                'can_reorder_bid' => false,
+                'can_delete_bid' => false,
+                'reason' => 'NO_GROUP',
+            ];
+        }
+
+        $period = $group->period;
+        $minSize = $period?->min_group_size ?? 3;
+        $memberCount = $group->members->count();
+        $isLeader = (bool) $membership->is_leader;
+        $isLocked = !$period || $period->is_finalized || $this->biddingService->isBiddingLocked($period);
+
+        $canReorderBid = $isLeader && !$isLocked;
+        $canDeleteBid = $isLeader && !$isLocked;
+
+        $canSubmitBid = true;
+        $reason = null;
+
+        if (!$isLeader) {
+            $canSubmitBid = false;
+            $reason = 'LEADER_ONLY';
+        }
+
+        if ($canSubmitBid && ($group->is_solo || $group->status === 'FORMING_SOLO')) {
+            $canSubmitBid = false;
+            $reason = 'SOLO_GROUP_CANNOT_BID';
+        }
+
+        if ($canSubmitBid && $memberCount < $minSize) {
+            $canSubmitBid = false;
+            $reason = 'INSUFFICIENT_MEMBERS';
+        }
+
+        $validStatuses = ['FORMING', 'READY_FOR_BIDDING', 'WAITING_SUPERVISOR_APPROVAL'];
+        if ($canSubmitBid && !in_array($group->status, $validStatuses, true)) {
+            $canSubmitBid = false;
+            $reason = 'INVALID_GROUP_STATUS';
+        }
+
+        $hasActiveProposal = \App\Models\Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
+            ->exists();
+
+        if ($canSubmitBid && $hasActiveProposal) {
+            $canSubmitBid = false;
+            $reason = 'ACTIVE_PROPOSAL_EXISTS';
+        }
+
+        if ($canSubmitBid && $period?->is_finalized) {
+            $canSubmitBid = false;
+            $reason = 'PERIOD_FINALIZED';
+        }
+
+        if ($canSubmitBid && $period && $this->biddingService->isBiddingLocked($period)) {
+            $canSubmitBid = false;
+            $reason = 'BIDDING_LOCKED';
+        }
+
+        if ($canSubmitBid && $period && !$this->biddingService->isWindowOpen($period)) {
+            $canSubmitBid = false;
+            $reason = 'BIDDING_WINDOW_CLOSED';
+        }
+
+        $bidCount = Bid::where('group_id', $group->id)->count();
+        $proposalCount = \App\Models\Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
+            ->count();
+
+        if ($canSubmitBid && ($bidCount + $proposalCount) >= 3) {
+            $canSubmitBid = false;
+            $reason = 'TITLE_LIMIT_REACHED';
+        }
+
+        return [
+            'can_submit_bid' => $canSubmitBid,
+            'can_reorder_bid' => $canReorderBid,
+            'can_delete_bid' => $canDeleteBid,
+            'reason' => $reason,
+        ];
+    }
+
+    private function buildLecturerBidFlowPayload($period): array
+    {
+        if ($period && $period->is_finalized) {
+            return [
+                'can_recommend_bid' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        if ($period && $this->biddingService->isBiddingLocked($period)) {
+            return [
+                'can_recommend_bid' => false,
+                'reason' => 'BIDDING_LOCKED',
+            ];
+        }
+
+        return [
+            'can_recommend_bid' => true,
+            'reason' => null,
+        ];
+    }
+
+    private function resolveLecturerBidActions(Bid $bid, $acceptedBidByTitle): array
+    {
+        $period = $bid->group?->period;
+        if (!$period || $period->is_finalized || $this->biddingService->isBiddingLocked($period)) {
+            return [
+                'can_accept' => false,
+                'can_reject' => false,
+                'can_cancel_accept' => false,
+                'reason' => $period?->is_finalized ? 'PERIOD_FINALIZED' : 'BIDDING_LOCKED',
+            ];
+        }
+
+        $acceptedBidId = $acceptedBidByTitle->get($bid->title_id);
+        $hasOtherAcceptedBidOnTitle = $acceptedBidId && (int) $acceptedBidId !== (int) $bid->id;
+        $isAccepted = $bid->lecturer_recommendation === 'ACCEPT';
+        $isRejected = $bid->lecturer_recommendation === 'REJECT';
+
+        if ($hasOtherAcceptedBidOnTitle && !$isAccepted) {
+            return [
+                'can_accept' => false,
+                'can_reject' => !$isRejected,
+                'can_cancel_accept' => false,
+                'reason' => 'TITLE_ALREADY_HAS_ACCEPTED_BID',
+            ];
+        }
+
+        return [
+            'can_accept' => !$isAccepted && !$isRejected,
+            'can_reject' => !$isRejected,
+            'can_cancel_accept' => $isAccepted,
+            'reason' => null,
+        ];
     }
 }

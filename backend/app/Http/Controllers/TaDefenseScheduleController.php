@@ -3,12 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\TaDefenseSchedule;
+use App\Models\TaDefenseEvaluation;
+use App\Models\TaSubmission;
 use App\Models\Group;
 use App\Models\User;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
 
 class TaDefenseScheduleController extends Controller
@@ -31,11 +35,22 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $query = TaDefenseSchedule::with(['student', 'group', 'period', 'examiner1', 'examiner2'])
+        $with = ['student', 'group', 'examiner1', 'examiner2'];
+        if ($this->hasPeriodColumn()) {
+            $with[] = 'period';
+        }
+
+        $query = TaDefenseSchedule::with($with)
             ->orderBy('date', 'asc');
 
         if ($request->has('period_id')) {
-            $query->where('period_id', $request->period_id);
+            if ($this->hasPeriodColumn()) {
+                $query->where('period_id', $request->period_id);
+            } else {
+                $query->whereHas('group', function ($q) use ($request) {
+                    $q->where('period_id', $request->period_id);
+                });
+            }
         }
 
         if ($request->has('group_id')) {
@@ -69,10 +84,12 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
+        $hasPeriodColumn = $this->hasPeriodColumn();
+
         $validator = Validator::make($request->all(), [
             'student_id' => 'required|exists:users,id',
             'group_id' => 'required|exists:groups,id',
-            'period_id' => 'required|exists:periods,id',
+            'period_id' => $hasPeriodColumn ? 'required|exists:periods,id' : 'nullable',
             'examiner_1_id' => 'required|exists:users,id',
             'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
             'date' => 'required|date|after_or_equal:today',
@@ -117,10 +134,9 @@ class TaDefenseScheduleController extends Controller
         // Auto-calculate evaluation deadline (2 days after schedule)
         $evaluationDeadline = date('Y-m-d H:i:s', strtotime($request->date . ' +2 days'));
 
-        $schedule = TaDefenseSchedule::create([
+        $payload = [
             'student_id' => $request->student_id,
             'group_id' => $request->group_id,
-            'period_id' => $request->period_id,
             'examiner_1_id' => $request->examiner_1_id,
             'examiner_2_id' => $request->examiner_2_id,
             'date' => $request->date,
@@ -130,7 +146,17 @@ class TaDefenseScheduleController extends Controller
             'status' => 'SCHEDULED',
             'evaluation_deadline' => $evaluationDeadline,
             'notes' => $request->notes,
-        ]);
+        ];
+
+        if ($hasPeriodColumn) {
+            $payload['period_id'] = $request->period_id ?: $group->period_id;
+        }
+
+        $schedule = TaDefenseSchedule::create($payload);
+
+        // Update student TA submission status to TA_READY_FOR_SIDANG
+        TaSubmission::where('student_id', $request->student_id)
+            ->update(['status' => 'TA_READY_FOR_SIDANG']);
 
         // Create evaluation records for examiners
         $this->schedulingService->createTaDefenseEvaluations($schedule);
@@ -150,7 +176,12 @@ class TaDefenseScheduleController extends Controller
     public function show($id): JsonResponse
     {
         $user = Auth::user();
-        $schedule = TaDefenseSchedule::with(['student', 'group', 'period', 'examiner1', 'examiner2', 'evaluations'])
+        $with = ['student', 'group', 'examiner1', 'examiner2', 'evaluations'];
+        if ($this->hasPeriodColumn()) {
+            $with[] = 'period';
+        }
+
+        $schedule = TaDefenseSchedule::with($with)
             ->findOrFail($id);
 
         // Check authorization
@@ -254,7 +285,7 @@ class TaDefenseScheduleController extends Controller
     public function cancel($id): JsonResponse
     {
         $user = Auth::user();
-        
+
         if (!$user->hasRole('admin')) {
             return response()->json(['error' => 'Unauthorized'], 403);
         }
@@ -265,8 +296,72 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Cannot cancel completed schedule'], 400);
         }
 
+        // Store student_id before updating schedule
+        $studentId = $schedule->student_id;
+
         $schedule->update(['status' => 'CANCELLED']);
 
-        return response()->json(['message' => 'Schedule cancelled successfully']);
+        // Revert student's TA submission status to allow rescheduling
+        TaSubmission::where('student_id', $studentId)
+            ->where('status', 'TA_READY_FOR_SIDANG')
+            ->update(['status' => 'TA_DOCUMENTS_APPROVED']);
+
+        // Clean up pending evaluations for this schedule
+        TaDefenseEvaluation::where('schedule_id', $schedule->id)
+            ->where('status', 'PENDING')
+            ->delete();
+
+        return response()->json([
+            'message' => 'Schedule cancelled successfully. Student is now eligible for rescheduling.'
+        ]);
+    }
+
+    /**
+     * Get students eligible for TA defense scheduling.
+     * Only returns students with TA_DOCUMENTS_APPROVED status.
+     */
+    public function eligibleStudents(Request $request): JsonResponse
+    {
+        $user = Auth::user();
+        
+        if (!$user->hasRole('admin')) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $query = TaSubmission::with(['student', 'group', 'group.supervisors'])
+            ->where('status', 'TA_DOCUMENTS_APPROVED')
+            ->whereNotExists(function ($q) {
+                $q->select(\DB::raw(1))
+                    ->from('ta_defense_schedules')
+                    ->whereColumn('ta_defense_schedules.student_id', 'ta_submissions.student_id')
+                    ->whereIn('ta_defense_schedules.status', ['SCHEDULED', 'DONE']);
+            });
+
+        if ($request->has('period_id')) {
+            $query->whereHas('group', function ($q) use ($request) {
+                $q->where('period_id', $request->period_id);
+            });
+        }
+
+        if ($request->has('group_id')) {
+            $query->where('group_id', $request->group_id);
+        }
+
+        $students = $query->get()
+            ->map(function ($submission) {
+                return [
+                    'submission' => $submission,
+                    'student' => $submission->student,
+                    'group' => $submission->group,
+                    'supervisors' => $submission->group->supervisors,
+                ];
+            });
+
+        return response()->json(['data' => $students]);
+    }
+
+    private function hasPeriodColumn(): bool
+    {
+        return Schema::hasColumn('ta_defense_schedules', 'period_id');
     }
 }

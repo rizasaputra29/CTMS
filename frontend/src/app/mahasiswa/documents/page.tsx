@@ -16,7 +16,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge";
-import { Upload, FileText, Download, Check, Lock, Clock, AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Upload, FileText, Download, Check, Lock, Clock, AlertTriangle, Info } from 'lucide-react';
 import { toast } from "sonner";
 import { cn } from '@/lib/utils';
 
@@ -48,19 +49,160 @@ interface PhaseInfo {
     document_count: number;
 }
 
+interface SupervisorStatus {
+    id: number;
+    name: string;
+    role: string;
+    status: 'completed' | 'pending';
+    submitted_components: number;
+    total_components: number;
+}
+
+interface ExaminerInfo {
+    id: number;
+    name: string;
+}
+
+interface ExaminerEvaluationStatus {
+    id: number;
+    name: string;
+    status: string;
+}
+
+interface ExaminerEvaluationsInfo {
+    total: number;
+    submitted: number;
+    pending: number;
+    examiners: ExaminerEvaluationStatus[];
+}
+
+interface SupervisorBimbinganStatus {
+    id: number;
+    name: string;
+    role: string;
+    status: 'completed' | 'pending';
+    submitted_components?: number;
+    total_components?: number;
+}
+
+interface SupervisorBimbinganInfo {
+    required: boolean;
+    evaluation_type: string;
+    component_count?: number;
+    all_submitted?: boolean;
+    supervisors: SupervisorBimbinganStatus[];
+}
+
+interface SeminarScheduleInfo {
+    exists: boolean;
+    date?: string;
+    room?: string;
+    start_time?: string;
+    end_time?: string;
+    examiners?: ExaminerInfo[];
+    status?: string;
+    message?: string;
+    examiner_evaluations?: ExaminerEvaluationsInfo;
+    supervisor_bimbingan?: SupervisorBimbinganInfo;
+    is_ready_for_pdc2?: boolean;
+}
+
+interface NextPhaseRequirements {
+    current_phase: string;
+    next_phase: string;
+    documents: {
+        completed: boolean;
+        total_required: number;
+        approved_count: number;
+        pending_types: string[];
+    };
+    supervisor_evaluation: {
+        required: string;
+        completed: boolean;
+        component_count: number;
+        supervisors: SupervisorStatus[];
+    } | null;
+    supervisor_evaluations?: {
+        required: string;
+        completed: boolean;
+        component_count: number;
+        supervisors: SupervisorStatus[];
+    }[];
+    seminar_schedule: SeminarScheduleInfo | null;
+}
+
 interface WorkflowData {
     phases: PhaseInfo[];
     current_phase: string | null;
     is_graduated: boolean;
+    next_phase_requirements: NextPhaseRequirements | null;
+    final_ready_for_ta_individual?: {
+        ready: boolean;
+        expo_documents: {
+            completed: boolean;
+            pending_types: string[];
+            total_required: number;
+            approved_count: number;
+        };
+        nilai_dosen: {
+            required: boolean;
+            configured: boolean;
+            completed: boolean;
+            component_count: number;
+            supervisors: SupervisorStatus[];
+        };
+        milestone: {
+            required: boolean;
+            configured: boolean;
+            completed: boolean;
+            component_count: number;
+            supervisors: SupervisorStatus[];
+        };
+        expo_evaluation: {
+            required: boolean;
+            configured: boolean;
+            completed: boolean;
+            component_count: number;
+            supervisors: SupervisorStatus[];
+        };
+        peer_review: {
+            required: boolean;
+            configured: boolean;
+            completed: boolean;
+            indicator_count: number;
+            total_members: number;
+            completed_members: number;
+            incomplete_students: {
+                student_id: number;
+                student_name: string;
+                student_nim: string;
+            }[];
+        };
+    };
+}
+
+interface StepperPhaseInfo extends PhaseInfo {
+    ui_only?: boolean;
 }
 
 const PHASE_LABELS: Record<string, string> = {
     'PDC1': 'PDC 1',
     'SEMPRO': 'Seminar Proposal',
     'PDC2': 'PDC 2',
-    'TA': 'Tugas Akhir',
-    'SIDANG': 'Sidang',
+    'TA_DRAFT': 'TA Draft (Group)',
     'EXPO': 'Expo',
+    'TA_INDIVIDUAL_READY': 'Ready for TA Individual',
+};
+
+const DESKTOP_GRID_COLS_CLASS: Record<number, string> = {
+    1: 'md:grid-cols-1',
+    2: 'md:grid-cols-2',
+    3: 'md:grid-cols-3',
+    4: 'md:grid-cols-4',
+    5: 'md:grid-cols-5',
+    6: 'md:grid-cols-6',
+    7: 'md:grid-cols-7',
+    8: 'md:grid-cols-8',
 };
 
 export default function MahasiswaDocumentsPage() {
@@ -109,6 +251,11 @@ export default function MahasiswaDocumentsPage() {
 
     useEffect(() => {
         fetchData();
+        
+        // Auto-refresh every 30 seconds to check supervisor evaluation updates
+        const interval = setInterval(fetchData, 30000);
+        
+        return () => clearInterval(interval);
     }, [fetchData]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -118,6 +265,14 @@ export default function MahasiswaDocumentsPage() {
     };
 
     const openUploadDialog = (phase: string, docType: string) => {
+        // Check if SEMPRO schedule exists before allowing upload
+        if (phase === 'SEMPRO') {
+            const schedule = workflow?.next_phase_requirements?.seminar_schedule;
+            if (!schedule?.exists) {
+                toast.error('SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.');
+                return;
+            }
+        }
         setUploadPhase(phase);
         setUploadType(docType);
         setFile(null);
@@ -200,6 +355,23 @@ export default function MahasiswaDocumentsPage() {
         'REJECTED'
     ].includes(groupStatus);
 
+    const finalUiStep: StepperPhaseInfo | null = workflow?.final_ready_for_ta_individual
+        ? {
+            phase: 'TA_INDIVIDUAL_READY',
+            status: workflow.final_ready_for_ta_individual.ready ? 'completed' : 'locked',
+            documents: [],
+            required_types: [],
+            document_count: 0,
+            ui_only: true,
+        }
+        : null;
+
+    const stepperPhases: StepperPhaseInfo[] = workflow
+        ? [...workflow.phases, ...(finalUiStep ? [finalUiStep] : [])]
+        : [];
+
+    const stepCount = stepperPhases.length;
+
     // Lock documents if student doesn't have an approved group
     if (!hasGroup || !isGroupApproved) {
         return (
@@ -236,11 +408,354 @@ export default function MahasiswaDocumentsPage() {
         );
     }
 
+    const req = workflow?.next_phase_requirements;
+
     return (
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">Documents & Workflow</h1>
                 <p className="text-muted-foreground">Complete each phase sequentially to progress toward graduation.</p>
+            </div>
+
+            {/* Next Phase Requirements Alerts */}
+            <div className="space-y-3">
+                {req && (
+                    <>
+                    {/* SEMPRO Schedule Status - Show when current phase is SEMPRO */}
+                    {req.current_phase === 'SEMPRO' && (
+                        <>
+                            {!req.seminar_schedule?.exists ? (
+                                <Alert variant="default" className="border-amber-500 bg-amber-50">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    <AlertTitle className="text-amber-800">⏳ Menunggu Jadwal SEMPRO</AlertTitle>
+                                    <AlertDescription className="text-amber-700">
+                                        SEMPRO belum dijadwalkan oleh admin. Anda tidak dapat mengupload 
+                                        dokumen bukti SEMPRO hingga jadwal ditetapkan.
+                                    </AlertDescription>
+                                </Alert>
+                            ) : (
+                                <Alert variant="default" className="border-blue-500 bg-blue-50">
+                                    <Info className="h-4 w-4 text-blue-600" />
+                                    <AlertTitle className="text-blue-800">📅 Jadwal SEMPRO Telah Ditetapkan</AlertTitle>
+                                    <AlertDescription className="text-blue-700">
+                                        <div className="mt-2 space-y-1">
+                                            <p>
+                                                <strong>Tanggal:</strong>{' '}
+                                                {new Date(req.seminar_schedule.date!).toLocaleDateString('id-ID', {
+                                                    weekday: 'long',
+                                                    year: 'numeric',
+                                                    month: 'long',
+                                                    day: 'numeric',
+                                                })}
+                                            </p>
+                                            <p>
+                                                <strong>Waktu:</strong>{' '}
+                                                {req.seminar_schedule.start_time} - {req.seminar_schedule.end_time}
+                                            </p>
+                                            <p>
+                                                <strong>Ruangan:</strong> {req.seminar_schedule.room}
+                                            </p>
+                                            <p>
+                                                <strong>Penguji:</strong>{' '}
+                                                {req.seminar_schedule.examiners?.map(e => e.name).join(' & ')}
+                                            </p>
+                                        </div>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                            
+                            {/* Pending Examiner Evaluations */}
+                            {req.seminar_schedule?.exists && req.seminar_schedule.examiner_evaluations && req.seminar_schedule.examiner_evaluations.pending > 0 && (
+                                <Alert variant="default" className="border-orange-500 bg-orange-50">
+                                    <AlertTriangle className="h-4 w-4 text-orange-600" />
+                                    <AlertTitle className="text-orange-800">📝 Menunggu Penilaian Penguji</AlertTitle>
+                                    <AlertDescription className="text-orange-700">
+                                        <p className="mb-2">
+                                            {req.seminar_schedule.examiner_evaluations.submitted}/{req.seminar_schedule.examiner_evaluations.total} penguji telah menilai.
+                                            Berikut penguji yang belum menyelesaikan penilaian:
+                                        </p>
+                                        <ul className="mt-2 space-y-2">
+                                            {req.seminar_schedule.examiner_evaluations.examiners
+                                                .filter((e) => e.status !== 'SUBMITTED')
+                                                .map((e) => (
+                                                    <li key={e.id} className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-orange-500" />
+                                                        <span>{e.name} - Belum menilai</span>
+                                                    </li>
+                                                ))}
+                                        </ul>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                            
+                            {/* All Examiner Evaluations Complete */}
+                            {req.seminar_schedule?.exists && req.seminar_schedule.examiner_evaluations && req.seminar_schedule.examiner_evaluations.pending === 0 && req.seminar_schedule.examiner_evaluations.total > 0 && (
+                                <Alert variant="default" className="border-green-500 bg-green-50">
+                                    <Check className="h-4 w-4 text-green-600" />
+                                    <AlertTitle className="text-green-800">✅ Penilaian Penguji Lengkap</AlertTitle>
+                                    <AlertDescription className="text-green-700">
+                                        Semua penguji telah menyelesaikan penilaian SEMPRO.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                            
+                            {/* Pending Supervisor BIMBINGAN_SEMPRO */}
+                            {req.seminar_schedule?.exists && req.seminar_schedule.supervisor_bimbingan && req.seminar_schedule.supervisor_bimbingan.supervisors.some((s) => s.status === 'pending') && (
+                                <Alert variant="default" className="border-amber-500 bg-amber-50">
+                                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                    <AlertTitle className="text-amber-800">👨‍🏫 Menunggu Penilaian Pembimbing (BIMBINGAN SEMPRO)</AlertTitle>
+                                    <AlertDescription className="text-amber-700">
+                                        <p className="mb-2">
+                                            Penilaian BIMBINGAN_SEMPRO dari dosen pembimbing masih menunggu:
+                                        </p>
+                                        <ul className="mt-2 space-y-2">
+                                            {req.seminar_schedule.supervisor_bimbingan.supervisors
+                                                .filter((s) => s.status === 'pending')
+                                                .map((s) => (
+                                                    <li key={s.id} className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                                        <span>
+                                                            {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                                                            {typeof s.submitted_components === 'number' && typeof s.total_components === 'number' && (
+                                                                <span className="text-sm text-muted-foreground ml-2">
+                                                                    - {s.submitted_components}/{s.total_components} komponen
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    </li>
+                                                ))}
+                                        </ul>
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+                            
+                            {/* All Supervisor BIMBINGAN_SEMPRO Complete */}
+                            {req.seminar_schedule?.exists && req.seminar_schedule.supervisor_bimbingan && req.seminar_schedule.supervisor_bimbingan.supervisors.every((s) => s.status === 'completed') && req.seminar_schedule.supervisor_bimbingan.supervisors.length > 0 && (
+                                <Alert variant="default" className="border-green-500 bg-green-50">
+                                    <Check className="h-4 w-4 text-green-600" />
+                                    <AlertTitle className="text-green-800">✅ Penilaian Pembimbing Lengkap</AlertTitle>
+                                    <AlertDescription className="text-green-700">
+                                        Semua dosen pembimbing telah menyelesaikan penilaian BIMBINGAN_SEMPRO.
+                                    </AlertDescription>
+                                </Alert>
+                            )}
+
+                            {/* Final readiness for PDC2 */}
+                            {req.seminar_schedule?.exists && (
+                                req.seminar_schedule.is_ready_for_pdc2 ? (
+                                    <Alert variant="default" className="border-green-500 bg-green-50">
+                                        <Check className="h-4 w-4 text-green-600" />
+                                        <AlertTitle className="text-green-800">✅ Siap Masuk PDC2</AlertTitle>
+                                        <AlertDescription className="text-green-700">
+                                            Semua syarat SEMPRO sudah terpenuhi (dokumen, nilai penguji, dan BIMBINGAN_SEMPRO pembimbing).
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : (
+                                    <Alert variant="default" className="border-amber-500 bg-amber-50">
+                                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                        <AlertTitle className="text-amber-800">🔒 PDC2 Masih Terkunci</AlertTitle>
+                                        <AlertDescription className="text-amber-700">
+                                            PDC2 akan tetap terkunci sampai seluruh syarat SEMPRO terpenuhi.
+                                        </AlertDescription>
+                                    </Alert>
+                                )
+                            )}
+                        </>
+                    )}
+
+                    {/* Documents Incomplete */}
+                    {!req.documents.completed && (
+                        <Alert variant="default" className="border-amber-500 bg-amber-50">
+                            <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            <AlertTitle className="text-amber-800">⚠️ Dokumen Belum Lengkap</AlertTitle>
+                            <AlertDescription className="text-amber-700">
+                                Untuk melanjutkan ke fase <strong>{PHASE_LABELS[req.next_phase] || req.next_phase}</strong>,
+                                dokumen berikut harus diupload dan disetujui:
+                                <ul className="mt-2 list-disc pl-4 space-y-1">
+                                    {req.documents.pending_types.map((type) => (
+                                        <li key={type}>{type}</li>
+                                    ))}
+                                </ul>
+                                <p className="mt-2 text-sm">
+                                    Progress: {req.documents.approved_count}/{req.documents.total_required} dokumen disetujui
+                                </p>
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
+                    {/* Documents Complete, Waiting for Supervisors */}
+                    {req.documents.completed && (
+                        (() => {
+                            const supervisorBlocks = req.supervisor_evaluations && req.supervisor_evaluations.length > 0
+                                ? req.supervisor_evaluations
+                                : (req.supervisor_evaluation ? [req.supervisor_evaluation] : []);
+                            const hasPendingSupervisorBlocks = supervisorBlocks.some((block) => !block.completed);
+                            if (!hasPendingSupervisorBlocks) return null;
+
+                            return (
+                        <Alert variant="default" className="border-blue-500 bg-blue-50">
+                            <Info className="h-4 w-4 text-blue-600" />
+                            <AlertTitle className="text-blue-800">⏳ Menunggu Penilaian Dosen Pembimbing</AlertTitle>
+                            <AlertDescription className="text-blue-700">
+                                Semua dokumen telah disetujui. Menunggu penilaian dosen untuk bisa melanjutkan ke fase{' '}
+                                <strong>{PHASE_LABELS[req.next_phase] || req.next_phase}</strong>:
+                                {supervisorBlocks
+                                    .filter((block) => !block.completed)
+                                    .map((block) => (
+                                        <div key={block.required} className="mt-3 first:mt-2">
+                                            <p className="font-medium">Jenis nilai: {block.required}</p>
+                                            <ul className="mt-1 space-y-2">
+                                                {block.supervisors
+                                                    .filter((s) => s.status === 'pending')
+                                                    .map((s) => (
+                                                        <li key={`${block.required}-${s.id}`} className="flex items-center gap-2">
+                                                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                                                            <span>
+                                                                {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                                                                <span className="text-sm text-muted-foreground ml-2">
+                                                                    - {s.submitted_components}/{s.total_components} komponen
+                                                                </span>
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                            </ul>
+                                        </div>
+                                    ))}
+                            </AlertDescription>
+                        </Alert>
+                            );
+                        })()
+                    )}
+
+                    {/* All Requirements Met */}
+                    {req.documents.completed && (() => {
+                        const supervisorBlocks = req.supervisor_evaluations && req.supervisor_evaluations.length > 0
+                            ? req.supervisor_evaluations
+                            : (req.supervisor_evaluation ? [req.supervisor_evaluation] : []);
+                        const allSupervisorBlocksComplete = supervisorBlocks.every((block) => block.completed);
+                        if (!allSupervisorBlocksComplete) return null;
+                        return (
+                        <Alert variant="default" className="border-green-500 bg-green-50">
+                            <Check className="h-4 w-4 text-green-600" />
+                            <AlertTitle className="text-green-800">✅ Siap Melanjutkan</AlertTitle>
+                            <AlertDescription className="text-green-700">
+                                Semua persyaratan telah terpenuhi. Anda dapat melanjutkan ke fase{' '}
+                                <strong>{PHASE_LABELS[req.next_phase] || req.next_phase}</strong>.
+                            </AlertDescription>
+                        </Alert>
+                        );
+                    })()}
+                    </>
+
+                )}
+
+                {/* Final UI-only gate: Ready for TA Individual */}
+                {workflow?.final_ready_for_ta_individual && (
+                        workflow.final_ready_for_ta_individual.ready ? (
+                            <Alert variant="default" className="border-green-500 bg-green-50">
+                                <Check className="h-4 w-4 text-green-600" />
+                                <AlertTitle className="text-green-800">✅ Ready for TA Individual</AlertTitle>
+                                <AlertDescription className="text-green-700">
+                                    Semua syarat akhir terpenuhi (dokumen EXPO, NILAI_DOSEN, MILESTONE, evaluasi EXPO, dan peer review lengkap).
+                                </AlertDescription>
+                            </Alert>
+                        ) : (
+                            <Alert variant="default" className="border-amber-500 bg-amber-50">
+                                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                                <AlertTitle className="text-amber-800">🔒 Belum Ready for TA Individual</AlertTitle>
+                                <AlertDescription className="text-amber-700">
+                                    {!workflow.final_ready_for_ta_individual.expo_documents.completed && (
+                                        <div className="mb-2">
+                                            <p className="font-medium">Dokumen EXPO belum lengkap/disetujui:</p>
+                                            <ul className="mt-1 list-disc pl-5 space-y-1">
+                                                {workflow.final_ready_for_ta_individual.expo_documents.pending_types.map((t) => (
+                                                    <li key={t}>{t}</li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {!workflow.final_ready_for_ta_individual.milestone.configured && (
+                                        <p className="mb-2">Komponen MILESTONE belum dikonfigurasi admin untuk periode ini.</p>
+                                    )}
+                                    {!workflow.final_ready_for_ta_individual.nilai_dosen.configured && (
+                                        <p className="mb-2">Komponen NILAI_DOSEN belum dikonfigurasi admin untuk periode ini.</p>
+                                    )}
+                                    {!workflow.final_ready_for_ta_individual.expo_evaluation.configured && (
+                                        <p className="mb-2">Komponen evaluasi EXPO belum dikonfigurasi admin untuk periode ini.</p>
+                                    )}
+                                    {workflow.final_ready_for_ta_individual.nilai_dosen.configured && !workflow.final_ready_for_ta_individual.nilai_dosen.completed && (
+                                        <div className="mb-2">
+                                            <p className="font-medium">Menunggu NILAI_DOSEN dosen pembimbing:</p>
+                                            <ul className="mt-1 space-y-1">
+                                                {workflow.final_ready_for_ta_individual.nilai_dosen.supervisors
+                                                    .filter((s) => s.status === 'pending')
+                                                    .map((s) => (
+                                                        <li key={s.id}>
+                                                            {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                                                            <span className="text-sm text-muted-foreground ml-2">
+                                                                - {s.submitted_components}/{s.total_components} komponen
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {workflow.final_ready_for_ta_individual.milestone.configured && !workflow.final_ready_for_ta_individual.milestone.completed && (
+                                        <div className="mb-2">
+                                            <p className="font-medium">Menunggu penilaian MILESTONE dosen pembimbing:</p>
+                                            <ul className="mt-1 space-y-1">
+                                                {workflow.final_ready_for_ta_individual.milestone.supervisors
+                                                    .filter((s) => s.status === 'pending')
+                                                    .map((s) => (
+                                                        <li key={s.id}>
+                                                            {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                                                            <span className="text-sm text-muted-foreground ml-2">
+                                                                - {s.submitted_components}/{s.total_components} komponen
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {workflow.final_ready_for_ta_individual.expo_evaluation.configured && !workflow.final_ready_for_ta_individual.expo_evaluation.completed && (
+                                        <div className="mb-2">
+                                            <p className="font-medium">Menunggu evaluasi EXPO dari dosen pembimbing:</p>
+                                            <ul className="mt-1 space-y-1">
+                                                {workflow.final_ready_for_ta_individual.expo_evaluation.supervisors
+                                                    .filter((s) => s.status === 'pending')
+                                                    .map((s) => (
+                                                        <li key={s.id}>
+                                                            {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                                                            <span className="text-sm text-muted-foreground ml-2">
+                                                                - {s.submitted_components}/{s.total_components} komponen
+                                                            </span>
+                                                        </li>
+                                                    ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                    {!workflow.final_ready_for_ta_individual.peer_review.configured && (
+                                        <p className="mb-2">Indikator peer review belum diset oleh admin pada Evaluation Setup.</p>
+                                    )}
+                                    {workflow.final_ready_for_ta_individual.peer_review.configured && !workflow.final_ready_for_ta_individual.peer_review.completed && (
+                                        <div>
+                                            <p className="font-medium">Peer review belum lengkap:</p>
+                                            <p className="text-sm text-muted-foreground mt-1">
+                                                Progress: {workflow.final_ready_for_ta_individual.peer_review.completed_members}/{workflow.final_ready_for_ta_individual.peer_review.total_members} mahasiswa selesai.
+                                            </p>
+                                            <ul className="mt-1 space-y-1">
+                                                {workflow.final_ready_for_ta_individual.peer_review.incomplete_students.map((s) => (
+                                                    <li key={s.student_id}>
+                                                        {s.student_name} ({s.student_nim})
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        </div>
+                                    )}
+                                </AlertDescription>
+                            </Alert>
+                        )
+                )}
             </div>
 
             {/* Workflow Stepper */}
@@ -254,9 +769,22 @@ export default function MahasiswaDocumentsPage() {
 
                     {/* Horizontal stepper on desktop, vertical on mobile */}
                     <div className="relative">
-                        <div className="hidden md:block absolute top-6 left-[calc(100%/12)] right-[calc(100%/12)] h-0.5 bg-muted z-0" />
-                        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 relative z-10">
-                            {workflow.phases.map((phaseInfo) => {
+                        {stepCount > 1 && (
+                            <div
+                                className="hidden md:block absolute top-6 h-0.5 bg-muted z-0"
+                                style={{
+                                    left: `${50 / stepCount}%`,
+                                    right: `${50 / stepCount}%`,
+                                }}
+                            />
+                        )}
+                        <div
+                            className={cn(
+                                'grid grid-cols-1 gap-4 relative z-10',
+                                DESKTOP_GRID_COLS_CLASS[stepCount] || 'md:grid-cols-6'
+                            )}
+                        >
+                            {stepperPhases.map((phaseInfo) => {
                                 return (
                                     <div key={phaseInfo.phase} className="flex flex-col items-center text-center">
                                         <div className={cn(
@@ -273,10 +801,12 @@ export default function MahasiswaDocumentsPage() {
                                             {PHASE_LABELS[phaseInfo.phase] || phaseInfo.phase}
                                         </h3>
                                         {/* Show breakdown of required docs if multiple */}
-                                        {phaseInfo.required_types.length > 1 && (
+                                        {!phaseInfo.ui_only && phaseInfo.required_types.length > 1 && (
                                             <div className="flex flex-col gap-1 mt-2 w-full px-2">
                                                 {phaseInfo.documents.map(d => {
-                                                    const canUploadType = phaseInfo.status !== 'locked' && d.status !== 'APPROVED';
+                                                    const semproSchedule = workflow?.next_phase_requirements?.seminar_schedule;
+                                                    const semproBlocked = phaseInfo.phase === 'SEMPRO' && !semproSchedule?.exists;
+                                                    const canUploadType = phaseInfo.status !== 'locked' && d.status !== 'APPROVED' && !semproBlocked;
                                                     return (
                                                         <div key={d.type} className="flex flex-col items-center justify-center p-1 border rounded bg-muted/30">
                                                             <span className={cn(
@@ -295,19 +825,34 @@ export default function MahasiswaDocumentsPage() {
                                                                     {d.status === 'missing' ? 'Upload' : 'Re-upload'}
                                                                 </Button>
                                                             )}
+                                                            {semproBlocked && (
+                                                                <span className="text-[10px] text-amber-600 mt-1">Menunggu jadwal</span>
+                                                            )}
                                                         </div>
                                                     );
                                                 })}
                                             </div>
                                         )}
-                                        {phaseInfo.required_types.length <= 1 && (
+                                        {(phaseInfo.ui_only || phaseInfo.required_types.length <= 1) && (
                                             <p className="text-xs text-muted-foreground capitalize mt-0.5">{phaseInfo.status}</p>
                                         )}
                                         {/* Single document phase upload button */}
-                                        {phaseInfo.required_types.length <= 1 && phaseInfo.status !== 'locked' && phaseInfo.status !== 'completed' && (
-                                            <Button size="sm" className="mt-2 text-xs h-7" onClick={() => openUploadDialog(phaseInfo.phase, phaseInfo.required_types[0] || 'GENERAL')}>
-                                                <Upload className="mr-1 h-3 w-3" /> Upload
-                                            </Button>
+                                        {!phaseInfo.ui_only && phaseInfo.required_types.length <= 1 && phaseInfo.status !== 'locked' && phaseInfo.status !== 'completed' && (
+                                            (() => {
+                                                const semproSchedule = workflow?.next_phase_requirements?.seminar_schedule;
+                                                const semproBlocked = phaseInfo.phase === 'SEMPRO' && !semproSchedule?.exists;
+                                                return (
+                                                    <Button 
+                                                        size="sm" 
+                                                        className="mt-2 text-xs h-7" 
+                                                        onClick={() => openUploadDialog(phaseInfo.phase, phaseInfo.required_types[0] || 'GENERAL')}
+                                                        disabled={semproBlocked}
+                                                    >
+                                                        <Upload className="mr-1 h-3 w-3" /> 
+                                                        {semproBlocked ? 'Menunggu Jadwal' : 'Upload'}
+                                                    </Button>
+                                                );
+                                            })()
                                         )}
                                     </div>
                                 );

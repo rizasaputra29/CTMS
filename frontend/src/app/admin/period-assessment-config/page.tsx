@@ -41,10 +41,9 @@ const EVALUATION_TYPES = [
   { value: 'SEMPRO', label: 'SEMPRO', description: 'Seminar Proposal' },
   { value: 'SIDANG_TA', label: 'SIDANG_TA', description: 'Sidang Tugas Akhir' },
   { value: 'EXPO', label: 'EXPO', description: 'Expo' },
-  { value: 'BIMBINGAN', label: 'BIMBINGAN', description: 'Bimbingan Umum' },
   { value: 'BIMBINGAN_SEMPRO', label: 'BIMBINGAN_SEMPRO', description: 'Penilaian Dosbing SEMPRO' },
-  { value: 'BIMBINGAN_EXPO', label: 'BIMBINGAN_EXPO', description: 'Penilaian Dosbing EXPO' },
   { value: 'BIMBINGAN_TA', label: 'BIMBINGAN_TA', description: 'Penilaian Dosbing Sidang TA' },
+  { value: 'NILAI_DOSEN', label: 'NILAI_DOSEN', description: 'Nilai Dosen Pembimbing' },
   { value: 'MILESTONE', label: 'MILESTONE', description: 'Penilaian Milestone' },
 ];
 

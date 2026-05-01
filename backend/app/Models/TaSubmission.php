@@ -12,12 +12,16 @@ class TaSubmission extends Model
      */
     const TA_STATUS_ORDER = [
         'TA_LOCKED' => 0,
-        'TA_DRAFT' => 1,
-        'TA_REVISED' => 2,
-        'TA_READY' => 3,
-        'TA_REGISTERED' => 4,
-        'TA_SCHEDULED' => 5,
-        'TA_DEFENDED' => 6,
+        'TA_DOCUMENTS_REQUIRED' => 1,      // New: Need to upload required documents
+        'TA_DOCUMENTS_UNDER_REVIEW' => 2,  // New: Documents submitted, waiting approval
+        'TA_DOCUMENTS_APPROVED' => 3,      // New: All documents approved, ready for sidang schedule
+        'TA_DRAFT' => 4,
+        'TA_REVISED' => 5,
+        'TA_READY' => 6,
+        'TA_READY_FOR_SIDANG' => 7,        // New: After admin schedules sidang
+        'TA_REGISTERED' => 8,
+        'TA_SCHEDULED' => 9,
+        'TA_DEFENDED' => 10,
     ];
 
     protected $fillable = [

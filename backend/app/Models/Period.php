@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class Period extends Model
 {
     use SoftDeletes;
+
+    protected $appends = [
+        'max_supervisor_load',
+    ];
     protected $fillable = [
         'name',
         'start_date',
@@ -32,6 +36,7 @@ class Period extends Model
         'min_group_size',
         'max_group_size',
         'max_supervisor_load',
+        'max_supervise_load',
         'allow_solo',
         'require_all_students_grouped',
         'grade_configuration',
@@ -60,7 +65,24 @@ class Period extends Model
         'ta_start' => 'date',
         'ta_end' => 'date',
         'ta_reminder_at' => 'datetime',
+        'max_supervisor_load' => 'integer',
+        'max_supervise_load' => 'integer',
     ];
+
+    public function getMaxSupervisorLoadAttribute($value): ?int
+    {
+        if ($value !== null) {
+            return (int) $value;
+        }
+
+        $legacy = $this->attributes['max_supervise_load'] ?? null;
+        return $legacy !== null ? (int) $legacy : null;
+    }
+
+    public function supervisorLoadLimit(int $default = 8): int
+    {
+        return $this->max_supervisor_load ?? $default;
+    }
 
     /**
      * Check if bidding is locked — bidding_end has passed.

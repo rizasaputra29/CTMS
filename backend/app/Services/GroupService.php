@@ -386,7 +386,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($preApprovedTitle) {
             $lecturerId = $preApprovedTitle->proposed_supervisor_id;
-            $maxLoad = $period->max_supervisor_load ?? 8;
+            $maxLoad = $period->supervisorLoadLimit(8);
 
             $currentLoad = Supervision::where('supervisor_id', $lecturerId)
                 ->whereHas('group', fn($q) => $q->where('period_id', $period->id))

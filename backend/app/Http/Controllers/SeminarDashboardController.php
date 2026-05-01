@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AssessmentScore;
+use App\Models\AssessmentComponent;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\PeriodAssessmentComponent;
@@ -14,6 +15,7 @@ use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class SeminarDashboardController extends Controller
 {
@@ -311,32 +313,13 @@ class SeminarDashboardController extends Controller
             $schedule = SeminarSchedule::with(['group.title', 'group.members.student', 'examiner1', 'examiner2'])
                 ->findOrFail($evaluation->schedule_id);
             
-            // Get components from period_assessment_components
-            $periodComponents = PeriodAssessmentComponent::with('template')
-                ->where('period_id', $schedule->group->period_id)
-                ->where('type', $schedule->type)
-                ->orderBy('sort_order')
-                ->get();
-            
-            $components = $periodComponents->map(fn($c) => [
-                'id' => $c->id,
-                'code' => $c->template->code,
-                'name' => $c->template->name,
-                'description' => $c->template->description,
-                'weight' => $c->template->weight,
-                'sort_order' => $c->sort_order,
-                'template_id' => $c->template_id,
-                'period_id' => $c->period_id,
-            ]);
+            $components = $this->resolveEvaluationComponents($schedule->group->period_id, $schedule->type);
 
-            // Get existing scores using period_component_id
-            $existingScores = \App\Models\AssessmentScore::where('evaluator_id', $user->id)
-                ->where('group_id', $schedule->group_id)
-                ->where('evaluation_type', $schedule->type)
-                ->get()
-                ->keyBy(function ($score) {
-                    return $score->period_component_id . '_' . $score->student_id;
-                });
+            $existingScores = $this->resolveExistingScores(
+                $user->id,
+                $schedule->group_id,
+                $schedule->type
+            );
 
             return response()->json([
                 'evaluation' => $evaluation,
@@ -353,32 +336,13 @@ class SeminarDashboardController extends Controller
             $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
                 ->findOrFail($evaluation->schedule_id);
             
-            // Get components from period_assessment_components
-            $periodComponents = PeriodAssessmentComponent::with('template')
-                ->where('period_id', $schedule->group->period_id)
-                ->where('type', 'SIDANG_TA')
-                ->orderBy('sort_order')
-                ->get();
-            
-            $components = $periodComponents->map(fn($c) => [
-                'id' => $c->id,
-                'code' => $c->template->code,
-                'name' => $c->template->name,
-                'description' => $c->template->description,
-                'weight' => $c->template->weight,
-                'sort_order' => $c->sort_order,
-                'template_id' => $c->template_id,
-                'period_id' => $c->period_id,
-            ]);
+            $components = $this->resolveEvaluationComponents($schedule->group->period_id, 'SIDANG_TA');
 
-            // Get existing scores using period_component_id
-            $existingScores = \App\Models\AssessmentScore::where('evaluator_id', $user->id)
-                ->where('group_id', $schedule->group_id)
-                ->where('evaluation_type', 'SIDANG_TA')
-                ->get()
-                ->keyBy(function ($score) {
-                    return $score->period_component_id . '_' . $score->student_id;
-                });
+            $existingScores = $this->resolveExistingScores(
+                $user->id,
+                $schedule->group_id,
+                'SIDANG_TA'
+            );
 
             return response()->json([
                 'evaluation' => $evaluation,
@@ -389,5 +353,68 @@ class SeminarDashboardController extends Controller
                 'type' => 'TA_DEFENSE'
             ]);
         }
+    }
+
+    private function resolveEvaluationComponents(int $periodId, string $type)
+    {
+        if (Schema::hasTable('period_assessment_components')) {
+            $periodComponents = PeriodAssessmentComponent::with('template')
+                ->where('period_id', $periodId)
+                ->where('type', $type)
+                ->orderBy('sort_order')
+                ->get();
+
+            if ($periodComponents->isNotEmpty()) {
+                return $periodComponents->map(fn ($c) => [
+                    'id' => $c->id,
+                    'code' => $c->template->code,
+                    'name' => $c->template->name,
+                    'description' => $c->template->description,
+                    'weight' => $c->template->weight,
+                    'sort_order' => $c->sort_order,
+                    'template_id' => $c->template_id,
+                    'period_id' => $c->period_id,
+                ]);
+            }
+        }
+
+        if (Schema::hasTable('assessment_components')) {
+            return AssessmentComponent::query()
+                ->where('period_id', $periodId)
+                ->where('type', $type)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn ($c) => [
+                    'id' => $c->id,
+                    'code' => $c->code,
+                    'name' => $c->name,
+                    'description' => $c->description,
+                    'weight' => $c->weight,
+                    'sort_order' => $c->sort_order,
+                    'template_id' => null,
+                    'period_id' => $c->period_id,
+                ]);
+        }
+
+        return collect();
+    }
+
+    private function resolveExistingScores(int $evaluatorId, int $groupId, string $evaluationType)
+    {
+        $scores = AssessmentScore::where('evaluator_id', $evaluatorId)
+            ->where('group_id', $groupId)
+            ->where('evaluation_type', $evaluationType)
+            ->get();
+
+        $hasPeriodComponentColumn = Schema::hasTable('assessment_scores')
+            && Schema::hasColumn('assessment_scores', 'period_component_id');
+
+        return $scores->keyBy(function ($score) use ($hasPeriodComponentColumn) {
+            $componentId = $hasPeriodComponentColumn
+                ? ($score->period_component_id ?? $score->component_id)
+                : $score->component_id;
+
+            return $componentId . '_' . $score->student_id;
+        });
     }
 }

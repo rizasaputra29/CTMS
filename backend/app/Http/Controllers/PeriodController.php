@@ -6,10 +6,14 @@ use App\Models\Period;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class PeriodController extends Controller
 {
     use ApiResponseTrait;
+
+    private ?array $periodColumns = null;
+
     public function index()
     {
         $periods = Period::orderBy('created_at', 'desc')->get();
@@ -52,6 +56,8 @@ class PeriodController extends Controller
             'require_all_students_grouped' => 'boolean',
         ]);
 
+        $validated = $this->normalizePeriodPayload($validated);
+
         // V4: Allow multiple active periods — no auto-deactivation
 
         $period = Period::create($validated);
@@ -91,6 +97,8 @@ class PeriodController extends Controller
             'require_all_students_grouped' => 'boolean',
         ]);
 
+        $validated = $this->normalizePeriodPayload($validated);
+
         // V4: Allow multiple active periods — no auto-deactivation
 
         $period->update($validated);
@@ -125,5 +133,60 @@ class PeriodController extends Controller
             ->first();
 
         return $this->successResponse(['period' => $period], 'Registration period retrieved successfully');
+    }
+
+    private function normalizePeriodPayload(array $payload): array
+    {
+        $optionalColumns = [
+            'bidding_reminder_at',
+            'pdc1_reminder_at',
+            'pdc2_reminder_at',
+            'expo_reminder_at',
+            'ta_reminder_at',
+        ];
+
+        foreach ($optionalColumns as $column) {
+            if (array_key_exists($column, $payload) && !$this->hasPeriodColumn($column)) {
+                unset($payload[$column]);
+            }
+        }
+
+        if (array_key_exists('max_supervisor_load', $payload)) {
+            $maxLoad = $payload['max_supervisor_load'];
+
+            if ($this->hasPeriodColumn('max_supervisor_load')) {
+                $payload['max_supervisor_load'] = $maxLoad;
+            } else {
+                unset($payload['max_supervisor_load']);
+            }
+
+            // Keep legacy column in sync when it still exists.
+            if ($this->hasPeriodColumn('max_supervise_load')) {
+                $payload['max_supervise_load'] = $maxLoad;
+            }
+        }
+
+        if (array_key_exists('max_supervise_load', $payload) && !array_key_exists('max_supervisor_load', $payload)) {
+            $maxLoad = $payload['max_supervise_load'];
+
+            if ($this->hasPeriodColumn('max_supervisor_load')) {
+                $payload['max_supervisor_load'] = $maxLoad;
+            }
+
+            if (!$this->hasPeriodColumn('max_supervise_load')) {
+                unset($payload['max_supervise_load']);
+            }
+        }
+
+        return $payload;
+    }
+
+    private function hasPeriodColumn(string $column): bool
+    {
+        if ($this->periodColumns === null) {
+            $this->periodColumns = Schema::getColumnListing('periods');
+        }
+
+        return in_array($column, $this->periodColumns, true);
     }
 }

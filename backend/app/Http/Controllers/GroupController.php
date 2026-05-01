@@ -82,7 +82,7 @@ class GroupController extends Controller
             'supervisor2',
         ])->find($membership->group_id);
 
-        return response()->json(['group' => $group]);
+        return response()->json(['group' => $this->buildCanonicalGroupPayload($group, $user)]);
     }
 
     public function listGroups(Request $request)
@@ -93,7 +93,19 @@ class GroupController extends Controller
             $query->where('period_id', $request->period_id);
         }
 
-        $groups = $query->latest()->get();
+        $groups = $query->latest()->get()->map(function (Group $group) {
+            $groupArray = $group->toArray();
+            $groupArray['name'] = $this->resolveAdminGroupName($group);
+            $groupArray['status_label'] = $this->resolveAdminStatusLabel($group->status);
+            $groupArray['allowed_actions'] = [
+                'can_manage_finalization' => in_array($group->status, ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'TITLE_APPROVED', 'READY_FOR_BIDDING'], true)
+                    && !($group->period?->is_finalized),
+                'reason' => $group->period?->is_finalized ? 'PERIOD_FINALIZED' : null,
+            ];
+
+            return $groupArray;
+        });
+
         return response()->json(['data' => $groups]);
     }
 
@@ -192,7 +204,7 @@ class GroupController extends Controller
             DB::commit();
             return response()->json([
                 'message' => 'Group created successfully.',
-                'group' => $group->load('members.student'),
+                'group' => $this->buildCanonicalGroupPayload($group->load('members.student', 'period'), $user),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -263,7 +275,7 @@ class GroupController extends Controller
             DB::commit();
             return response()->json([
                 'message' => 'Solo group created successfully.',
-                'group' => $group->load('members.student'),
+                'group' => $this->buildCanonicalGroupPayload($group->load('members.student', 'period'), $user),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -417,7 +429,7 @@ class GroupController extends Controller
             DB::commit();
             return response()->json([
                 'message' => 'Invitation sent successfully',
-                'group' => $group->fresh()->load('members.student'),
+                'group' => $this->buildCanonicalGroupPayload($group->fresh()->load('members.student', 'period'), $user),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -623,7 +635,10 @@ class GroupController extends Controller
             DB::commit();
 
             $group = Group::with('members.student')->find($leaderMembership->group_id);
-            return response()->json(['message' => 'Member removed', 'group' => $group]);
+            return response()->json([
+                'message' => 'Member removed',
+                'group' => $this->buildCanonicalGroupPayload($group->load('period'), $user),
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Failed to remove member: ' . $e->getMessage()], 500);
@@ -957,7 +972,7 @@ class GroupController extends Controller
 
             return response()->json([
                 'message' => 'Grup berhasil ditandai siap untuk finalisasi. Tunggu admin untuk finalisasi.',
-                'group' => $group->fresh(['members.student', 'title', 'period'])
+                'group' => $this->buildCanonicalGroupPayload($group->fresh(['members.student', 'title', 'period']), $user),
             ]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 400);
@@ -1026,10 +1041,104 @@ class GroupController extends Controller
 
             return response()->json([
                 'message' => "Finalisasi berhasil dibatalkan. Kelompok kembali ke status {$statusLabel}.",
-                'group' => $group->fresh(['members.student', 'title', 'period'])
+                'group' => $this->buildCanonicalGroupPayload($group->fresh(['members.student', 'title', 'period']), $user),
             ]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 400);
         }
+    }
+
+    private function buildCanonicalGroupPayload(Group $group, User $user): array
+    {
+        $groupArray = $group->toArray();
+        $groupArray['status_label'] = $this->resolveStatusLabel($group);
+        $groupArray['allowed_actions'] = $this->resolveAllowedActions($group, $user);
+
+        return $groupArray;
+    }
+
+    private function resolveStatusLabel(Group $group): string
+    {
+        if ($group->status === 'READY_FOR_BIDDING') {
+            return $group->title_id ? 'Ready for Finalization' : 'Ready for Bidding';
+        }
+
+        return match ($group->status) {
+            'FORMING' => 'Incomplete Group',
+            'FORMING_SOLO' => 'Solo Seeker',
+            'WAITING_SUPERVISOR_APPROVAL' => 'Waiting Supervisor Approval',
+            'TITLE_APPROVED' => 'Title Approved',
+            'READY_FOR_FINALIZATION' => 'Ready for Finalization',
+            default => str_replace('_', ' ', $group->status),
+        };
+    }
+
+    private function resolveAdminStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'FORMING' => 'Incomplete Group',
+            'FORMING_SOLO' => 'Solo Seeker',
+            'READY_FOR_BIDDING' => 'Ready for Bidding',
+            'WAITING_SUPERVISOR_APPROVAL' => 'Waiting Supervisor Approval',
+            'TITLE_APPROVED' => 'Title Approved',
+            'READY_FOR_FINALIZATION' => 'Ready for Finalization',
+            'KELOMPOK_FINAL' => 'Kelompok Final',
+            'PDC1_ACTIVE' => 'PDC1 Active',
+            'PDC2_ACTIVE' => 'PDC2 Active',
+            default => str_replace('_', ' ', $status),
+        };
+    }
+
+    private function resolveAdminGroupName(Group $group): string
+    {
+        $name = trim((string) ($group->name ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return "Kelompok #{$group->id}";
+    }
+
+    private function resolveAllowedActions(Group $group, User $user): array
+    {
+        $period = $group->period;
+        $memberCount = $group->members()->count();
+        $minSize = $period?->min_group_size ?? 3;
+        $maxSize = $period?->max_group_size ?? 4;
+        $isLocked = $this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION');
+        $isLeader = GroupMember::where('student_id', $user->id)
+            ->where('group_id', $group->id)
+            ->where('is_leader', true)
+            ->exists();
+
+        $hasAcceptedBid = $group->bids()
+            ->where('lecturer_recommendation', 'ACCEPT')
+            ->exists();
+
+        $hasApprovedProposal = Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->where('supervisor_approval_status', 'APPROVED')
+            ->exists();
+
+        $canMarkReady = $isLeader
+            && in_array($group->status, ['FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])
+            && $period?->is_active
+            && $memberCount >= $minSize
+            && $memberCount <= $maxSize
+            && ($hasAcceptedBid || $hasApprovedProposal);
+
+        return [
+            'can_add_member' => $isLeader && !$isLocked && $memberCount < $maxSize,
+            'can_remove_member' => $isLeader && !$isLocked && $memberCount > 1,
+            'can_leave_group' => !$isLeader && !$isLocked,
+            'can_delete_group' => $isLeader
+                && in_array($group->status, ['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])
+                && $memberCount <= 1,
+            'can_mark_ready_for_finalization' => $canMarkReady,
+            'can_cancel_ready_for_finalization' => $isLeader
+                && $group->status === 'READY_FOR_FINALIZATION'
+                && (bool) ($period?->is_active),
+        ];
     }
 }

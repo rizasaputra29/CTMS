@@ -1,0 +1,814 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import api from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
+import Link from 'next/link';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { 
+  Loader2, FileCheck, Upload, Info, Lock, CheckCircle, AlertCircle, 
+  FileText, Calendar, GraduationCap, User, Users, Clock, MapPin, ArrowRight
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { toast } from 'sonner';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+interface Group {
+  id: number;
+  name?: string;
+  code?: string;
+  title: { title: string } | null;
+  supervisor1?: { name: string } | null;
+  supervisor2?: { name: string } | null;
+}
+
+interface Document {
+  id: number;
+  document_type: string;
+  file_path: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  feedback: string | null;
+  reviewed_by: number | null;
+}
+
+interface DocumentRequirement {
+  id: number;
+  name: string;
+  description: string | null;
+  is_required: boolean;
+}
+
+interface TaSubmission {
+  id: number;
+  status: string;
+  file_path: string | null;
+  feedback: string | null;
+  reviewer: { name: string } | null;
+}
+
+interface TaStatusResponse {
+  can_access: boolean;
+  status: string;
+  submission: TaSubmission | null;
+  group: Group | null;
+  documents: Document[];
+  document_requirements: DocumentRequirement[];
+}
+
+interface DefenseSchedule {
+  id: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  room: string;
+  status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
+  examiner1?: { name: string } | null;
+  examiner2?: { name: string } | null;
+  evaluation_deadline?: string;
+  notes?: string;
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; description: string }> = {
+  TA_LOCKED: { 
+    label: 'Locked', 
+    color: 'bg-gray-100 text-gray-800', 
+    icon: Lock,
+    description: 'TA phase is locked. Complete EXPO first.'
+  },
+  TA_DOCUMENTS_REQUIRED: { 
+    label: 'Documents Required', 
+    color: 'bg-blue-100 text-blue-800', 
+    icon: FileText,
+    description: 'Upload all required TA documents to proceed.'
+  },
+  TA_DOCUMENTS_UNDER_REVIEW: { 
+    label: 'Under Review', 
+    color: 'bg-yellow-100 text-yellow-800', 
+    icon: Clock,
+    description: 'Documents submitted. Waiting for supervisor approval.'
+  },
+  TA_DOCUMENTS_APPROVED: { 
+    label: 'Documents Approved', 
+    color: 'bg-green-100 text-green-800', 
+    icon: CheckCircle,
+    description: 'All documents approved! Waiting for sidang schedule.'
+  },
+  TA_DRAFT: { 
+    label: 'Draft Uploaded', 
+    color: 'bg-purple-100 text-purple-800', 
+    icon: FileText,
+    description: 'TA draft uploaded and under review.'
+  },
+  TA_REVISED: { 
+    label: 'Revision Submitted', 
+    color: 'bg-orange-100 text-orange-800', 
+    icon: FileText,
+    description: 'Revision submitted. Waiting for review.'
+  },
+  TA_READY: { 
+    label: 'Ready for Defense', 
+    color: 'bg-emerald-100 text-emerald-800', 
+    icon: CheckCircle,
+    description: 'TA approved! You can now register for defense.'
+  },
+  TA_READY_FOR_SIDANG: { 
+    label: 'Ready for Sidang', 
+    color: 'bg-indigo-100 text-indigo-800', 
+    icon: Calendar,
+    description: 'Sidang scheduled. Prepare for your defense.'
+  },
+  TA_REGISTERED: { 
+    label: 'Registered', 
+    color: 'bg-cyan-100 text-cyan-800', 
+    icon: FileCheck,
+    description: 'Registered for TA defense.'
+  },
+  TA_SCHEDULED: { 
+    label: 'Scheduled', 
+    color: 'bg-violet-100 text-violet-800', 
+    icon: Calendar,
+    description: 'TA defense has been scheduled.'
+  },
+  TA_DEFENDED: { 
+    label: 'Completed', 
+    color: 'bg-green-100 text-green-800', 
+    icon: CheckCircle,
+    description: 'Congratulations! TA defense completed.'
+  },
+};
+
+const STEPS = [
+  { id: 'documents', label: 'Upload Documents', description: 'Submit all required documents' },
+  { id: 'review', label: 'Document Review', description: 'Supervisor review in progress' },
+  { id: 'approved', label: 'Documents Approved', description: 'Ready for scheduling' },
+  { id: 'schedule', label: 'Sidang Scheduled', description: 'Defense date confirmed' },
+  { id: 'defense', label: 'Defense Complete', description: 'TA defense finished' },
+];
+
+export default function TaSubmissionPage() {
+  const { user } = useAuth();
+  const [statusData, setStatusData] = useState<TaStatusResponse | null>(null);
+  const [defenseSchedule, setDefenseSchedule] = useState<DefenseSchedule | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+
+  // Upload dialog state
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [selectedDocType, setSelectedDocType] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/mahasiswa/ta-detailed-status');
+      setStatusData(response.data);
+    } catch (err: any) {
+      console.error('Failed to fetch TA data', err);
+      if (err.response?.status === 400) {
+        setStatusData({
+          can_access: false,
+          status: 'TA_LOCKED',
+          submission: null,
+          group: null,
+          documents: [],
+          document_requirements: [],
+        });
+      } else {
+        toast.error('Failed to load TA data');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Fetch defense schedule when status indicates scheduling
+  const fetchDefenseSchedule = useCallback(async () => {
+    const scheduledStatuses = ['TA_READY_FOR_SIDANG', 'TA_REGISTERED', 'TA_SCHEDULED', 'TA_DEFENDED'];
+    if (!statusData?.status || !scheduledStatuses.includes(statusData.status)) {
+      setDefenseSchedule(null);
+      return;
+    }
+
+    try {
+      setScheduleLoading(true);
+      const response = await api.get('/mahasiswa/ta-defense-schedules/my-schedule');
+      const schedules = response.data?.data || [];
+      // Get the first active schedule (SCHEDULED or DONE)
+      const activeSchedule = schedules.find((s: DefenseSchedule) =>
+        s.status === 'SCHEDULED' || s.status === 'DONE'
+      );
+      setDefenseSchedule(activeSchedule || null);
+    } catch (err) {
+      console.error('Failed to fetch defense schedule', err);
+      setDefenseSchedule(null);
+    } finally {
+      setScheduleLoading(false);
+    }
+  }, [statusData?.status]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  // Fetch defense schedule when status changes
+  useEffect(() => {
+    fetchDefenseSchedule();
+  }, [fetchDefenseSchedule]);
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Validate file type
+      const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+      if (!validTypes.includes(file.type)) {
+        toast.error('Please upload a PDF, DOC, or DOCX file');
+        return;
+      }
+      // Validate file size (10MB max)
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error('File size must be less than 10MB');
+        return;
+      }
+      setSelectedFile(file);
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile || !selectedDocType) {
+      toast.error('Please select a file');
+      return;
+    }
+
+    setUploading(true);
+    setUploadProgress(0);
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    formData.append('document_type', selectedDocType);
+
+    try {
+      await api.post('/mahasiswa/ta-documents/upload', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+        onUploadProgress: (progressEvent) => {
+          const progress = progressEvent.total
+            ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
+            : 0;
+          setUploadProgress(progress);
+        },
+      });
+      
+      toast.success('Document uploaded successfully');
+      setUploadDialogOpen(false);
+      setSelectedFile(null);
+      setSelectedDocType('');
+      fetchData();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Upload failed');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const openUploadDialog = (docType: string) => {
+    setSelectedDocType(docType);
+    setSelectedFile(null);
+    setUploadDialogOpen(true);
+  };
+
+  const getCurrentStepIndex = () => {
+    if (!statusData) return 0;
+    const currentStatus = statusData.status;
+    
+    // Map status to step index
+    if (['TA_DOCUMENTS_REQUIRED'].includes(currentStatus)) return 0;
+    if (['TA_DOCUMENTS_UNDER_REVIEW'].includes(currentStatus)) return 1;
+    if (['TA_DOCUMENTS_APPROVED'].includes(currentStatus)) return 2;
+    if (['TA_READY_FOR_SIDANG', 'TA_REGISTERED'].includes(currentStatus)) return 3;
+    if (['TA_SCHEDULED', 'TA_DEFENDED'].includes(currentStatus)) return 4;
+    return 0;
+  };
+
+  const getDocumentStatus = (documentType: string) => {
+    if (!statusData) return null;
+    return statusData.documents.find(d => d.document_type === documentType);
+  };
+
+  const getApprovedCount = () => {
+    if (!statusData) return 0;
+    return statusData.documents.filter(d => d.status === 'APPROVED').length;
+  };
+
+  const getRequiredCount = () => {
+    if (!statusData) return 0;
+    return statusData.document_requirements.filter(r => r.is_required).length;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  // TA Locked State
+  if (!statusData || !statusData.can_access || statusData.status === 'TA_LOCKED') {
+    return (
+      <div className="space-y-6 max-w-5xl mx-auto">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Tugas Akhir (TA)</h1>
+          <p className="text-muted-foreground">Individual thesis phase.</p>
+        </div>
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Lock className="h-5 w-5 text-red-600" />
+              <CardTitle className="text-red-800">TA Phase Locked</CardTitle>
+            </div>
+            <CardDescription className="text-red-700">
+              TA phase is currently locked.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-red-700 mb-4">
+              To unlock TA phase, you need to:
+            </p>
+            <ul className="space-y-3">
+              <li className="flex items-start gap-3">
+                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">1</div>
+                <span className="text-sm text-red-700">Complete EXPO with your group</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">2</div>
+                <span className="text-sm text-red-700">Submit peer review for all group members</span>
+              </li>
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const currentStatus = statusData.status;
+  const statusConfig = STATUS_CONFIG[currentStatus] || STATUS_CONFIG.TA_LOCKED;
+  const StatusIcon = statusConfig.icon;
+  const currentStep = getCurrentStepIndex();
+  const approvedCount = getApprovedCount();
+  const requiredCount = getRequiredCount();
+  const progressPercentage = requiredCount > 0 ? (approvedCount / requiredCount) * 100 : 0;
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Tugas Akhir (TA)</h1>
+          <p className="text-muted-foreground">Individual thesis submission and defense.</p>
+        </div>
+        <Badge className={`${statusConfig.color} px-3 py-1 text-sm font-medium`}>
+          <StatusIcon className="w-4 h-4 mr-1" />
+          {statusConfig.label}
+        </Badge>
+      </div>
+
+      {/* Student Info Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg flex items-center gap-2">
+            <User className="w-5 h-5" />
+            Student Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col md:flex-row gap-6">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16">
+                <AvatarFallback className="text-lg bg-primary/10 text-primary">
+                  {user?.name?.charAt(0) || 'S'}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <p className="font-semibold text-lg">{user?.name || 'Student'}</p>
+                <p className="text-sm text-muted-foreground">Individual TA Phase</p>
+              </div>
+            </div>
+            <Separator orientation="vertical" className="hidden md:block h-16" />
+            <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Group</p>
+                <p className="font-medium flex items-center gap-2">
+                  <Users className="w-4 h-4" />
+                  Group {statusData.group?.id || 'N/A'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Title</p>
+                <p className="font-medium truncate">
+                  {statusData.group?.title?.title || 'No title assigned'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Supervisor 1</p>
+                <p className="font-medium">
+                  {statusData.group?.supervisor1?.name || 'Not assigned'}
+                </p>
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Supervisor 2</p>
+                <p className="font-medium">
+                  {statusData.group?.supervisor2?.name || 'Not assigned'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Progress Stepper - Grid Based Responsive */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-lg">Progress Overview</CardTitle>
+          <CardDescription>Track your TA submission progress</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="relative">
+            {/* Connecting Line - Desktop */}
+            <div className="hidden md:block absolute top-6 left-0 right-0 h-0.5 bg-muted" />
+            
+            {/* Steps Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 md:gap-2">
+              {STEPS.map((step, index) => {
+                const isCompleted = index < currentStep;
+                const isCurrent = index === currentStep;
+                const isPending = index > currentStep;
+                
+                return (
+                  <div key={step.id} className="relative flex md:flex-col items-start md:items-center gap-3 md:gap-2">
+                    {/* Step Circle */}
+                    <div 
+                      className={`relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-300 ${
+                        isCompleted 
+                          ? 'bg-primary border-primary text-primary-foreground' 
+                          : isCurrent
+                            ? 'bg-primary border-primary text-primary-foreground ring-4 ring-primary/20'
+                            : 'bg-background border-muted text-muted-foreground'
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <CheckCircle className="h-5 w-5" />
+                      ) : (
+                        <span className="text-sm font-semibold">{index + 1}</span>
+                      )}
+                    </div>
+                    
+                    {/* Step Info */}
+                    <div className="flex-1 md:text-center">
+                      <p className={`text-sm font-medium ${isCurrent ? 'text-primary' : isCompleted ? 'text-foreground' : 'text-muted-foreground'}`}>
+                        {step.label}
+                      </p>
+                      <p className="text-xs text-muted-foreground hidden md:block">
+                        {step.description}
+                      </p>
+                    </div>
+                    
+                    {/* Mobile connecting line */}
+                    {index < STEPS.length - 1 && (
+                      <div className={`md:hidden absolute left-6 top-12 w-0.5 h-full ${isCompleted ? 'bg-primary' : 'bg-muted'}`} />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Status Alert */}
+      <Alert className={`${statusConfig.color.replace('text-', 'border-').replace('bg-', 'bg-opacity-10 ')}`}>
+        <StatusIcon className="h-4 w-4" />
+        <AlertTitle className="font-semibold">{statusConfig.label}</AlertTitle>
+        <AlertDescription>{statusConfig.description}</AlertDescription>
+      </Alert>
+
+      {/* Documents Section */}
+      {['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW', 'TA_DOCUMENTS_APPROVED'].includes(currentStatus) && (
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Required Documents
+                </CardTitle>
+                <CardDescription>
+                  Upload all required documents to proceed to sidang TA
+                </CardDescription>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-medium">
+                  {approvedCount} / {requiredCount} Approved
+                </p>
+                <div className="w-32 h-2 bg-gray-200 rounded-full mt-1 overflow-hidden">
+                  <div 
+                    className="h-full bg-green-500 transition-all duration-500"
+                    style={{ width: `${progressPercentage}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {statusData.document_requirements.length === 0 ? (
+              <Alert variant="default" className="bg-yellow-50 border-yellow-200">
+                <AlertCircle className="h-4 w-4 text-yellow-600" />
+                <AlertTitle>No Document Requirements</AlertTitle>
+                <AlertDescription>
+                  No TA document requirements have been configured for this period. Please contact your administrator.
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <div className="space-y-3">
+                {statusData.document_requirements
+                  .filter(req => req.is_required)
+                  .map((req) => {
+                    const doc = getDocumentStatus(req.name);
+                    const isUploaded = !!doc;
+                    const isApproved = doc?.status === 'APPROVED';
+                    const isRejected = doc?.status === 'REJECTED';
+                    const isPending = doc?.status === 'PENDING';
+
+                    return (
+                      <div 
+                        key={req.id} 
+                        className={`flex items-center justify-between p-4 border rounded-lg transition-all ${
+                          isApproved ? 'bg-green-50 border-green-200' :
+                          isRejected ? 'bg-red-50 border-red-200' :
+                          isPending ? 'bg-yellow-50 border-yellow-200' :
+                          'bg-gray-50 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3 flex-1">
+                          <div className={`mt-0.5 ${
+                            isApproved ? 'text-green-600' :
+                            isRejected ? 'text-red-600' :
+                            isPending ? 'text-yellow-600' :
+                            'text-gray-400'
+                          }`}>
+                            {isApproved ? <CheckCircle className="w-5 h-5" /> :
+                             isRejected ? <AlertCircle className="w-5 h-5" /> :
+                             isPending ? <Clock className="w-5 h-5" /> :
+                             <FileText className="w-5 h-5" />}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="font-medium">{req.name}</p>
+                              {isApproved && <Badge className="bg-green-100 text-green-800 text-xs">Approved</Badge>}
+                              {isRejected && <Badge className="bg-red-100 text-red-800 text-xs">Rejected</Badge>}
+                              {isPending && <Badge className="bg-yellow-100 text-yellow-800 text-xs">Pending Review</Badge>}
+                            </div>
+                            {req.description && (
+                              <p className="text-sm text-muted-foreground">{req.description}</p>
+                            )}
+                            {isRejected && doc?.feedback && (
+                              <div className="mt-2 text-sm text-red-700 bg-red-100 p-2 rounded">
+                                <span className="font-semibold">Feedback:</span> {doc.feedback}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="ml-4">
+                          {!isApproved && (
+                            <Button 
+                              size="sm"
+                              onClick={() => openUploadDialog(req.name)}
+                              disabled={uploading}
+                            >
+                              <Upload className="w-4 h-4 mr-1" />
+                              {isUploaded ? 'Update' : 'Upload'}
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Documents Approved - Waiting for Schedule */}
+      {currentStatus === 'TA_DOCUMENTS_APPROVED' && (
+        <Card className="bg-green-50 border-green-200">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2 text-green-800">
+              <CheckCircle className="w-5 h-5" />
+              Documents Approved!
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-green-700">
+              All your TA documents have been approved. You are now waiting for the administrator to schedule your sidang TA.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sidang Scheduled Section */}
+      {['TA_READY_FOR_SIDANG', 'TA_REGISTERED', 'TA_SCHEDULED', 'TA_DEFENDED'].includes(currentStatus) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <GraduationCap className="w-5 h-5" />
+              Sidang TA
+            </CardTitle>
+            <CardDescription>
+              Your thesis defense schedule and information
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {scheduleLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : defenseSchedule ? (
+              <>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-blue-600" />
+                    <span className="font-medium text-blue-900">
+                      {new Date(defenseSchedule.date).toLocaleDateString('id-ID', {
+                        weekday: 'long',
+                        year: 'numeric',
+                        month: 'long',
+                        day: 'numeric'
+                      })}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-blue-600" />
+                    <span className="text-blue-800">
+                      {defenseSchedule.start_time} - {defenseSchedule.end_time}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-blue-600" />
+                    <span className="text-blue-800">{defenseSchedule.room}</span>
+                  </div>
+                  <Separator className="bg-blue-200" />
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-blue-900">Examiners:</p>
+                    <div className="text-sm text-blue-800">
+                      1. {defenseSchedule.examiner1?.name || 'TBA'}
+                    </div>
+                    <div className="text-sm text-blue-800">
+                      2. {defenseSchedule.examiner2?.name || 'TBA'}
+                    </div>
+                  </div>
+                  {defenseSchedule.evaluation_deadline && (
+                    <>
+                      <Separator className="bg-blue-200" />
+                      <div className="text-xs text-blue-700">
+                        Evaluation deadline: {new Date(defenseSchedule.evaluation_deadline).toLocaleDateString('id-ID')}
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <Link href="/mahasiswa/ta-defense" className="block">
+                  <Button className="w-full" variant="default">
+                    View Full Defense Details
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
+              </>
+            ) : (
+              <Alert className="bg-yellow-50 border-yellow-200">
+                <Info className="h-4 w-4 text-yellow-600" />
+                <AlertTitle className="text-yellow-800">Schedule Information</AlertTitle>
+                <AlertDescription className="text-yellow-700">
+                  Your TA defense has been scheduled. Please check the schedules page for complete details.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Upload Dialog */}
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Upload Document</DialogTitle>
+            <DialogDescription>
+              Upload {selectedDocType} for TA submission
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="file">Document File</Label>
+              <Input
+                id="file"
+                type="file"
+                accept=".pdf,.doc,.docx"
+                onChange={handleFileSelect}
+                disabled={uploading}
+              />
+              <p className="text-xs text-muted-foreground">
+                Accepted formats: PDF, DOC, DOCX. Max size: 10MB
+              </p>
+            </div>
+            
+            {selectedFile && (
+              <div className="p-3 bg-muted rounded-lg">
+                <p className="text-sm font-medium">Selected file:</p>
+                <p className="text-sm text-muted-foreground">{selectedFile.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+            )}
+            
+            {uploading && (
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span>Uploading...</span>
+                  <span>{uploadProgress}%</span>
+                </div>
+                <Progress value={uploadProgress} className="h-2" />
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadDialogOpen(false)} disabled={uploading}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpload} disabled={!selectedFile || uploading}>
+              {uploading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Upload Document
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Info Card */}
+      <Card className="bg-muted/50">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Info className="w-4 h-4" />
+            Important Information
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 mt-0.5 text-primary" />
+              <span>Upload all required documents to proceed to sidang TA.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 mt-0.5 text-primary" />
+              <span>Documents must be approved by your supervisors before scheduling.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 mt-0.5 text-primary" />
+              <span>Contact your supervisor for guidance during the TA phase.</span>
+            </li>
+          </ul>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

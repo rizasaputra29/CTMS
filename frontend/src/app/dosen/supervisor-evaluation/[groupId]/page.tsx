@@ -80,6 +80,7 @@ export default function SupervisorEvaluationDetailPage() {
   const [students, setStudents] = useState<Student[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [isViewOnly, setIsViewOnly] = useState(false);
 
   const fetchEvaluationForm = useCallback(async () => {
     try {
@@ -91,21 +92,26 @@ export default function SupervisorEvaluationDetailPage() {
       setSchedule(data.schedule);
       setComponents(data.components);
       setStudents(data.students);
-      
+
       // Initialize scores and notes
       const initialScores: Record<string, number> = {};
       const initialNotes: Record<string, string> = {};
-      
+      let hasExistingScores = false;
+
       data.students.forEach((student: Student) => {
         student.scores.forEach((score: StudentScore) => {
           const key = `${score.period_component_id}_${student.id}`;
           initialScores[key] = score.score || 0;
           initialNotes[key] = score.notes || '';
+          if (score.score !== null && score.score !== undefined) {
+            hasExistingScores = true;
+          }
         });
       });
-      
+
       setScores(initialScores);
       setNotes(initialNotes);
+      setIsViewOnly(hasExistingScores);
     } catch (error) {
       const err = error as { response?: { data?: { error?: string }; status?: number } };
       console.error('Error fetching evaluation form:', error);
@@ -192,8 +198,10 @@ export default function SupervisorEvaluationDetailPage() {
     switch (evaluationType) {
       case 'BIMBINGAN_SEMPRO':
         return 'Penilaian BIMBINGAN SEMPRO';
-      case 'BIMBINGAN_EXPO':
-        return 'Penilaian BIMBINGAN EXPO';
+      case 'NILAI_DOSEN':
+        return 'Penilaian NILAI_DOSEN';
+      case 'EXPO':
+        return 'Penilaian EXPO';
       case 'MILESTONE':
         return 'Penilaian MILESTONE';
       case 'BIMBINGAN_TA':
@@ -207,7 +215,9 @@ export default function SupervisorEvaluationDetailPage() {
     switch (evaluationType) {
       case 'BIMBINGAN_SEMPRO':
         return 'Penilaian komponen CPMK untuk Seminar Proposal oleh Dosen Pembimbing';
-      case 'BIMBINGAN_EXPO':
+      case 'NILAI_DOSEN':
+        return 'Penilaian dosen pembimbing pada fase PDC2';
+      case 'EXPO':
         return 'Penilaian komponen CPMK untuk Expo oleh Dosen Pembimbing';
       case 'MILESTONE':
         return 'Penilaian kesesuaian milestone proyek oleh Dosen Pembimbing';
@@ -283,8 +293,8 @@ export default function SupervisorEvaluationDetailPage() {
                 )}
                 <Separator className="bg-primary/10" />
                 <div className="space-y-1">
-                  <Label className="text-xs text-muted-foreground uppercase font-semibold">Kode Kelompok</Label>
-                  <p className="font-medium">{group.code}</p>
+                  <Label className="text-xs text-muted-foreground uppercase font-semibold">Group</Label>
+                  <p className="font-medium">Group {group.id}</p>
                 </div>
                 <Separator className="bg-primary/10" />
                 <div className="space-y-2">
@@ -354,8 +364,21 @@ export default function SupervisorEvaluationDetailPage() {
         <div className="lg:col-span-8 space-y-6">
           <Card className="shadow-xl">
             <CardHeader className="bg-muted/30">
-              <CardTitle>Assessment Rubric</CardTitle>
-              <CardDescription>Masukkan nilai (0-100) untuk setiap komponen penilaian</CardDescription>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Assessment Rubric</CardTitle>
+                  <CardDescription>
+                    {isViewOnly
+                      ? 'Lihat nilai yang telah disubmit (mode read-only)'
+                      : 'Masukkan nilai (0-100) untuk setiap komponen penilaian'}
+                  </CardDescription>
+                </div>
+                {isViewOnly && (
+                  <Badge variant="secondary" className="text-sm px-3 py-1">
+                    Lihat Nilai
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y divide-border">
@@ -386,20 +409,24 @@ export default function SupervisorEvaluationDetailPage() {
                           </Label>
                           <div className="flex gap-4 items-start">
                             <div className="w-1/3">
-                              <Input 
+                              <Input
                                 type="number"
                                 className="text-center font-bold"
-                                placeholder="0-100"
+                                placeholder={isViewOnly ? "-" : "0-100"}
                                 value={scores[`${comp.id}_${student.id}`] || ''}
                                 onChange={(e) => handleScoreChange(comp.id, student.id, e.target.value)}
+                                disabled={isViewOnly}
+                                readOnly={isViewOnly}
                               />
                             </div>
                             <div className="flex-1">
-                              <Textarea 
-                                placeholder="Catatan/feedback (opsional)..."
+                              <Textarea
+                                placeholder={isViewOnly ? "Tidak ada catatan" : "Catatan/feedback (opsional)..."}
                                 className="h-10 min-h-[40px] text-sm py-2"
                                 value={notes[`${comp.id}_${student.id}`] || ''}
                                 onChange={(e) => handleNoteChange(comp.id, student.id, e.target.value)}
+                                disabled={isViewOnly}
+                                readOnly={isViewOnly}
                               />
                             </div>
                           </div>
@@ -428,30 +455,43 @@ export default function SupervisorEvaluationDetailPage() {
                   </div>
                 </div>
                 <div className="flex gap-4">
-                  <Button 
-                    variant="outline"
-                    onClick={() => router.push('/dosen/supervisor-evaluation')}
-                  >
-                    Batal
-                  </Button>
-                  <Button 
-                    size="lg" 
-                    className="px-8 font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-transform" 
-                    onClick={handleSubmit}
-                    disabled={saving}
-                  >
-                    {saving ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Menyimpan...
-                      </>
-                    ) : (
-                      <>
-                        Simpan Penilaian
-                        <Save className="ml-2 h-5 w-5" />
-                      </>
-                    )}
-                  </Button>
+                  {isViewOnly ? (
+                    <Button
+                      size="lg"
+                      variant="outline"
+                      className="px-8 font-bold"
+                      onClick={() => router.push('/dosen/supervisor-evaluation')}
+                    >
+                      Kembali
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        onClick={() => router.push('/dosen/supervisor-evaluation')}
+                      >
+                        Batal
+                      </Button>
+                      <Button
+                        size="lg"
+                        className="px-8 font-bold shadow-xl shadow-primary/20 hover:scale-105 transition-transform"
+                        onClick={handleSubmit}
+                        disabled={saving}
+                      >
+                        {saving ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Menyimpan...
+                          </>
+                        ) : (
+                          <>
+                            Simpan Penilaian
+                            <Save className="ml-2 h-5 w-5" />
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </CardContent>

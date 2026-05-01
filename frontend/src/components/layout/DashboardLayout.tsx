@@ -31,6 +31,8 @@ export default function DashboardLayout({
     const roleFromPath = pathname.split('/').filter(Boolean)[0] || null;
     const [roleSelectorOpen, setRoleSelectorOpen] = useState(false);
 
+    const isMultiRole = user?.roles?.includes('admin') && user?.roles?.includes('dosen');
+
     useEffect(() => {
         if (isLoading) {
             return;
@@ -41,25 +43,37 @@ export default function DashboardLayout({
             return;
         }
 
-        // For multi-role users, automatically switch activeRole to match the URL
+        // Multi-role (admin + dosen) users can access any guard role's routes
+        if (isMultiRole) {
+            if (roleFromPath && GUARDED_ROLES.includes(roleFromPath as (typeof GUARDED_ROLES)[number])) {
+                const userRoles = user.roles || [];
+                if (!userRoles.includes(roleFromPath)) {
+                    // User doesn't have this role - redirect to login
+                    router.replace('/login');
+                }
+                // Don't switch roles - multi-role users see everything
+                // Just sync activeRole for backwards compatibility
+                if (activeRole !== roleFromPath) {
+                    // Update activeRole without redirecting
+                    localStorage.setItem('activeRole', roleFromPath);
+                }
+            }
+            return;
+        }
+
+        // Single role users - existing behavior
         if (roleFromPath && GUARDED_ROLES.includes(roleFromPath as (typeof GUARDED_ROLES)[number])) {
-            // Check if user has this role
             const userRoles = user?.roles || [user?.role || 'mahasiswa'];
             if (userRoles.includes(roleFromPath)) {
-                // User has this role, switch to it if needed
                 if (activeRole !== roleFromPath) {
                     switchRole(roleFromPath);
                 }
             } else {
-                // User doesn't have this role, redirect to login
                 router.replace('/login');
             }
         }
-    }, [isLoading, user, activeRole, roleFromPath, router, switchRole]);
+    }, [isLoading, user, activeRole, roleFromPath, router, switchRole, isMultiRole]);
 
-    // Derive page title from pathname
-    // e.g. /mahasiswa/dashboard -> Dashboard
-    // e.g. /mahasiswa/titles -> Titles
     const getPageTitle = (path: string) => {
         const segments = path.split('/').filter(Boolean);
         const lastSegment = segments[segments.length - 1];
@@ -94,8 +108,8 @@ export default function DashboardLayout({
                         </Breadcrumb>
                     </div>
                     
-                    {/* Role Selector only on dashboard pages */}
-                    {user?.roles && user.roles.length > 1 && pathname.endsWith('/dashboard') && (
+                    {/* Role Selector - only for non-combined multi-role users on dashboard pages */}
+                    {user?.roles && user.roles.length > 1 && !isMultiRole && pathname.endsWith('/dashboard') && (
                         <>
                             <Button 
                                 variant="ghost" 

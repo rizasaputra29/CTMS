@@ -7,6 +7,13 @@ use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\TaSubmission;
 use App\Models\Period;
+use App\Models\Document;
+use App\Models\PhaseDocumentRequirement;
+use App\Models\PeriodAssessmentConfig;
+use App\Models\PeriodAssessmentIndicator;
+use App\Models\PeriodPeerReviewIndicator;
+use App\Models\StudentPeerReviewStatus;
+use App\Models\AssessmentScore;
 use App\Services\GroupStateMachine;
 use App\Exceptions\ConflictRuleException;
 use App\Exceptions\DomainRuleException;
@@ -14,6 +21,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Database\QueryException;
 
 class TaSubmissionController extends Controller
@@ -61,6 +69,15 @@ class TaSubmissionController extends Controller
         // Gate: group must be at least PDC2_ACTIVE
         if (!$this->stateMachine->isAtLeast($group, 'PDC2_ACTIVE')) {
             return response()->json(['message' => 'Group must be at least in PDC2_ACTIVE status.'], 400);
+        }
+
+        // Gate: Check if group is ready for TA Individual submission
+        $readyCheck = $this->checkReadyForTaIndividual($group);
+        if (!$readyCheck['ready']) {
+            return response()->json([
+                'message' => 'Your group is not ready for TA Individual submission. Please complete all requirements.',
+                'requirements' => $readyCheck['requirements'],
+            ], 403);
         }
 
         // Create or update TA submission
@@ -151,8 +168,8 @@ class TaSubmissionController extends Controller
             }
 
             $group = Group::where('id', $submission->group_id)->lockForUpdate()->first();
-            if (!in_array($group->status, ['PDC2_COMPLETED'])) {
-                throw new DomainRuleException("Grup Anda belum menyelesaikan fase PDC2_COMPLETED.");
+            if (!in_array($group->status, ['READY_FOR_TA_INDIVIDUAL'])) {
+                throw new DomainRuleException("Grup Anda belum menyelesaikan fase READY_FOR_TA_INDIVIDUAL.");
             }
 
             // C. Finalize Registration
@@ -254,5 +271,351 @@ class TaSubmissionController extends Controller
                 'group' => $group->fresh(),
             ]);
         });
+    }
+
+    /**
+     * Check if group is ready for TA Individual submission.
+     * Returns readiness status and list of requirements.
+     */
+    private function checkReadyForTaIndividual(Group $group): array
+    {
+        $requirements = [
+            'expo_documents_approved' => false,
+            'nilai_dosen_complete' => false,
+            'milestone_complete' => false,
+            'expo_evaluation_complete' => false,
+            'peer_review_configured' => false,
+            'peer_review_completed' => false,
+        ];
+
+        // Check EXPO documents approved
+        $expoDocs = Document::where('group_id', $group->id)
+            ->where('phase', 'EXPO')
+            ->where('status', 'APPROVED')
+            ->count();
+        $requiredExpoDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', 'EXPO')
+            ->where('is_required', true)
+            ->count();
+        $requirements['expo_documents_approved'] = $expoDocs >= $requiredExpoDocs || $requiredExpoDocs === 0;
+
+        // Check supervisor evaluations using DB queries directly
+        $requirements['nilai_dosen_complete'] = $this->checkSupervisorEvaluationComplete($group, 'NILAI_DOSEN');
+        $requirements['milestone_complete'] = $this->checkSupervisorEvaluationComplete($group, 'MILESTONE');
+        $requirements['expo_evaluation_complete'] = $this->checkSupervisorEvaluationComplete($group, 'EXPO');
+
+        // Check Peer Review
+        $peerReviewIndicators = PeriodPeerReviewIndicator::where('period_id', $group->period_id)->count();
+        $requirements['peer_review_configured'] = $peerReviewIndicators > 0;
+
+        if ($requirements['peer_review_configured']) {
+            $members = GroupMember::where('group_id', $group->id)->get();
+            $completedMembers = 0;
+            foreach ($members as $member) {
+                $status = StudentPeerReviewStatus::where('student_id', $member->student_id)
+                    ->where('group_id', $group->id)
+                    ->first();
+                if ($status && $status->has_completed_peer_review) {
+                    $completedMembers++;
+                }
+            }
+            $requirements['peer_review_completed'] = $completedMembers >= $members->count();
+        }
+
+        $allComplete = !in_array(false, $requirements, true);
+
+        return [
+            'ready' => $allComplete,
+            'requirements' => $requirements,
+        ];
+    }
+
+    /**
+     * Check if all supervisors have completed their evaluation for a specific type.
+     */
+    private function checkSupervisorEvaluationComplete(Group $group, string $evaluationType): bool
+    {
+        // Get assigned supervisors from group
+        $supervisorIds = [];
+        if ($group->supervisor_1_id) {
+            $supervisorIds[] = $group->supervisor_1_id;
+        }
+        if ($group->supervisor_2_id) {
+            $supervisorIds[] = $group->supervisor_2_id;
+        }
+
+        if (empty($supervisorIds)) {
+            return false;
+        }
+
+        // Check if assessment config exists for this evaluation type
+        $configExists = DB::table('period_assessment_configs')
+            ->where('period_id', $group->period_id)
+            ->where('evaluation_type', $evaluationType)
+            ->exists();
+
+        if (!$configExists) {
+            return false;
+        }
+
+        // Check if all supervisors have submitted scores
+        foreach ($supervisorIds as $supervisorId) {
+            $scoreCount = AssessmentScore::where('group_id', $group->id)
+                ->where('supervisor_id', $supervisorId)
+                ->where('evaluation_type', $evaluationType)
+                ->count();
+
+            // Get expected component count
+            $expectedCount = DB::table('period_assessment_indicators')
+                ->join('period_assessment_configs', 'period_assessment_configs.id', '=', 'period_assessment_indicators.config_id')
+                ->where('period_assessment_configs.period_id', $group->period_id)
+                ->where('period_assessment_configs.evaluation_type', $evaluationType)
+                ->count();
+
+            if ($scoreCount < $expectedCount || $expectedCount === 0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Get detailed TA status including documents and progress.
+     */
+    public function getDetailedStatus(Request $request)
+    {
+        $user = $request->user();
+        
+        $submission = TaSubmission::with(['group.title', 'reviewer', 'group.supervisor1', 'group.supervisor2'])
+            ->where('student_id', $user->id)
+            ->first();
+
+        if (!$submission) {
+            // Check if group is ready for TA individual
+            $membership = GroupMember::where('student_id', $user->id)->first();
+            if (!$membership) {
+                return response()->json(['message' => 'You are not in a group.'], 400);
+            }
+
+            $group = Group::with(['title', 'supervisor1', 'supervisor2'])->find($membership->group_id);
+            
+            if ($group->status !== 'READY_FOR_TA_INDIVIDUAL') {
+                return response()->json([
+                    'can_access' => false,
+                    'status' => 'TA_LOCKED',
+                    'message' => 'TA phase is locked. Your group must complete EXPO first.',
+                ]);
+            }
+
+            // Create initial submission with TA_DOCUMENTS_REQUIRED status
+            $submission = TaSubmission::create([
+                'student_id' => $user->id,
+                'group_id' => $group->id,
+                'period_id' => $group->period_id,
+                'status' => 'TA_DOCUMENTS_REQUIRED',
+            ]);
+
+            // Reload submission with group relations
+            $submission = TaSubmission::with(['group.title', 'group.supervisor1', 'group.supervisor2'])
+                ->find($submission->id);
+
+            return response()->json([
+                'can_access' => true,
+                'status' => 'TA_DOCUMENTS_REQUIRED',
+                'submission' => $submission,
+                'group' => $submission->group,
+                'documents' => [],
+                'document_requirements' => $this->getTaDocumentRequirements($group->period_id),
+            ]);
+        }
+
+        $documents = Document::where('student_id', $user->id)
+            ->where('phase', 'TA')
+            ->get();
+
+        $documentRequirements = $this->getTaDocumentRequirements($submission->group->period_id);
+
+        return response()->json([
+            'can_access' => true,
+            'status' => $submission->status,
+            'submission' => $submission,
+            'group' => $submission->group,
+            'documents' => $documents,
+            'document_requirements' => $documentRequirements,
+        ]);
+    }
+
+    /**
+     * Get TA document requirements for a period.
+     */
+    private function getTaDocumentRequirements(int $periodId): array
+    {
+        return PhaseDocumentRequirement::where('period_id', $periodId)
+            ->where('phase', 'TA')
+            ->get()
+            ->toArray();
+    }
+
+    /**
+     * Get TA documents for the authenticated student.
+     */
+    public function getTaDocuments(Request $request)
+    {
+        $user = $request->user();
+
+        $submission = TaSubmission::where('student_id', $user->id)->first();
+        if (!$submission) {
+            return response()->json(['message' => 'TA submission not found.'], 404);
+        }
+
+        $documents = Document::where('student_id', $user->id)
+            ->where('phase', 'TA')
+            ->get();
+
+        $documentRequirements = $this->getTaDocumentRequirements($submission->group->period_id);
+
+        return response()->json([
+            'documents' => $documents,
+            'document_requirements' => $documentRequirements,
+        ]);
+    }
+
+    /**
+     * Upload a TA phase document with actual file upload.
+     */
+    public function uploadTaDocument(Request $request)
+    {
+        $request->validate([
+            'document_type' => 'required|string',
+            'file' => 'required|file|mimes:pdf,doc,docx|max:10240', // Max 10MB
+        ]);
+
+        $user = $request->user();
+
+        $submission = TaSubmission::where('student_id', $user->id)->first();
+        if (!$submission) {
+            return response()->json(['message' => 'TA submission not found.'], 404);
+        }
+
+        // Check if submission is in a valid state for document upload
+        if (!in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
+            return response()->json(['message' => 'Cannot upload documents at this stage.'], 403);
+        }
+
+        // Handle file upload
+        $file = $request->file('file');
+        $fileName = time() . '_' . $file->getClientOriginalName();
+        $path = $file->storeAs('ta-documents/' . $submission->group_id . '/' . $user->id, $fileName, 'public');
+
+        // Check if document already exists
+        $existingDoc = Document::where('student_id', $user->id)
+            ->where('group_id', $submission->group_id)
+            ->where('phase', 'TA')
+            ->where('document_type', $request->document_type)
+            ->first();
+
+        if ($existingDoc) {
+            // Update existing document
+            $existingDoc->update([
+                'file_path' => $path,
+                'status' => 'PENDING',
+                'feedback' => null,
+                'version' => ($existingDoc->version ?? 0) + 1,
+            ]);
+            $document = $existingDoc;
+        } else {
+            // Create new document
+            $document = Document::create([
+                'student_id' => $user->id,
+                'group_id' => $submission->group_id,
+                'phase' => 'TA',
+                'document_type' => $request->document_type,
+                'file_path' => $path,
+                'status' => 'PENDING',
+                'feedback' => null,
+                'version' => 1,
+            ]);
+        }
+
+        // Update submission status to UNDER_REVIEW
+        $submission->update(['status' => 'TA_DOCUMENTS_UNDER_REVIEW']);
+
+        return response()->json([
+            'message' => 'Document uploaded successfully.',
+            'document' => $document,
+        ]);
+    }
+
+    /**
+     * Review (approve/reject) a TA document.
+     */
+    public function reviewTaDocument(Request $request, $documentId)
+    {
+        $request->validate([
+            'action' => 'required|in:APPROVE,REJECT',
+            'feedback' => 'nullable|string',
+        ]);
+
+        $user = $request->user();
+        $document = Document::findOrFail($documentId);
+
+        // Check if user is supervisor of the group
+        $group = Group::find($document->group_id);
+        $isSupervisor = in_array($user->id, [$group->supervisor_1_id, $group->supervisor_2_id]);
+        
+        if (!$isSupervisor && !$user->hasRole('admin')) {
+            return response()->json(['message' => 'Unauthorized. Only supervisors or admin can review documents.'], 403);
+        }
+
+        $document->update([
+            'status' => $request->action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+            'feedback' => $request->feedback,
+            'reviewed_by' => $user->id,
+        ]);
+
+        // Check if all required documents are approved
+        $this->checkAllDocumentsApproved($document->student_id, $document->group_id);
+
+        return response()->json([
+            'message' => "Document {$request->action}D.",
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    /**
+     * Check if all required TA documents are approved.
+     */
+    private function checkAllDocumentsApproved(int $studentId, int $groupId): void
+    {
+        $group = Group::find($groupId);
+        $submission = TaSubmission::where('student_id', $studentId)->first();
+
+        if (!$submission || !$group) {
+            return;
+        }
+
+        // Get required documents (using 'name' field from PhaseDocumentRequirement)
+        $requiredDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', 'TA')
+            ->where('is_required', true)
+            ->pluck('name');
+
+        if ($requiredDocs->isEmpty()) {
+            // No required docs, auto-approve
+            $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
+            return;
+        }
+
+        // Check approved documents
+        $approvedCount = Document::where('student_id', $studentId)
+            ->where('phase', 'TA')
+            ->whereIn('document_type', $requiredDocs)
+            ->where('status', 'APPROVED')
+            ->count();
+
+        if ($approvedCount >= $requiredDocs->count()) {
+            $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
+        }
     }
 }

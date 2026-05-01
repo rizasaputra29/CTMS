@@ -168,13 +168,18 @@ export default function DosenTitlesPage() {
                 await api.put(`/dosen/titles/${editingId}`, formData);
                 toast.success('Title updated successfully');
             } else {
+                const assignedGroupId = formData.pre_assigned_group_id || null;
                 // Include period_id in the request
                 const payload = {
                     ...formData,
                     period_id: selectedPeriod ? parseInt(selectedPeriod) : undefined,
                 };
                 await api.post('/dosen/titles', payload);
-                toast.success('Title created successfully');
+                if (assignedGroupId) {
+                    toast.success(`Title created and assigned to Group ${assignedGroupId}`);
+                } else {
+                    toast.success('Title created successfully');
+                }
             }
             setOpen(false);
             setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' });
@@ -379,7 +384,7 @@ export default function DosenTitlesPage() {
                                                     .filter(g => g.members && g.members.length >= 3)
                                                     .map(group => (
                                                         <SelectItem key={group.id} value={group.id.toString()}>
-                                                            Kelompok #{group.id} ({group.members.length} anggota) - {group.status}
+                                                            Group {group.id} ({group.members.length} anggota) - {group.status}
                                                         </SelectItem>
                                                     ))}
                                             </SelectContent>

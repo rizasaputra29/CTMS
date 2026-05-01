@@ -25,9 +25,18 @@ import { useAuth } from '@/context/AuthContext';
 interface Group {
     id: number;
     status: string;
+    status_label?: string;
     assignment_type: string | null;
     title_id: number | null;
     is_solo?: boolean;
+    allowed_actions?: {
+        can_add_member: boolean;
+        can_remove_member: boolean;
+        can_leave_group: boolean;
+        can_delete_group: boolean;
+        can_mark_ready_for_finalization: boolean;
+        can_cancel_ready_for_finalization: boolean;
+    };
     period?: {
         min_group_size: number;
         max_group_size: number;
@@ -493,6 +502,20 @@ export default function MahasiswaGroupPage() {
         }
     };
 
+    const allowedActions = myGroup.allowed_actions ?? {
+        can_add_member: isLeader && spotsRemaining > 0 && myGroup.status !== 'READY_FOR_FINALIZATION',
+        can_remove_member: isLeader && myGroup.status !== 'READY_FOR_FINALIZATION',
+        can_leave_group: !isLeader && !['APPROVED', 'CLOSED'].includes(myGroup.status),
+        can_delete_group: isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO', 'TITLE_APPROVED'].includes(myGroup.status),
+        can_mark_ready_for_finalization:
+            isLeader
+            && myGroup.members.length >= minMembers
+            && (myGroup.status === 'READY_FOR_BIDDING'
+                || myGroup.status === 'TITLE_APPROVED'
+                || (myGroup.status === 'FORMING_SOLO' && !!myGroup.title?.id)),
+        can_cancel_ready_for_finalization: isLeader && myGroup.status === 'READY_FOR_FINALIZATION',
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -508,17 +531,17 @@ export default function MahasiswaGroupPage() {
                         <div>
                             <CardTitle className="text-2xl">Group Details</CardTitle>
                             <CardDescription>
-                                Status: <Badge variant={getStatusBadgeVariant(myGroup.status)}>{getStatusLabel(myGroup.status)}</Badge>
+                                Status: <Badge variant={getStatusBadgeVariant(myGroup.status)}>{myGroup.status_label || getStatusLabel(myGroup.status)}</Badge>
                             </CardDescription>
                         </div>
                         <div className="flex gap-2">
-                            {isLeader && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO', 'TITLE_APPROVED'].includes(myGroup.status) && (
+                            {allowedActions.can_delete_group && (
                                 <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
                                     {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
                                     Delete Group
                                 </Button>
                             )}
-                            {!isLeader && !['APPROVED', 'CLOSED'].includes(myGroup.status) && (
+                            {allowedActions.can_leave_group && (
                                 <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
                                     {leaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4 mr-1" />}
                                     Leave Group
@@ -552,7 +575,7 @@ export default function MahasiswaGroupPage() {
                     <div>
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="font-medium">Members ({myGroup.members.length}/{maxMembers})</h3>
-                            {isLeader && spotsRemaining > 0 && myGroup.status !== 'READY_FOR_FINALIZATION' && (
+                            {allowedActions.can_add_member && (
                                 <Button size="sm" onClick={() => setAddOpen(true)}>
                                     <UserPlus className="h-4 w-4 mr-1" />
                                     Add Member
@@ -574,7 +597,7 @@ export default function MahasiswaGroupPage() {
                                             <Badge variant="secondary" className="ml-2">Leader</Badge>
                                         )}
                                     </div>
-                                    {isLeader && !member.is_leader && myGroup.status !== 'READY_FOR_FINALIZATION' && (
+                                    {allowedActions.can_remove_member && !member.is_leader && (
                                         <Button 
                                             variant="ghost" 
                                             size="sm" 
@@ -640,11 +663,9 @@ export default function MahasiswaGroupPage() {
                     )}
 
                     {/* Ready for Finalization Button */}
-                    {isLeader && myGroup.members.length >= minMembers && (
+                    {isLeader && (
                         <div className="w-full">
-                            {(myGroup.status === 'READY_FOR_BIDDING' || 
-                              myGroup.status === 'TITLE_APPROVED' ||
-                              (myGroup.status === 'FORMING_SOLO' && myGroup.title?.id)) && (
+                            {allowedActions.can_mark_ready_for_finalization && (
                                 <Button 
                                     onClick={() => setConfirmDialogOpen(true)} 
                                     className="w-full"
@@ -653,7 +674,7 @@ export default function MahasiswaGroupPage() {
                                     Mark Ready for Finalization
                                 </Button>
                             )}
-                            {myGroup.status === 'READY_FOR_FINALIZATION' && (
+                            {allowedActions.can_cancel_ready_for_finalization && (
                                 <Button 
                                     onClick={() => setCancelDialogOpen(true)} 
                                     variant="outline"

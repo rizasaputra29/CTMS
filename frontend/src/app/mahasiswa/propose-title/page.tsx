@@ -57,6 +57,13 @@ interface GroupInfo {
     members: { id: number; student: { id: number }; is_leader: boolean }[];
 }
 
+interface ProposalFlow {
+    can_create_proposal: boolean;
+    can_update_rejected_proposal: boolean;
+    can_cancel_pending_proposal: boolean;
+    reason: string | null;
+}
+
 export default function ProposeTitlePage() {
     const { user } = useAuth();
     const [lecturers, setLecturers] = useState<Lecturer[]>([]);
@@ -68,6 +75,7 @@ export default function ProposeTitlePage() {
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
     const [bidCount, setBidCount] = useState(0);
     const [activeBids, setActiveBids] = useState<Bid[]>([]);
+    const [proposalFlow, setProposalFlow] = useState<ProposalFlow | null>(null);
 
     const [formData, setFormData] = useState({
         title: '',
@@ -91,6 +99,7 @@ export default function ProposeTitlePage() {
             setGroup(groupRes.data.group);
             setLecturers(lecturerRes.data.data);
             setProposals(proposalRes.data.proposals || []);
+            setProposalFlow(proposalRes.data.flow || null);
             
             const allBids = bidsRes.data.data || [];
             // Filter active bids only (not rejected) for slot counting
@@ -128,13 +137,26 @@ export default function ProposeTitlePage() {
     const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
     
-    const canCancelProposal = hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || '');
+    const canCancelProposal = proposalFlow?.can_cancel_pending_proposal ?? (hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || ''));
 
     const MAX_TITLES = 3;
     const activeProposalCount = proposals.filter(p => ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)).length;
     const totalUsed = bidCount + activeProposalCount;
     const slotsRemaining = MAX_TITLES - totalUsed;
     const limitReached = slotsRemaining <= 0;
+    const canCreateProposal = proposalFlow?.can_create_proposal ?? canPropose;
+
+    const flowReasonMap: Record<string, string> = {
+        NO_GROUP: 'Anda harus memiliki kelompok terlebih dahulu.',
+        LEADER_ONLY: 'Hanya ketua kelompok yang dapat mengajukan proposal.',
+        INSUFFICIENT_MEMBERS: 'Jumlah anggota kelompok belum memenuhi batas minimal.',
+        TITLE_ALREADY_ASSIGNED: 'Kelompok sudah memiliki judul yang disetujui.',
+        PENDING_PROPOSAL_EXISTS: 'Masih ada proposal yang sedang ditinjau.',
+        INVALID_GROUP_STATUS: 'Status kelompok saat ini tidak memperbolehkan pengajuan proposal.',
+        ACTIVE_BID_EXISTS: 'Masih ada bid aktif, proposal baru tidak diperbolehkan.',
+        TITLE_LIMIT_REACHED: 'Maksimal 3 slot judul (bids + proposals) sudah tercapai.',
+        NO_ACTIVE_PERIOD: 'Periode aktif tidak ditemukan untuk kelompok ini.',
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -241,13 +263,23 @@ export default function ProposeTitlePage() {
                             {totalUsed}/{MAX_TITLES} slots used
                         </Badge>
                     )}
-                    {canPropose && !hasPendingProposal && !hasApprovedProposal && !showForm && !limitReached && (
+                    {canCreateProposal && !hasPendingProposal && !hasApprovedProposal && !showForm && !limitReached && (
                         <Button onClick={() => { setEditingProposal(null); setShowForm(true); }}>
                             <PenLine className="mr-2 h-4 w-4" /> New Proposal
                         </Button>
                     )}
                 </div>
             </div>
+
+            {!canCreateProposal && proposalFlow?.reason && (
+                <Alert>
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Proposal Terkunci</AlertTitle>
+                    <AlertDescription>
+                        {flowReasonMap[proposalFlow.reason] || 'Pengajuan proposal tidak tersedia untuk kondisi kelompok saat ini.'}
+                    </AlertDescription>
+                </Alert>
+            )}
 
             {/* Leader-only guard */}
             {hasGroup && !isLeader && (
@@ -337,7 +369,7 @@ export default function ProposeTitlePage() {
             )}
 
             {/* Proposal Form */}
-            {showForm && canPropose && (
+            {showForm && canCreateProposal && (
                 <Card>
                     <form onSubmit={handleSubmit}>
                         <CardHeader>
@@ -492,7 +524,7 @@ export default function ProposeTitlePage() {
                                     Submitted: {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                                 </div>
                             </CardContent>
-                            {proposal.supervisor_approval_status === 'REJECTED' && !hasPendingProposal && canPropose && (
+                            {proposal.supervisor_approval_status === 'REJECTED' && !hasPendingProposal && canCreateProposal && (
                                 <CardFooter className="flex justify-end gap-2">
                                     <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
                                         <Trash2 className="mr-2 h-4 w-4" /> Batalkan

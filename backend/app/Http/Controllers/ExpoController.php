@@ -58,8 +58,9 @@ class ExpoController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+            // Examiners are now optional for EXPO (only supervisors evaluate EXPO)
+            'examiner_1_id' => 'nullable|exists:users,id',
+            'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
         $group = Group::findOrFail($request->group_id);
@@ -73,12 +74,12 @@ class ExpoController extends Controller
             return response()->json(['message' => 'Group does not meet Expo TA eligibility requirements.'], 400);
         }
 
-        // Validate examiners cannot be supervisors
+        // Validate examiners cannot be supervisors (only if examiners are provided)
         $supervisorIds = $group->supervisors()->pluck('supervisor_id')->toArray();
-        if (in_array($request->examiner_1_id, $supervisorIds)) {
+        if ($request->examiner_1_id && in_array($request->examiner_1_id, $supervisorIds)) {
             return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
         }
-        if (in_array($request->examiner_2_id, $supervisorIds)) {
+        if ($request->examiner_2_id && in_array($request->examiner_2_id, $supervisorIds)) {
             return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
         }
 
@@ -91,9 +92,10 @@ class ExpoController extends Controller
             return response()->json(['message' => 'Group already has an EXPO schedule.'], 400);
         }
 
-        // Double-booking & room conflict check
+        // Double-booking & room conflict check (only check examiners if provided)
+        $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
         $conflicts = $this->schedulingService->validateScheduleConflicts(
-            [$request->examiner_1_id, $request->examiner_2_id],
+            $examinerIds,
             $request->date,
             $request->start_time,
             $request->end_time,
@@ -137,14 +139,19 @@ class ExpoController extends Controller
             'seminar_schedules',
             $schedule->id
         );
-        $notificationService->sendToMany(
-            [$schedule->examiner_1_id, $schedule->examiner_2_id],
-            'SCHEDULE_APPROVED',
-            'You are assigned as an examiner',
-            "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
-            'seminar_schedules',
-            $schedule->id
-        );
+        
+        // Only notify examiners if they are assigned (EXPO no longer requires examiners)
+        $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
+        if (!empty($examinerIds)) {
+            $notificationService->sendToMany(
+                $examinerIds,
+                'SCHEDULE_APPROVED',
+                'You are assigned as an examiner',
+                "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
+                'seminar_schedules',
+                $schedule->id
+            );
+        }
 
         return response()->json([
             'message' => 'EXPO scheduled.',
@@ -228,8 +235,9 @@ class ExpoController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+            // Examiners are now optional for EXPO (only supervisors evaluate EXPO)
+            'examiner_1_id' => 'nullable|exists:users,id',
+            'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
         $schedule = SeminarSchedule::where('id', $id)
@@ -239,14 +247,16 @@ class ExpoController extends Controller
 
         $group = Group::findOrFail($schedule->group_id);
 
-        // Double guard: examiner constraints
-        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
-        $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
-        if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+        // Double guard: examiner constraints (only if examiners provided)
+        $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
+        if (!empty($examinerIds)) {
+            $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
+            if ($constraintError) {
+                return response()->json(['message' => $constraintError], 400);
+            }
         }
 
-        // Conflict check (authoritative)
+        // Conflict check (authoritative) - only check examiners if provided
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
             $request->date,

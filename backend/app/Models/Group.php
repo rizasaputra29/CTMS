@@ -115,6 +115,14 @@ class Group extends Model
         return $this->hasMany(Supervision::class);
     }
 
+    /**
+     * Get all supervisors through supervisions relationship
+     */
+    public function supervisors()
+    {
+        return $this->belongsToMany(User::class, 'supervisions', 'group_id', 'supervisor_id');
+    }
+
     public function taSubmissions()
     {
         return $this->hasMany(TaSubmission::class);
@@ -176,7 +184,7 @@ class Group extends Model
             'PDC2_READY_FOR_EXPO',
             'EXPO_REGISTERED',
             'EXPO_DONE',
-            'PDC2_COMPLETED',
+            'READY_FOR_TA_INDIVIDUAL',
             'CLOSED',
             'DISSOLVED',
         ])) {
@@ -597,7 +605,7 @@ class Group extends Model
      */
     public function scopeFinalized($query)
     {
-        return $query->whereIn('status', ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'PDC2_COMPLETED', 'CLOSED']);
+        return $query->whereIn('status', ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL', 'CLOSED']);
     }
 
     /**

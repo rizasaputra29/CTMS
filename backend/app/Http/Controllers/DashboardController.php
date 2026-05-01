@@ -154,7 +154,7 @@ class DashboardController extends Controller
                 'PDC2_READY_FOR_EXPO' => 10,
                 'EXPO_REGISTERED' => 11,
                 'EXPO_DONE' => 12,
-                'PDC2_COMPLETED' => 13,
+                'READY_FOR_TA_INDIVIDUAL' => 13,
                 'CLOSED' => 14,
             ];
             $currentOrder = $statusOrder[$group->status] ?? 0;

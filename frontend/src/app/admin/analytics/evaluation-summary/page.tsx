@@ -280,9 +280,8 @@ export default function EvaluationSummaryAnalyticsPage() {
       if (filters.search) {
         const searchLower = filters.search.toLowerCase();
         filteredSchedules = filteredSchedules.filter((item: ApiSchedule) => {
-          const groupName = item.group?.name?.toLowerCase() || '';
-          const groupCode = item.group?.code?.toLowerCase() || '';
-          return groupName.includes(searchLower) || groupCode.includes(searchLower);
+          const groupId = item.group?.id?.toString() || '';
+          return groupId.includes(searchLower);
         });
       }
 
@@ -299,10 +298,10 @@ export default function EvaluationSummaryAnalyticsPage() {
         start_time: item.start_time || '00:00:00',
         end_time: item.end_time || '23:59:59',
         room: item.room || '-',
-        group_id: item.group?.id || item.group_id,
+        group_id: item.group?.id || item.group_id || 0,
         group_name: item.group?.name || 'Unknown Group',
         group_code: item.group?.code || '',
-        period_id: item.group?.period?.id || item.period_id,
+        period_id: item.group?.period?.id || item.period_id || 0,
         period_name: item.group?.period?.name || '',
         student_count: item.group?.members?.length || 0,
         evaluator_count: 0, // Will be calculated from detail
@@ -942,8 +941,7 @@ export default function EvaluationSummaryAnalyticsPage() {
                           {selectedSchedule.period.name}
                         </span>
                       </div>
-                      <CardTitle className="text-xl">{selectedSchedule.group.name}</CardTitle>
-                      <CardDescription>{selectedSchedule.group.code}</CardDescription>
+                      <CardTitle className="text-xl">Group {selectedSchedule.group.id}</CardTitle>
                     </div>
                     <Button
                       variant="outline"

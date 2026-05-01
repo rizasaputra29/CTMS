@@ -217,7 +217,7 @@ export default function DosenTaReviewPage() {
                                 <div className="flex items-start justify-between">
                                     <div>
                                         <CardTitle className="text-base">{sub.student?.name || `Student #${sub.student_id}`}</CardTitle>
-                                        <CardDescription>{sub.group?.title?.title || `Group #${sub.group_id}`}</CardDescription>
+                                        <CardDescription>{sub.group?.title?.title || `Group ${sub.group_id}`}</CardDescription>
                                     </div>
                                     <Badge variant={sub.status === 'TA_DEFENDED' ? 'default' : 'secondary'}>
                                         {STATUS_LABELS[sub.status] || sub.status}

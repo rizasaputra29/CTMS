@@ -71,8 +71,8 @@ class GroupStateMachine
         'PDC2_ACTIVE' => ['PDC2_READY_FOR_EXPO'],
         'PDC2_READY_FOR_EXPO' => ['EXPO_REGISTERED'],
         'EXPO_REGISTERED' => ['EXPO_DONE', 'PDC2_ACTIVE'],
-        'EXPO_DONE' => ['PDC2_COMPLETED'],
-        'PDC2_COMPLETED' => ['CLOSED'],
+        'EXPO_DONE' => ['READY_FOR_TA_INDIVIDUAL'],
+        'READY_FOR_TA_INDIVIDUAL' => ['CLOSED'],
         'CLOSED' => [],
         'DISSOLVED' => [],
     ];
@@ -96,7 +96,7 @@ class GroupStateMachine
         'PDC2_READY_FOR_EXPO',
         'EXPO_REGISTERED',
         'EXPO_DONE',
-        'PDC2_COMPLETED',
+        'READY_FOR_TA_INDIVIDUAL',
         'CLOSED',
         'DISSOLVED',
     ];

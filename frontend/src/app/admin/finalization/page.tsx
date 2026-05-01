@@ -93,6 +93,7 @@ export default function FinalizationPage() {
     periods,
     stats,
     data,
+    flow,
     activeTab,
     activeSubTab,
     filters,
@@ -149,6 +150,8 @@ export default function FinalizationPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [reopeningPeriod, setReopeningPeriod] = useState(false);
   const isPeriodFinalized = !!period?.is_finalized;
+  const canModifyByFlow = flow?.can_modify ?? !isPeriodFinalized;
+  const canExecuteByFlow = flow?.can_execute_finalization ?? !!stats?.can_finalize;
   const canReopenFinalization = !!stats?.can_reopen_finalization;
 
   // Keyboard shortcuts
@@ -195,7 +198,7 @@ export default function FinalizationPage() {
     titleId?: number;
     newTitle?: { title: string; description?: string; specializations: string[]; lecturerId: number };
   }) => {
-    if (!period || isPeriodFinalized) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow) return;
     
     const success = await createManualGroup({
       studentIds,
@@ -208,10 +211,10 @@ export default function FinalizationPage() {
     if (success) {
       refresh();
     }
-  }, [period, createManualGroup, refresh, isPeriodFinalized]);
+  }, [period, createManualGroup, refresh, isPeriodFinalized, canModifyByFlow]);
 
   const handleAddToExistingGroup = useCallback(async (studentIds: number[], groupId: number) => {
-    if (isPeriodFinalized) return;
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await addToExistingGroup({
       groupId,
       studentIds,
@@ -220,41 +223,41 @@ export default function FinalizationPage() {
     if (success) {
       refresh();
     }
-  }, [addToExistingGroup, refresh, isPeriodFinalized]);
+  }, [addToExistingGroup, refresh, isPeriodFinalized, canModifyByFlow]);
 
   // Handler for assigning title to READY_FOR_BIDDING group
   const handleAssignTitleToGroup = useCallback(async (groupId: number, titleId: number) => {
-    if (isPeriodFinalized) return;
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await assignTitle({ groupId, titleId });
     if (success) {
       refresh();
     }
-  }, [assignTitle, refresh, isPeriodFinalized]);
+  }, [assignTitle, refresh, isPeriodFinalized, canModifyByFlow]);
 
   const handleAddMemberToGroup = useCallback((group: Group) => {
-    if (isPeriodFinalized) return;
+    if (isPeriodFinalized || !canModifyByFlow) return;
     setSelectedGroupForAction(group);
     // Open manual grouping dialog with pre-selected group
     handleOpenGroupingDialog(true);
-  }, [handleOpenGroupingDialog, isPeriodFinalized]);
+  }, [handleOpenGroupingDialog, isPeriodFinalized, canModifyByFlow]);
 
   const handleOpenAssignTitleDialog = useCallback(async (group: Group) => {
-    if (isPeriodFinalized) return;
+    if (isPeriodFinalized || !canModifyByFlow) return;
     setSelectedGroupForAction(group);
     setShowAssignTitleDialog(true);
 
     if (period) {
       await fetchAvailableTitles(period.id);
     }
-  }, [period, fetchAvailableTitles, isPeriodFinalized]);
+  }, [period, fetchAvailableTitles, isPeriodFinalized, canModifyByFlow]);
 
   const handleFinalizeGroup = useCallback(async (group: Group) => {
-    if (isPeriodFinalized) return;
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await promoteToReadyForFinalization({ groupId: group.id });
     if (success) {
       refresh();
     }
-  }, [promoteToReadyForFinalization, refresh, isPeriodFinalized]);
+  }, [promoteToReadyForFinalization, refresh, isPeriodFinalized, canModifyByFlow]);
 
   // Derived data
   const isPaginatedData = data && 'data' in data;
@@ -276,7 +279,7 @@ export default function FinalizationPage() {
   // Per-row supervisor set handler
   const handleSetSupervisorForGroup = useCallback(
     async (groupId: number, supervisorId: number, role: 'supervisor_1_id' | 'supervisor_2_id') => {
-      if (isPeriodFinalized) return;
+      if (isPeriodFinalized || !canModifyByFlow) return;
       setSettingRow(groupId);
       try {
         const payload: Record<string, number | boolean | undefined> = {
@@ -305,13 +308,13 @@ export default function FinalizationPage() {
         setSettingRow(null);
       }
     },
-    [tableData, refresh, isPeriodFinalized]
+    [tableData, refresh, isPeriodFinalized, canModifyByFlow]
   );
 
   // Mark group as Kelompok Final
   const handleMarkKelompokFinal = useCallback(
     async (groupId: number) => {
-      if (isPeriodFinalized) return;
+      if (isPeriodFinalized || !canModifyByFlow) return;
       setSettingRow(groupId);
       try {
         const group = (tableData as Group[]).find((g) => g.id === groupId);
@@ -344,13 +347,13 @@ export default function FinalizationPage() {
         setSettingRow(null);
       }
     },
-    [tableData, refresh, isPeriodFinalized]
+    [tableData, refresh, isPeriodFinalized, canModifyByFlow]
   );
 
   // Cancel/Revert Kelompok Final
   const handleCancelKelompokFinal = useCallback(
     async (group: Group) => {
-      if (isPeriodFinalized) {
+      if (isPeriodFinalized || !canModifyByFlow) {
         toast.error('Periode sudah difinalisasi. Reopen period terlebih dahulu.');
         return;
       }
@@ -368,7 +371,7 @@ export default function FinalizationPage() {
         refresh();
       }
     },
-    [isPeriodFinalized, cancelKelompokFinal, refresh]
+    [isPeriodFinalized, cancelKelompokFinal, refresh, canModifyByFlow]
   );
 
   // Row selection handlers for bulk actions
@@ -399,7 +402,7 @@ export default function FinalizationPage() {
   }, [activeTab, activeSubTab, data]);
 
   const handleExecuteFinalization = async () => {
-    if (!period || isPeriodFinalized) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow) return;
 
     const success = await executeFinalization({
       period_id: period.id,
@@ -428,7 +431,7 @@ export default function FinalizationPage() {
     const headers = ['ID', 'Nama Grup', 'Status', 'Judul', 'Supervisor 1', 'Supervisor 2', 'Jumlah Anggota'];
     const rows = selectedGroups.map((group) => [
       group.id,
-      group.name,
+      `Group ${group.id}`,
       group.status,
       group.title?.title || '-',
       group.supervisor1?.name || '-',
@@ -476,7 +479,7 @@ export default function FinalizationPage() {
 
   // Bulk mark final handler with validation
   const handleBulkMarkFinal = useCallback(async () => {
-    if (!period || isPeriodFinalized || selectedRows.size === 0) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
 
     const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
     const valid: Group[] = [];
@@ -502,7 +505,7 @@ export default function FinalizationPage() {
       // Show validation errors
       toast.error(`${invalid.length} grup tidak valid untuk di-mark final`);
       invalid.forEach(({ group, reason }) => {
-        toast.error(`${group.name}: ${reason}`);
+        toast.error(`Group ${group.id}: ${reason}`);
       });
     }
 
@@ -536,11 +539,11 @@ export default function FinalizationPage() {
     } finally {
       setSettingRow(null);
     }
-  }, [period, isPeriodFinalized, selectedRows, tableData, clearSelection, refresh]);
+  }, [period, isPeriodFinalized, canModifyByFlow, selectedRows, tableData, clearSelection, refresh]);
 
   // Bulk cancel final handler
   const handleBulkCancelFinal = useCallback(async (reason?: string) => {
-    if (!period || isPeriodFinalized || selectedRows.size === 0) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
 
     const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
     
@@ -561,10 +564,10 @@ export default function FinalizationPage() {
     } catch {
       // Error already handled by cancelKelompokFinal
     }
-  }, [period, isPeriodFinalized, selectedRows, tableData, cancelKelompokFinal, clearSelection, refresh]);
+  }, [period, isPeriodFinalized, canModifyByFlow, selectedRows, tableData, cancelKelompokFinal, clearSelection, refresh]);
 
   // Status badge helper with enhanced colors
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, statusLabel?: string) => {
     const variants: Record<string, { label: string; className: string }> = {
       // 🟡 Perlu Judul (Warning - Amber)
       READY_FOR_BIDDING: {
@@ -627,13 +630,27 @@ export default function FinalizationPage() {
       },
     };
 
-    const config = variants[status] || { label: status, className: 'bg-gray-100 text-gray-800' };
+    const config = variants[status] || { label: statusLabel || status, className: 'bg-gray-100 text-gray-800' };
     return (
       <Badge variant="outline" className={config.className}>
-        {config.label}
+        {statusLabel || config.label}
       </Badge>
     );
   };
+
+  const flowReasonMap: Record<string, string> = {
+    PERIOD_FINALIZED: 'Periode sudah difinalisasi. Dashboard berada dalam mode read-only.',
+  };
+
+  const actionReasonMap: Record<string, string> = {
+    PERIOD_FINALIZED: 'Periode sudah difinalisasi.',
+    SUPERVISOR_1_REQUIRED: 'Supervisor 1 wajib ditentukan terlebih dahulu.',
+    SUPERVISOR_2_REQUIRED: 'Supervisor 2 wajib ditentukan terlebih dahulu.',
+  };
+
+  const globalFlowMessage = flow?.reason
+    ? flowReasonMap[flow.reason] || 'Aksi finalisasi saat ini tidak tersedia.'
+    : null;
 
   // ══════════════════════════════════════════
   // PERIOD SELECTOR (shown first, before anything)
@@ -879,6 +896,15 @@ export default function FinalizationPage() {
         </Card>
       )}
 
+      {globalFlowMessage && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-800">Status Aksi Finalisasi</CardTitle>
+            <CardDescription className="text-amber-700">{globalFlowMessage}</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -1055,7 +1081,7 @@ export default function FinalizationPage() {
               </div>
 
               {/* Bulk Action Bar */}
-              {!isPeriodFinalized && (
+              {!isPeriodFinalized && canModifyByFlow && (
                 <BulkActionBar
                   selectedCount={selectedRows.size}
                   totalCount={tableData.length}
@@ -1109,16 +1135,21 @@ export default function FinalizationPage() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (tableData as Group[]).map((group) => (
+                      (tableData as Group[]).map((group) => {
+                        const actionReason = group.allowed_actions?.reason
+                          ? actionReasonMap[group.allowed_actions.reason] || 'Aksi belum tersedia untuk grup ini.'
+                          : null;
+
+                        return (
                         <TableRow key={group.id}>
                           <TableCell>
                             <Checkbox
                               checked={selectedRows.has(group.id)}
                               onCheckedChange={() => toggleRowSelection(group.id)}
-                              aria-label={`Select ${group.name}`}
+                              aria-label={`Select Group ${group.id}`}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell className="font-medium">Group {group.id}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -1146,7 +1177,7 @@ export default function FinalizationPage() {
                             <Select
                               value={group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString() ?? undefined}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_1_id')}
-                              disabled={settingRow === group.id || isPeriodFinalized}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
                               <SelectTrigger className="w-[160px] h-8 text-xs">
                                 <SelectValue placeholder="Pilih SV1" />
@@ -1174,7 +1205,7 @@ export default function FinalizationPage() {
                             <Select
                               value={group.supervisor_2_id?.toString() ?? undefined}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_2_id')}
-                              disabled={settingRow === group.id || isPeriodFinalized}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
                               <SelectTrigger className="w-[160px] h-8 text-xs">
                                 <SelectValue placeholder="Pilih SV2" />
@@ -1202,9 +1233,10 @@ export default function FinalizationPage() {
                             <Button
                               size="sm"
                               variant="default"
-                              disabled={!group.supervisor_1_id || settingRow === group.id || isPeriodFinalized}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_mark_kelompok_final ?? !!group.supervisor_1_id)}
                               onClick={() => handleMarkKelompokFinal(group.id)}
                               className="text-xs h-8"
+                              title={actionReason || undefined}
                             >
                               {settingRow === group.id ? (
                                 <RefreshCw className="h-3 w-3 animate-spin" />
@@ -1217,7 +1249,7 @@ export default function FinalizationPage() {
                             </Button>
                           </TableCell>
                         </TableRow>
-                      ))
+                      );})
                     )}
                   </TableBody>
                 </Table>
@@ -1239,7 +1271,7 @@ export default function FinalizationPage() {
                     Grup yang sudah di-set supervisor dan ditandai KELOMPOK_FINAL. Siap untuk eksekusi finalisasi.
                   </CardDescription>
                 </div>
-                {stats?.can_finalize && !isPeriodFinalized && (
+                {canExecuteByFlow && !isPeriodFinalized && canModifyByFlow && (
                   <Button onClick={() => setShowExecuteDialog(true)} variant="default">
                     <Shield className="mr-2 h-4 w-4" />
                     Eksekusi Finalisasi
@@ -1271,7 +1303,7 @@ export default function FinalizationPage() {
               </div>
 
               {/* Bulk Action Bar */}
-              {!isPeriodFinalized && (
+              {!isPeriodFinalized && canModifyByFlow && (
                 <BulkActionBar
                   selectedCount={selectedRows.size}
                   totalCount={tableData.length}
@@ -1332,10 +1364,10 @@ export default function FinalizationPage() {
                             <Checkbox
                               checked={selectedRows.has(group.id)}
                               onCheckedChange={() => toggleRowSelection(group.id)}
-                              aria-label={`Select ${group.name}`}
+                              aria-label={`Select Group ${group.id}`}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell className="font-medium">Group {group.id}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -1372,16 +1404,16 @@ export default function FinalizationPage() {
                               <span className="text-muted-foreground text-sm">-</span>
                             )}
                           </TableCell>
-                          <TableCell>{getStatusBadge(group.status)}</TableCell>
+                          <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                           <TableCell>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isPeriodFinalized || cancelingKelompokFinal}>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isPeriodFinalized || !canModifyByFlow || cancelingKelompokFinal}>
                                   <Settings className="h-4 w-4" />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleCancelKelompokFinal(group)} disabled={isPeriodFinalized}>
+                                <DropdownMenuItem onClick={() => handleCancelKelompokFinal(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_cancel_kelompok_final ?? true)}>
                                   <XCircle className="mr-2 h-4 w-4" />
                                   Cancel Kelompok Final
                                 </DropdownMenuItem>
@@ -1558,7 +1590,7 @@ export default function FinalizationPage() {
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell className="font-medium">Group {group.id}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1571,7 +1603,7 @@ export default function FinalizationPage() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                              <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                             </TableRow>
                           ))
                         )}
@@ -1628,7 +1660,7 @@ export default function FinalizationPage() {
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell className="font-medium">Group {group.id}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1648,11 +1680,11 @@ export default function FinalizationPage() {
                                   <span className="text-muted-foreground">-</span>
                                 )}
                               </TableCell>
-                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                              <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                               <TableCell>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isPeriodFinalized || !canModifyByFlow}>
                                       <Settings className="h-4 w-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
@@ -1664,15 +1696,21 @@ export default function FinalizationPage() {
                                       </DropdownMenuItem>
                                     )}
                                     {group.status === 'READY_FOR_BIDDING' && (
-                                      <DropdownMenuItem onClick={() => handleOpenAssignTitleDialog(group)} disabled={isPeriodFinalized}>
+                                      <DropdownMenuItem onClick={() => handleOpenAssignTitleDialog(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_assign_title ?? true)}>
                                         <FileText className="mr-2 h-4 w-4" />
                                         Assign Judul
                                       </DropdownMenuItem>
                                     )}
                                     {group.status === 'TITLE_APPROVED' && (
-                                      <DropdownMenuItem onClick={() => handleFinalizeGroup(group)} disabled={isPeriodFinalized}>
+                                      <DropdownMenuItem onClick={() => handleFinalizeGroup(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_promote_to_ready_for_finalization ?? true)}>
                                         <CheckCircle className="mr-2 h-4 w-4" />
                                         Finalisasi
+                                      </DropdownMenuItem>
+                                    )}
+                                    {group.allowed_actions?.reason && (
+                                      <DropdownMenuItem disabled>
+                                        <Info className="mr-2 h-4 w-4" />
+                                        {actionReasonMap[group.allowed_actions.reason] || 'Aksi tidak tersedia'}
                                       </DropdownMenuItem>
                                     )}
                                   </DropdownMenuContent>
@@ -1857,9 +1895,9 @@ export default function FinalizationPage() {
                         Valid ({valid.length} grup)
                       </h4>
                       <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 space-y-1">
-                        {valid.map((group) => (
+                            {valid.map((group) => (
                           <div key={group.id} className="text-sm text-emerald-800">
-                            {group.name}
+                            Group {group.id}
                           </div>
                         ))}
                       </div>
@@ -1876,7 +1914,7 @@ export default function FinalizationPage() {
                       <div className="bg-red-50 border border-red-200 rounded-md p-3 space-y-1">
                         {invalid.map(({ group, reason }) => (
                           <div key={group.id} className="text-sm text-red-800 flex justify-between">
-                            <span>{group.name}</span>
+                            <span>Group {group.id}</span>
                             <span className="text-red-600">{reason}</span>
                           </div>
                         ))}

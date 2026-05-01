@@ -56,7 +56,7 @@ class RecalculateGroupStatus implements ShouldQueue
             'PDC2_READY_FOR_EXPO',
             'EXPO_REGISTERED',
             'EXPO_DONE',
-            'PDC2_COMPLETED',
+            'READY_FOR_TA_INDIVIDUAL',
             'CLOSED',
             'DISSOLVED',
         ];

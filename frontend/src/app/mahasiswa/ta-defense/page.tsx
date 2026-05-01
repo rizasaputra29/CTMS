@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import axios from 'axios';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -19,8 +20,8 @@ interface TaDefenseSchedule {
     status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
     evaluation_deadline: string;
     notes: string | null;
-    examiner_1: { id: number; name: string };
-    examiner_2: { id: number; name: string };
+    examiner1: { id: number; name: string };
+    examiner2: { id: number; name: string };
 }
 
 interface TaStatus {
@@ -43,10 +44,13 @@ export default function MahasiswaTaDefensePage() {
                     api.get('/mahasiswa/ta-status')
                 ]);
 
-                setSchedule(scheduleRes.data.data);
+                // API returns an array, take the first (most recent) schedule
+                const schedules = scheduleRes.data.data;
+                setSchedule(Array.isArray(schedules) && schedules.length > 0 ? schedules[0] : null);
                 setTaStatus(statusRes.data.data);
-            } catch (error: any) {
-                if (error.response?.status !== 404) {
+            } catch (error: unknown) {
+                const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+                if (status !== 404) {
                     toast.error('Failed to load TA defense information');
                 }
             } finally {
@@ -222,10 +226,10 @@ export default function MahasiswaTaDefensePage() {
                             <div>
                                 <p className="font-medium">Examiners</p>
                                 <p className="text-muted-foreground">
-                                    1. {schedule.examiner_1?.name || 'TBA'}
+                                    1. {schedule.examiner1?.name || 'TBA'}
                                 </p>
                                 <p className="text-muted-foreground">
-                                    2. {schedule.examiner_2?.name || 'TBA'}
+                                    2. {schedule.examiner2?.name || 'TBA'}
                                 </p>
                             </div>
                         </div>

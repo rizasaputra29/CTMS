@@ -11,15 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('periods', function (Blueprint $table) {
-            $table->dropColumn([
-                'bidding_locked_at',
-                'pdc1_locked_at',
-                'pdc2_locked_at',
-                'expo_locked_at',
-                'ta_locked_at',
-            ]);
-        });
+        $columns = ['bidding_locked_at', 'pdc1_locked_at', 'pdc2_locked_at', 'expo_locked_at', 'ta_locked_at'];
+        $toDrop = array_filter($columns, fn($col) => Schema::hasColumn('periods', $col));
+        
+        if (!empty($toDrop)) {
+            Schema::table('periods', function (Blueprint $table) use ($toDrop) {
+                $table->dropColumn($toDrop);
+            });
+        }
     }
 
     /**

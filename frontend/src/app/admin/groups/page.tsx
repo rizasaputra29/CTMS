@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { Fragment, useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -57,6 +57,11 @@ interface Group {
     title: { title: string } | null;
     members: GroupMember[];
     supervisions: { supervisor: { name: string } }[];
+    status_label?: string;
+    allowed_actions?: {
+        can_manage_finalization: boolean;
+        reason: string | null;
+    };
 }
 
 export default function AdminGroupsPage() {
@@ -108,14 +113,18 @@ export default function AdminGroupsPage() {
         });
     };
 
-    const getStatusBadge = (status: string) => {
+    const getStatusBadge = (status: string, statusLabel?: string) => {
         switch (status) {
             case 'APPROVED': return <Badge className="bg-green-500">Approved</Badge>;
             case 'READY_FOR_BIDDING': return <Badge variant="secondary">Bidding</Badge>;
             case 'FORMING': return <Badge variant="outline">Forming</Badge>;
             case 'REJECTED': return <Badge variant="destructive">Rejected</Badge>;
-            default: return <Badge variant="outline">{status}</Badge>;
+            default: return <Badge variant="outline">{statusLabel || status}</Badge>;
         }
+    };
+
+    const reasonMap: Record<string, string> = {
+        PERIOD_FINALIZED: 'Periode sudah difinalisasi. Aksi finalization untuk grup ini dinonaktifkan.',
     };
 
     const getInitials = (name: string) => {
@@ -221,10 +230,9 @@ export default function AdminGroupsPage() {
                                     const leader = group.members.find(m => m.is_leader);
                                     
                                     return (
-                                        <>
+                                        <Fragment key={group.id}>
                                             {/* Main Row */}
                                             <TableRow 
-                                                key={group.id}
                                                 className="cursor-pointer hover:bg-muted/50 transition-colors"
                                                 onClick={() => toggleExpanded(group.id)}
                                             >
@@ -279,7 +287,7 @@ export default function AdminGroupsPage() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    {getStatusBadge(group.status)}
+                                                    {getStatusBadge(group.status, group.status_label)}
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     <DropdownMenu>
@@ -295,12 +303,19 @@ export default function AdminGroupsPage() {
                                                                     View Details
                                                                 </Link>
                                                             </DropdownMenuItem>
-                                                            <DropdownMenuItem asChild>
-                                                                <Link href={`/admin/finalization?group_id=${group.id}`}>
+                                                            {(group.allowed_actions?.can_manage_finalization ?? true) ? (
+                                                                <DropdownMenuItem asChild>
+                                                                    <Link href={`/admin/finalization?group_id=${group.id}`}>
+                                                                        <Settings className="mr-2 h-4 w-4" />
+                                                                        Manage Finalization
+                                                                    </Link>
+                                                                </DropdownMenuItem>
+                                                            ) : (
+                                                                <DropdownMenuItem disabled>
                                                                     <Settings className="mr-2 h-4 w-4" />
-                                                                    Manage Finalization
-                                                                </Link>
-                                                            </DropdownMenuItem>
+                                                                    {reasonMap[group.allowed_actions?.reason || ''] || 'Finalization locked'}
+                                                                </DropdownMenuItem>
+                                                            )}
                                                             <DropdownMenuItem asChild>
                                                                 <Link href={`/admin/schedule?period_id=${group.period_id}`}>
                                                                     <Calendar className="mr-2 h-4 w-4" />
@@ -362,7 +377,7 @@ export default function AdminGroupsPage() {
                                                     </TableCell>
                                                 </TableRow>
                                             )}
-                                        </>
+                                        </Fragment>
                                     );
                                 })}
                             </TableBody>

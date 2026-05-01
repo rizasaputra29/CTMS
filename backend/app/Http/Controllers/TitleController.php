@@ -8,6 +8,7 @@ use App\Models\GroupMember;
 use App\Models\TitleApprovalAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use App\Services\NotificationService;
 
 class TitleController extends Controller
@@ -90,6 +91,10 @@ class TitleController extends Controller
 
     public function store(Request $request)
     {
+        if ($request->input('pre_assigned_group_id') === '') {
+            $request->merge(['pre_assigned_group_id' => null]);
+        }
+
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'description' => 'required|string',
@@ -110,23 +115,81 @@ class TitleController extends Controller
 
         // Set is_reserved if pre_assigned_group_id is provided
         $isReserved = !empty($validated['pre_assigned_group_id']);
+        $preAssignedGroup = null;
+        if ($isReserved) {
+            $preAssignedGroup = Group::with(['members', 'period'])
+                ->findOrFail($validated['pre_assigned_group_id']);
 
-        $title = Title::create([
-            'lecturer_id' => $request->user()->id,
-            'title' => $validated['title'],
-            'description' => $validated['description'],
-            'problem_statement' => $validated['problem_statement'],
-            'scope' => $validated['scope'],
-            'specializations' => $validated['specializations'],
-            'quota' => $validated['quota'],
-            'status' => 'open',
-            'title_source' => 'LECTURER',
-            'period_id' => $validated['period_id'],
-            'pre_assigned_group_id' => $validated['pre_assigned_group_id'] ?? null,
-            'is_reserved' => $isReserved,
-        ]);
+            if ((int) $preAssignedGroup->period_id !== (int) $validated['period_id']) {
+                return response()->json(['message' => 'Kelompok harus berada dalam periode yang sama.'], 422);
+            }
 
-        return response()->json($title, 201);
+            if ($preAssignedGroup->status !== 'READY_FOR_BIDDING') {
+                return response()->json(['message' => 'Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.'], 422);
+            }
+
+            if ($preAssignedGroup->title_id) {
+                return response()->json(['message' => 'Kelompok sudah memiliki judul.'], 422);
+            }
+
+            $minSize = $preAssignedGroup->period?->min_group_size ?? 3;
+            $maxSize = $preAssignedGroup->period?->max_group_size ?? 4;
+            $memberCount = $preAssignedGroup->members->count();
+
+            if ($memberCount < $minSize || $memberCount > $maxSize) {
+                return response()->json([
+                    'message' => "Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
+                ], 422);
+            }
+        }
+
+        DB::beginTransaction();
+        try {
+            $title = Title::create([
+                'lecturer_id' => $request->user()->id,
+                'title' => $validated['title'],
+                'description' => $validated['description'],
+                'problem_statement' => $validated['problem_statement'],
+                'scope' => $validated['scope'],
+                'specializations' => $validated['specializations'],
+                'quota' => $validated['quota'],
+                'status' => 'open',
+                'title_source' => 'LECTURER',
+                'period_id' => $validated['period_id'],
+                'pre_assigned_group_id' => $validated['pre_assigned_group_id'] ?? null,
+                'is_reserved' => $isReserved,
+            ]);
+
+            if ($preAssignedGroup) {
+                $oldStatus = $preAssignedGroup->status;
+                $preAssignedGroup->update([
+                    'title_id' => $title->id,
+                    'status' => $oldStatus === 'READY_FOR_BIDDING' ? 'TITLE_APPROVED' : $oldStatus,
+                ]);
+
+                \App\Models\FinalizationAudit::create([
+                    'period_id' => $preAssignedGroup->period_id,
+                    'group_id' => $preAssignedGroup->id,
+                    'user_id' => $request->user()->id,
+                    'action' => 'TITLE_ASSIGNED_BY_LECTURER',
+                    'old_values' => [
+                        'title_id' => null,
+                        'status' => $oldStatus,
+                    ],
+                    'new_values' => [
+                        'title_id' => $title->id,
+                        'status' => $preAssignedGroup->fresh()->status,
+                    ],
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json($title->fresh(), 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to create title: ' . $e->getMessage()], 500);
+        }
     }
 
     public function show(Title $title)

@@ -14,6 +14,8 @@ class PeerReview extends Model
         'period_indicator_id',
         'score',
         'comment',
+        'is_final_submission',
+        'submitted_at',
     ];
 
     protected $casts = [

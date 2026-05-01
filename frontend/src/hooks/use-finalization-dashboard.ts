@@ -9,6 +9,7 @@ import type {
   OthersSubTab,
   DashboardResponse,
   DashboardStats,
+  FinalizationFlow,
   Period,
   FilterState,
 } from '@/types/finalization';
@@ -19,6 +20,7 @@ interface UseFinalizationDashboardReturn {
   periods: Period[];
   stats: DashboardStats | null;
   data: DashboardResponse['data'] | null;
+  flow: FinalizationFlow | null;
 
   // State
   activeTab: DashboardTab;
@@ -70,6 +72,7 @@ export function useFinalizationDashboard(
   const [periods, setPeriods] = useState<Period[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [data, setData] = useState<DashboardResponse['data'] | null>(null);
+  const [flow, setFlow] = useState<FinalizationFlow | null>(null);
   const [activeTab, setActiveTab] = useState<DashboardTab>(urlParams.tab);
   const [activeSubTab, setActiveSubTab] = useState<OthersSubTab>(urlParams.subTab);
   const [filters, setFilters] = useState<FilterState>({
@@ -173,6 +176,7 @@ export function useFinalizationDashboard(
       setPeriod(response.data.period);
       setStats(response.data.stats);
       setData(response.data.data);
+      setFlow(response.data.flow || null);
       setShowPeriodSelector(false);
     } catch (err) {
       const message = api.isAxiosError(err)
@@ -268,6 +272,7 @@ export function useFinalizationDashboard(
       setPeriod(null);
       setStats(null);
       setData(null);
+      setFlow(null);
       setSelectedPeriodId(undefined);
       fetchActivePeriods();
     }
@@ -278,6 +283,7 @@ export function useFinalizationDashboard(
     periods,
     stats,
     data,
+    flow,
     activeTab,
     activeSubTab,
     filters,

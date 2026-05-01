@@ -19,7 +19,7 @@ class PeriodPeerReviewIndicator extends Model
 
     public function template()
     {
-        return $this->belongsTo(PeerReviewIndicatorTemplate::class, 'template_id');
+        return $this->belongsTo(AssessmentComponentTemplate::class, 'template_id');
     }
 
     public function reviews()
@@ -34,6 +34,7 @@ class PeriodPeerReviewIndicator extends Model
     {
         return [
             'id' => $this->id,
+            'code' => $this->template->code,
             'name' => $this->template->name,
             'description' => $this->template->description,
             'weight' => $this->template->weight,

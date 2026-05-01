@@ -163,7 +163,7 @@ export default function DosenExaminerPage() {
                             </Badge>
                         </div>
                         <CardTitle className="text-base leading-tight mt-2">
-                            {evalItem.schedule.group.title?.title || `Group #${evalItem.schedule.group.id}`}
+                            {evalItem.schedule.group.title?.title || `Group ${evalItem.schedule.group.id}`}
                         </CardTitle>
                     </div>
                 </div>

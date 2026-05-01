@@ -140,8 +140,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/expo/schedules/{id}/reject', [ExpoController::class, 'reject']);
 
         // TA Defense scheduling (individual)
-        Route::apiResource('ta-defense-schedules', TaDefenseScheduleController::class);
+        // Custom routes MUST come before apiResource to avoid route conflicts
+        Route::get('/ta-defense-schedules/eligible-students', [TaDefenseScheduleController::class, 'eligibleStudents']);
         Route::put('/ta-defense-schedules/{id}/cancel', [TaDefenseScheduleController::class, 'cancel']);
+        Route::apiResource('ta-defense-schedules', TaDefenseScheduleController::class);
 
         // Exception: approve member leave
         Route::post('/groups/{group}/approve-member-leave', [GroupController::class, 'approveMemberLeave']);
@@ -171,16 +173,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/supervisor-evaluation/schedules/{scheduleId}/summary', [SupervisorEvaluationController::class, 'adminScheduleSummary']);
         Route::get('/supervisor-evaluation/schedules/{scheduleId}/export', [SupervisorEvaluationController::class, 'exportScheduleSummary']);
 
-        // Peer Review Indicator Templates (Bank Soal)
-        Route::get('/peer-review-templates', [PeerReviewIndicatorTemplateController::class, 'index']);
-        Route::post('/peer-review-templates', [PeerReviewIndicatorTemplateController::class, 'store']);
-        Route::put('/peer-review-templates/{id}', [PeerReviewIndicatorTemplateController::class, 'update']);
-        Route::delete('/peer-review-templates/{id}', [PeerReviewIndicatorTemplateController::class, 'destroy']);
+        // Peer Review Indicator Templates - DEPRECATED
+        // Use /assessment-templates instead. Peer review now uses Assessment Bank.
+        // Route::get('/peer-review-templates', [PeerReviewIndicatorTemplateController::class, 'index']);
+        // Route::post('/peer-review-templates', [PeerReviewIndicatorTemplateController::class, 'store']);
+        // Route::put('/peer-review-templates/{id}', [PeerReviewIndicatorTemplateController::class, 'update']);
+        // Route::delete('/peer-review-templates/{id}', [PeerReviewIndicatorTemplateController::class, 'destroy']);
 
         // Period Peer Review Configuration (pilih indikator dari bank soal)
         Route::get('/periods/{period}/peer-review-config', [PeriodPeerReviewConfigController::class, 'show']);
         Route::post('/periods/{period}/peer-review-config', [PeriodPeerReviewConfigController::class, 'store']);
         Route::post('/periods/{period}/peer-review-config/copy', [PeriodPeerReviewConfigController::class, 'copy']);
+
+        // Peer Review Admin - View Scores
+        Route::get('/peer-review/scores', [PeerReviewController::class, 'adminScores']);
 
         // Peer Review Indicators (admin) - deprecated, use config above
         Route::get('/peer-review/indicators', [PeerReviewController::class, 'indicators']);
@@ -401,10 +407,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/ta-status', [StudentStateController::class, 'getMyTAStatus']);
 
         // TA Submissions
-        Route::get('/ta', [TaSubmissionController::class, 'index']);
-        Route::post('/ta/upload', [TaSubmissionController::class, 'upload']);
-        Route::put('/ta/revise', [TaSubmissionController::class, 'revise']);
-        Route::post('/ta/register', [TaSubmissionController::class, 'register']);
+        Route::get('/ta-submission', [TaSubmissionController::class, 'index']);
+        Route::get('/ta-detailed-status', [TaSubmissionController::class, 'getDetailedStatus']);
+        Route::post('/ta-submission/upload', [TaSubmissionController::class, 'upload']);
+        Route::put('/ta-submission/revise', [TaSubmissionController::class, 'revise']);
+        Route::post('/ta-submission/register', [TaSubmissionController::class, 'register']);
+        
+        // TA Document Management
+        Route::get('/ta-documents', [TaSubmissionController::class, 'getTaDocuments']);
+        Route::post('/ta-documents/upload', [TaSubmissionController::class, 'uploadTaDocument']);
+        Route::post('/ta-documents/{id}/review', [TaSubmissionController::class, 'reviewTaDocument']);
 
         // Period Registration
         Route::get('/periods/{periodId}/check-registration', [\App\Http\Controllers\RegistrationController::class, 'check']);

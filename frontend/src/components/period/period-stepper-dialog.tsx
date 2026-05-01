@@ -616,8 +616,22 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
         </div>
     );
 
-    const stepComponents = [BasicInfoStep, EvaluationSetupStep, PhaseDatesStep, GroupConfigStep, ReviewStep];
-    const CurrentStepComponent = stepComponents[currentStep];
+    const renderCurrentStep = () => {
+        switch (currentStep) {
+            case 0:
+                return BasicInfoStep();
+            case 1:
+                return EvaluationSetupStep();
+            case 2:
+                return PhaseDatesStep();
+            case 3:
+                return GroupConfigStep();
+            case 4:
+                return ReviewStep();
+            default:
+                return null;
+        }
+    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -638,7 +652,7 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
                 />
 
                 <StepperContent>
-                    <CurrentStepComponent />
+                    {renderCurrentStep()}
                 </StepperContent>
 
                 <StepperActions>

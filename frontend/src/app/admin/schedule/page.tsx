@@ -120,7 +120,7 @@ export default function AdminSchedulePage() {
             const [semproRes, expoRes, taRes, groupsRes] = await Promise.all([
                 api.get(`/admin/sempro/schedules${query}`),
                 api.get(`/admin/expo/schedules${query}`),
-                api.get(`/admin/ta-defense/schedules${query}`),
+                api.get(`/admin/ta-defense-schedules${query}`),
                 api.get(`/admin/groups${query}`),
             ]);
             setSemproSchedules(semproRes.data.data || []);
@@ -165,20 +165,36 @@ export default function AdminSchedulePage() {
         setSubmitting(true);
         try {
             if (scheduleType === 'TA_DEFENSE') {
-                await api.post('/admin/ta-defense/schedule', {
+                const selectedStudent = taEligibleStudents.find(
+                    (student) => student.id.toString() === formStudentId
+                );
+
+                if (!selectedStudent?.group_id || !selectedPeriod) {
+                    toast.error('Pilih periode dan mahasiswa yang valid untuk TA Defense.');
+                    return;
+                }
+
+                await api.post('/admin/ta-defense-schedules', {
                     student_id: Number(formStudentId),
+                    group_id: Number(selectedStudent.group_id),
+                    period_id: Number(selectedPeriod),
                     date: formDate, start_time: formStartTime, end_time: formEndTime,
                     room: formRoom || null,
                     examiner_1_id: Number(formExaminer1), examiner_2_id: Number(formExaminer2),
                 });
             } else {
                 const endpoint = scheduleType === 'SEMPRO' ? '/admin/sempro/schedule' : '/admin/expo/schedule';
-                await api.post(endpoint, {
+                const payload: any = {
                     group_id: Number(formGroupId),
                     date: formDate, start_time: formStartTime, end_time: formEndTime,
                     room: formRoom || null,
-                    examiner_1_id: Number(formExaminer1), examiner_2_id: Number(formExaminer2),
-                });
+                };
+                // Only send examiners for SEMPRO, not EXPO
+                if (scheduleType === 'SEMPRO') {
+                    payload.examiner_1_id = Number(formExaminer1);
+                    payload.examiner_2_id = Number(formExaminer2);
+                }
+                await api.post(endpoint, payload);
             }
             toast.success(`${scheduleType} scheduled!`);
             setScheduleOpen(false); resetForm(); fetchAll();
@@ -218,19 +234,25 @@ export default function AdminSchedulePage() {
         
         try {
             const endpoint = approveType === 'TA_DEFENSE'
-                ? `/admin/ta-defense/schedules/${approveId}/approve`
+                ? `/admin/ta-defense-schedules/${approveId}`
                 : approveType === 'SEMPRO'
                     ? `/admin/sempro/schedules/${approveId}/approve`
                     : `/admin/expo/schedules/${approveId}/approve`;
-            
-            await api.put(endpoint, {
+
+            const payload: any = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
                 room: approveData.room,
-                examiner_1_id: Number(approveData.examiner_1_id),
-                examiner_2_id: Number(approveData.examiner_2_id),
-            });
+            };
+            
+            // Only send examiners for SEMPRO and TA_DEFENSE, not EXPO
+            if (approveType !== 'EXPO') {
+                payload.examiner_1_id = Number(approveData.examiner_1_id);
+                payload.examiner_2_id = Number(approveData.examiner_2_id);
+            }
+
+            await api.put(endpoint, payload);
             
             toast.success(`${approveType} schedule approved!`);
             setApproveDialogOpen(false);
@@ -249,11 +271,15 @@ export default function AdminSchedulePage() {
         if (!rejectId || !rejectReason.trim()) return;
         try {
             const endpoint = rejectType === 'TA_DEFENSE'
-                ? `/admin/ta-defense/schedules/${rejectId}/reject`
+                ? `/admin/ta-defense-schedules/${rejectId}/cancel`
                 : rejectType === 'SEMPRO'
                     ? `/admin/sempro/schedules/${rejectId}/reject`
                     : `/admin/expo/schedules/${rejectId}/reject`;
-            await api.put(endpoint, { rejection_reason: rejectReason });
+            if (rejectType === 'TA_DEFENSE') {
+                await api.put(endpoint);
+            } else {
+                await api.put(endpoint, { rejection_reason: rejectReason });
+            }
             toast.success('Schedule request rejected.');
             setRejectId(null); setRejectReason('');
             fetchAll();
@@ -266,7 +292,7 @@ export default function AdminSchedulePage() {
         <Card>
             <CardHeader className="pb-2">
                 <div className="flex justify-between items-start">
-                    <CardTitle className="text-sm font-medium">{s.group?.title?.title || `Group #${s.group_id}`}</CardTitle>
+                    <CardTitle className="text-sm font-medium">{s.group?.title?.title || `Group ${s.group_id}`}</CardTitle>
                     <Badge variant={statusColor(s.status)}>{s.status}</Badge>
                 </div>
             </CardHeader>
@@ -276,17 +302,26 @@ export default function AdminSchedulePage() {
                     <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {s.start_time} - {s.end_time}</span>
                     {s.room && <span className="flex items-center gap-1"><MapPin className="h-3.5 w-3.5" /> {s.room}</span>}
                 </div>
-                <div className="flex items-center gap-1 text-muted-foreground">
-                    <Users className="h-3.5 w-3.5" />
-                    <span>Examiners: {s.examiner1?.name}, {s.examiner2?.name}</span>
-                </div>
-                <div className="flex gap-2 mt-1">
-                    {s.evaluations?.map(ev => (
-                        <Badge key={ev.id} variant={ev.status === 'SUBMITTED' ? 'default' : 'outline'}>
-                            {ev.examiner?.name}: {ev.status === 'SUBMITTED' ? `${ev.score}` : 'PENDING'}
-                        </Badge>
-                    ))}
-                </div>
+                {s.type !== 'EXPO' && (
+                    <>
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                            <Users className="h-3.5 w-3.5" />
+                            <span>Examiners: {s.examiner1?.name}, {s.examiner2?.name}</span>
+                        </div>
+                        <div className="flex gap-2 mt-1">
+                            {s.evaluations?.map(ev => (
+                                <Badge key={ev.id} variant={ev.status === 'SUBMITTED' ? 'default' : 'outline'}>
+                                    {ev.examiner?.name}: {ev.status === 'SUBMITTED' ? `${ev.score}` : 'PENDING'}
+                                </Badge>
+                            ))}
+                        </div>
+                    </>
+                )}
+                {s.type === 'EXPO' && (
+                    <div className="text-xs text-muted-foreground bg-muted p-2 rounded">
+                        EXPO: Only supervisor evaluations required
+                    </div>
+                )}
                 <div className="flex gap-2 mt-2">
                     <Link href={`/admin/evaluation-summary/${s.id}`}>
                         <Button size="sm" variant="outline">
@@ -311,7 +346,7 @@ export default function AdminSchedulePage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <CardTitle className="text-sm font-medium">{s.student?.name}</CardTitle>
-                        <p className="text-xs text-muted-foreground">{s.group?.title?.title || `Group #${s.group?.id}`}</p>
+                        <p className="text-xs text-muted-foreground">{s.group?.title?.title || `Group ${s.group?.id}`}</p>
                     </div>
                     <Badge variant={statusColor(s.status)}>{s.status}</Badge>
                 </div>
@@ -459,7 +494,7 @@ export default function AdminSchedulePage() {
                                         <SelectTrigger><SelectValue placeholder="Select group..." /></SelectTrigger>
                                         <SelectContent>
                                             {(scheduleType === 'SEMPRO' ? semproEligible : expoEligible).map(g => (
-                                                <SelectItem key={g.id} value={g.id.toString()}>{g.title?.title || `Group #${g.id}`}</SelectItem>
+                                                <SelectItem key={g.id} value={g.id.toString()}>{g.title?.title || `Group ${g.id}`}</SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
@@ -483,22 +518,29 @@ export default function AdminSchedulePage() {
                                 <div><Label>End</Label><Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} required /></div>
                             </div>
                             <div className="grid gap-2"><Label>Room</Label><Input value={formRoom} onChange={e => setFormRoom(e.target.value)} placeholder="e.g. Lab 301" /></div>
-                            <div className="grid grid-cols-2 gap-3">
-                                <div className="grid gap-2">
-                                    <Label>Examiner 1</Label>
-                                    <Select value={formExaminer1} onValueChange={setFormExaminer1}>
-                                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                                        <SelectContent>{dosens.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>)}</SelectContent>
-                                    </Select>
+                            {scheduleType !== 'EXPO' && (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="grid gap-2">
+                                        <Label>Examiner 1</Label>
+                                        <Select value={formExaminer1} onValueChange={setFormExaminer1}>
+                                            <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                                            <SelectContent>{dosens.map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>)}</SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label>Examiner 2</Label>
+                                        <Select value={formExaminer2} onValueChange={setFormExaminer2}>
+                                            <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                                            <SelectContent>{dosens.filter(d => d.id.toString() !== formExaminer1).map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>)}</SelectContent>
+                                        </Select>
+                                    </div>
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label>Examiner 2</Label>
-                                    <Select value={formExaminer2} onValueChange={setFormExaminer2}>
-                                        <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
-                                        <SelectContent>{dosens.filter(d => d.id.toString() !== formExaminer1).map(d => <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>)}</SelectContent>
-                                    </Select>
+                            )}
+                            {scheduleType === 'EXPO' && (
+                                <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
+                                    Note: EXPO schedules do not require examiners. Only supervisor evaluations are needed.
                                 </div>
-                            </div>
+                            )}
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => { setScheduleOpen(false); resetForm(); }}>Cancel</Button>
@@ -558,46 +600,53 @@ export default function AdminSchedulePage() {
                                 placeholder="e.g. Lab 301" 
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
-                            <div className="grid gap-2">
-                                <Label>Examiner 1</Label>
-                                <Select 
-                                    value={approveData.examiner_1_id} 
-                                    onValueChange={(val) => setApproveData({...approveData, examiner_1_id: val})}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner 1..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                        {approveType !== 'EXPO' && (
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="grid gap-2">
+                                    <Label>Examiner 1</Label>
+                                    <Select 
+                                        value={approveData.examiner_1_id} 
+                                        onValueChange={(val) => setApproveData({...approveData, examiner_1_id: val})}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select examiner 1..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {dosens.map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>Examiner 2</Label>
+                                    <Select 
+                                        value={approveData.examiner_2_id} 
+                                        onValueChange={(val) => setApproveData({...approveData, examiner_2_id: val})}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select examiner 2..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {dosens.filter(d => d.id.toString() !== approveData.examiner_1_id).map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
                             </div>
-                            <div className="grid gap-2">
-                                <Label>Examiner 2</Label>
-                                <Select 
-                                    value={approveData.examiner_2_id} 
-                                    onValueChange={(val) => setApproveData({...approveData, examiner_2_id: val})}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner 2..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.filter(d => d.id.toString() !== approveData.examiner_1_id).map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                        )}
+                        {approveType === 'EXPO' && (
+                            <div className="text-sm text-muted-foreground bg-muted p-3 rounded">
+                                Note: EXPO schedules do not require examiners. Only supervisor evaluations are needed.
                             </div>
-                        </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => { setApproveDialogOpen(false); setApproveId(null); }}>Cancel</Button>
                         <Button 
                             onClick={submitApprove} 
-                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || !approveData.examiner_1_id || !approveData.examiner_2_id}
+                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || (approveType !== 'EXPO' && (!approveData.examiner_1_id || !approveData.examiner_2_id))}
                         >
                             Approve Schedule
                         </Button>

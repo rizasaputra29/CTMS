@@ -78,10 +78,6 @@ export default function EvaluationSummaryPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    fetchSummary();
-  }, [scheduleId, fetchSummary]);
-
   const fetchSummary = useCallback(async () => {
     try {
       setLoading(true);
@@ -94,6 +90,10 @@ export default function EvaluationSummaryPage() {
       setLoading(false);
     }
   }, [scheduleId]);
+
+  useEffect(() => {
+    fetchSummary();
+  }, [scheduleId, fetchSummary]);
 
   const handleExportCSV = async () => {
     try {
@@ -170,7 +170,7 @@ export default function EvaluationSummaryPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Evaluation Summary</h1>
             <p className="text-muted-foreground mt-1">
-              Complete evaluation results for {data.group.name}
+              Complete evaluation results for Group {data.group.id}
             </p>
           </div>
           <Button onClick={handleExportCSV} disabled={exporting}>
@@ -205,7 +205,7 @@ export default function EvaluationSummaryPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Group</p>
-              <p className="font-medium">{data.group.name}</p>
+              <p className="font-medium">Group {data.group.id}</p>
             </div>
           </div>
         </CardContent>

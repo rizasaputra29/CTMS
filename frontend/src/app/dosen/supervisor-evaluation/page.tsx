@@ -21,10 +21,10 @@ interface GroupMember {
 }
 
 interface Evaluation {
-  schedule_id: number;
+  schedule_id: number | null;
   schedule_type: string;
-  date: string;
-  room: string;
+  date: string | null;
+  room: string | null;
   deadline: string | null;
   status: 'pending' | 'partial' | 'completed' | 'not_configured';
 }
@@ -43,13 +43,13 @@ interface Group {
 }
 
 interface Schedule {
-  schedule_id: number;
+  schedule_id: number | null;
   schedule_type: string;
   evaluation_type: string;
-  date: string;
-  start_time: string;
-  end_time: string;
-  room: string;
+  date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  room: string | null;
   deadline: string | null;
   group: {
     id: number;
@@ -74,10 +74,12 @@ const getEvaluationTypeColor = (type: string) => {
   switch (type) {
     case 'BIMBINGAN_SEMPRO':
       return 'bg-blue-100 text-blue-800';
-    case 'BIMBINGAN_EXPO':
+    case 'NILAI_DOSEN':
       return 'bg-purple-100 text-purple-800';
     case 'MILESTONE':
       return 'bg-orange-100 text-orange-800';
+    case 'EXPO':
+      return 'bg-emerald-100 text-emerald-800';
     case 'BIMBINGAN_TA':
       return 'bg-indigo-100 text-indigo-800';
     default:
@@ -127,10 +129,12 @@ const getEvaluationTypeLabel = (type: string) => {
   switch (type) {
     case 'BIMBINGAN_SEMPRO':
       return 'BIMBINGAN_SEMPRO';
-    case 'BIMBINGAN_EXPO':
-      return 'BIMBINGAN_EXPO';
+    case 'NILAI_DOSEN':
+      return 'NILAI_DOSEN';
     case 'MILESTONE':
       return 'MILESTONE';
+    case 'EXPO':
+      return 'EXPO';
     case 'BIMBINGAN_TA':
       return 'BIMBINGAN_TA';
     default:
@@ -203,9 +207,10 @@ export default function SupervisorEvaluationPage() {
     return true;
   });
 
-  const todaySchedules = filteredSchedules.filter((s) => isToday(parseISO(s.date)));
-  const upcomingSchedules = filteredSchedules.filter((s) => isFuture(parseISO(s.date)) && !isToday(parseISO(s.date)));
-  const pastSchedules = filteredSchedules.filter((s) => isPast(parseISO(s.date)) && !isToday(parseISO(s.date)));
+  const todaySchedules = filteredSchedules.filter((s) => s.date && isToday(parseISO(s.date)));
+  const upcomingSchedules = filteredSchedules.filter((s) => s.date && isFuture(parseISO(s.date)) && !isToday(parseISO(s.date)));
+  const pastSchedules = filteredSchedules.filter((s) => s.date && isPast(parseISO(s.date)) && !isToday(parseISO(s.date)));
+  const unscheduledEvaluations = filteredSchedules.filter((s) => !s.date);
 
   const handleEvaluate = (groupId: number, type: string) => {
     router.push(`/dosen/supervisor-evaluation/${groupId}?type=${type}`);
@@ -306,8 +311,9 @@ export default function SupervisorEvaluationPage() {
                     <SelectContent>
                       <SelectItem value="all">Semua Tipe</SelectItem>
                       <SelectItem value="BIMBINGAN_SEMPRO">BIMBINGAN_SEMPRO</SelectItem>
-                      <SelectItem value="BIMBINGAN_EXPO">BIMBINGAN_EXPO</SelectItem>
+                      <SelectItem value="NILAI_DOSEN">NILAI_DOSEN</SelectItem>
                       <SelectItem value="MILESTONE">MILESTONE</SelectItem>
+                      <SelectItem value="EXPO">EXPO</SelectItem>
                       <SelectItem value="BIMBINGAN_TA">BIMBINGAN_TA</SelectItem>
                     </SelectContent>
                   </Select>
@@ -388,6 +394,26 @@ export default function SupervisorEvaluationPage() {
                   </div>
                 </div>
               )}
+
+              {/* No Schedule Section (status-based evaluations) */}
+              {unscheduledEvaluations.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4 text-slate-600">
+                    Tanpa Jadwal ({unscheduledEvaluations.length})
+                  </h3>
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {unscheduledEvaluations.map((schedule) => (
+                      <ScheduleCard
+                        key={`${schedule.group.id}-${schedule.evaluation_type}`}
+                        schedule={schedule}
+                        onEvaluate={() => handleEvaluateFromSchedule(schedule)}
+                        isUrgent={false}
+                        isOverdue={false}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </TabsContent>
@@ -426,8 +452,7 @@ export default function SupervisorEvaluationPage() {
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
-                        <CardTitle className="text-lg">{group.name}</CardTitle>
-                        <p className="text-sm text-muted-foreground">{group.code}</p>
+                        <CardTitle className="text-lg">Group {group.id}</CardTitle>
                       </div>
                       <Badge variant="outline">
                         {group.supervisor_role === 'SUPERVISOR_1'
@@ -473,8 +498,8 @@ export default function SupervisorEvaluationPage() {
                             {getStatusBadge(evaluation.status)}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            <p>Jadwal: {new Date(evaluation.date).toLocaleDateString('id-ID')}</p>
-                            <p>Ruangan: {evaluation.room}</p>
+                            <p>Jadwal: {evaluation.date ? new Date(evaluation.date).toLocaleDateString('id-ID') : '-'}</p>
+                            <p>Ruangan: {evaluation.room || '-'}</p>
                             {evaluation.deadline && (
                               <p>
                                 Deadline:{' '}
@@ -546,26 +571,33 @@ function ScheduleCard({ schedule, onEvaluate, isUrgent, isOverdue }: ScheduleCar
           </Badge>
           {getStatusBadge(schedule.status)}
         </div>
-        <CardTitle className="text-lg mt-2">{schedule.group.name}</CardTitle>
-        <CardDescription>{schedule.group.code}</CardDescription>
+        <CardTitle className="text-lg mt-2">Group {schedule.group.id}</CardTitle>
       </CardHeader>
       
       <CardContent className="space-y-3">
         {/* Schedule Info */}
-        <div className="flex items-center text-sm text-muted-foreground">
-          <Calendar className="mr-2 h-4 w-4" />
-          {format(parseISO(schedule.date), 'EEEE, dd MMMM yyyy', { locale: id })}
-        </div>
-        
-        <div className="flex items-center text-sm text-muted-foreground">
-          <Clock className="mr-2 h-4 w-4" />
-          {schedule.start_time} - {schedule.end_time}
-        </div>
-        
-        <div className="flex items-center text-sm text-muted-foreground">
-          <MapPin className="mr-2 h-4 w-4" />
-          {schedule.room}
-        </div>
+        {schedule.date ? (
+          <>
+            <div className="flex items-center text-sm text-muted-foreground">
+              <Calendar className="mr-2 h-4 w-4" />
+              {format(parseISO(schedule.date), 'EEEE, dd MMMM yyyy', { locale: id })}
+            </div>
+
+            <div className="flex items-center text-sm text-muted-foreground">
+              <Clock className="mr-2 h-4 w-4" />
+              {schedule.start_time || '-'} - {schedule.end_time || '-'}
+            </div>
+
+            <div className="flex items-center text-sm text-muted-foreground">
+              <MapPin className="mr-2 h-4 w-4" />
+              {schedule.room || '-'}
+            </div>
+          </>
+        ) : (
+          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+            Evaluasi ini berbasis status grup dan belum memiliki jadwal khusus.
+          </div>
+        )}
 
         {/* Deadline */}
         {schedule.deadline && (

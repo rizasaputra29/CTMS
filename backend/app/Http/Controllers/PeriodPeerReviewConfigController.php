@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PeerReviewIndicatorTemplate;
+use App\Models\AssessmentComponentTemplate;
 use App\Models\Period;
 use App\Models\PeriodPeerReviewIndicator;
 use Illuminate\Http\Request;
@@ -17,9 +17,10 @@ class PeriodPeerReviewConfigController extends Controller
     {
         $period = Period::findOrFail($periodId);
 
-        // Get all active templates
-        $allTemplates = PeerReviewIndicatorTemplate::where('is_active', true)
+        // Get all active templates from Assessment Bank
+        $allTemplates = AssessmentComponentTemplate::where('is_active', true)
             ->orderBy('sort_order')
+            ->orderBy('code')
             ->get();
 
         // Get selected indicators for this period
@@ -30,6 +31,7 @@ class PeriodPeerReviewConfigController extends Controller
             ->map(fn($i) => [
                 'id' => $i->id,
                 'template_id' => $i->template_id,
+                'code' => $i->template->code,
                 'name' => $i->template->name,
                 'description' => $i->template->description,
                 'weight' => $i->template->weight,
@@ -50,7 +52,7 @@ class PeriodPeerReviewConfigController extends Controller
     {
         $request->validate([
             'template_ids' => 'required|array',
-            'template_ids.*' => 'exists:peer_review_indicator_templates,id',
+            'template_ids.*' => 'exists:assessment_component_templates,id',
         ]);
 
         return DB::transaction(function () use ($periodId, $request) {

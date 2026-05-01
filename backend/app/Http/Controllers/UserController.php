@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
@@ -73,6 +74,8 @@ class UserController extends Controller
             'roles.*' => 'exists:roles,slug',
         ]);
 
+        $this->ensureMahasiswaRoleIsExclusive($validated['roles']);
+
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
@@ -101,6 +104,10 @@ class UserController extends Controller
             'roles.*' => 'exists:roles,slug',
         ]);
 
+        if (isset($validated['roles'])) {
+            $this->ensureMahasiswaRoleIsExclusive($validated['roles']);
+        }
+
         if (array_key_exists('password', $validated)) {
             if ($validated['password'] === null || $validated['password'] === '') {
                 // Keep existing password when field is left blank on edit form.
@@ -124,6 +131,17 @@ class UserController extends Controller
         $user->update($validated);
 
         return response()->json($user->load('roles'));
+    }
+
+    private function ensureMahasiswaRoleIsExclusive(array $roles): void
+    {
+        $uniqueRoles = array_values(array_unique($roles));
+
+        if (in_array('mahasiswa', $uniqueRoles, true) && count($uniqueRoles) > 1) {
+            throw ValidationException::withMessages([
+                'roles' => ['Mahasiswa tidak boleh digabung dengan role admin/dosen.'],
+            ]);
+        }
     }
 
     public function destroy(User $user)

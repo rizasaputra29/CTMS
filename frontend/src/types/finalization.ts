@@ -104,6 +104,23 @@ export interface Group {
   finalized_by?: number;
   created_at: string;
   updated_at: string;
+  status_label?: string;
+  allowed_actions?: {
+    can_set_supervisor?: boolean;
+    can_mark_kelompok_final?: boolean;
+    can_cancel_kelompok_final?: boolean;
+    can_assign_title?: boolean;
+    can_promote_to_ready_for_finalization?: boolean;
+    reason?: string | null;
+  };
+}
+
+export interface FinalizationFlow {
+  can_modify: boolean;
+  can_execute_finalization: boolean;
+  reason: string | null;
+  tab?: DashboardTab;
+  sub_tab?: OthersSubTab;
 }
 
 // Lecturer with load information
@@ -177,6 +194,7 @@ export interface DashboardResponse {
   tab: DashboardTab;
   stats: DashboardStats;
   data: PaginatedResponse<Group> | PaginatedResponse<Student> | PaginatedResponse<Group>;
+  flow?: FinalizationFlow;
 }
 
 // Lecturers response

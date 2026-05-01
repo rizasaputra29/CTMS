@@ -10,6 +10,8 @@ class StudentPeerReviewStatus extends Model
 {
     use HasFactory;
 
+    protected $table = 'student_peer_review_status';
+
     protected $fillable = [
         'student_id',
         'group_id',

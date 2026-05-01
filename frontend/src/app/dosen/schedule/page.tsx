@@ -265,7 +265,7 @@ export default function DosenSchedulePage() {
                                     <SelectContent>
                                         {groups.map((group) => (
                                             <SelectItem key={group.id} value={group.id.toString()}>
-                                                {group.title?.title || `Group #${group.id}`}
+                                                {group.title?.title || `Group ${group.id}`}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

@@ -154,6 +154,25 @@ export default function AdminUsersPage() {
         }
     };
 
+    const handleRoleToggle = (roleSlug: string, checked: boolean) => {
+        let roles = [...formData.roles];
+
+        if (checked) {
+            if (roleSlug === 'mahasiswa') {
+                roles = ['mahasiswa'];
+            } else {
+                roles = roles.filter((role) => role !== 'mahasiswa');
+                if (!roles.includes(roleSlug)) {
+                    roles.push(roleSlug);
+                }
+            }
+        } else {
+            roles = roles.filter((role) => role !== roleSlug);
+        }
+
+        setFormData({ ...formData, roles });
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         try {
@@ -468,16 +487,7 @@ export default function AdminUsersPage() {
                                                     id={`role-${roleSlug}`}
                                                     className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
                                                     checked={formData.roles.includes(roleSlug)}
-                                                    onChange={(e) => {
-                                                        const roles = [...formData.roles];
-                                                        if (e.target.checked) {
-                                                            roles.push(roleSlug);
-                                                        } else {
-                                                            const idx = roles.indexOf(roleSlug);
-                                                            if (idx > -1) roles.splice(idx, 1);
-                                                        }
-                                                        setFormData({ ...formData, roles });
-                                                    }}
+                                                    onChange={(e) => handleRoleToggle(roleSlug, e.target.checked)}
                                                 />
                                                 <Label htmlFor={`role-${roleSlug}`} className="capitalize cursor-pointer">
                                                     {roleSlug}
@@ -485,6 +495,9 @@ export default function AdminUsersPage() {
                                             </div>
                                         ))}
                                     </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        Role mahasiswa harus berdiri sendiri (tidak bisa digabung dengan admin/dosen).
+                                    </p>
                                 </div>
                             </div>
                             <DialogFooter>

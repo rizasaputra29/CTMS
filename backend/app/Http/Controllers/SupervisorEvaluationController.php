@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AssessmentComponent;
 use App\Models\AssessmentScore;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -16,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -37,22 +39,22 @@ class SupervisorEvaluationController extends Controller
 
         $groups = $supervisions->map(function ($supervision) use ($user) {
             $group = $supervision->group;
-            
-            // Check schedules for this group
-            $schedules = $this->getGroupSchedules($group->id);
-            
-            // Get evaluation status for each type
+
+            // Use canonical schedule/evaluation generator to keep group and schedule views consistent.
+            $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
+
+            // Get one card per evaluation type
             $evaluations = [];
-            foreach ($schedules as $schedule) {
-                $evalType = $this->getEvaluationType($schedule['type']);
-                if ($evalType) {
+            foreach ($groupSchedules as $schedule) {
+                $evalType = $schedule['evaluation_type'];
+                if (!isset($evaluations[$evalType])) {
                     $evaluations[$evalType] = [
-                        'schedule_id' => $schedule['id'],
-                        'schedule_type' => $schedule['type'],
+                        'schedule_id' => $schedule['schedule_id'],
+                        'schedule_type' => $schedule['schedule_type'],
                         'date' => $schedule['date'],
                         'room' => $schedule['room'],
-                        'deadline' => $schedule['evaluation_deadline'],
-                        'status' => $this->getEvaluationStatus($group->id, $user->id, $evalType),
+                        'deadline' => $schedule['deadline'],
+                        'status' => strtolower((string) $schedule['status']),
                     ];
                 }
             }
@@ -100,19 +102,23 @@ class SupervisorEvaluationController extends Controller
 
         foreach ($supervisions as $supervision) {
             $group = $supervision->group;
-            
-            // Check schedules for this group
-            $schedules = $this->getGroupSchedules($group->id);
-            
-            foreach ($schedules as $schedule) {
-                $evalType = $this->getEvaluationType($schedule['type']);
-                if ($evalType) {
-                    $status = $this->getEvaluationStatus($group->id, $user->id, $evalType);
-                    if ($status === 'PENDING' || $status === 'PARTIAL') {
-                        $pendingCount++;
-                    }
+
+            if (!$group) {
+                continue;
+            }
+
+            $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
+            $pendingTypes = [];
+
+            foreach ($groupSchedules as $schedule) {
+                $evalType = (string) $schedule['evaluation_type'];
+                $status = strtoupper((string) $schedule['status']);
+                if (in_array($status, ['PENDING', 'PARTIAL'], true) && !in_array($evalType, $pendingTypes, true)) {
+                    $pendingTypes[] = $evalType;
                 }
             }
+
+            $pendingCount += count($pendingTypes);
         }
 
         return response()->json([
@@ -156,11 +162,13 @@ class SupervisorEvaluationController extends Controller
             $schedules = array_merge($schedules, $groupSchedules);
         }
 
-        // Sort by date and start time
+        // Sort by date and start time (undated cards go last)
         usort($schedules, function($a, $b) {
-            $dateCompare = strtotime($a['date']) - strtotime($b['date']);
+            $aDate = $a['date'] ? strtotime($a['date']) : PHP_INT_MAX;
+            $bDate = $b['date'] ? strtotime($b['date']) : PHP_INT_MAX;
+            $dateCompare = $aDate - $bDate;
             if ($dateCompare !== 0) return $dateCompare;
-            return strcmp($a['start_time'], $b['start_time']);
+            return strcmp((string) $a['start_time'], (string) $b['start_time']);
         });
 
         return response()->json([
@@ -186,30 +194,57 @@ class SupervisorEvaluationController extends Controller
             );
         }
         
-        // EXPO → BIMBINGAN_EXPO + MILESTONE
-        $expoSchedules = SeminarSchedule::where('group_id', $group->id)
-            ->whereIn('type', ['EXPO'])
-            ->get();
-        
-        foreach ($expoSchedules as $expo) {
-            // BIMBINGAN_EXPO
-            $schedules[] = $this->formatSeminarScheduleForSupervisor(
-                $expo, 'SEMINAR', 'BIMBINGAN_EXPO', $group, $supervision, $supervisorId
-            );
-            // MILESTONE
-            $schedules[] = $this->formatSeminarScheduleForSupervisor(
-                $expo, 'SEMINAR', 'MILESTONE', $group, $supervision, $supervisorId
+        // EXPO evaluation should be visible when group is ready for expo or expo is active.
+        // EXPO_ACTIVE is represented by EXPO_REGISTERED in current state machine.
+        if (in_array($group->status, ['PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED'], true)) {
+            $expo = SeminarSchedule::where('group_id', $group->id)
+                ->where('type', 'EXPO')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($expo) {
+                $schedules[] = $this->formatSeminarScheduleForSupervisor(
+                    $expo, 'SEMINAR', 'EXPO', $group, $supervision, $supervisorId
+                );
+            } else {
+                $schedules[] = $this->formatStatusBasedEvaluationForSupervisor(
+                    $group,
+                    $supervision,
+                    $supervisorId,
+                    'EXPO',
+                    'EXPO'
+                );
+            }
+        }
+
+        // MILESTONE should be visible for PDC2_ACTIVE groups.
+        if ($group->status === 'PDC2_ACTIVE') {
+            $schedules[] = $this->formatStatusBasedEvaluationForSupervisor(
+                $group,
+                $supervision,
+                $supervisorId,
+                'MILESTONE',
+                'PDC2'
             );
         }
         
-        // TA_DEFENSE → BIMBINGAN_TA
+        // TA_DEFENSE → BIMBINGAN_TA (only if student has TA_READY_FOR_SIDANG or higher status)
         $taSchedules = TaDefenseSchedule::where('group_id', $group->id)
             ->get();
-        
+
         foreach ($taSchedules as $ta) {
-            $schedules[] = $this->formatTaDefenseScheduleForSupervisor(
-                $ta, 'TA_DEFENSE', 'BIMBINGAN_TA', $group, $supervision, $supervisorId
-            );
+            // Check if student is ready for sidang
+            $studentSubmission = \App\Models\TaSubmission::where('student_id', $ta->student_id)->first();
+            if ($studentSubmission && $studentSubmission->statusIsAtLeast('TA_READY_FOR_SIDANG')) {
+                $schedules[] = $this->formatTaDefenseScheduleForSupervisor(
+                    $ta, 'TA_DEFENSE', 'BIMBINGAN_TA', $group, $supervision, $supervisorId
+                );
+            }
+        }
+
+        // PDC2 → NILAI_DOSEN (show for active or ready-for-expo states)
+        if (in_array($group->status, ['PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO'], true)) {
+            $schedules[] = $this->formatNilaiDosenForSupervisor($group, $supervision, $supervisorId);
         }
         
         return $schedules;
@@ -300,15 +335,91 @@ class SupervisorEvaluationController extends Controller
     }
 
     /**
+     * Format NILAI_DOSEN evaluation data for supervisor response (no schedule, just evaluation)
+     */
+    private function formatNilaiDosenForSupervisor($group, $supervision, int $supervisorId): array
+    {
+        $status = $this->getEvaluationStatus($group->id, $supervisorId, 'NILAI_DOSEN');
+
+        // NILAI_DOSEN has no specific date - use current date + 7 days as soft deadline
+        $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
+
+        return [
+            'schedule_id' => null,
+            'schedule_type' => 'PDC2',
+            'evaluation_type' => 'NILAI_DOSEN',
+            'date' => null,
+            'start_time' => null,
+            'end_time' => null,
+            'room' => null,
+            'deadline' => $deadline,
+            'group' => [
+                'id' => $group->id,
+                'name' => $group->name,
+                'code' => $group->code,
+            ],
+            'students' => $group->members->map(fn($m) => [
+                'id' => $m->student->id,
+                'name' => $m->student->name,
+                'nim' => $m->student->nim,
+                'is_leader' => $m->is_leader,
+            ])->values(),
+            'status' => $status,
+            'supervisor_role' => $supervision->role,
+            'period' => [
+                'id' => $group->period->id,
+                'name' => $group->period->name,
+            ],
+        ];
+    }
+
+    /**
+     * Format status-based evaluation card when schedule may not exist.
+     */
+    private function formatStatusBasedEvaluationForSupervisor($group, $supervision, int $supervisorId, string $evalType, string $scheduleType): array
+    {
+        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType);
+        $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
+
+        return [
+            'schedule_id' => null,
+            'schedule_type' => $scheduleType,
+            'evaluation_type' => $evalType,
+            'date' => null,
+            'start_time' => null,
+            'end_time' => null,
+            'room' => null,
+            'deadline' => $deadline,
+            'group' => [
+                'id' => $group->id,
+                'name' => $group->name,
+                'code' => $group->code,
+            ],
+            'students' => $group->members->map(fn($m) => [
+                'id' => $m->student->id,
+                'name' => $m->student->name,
+                'nim' => $m->student->nim,
+                'is_leader' => $m->is_leader,
+            ])->values(),
+            'status' => $status,
+            'supervisor_role' => $supervision->role,
+            'period' => [
+                'id' => $group->period->id,
+                'name' => $group->period->name,
+            ],
+        ];
+    }
+
+    /**
      * Get evaluation form with components and existing scores
      */
     public function form(Request $request, int $groupId): JsonResponse
     {
         $user = Auth::user();
-        $evaluationType = $request->input('type'); // BIMBINGAN_SEMPRO, BIMBINGAN_EXPO, MILESTONE, BIMBINGAN_TA
+        $evaluationType = $request->input('type'); // BIMBINGAN_SEMPRO, NILAI_DOSEN, EXPO, MILESTONE, BIMBINGAN_TA
 
         // Validate evaluation type
-        $validTypes = ['BIMBINGAN_SEMPRO', 'BIMBINGAN_EXPO', 'MILESTONE', 'BIMBINGAN_TA'];
+        $validTypes = ['BIMBINGAN_SEMPRO', 'NILAI_DOSEN', 'EXPO', 'MILESTONE', 'BIMBINGAN_TA'];
         if (!in_array($evaluationType, $validTypes)) {
             return response()->json(['error' => 'Invalid evaluation type'], 400);
         }
@@ -324,21 +435,40 @@ class SupervisorEvaluationController extends Controller
 
         $group = Group::with(['members.student', 'period'])->findOrFail($groupId);
 
-        // Get components for this evaluation type
-        $components = PeriodAssessmentComponent::with('template')
-            ->where('period_id', $group->period_id)
-            ->where('type', $evaluationType)
-            ->orderBy('sort_order')
-            ->get()
-            ->map(fn($c) => [
-                'id' => $c->id,
-                'template_id' => $c->template_id,
-                'code' => $c->template->code,
-                'name' => $c->template->name,
-                'description' => $c->template->description,
-                'weight' => $c->template->weight,
-                'sort_order' => $c->sort_order,
-            ]);
+        // Get components for this evaluation type (schema-aware)
+        if ($this->usesPeriodAssessmentComponents()) {
+            $components = PeriodAssessmentComponent::with('template')
+                ->where('period_id', $group->period_id)
+                ->where('type', $evaluationType)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn($c) => [
+                    'id' => $c->id,
+                    'template_id' => $c->template_id,
+                    'code' => $c->template->code,
+                    'name' => $c->template->name,
+                    'description' => $c->template->description,
+                    'weight' => $c->template->weight,
+                    'sort_order' => $c->sort_order,
+                ]);
+            $existingScoresKeyField = 'period_component_id';
+        } else {
+            // Legacy schema
+            $components = AssessmentComponent::where('period_id', $group->period_id)
+                ->where('type', $evaluationType)
+                ->orderBy('sort_order', 'asc')
+                ->get()
+                ->map(fn($c) => [
+                    'id' => $c->id,
+                    'template_id' => null,
+                    'code' => $c->code ?? $c->name,
+                    'name' => $c->name,
+                    'description' => $c->description,
+                    'weight' => $c->weight,
+                    'sort_order' => $c->sort_order,
+                ]);
+            $existingScoresKeyField = 'component_id';
+        }
 
         if ($components->isEmpty()) {
             return response()->json([
@@ -352,7 +482,7 @@ class SupervisorEvaluationController extends Controller
             ->where('evaluator_id', $user->id)
             ->where('evaluation_type', $evaluationType)
             ->get()
-            ->keyBy(fn($s) => $s->period_component_id . '_' . ($s->student_id ?? 'group'));
+            ->keyBy(fn($s) => $s->{$existingScoresKeyField} . '_' . ($s->student_id ?? 'group'));
 
         // Build form structure
         $students = $group->members->map(function ($member) use ($components, $existingScores) {
@@ -362,9 +492,9 @@ class SupervisorEvaluationController extends Controller
             foreach ($components as $component) {
                 $key = $component['id'] . '_' . $student->id;
                 $existing = $existingScores->get($key);
-                
+
                 $scores[] = [
-                    'component_id' => $component['id'],
+                    'period_component_id' => $component['id'],
                     'code' => $component['code'],
                     'name' => $component['name'],
                     'weight' => $component['weight'],
@@ -406,15 +536,39 @@ class SupervisorEvaluationController extends Controller
     {
         $user = Auth::user();
 
+        // Schema-aware validation - accept both field names for flexibility
+        $usesPeriodComponents = $this->usesPeriodAssessmentComponents();
+        $componentIdField = $usesPeriodComponents ? 'period_component_id' : 'component_id';
+        $componentTable = $usesPeriodComponents ? 'period_assessment_components' : 'assessment_components';
+        
+        Log::info('SupervisorEvaluationController::store', [
+            'uses_period_components' => $usesPeriodComponents,
+            'component_id_field' => $componentIdField,
+            'component_table' => $componentTable,
+            'request_data' => $request->all(),
+        ]);
+
+        // Validate with flexible field name (accepts both period_component_id and component_id)
         $validated = $request->validate([
             'group_id' => 'required|exists:groups,id',
-            'evaluation_type' => 'required|in:BIMBINGAN_SEMPRO,BIMBINGAN_EXPO,MILESTONE,BIMBINGAN_TA',
+            'evaluation_type' => 'required|in:BIMBINGAN_SEMPRO,NILAI_DOSEN,EXPO,MILESTONE,BIMBINGAN_TA',
             'scores' => 'required|array',
-            'scores.*.period_component_id' => 'required|exists:period_assessment_components,id',
             'scores.*.student_id' => 'required|exists:users,id',
             'scores.*.score' => 'required|numeric|min:0|max:100',
             'scores.*.notes' => 'nullable|string',
+            // Include both component ID fields so they survive validation
+            'scores.*.period_component_id' => "nullable|integer|exists:{$componentTable},id",
+            'scores.*.component_id' => "nullable|integer|exists:{$componentTable},id",
         ]);
+
+        // Ensure each score item has at least one component ID
+        foreach ($validated['scores'] as $index => $score) {
+            if (empty($score['period_component_id']) && empty($score['component_id'])) {
+                return response()->json([
+                    'error' => "Score item {$index} is missing both period_component_id and component_id",
+                ], 422);
+            }
+        }
 
         $groupId = $validated['group_id'];
         $evaluationType = $validated['evaluation_type'];
@@ -447,9 +601,30 @@ class SupervisorEvaluationController extends Controller
         DB::beginTransaction();
         try {
             foreach ($validated['scores'] as $scoreData) {
+                // Extract component ID from whichever field was provided
+                $componentId = $scoreData['period_component_id'] ?? $scoreData['component_id'] ?? null;
+                if (!$componentId) {
+                    throw new \InvalidArgumentException('Missing component ID in score data');
+                }
+
+                $insertData = [
+                    $componentIdField => $componentId,
+                    'evaluator_id' => $user->id,
+                    'group_id' => $groupId,
+                    'student_id' => $scoreData['student_id'],
+                    'evaluation_type' => $evaluationType,
+                    'score' => $scoreData['score'],
+                    'notes' => $scoreData['notes'] ?? null,
+                ];
+
+                // For legacy schema, also set period_component_id to same value if column exists
+                if (!$usesPeriodComponents && Schema::hasColumn('assessment_scores', 'period_component_id')) {
+                    $insertData['period_component_id'] = $componentId;
+                }
+
                 AssessmentScore::updateOrCreate(
                     [
-                        'period_component_id' => $scoreData['period_component_id'],
+                        $componentIdField => $componentId,
                         'evaluator_id' => $user->id,
                         'group_id' => $groupId,
                         'student_id' => $scoreData['student_id'],
@@ -465,7 +640,7 @@ class SupervisorEvaluationController extends Controller
             DB::commit();
 
             // Check if all bimbingan evaluations are complete after this submission
-            if (in_array($evaluationType, ['BIMBINGAN_SEMPRO', 'BIMBINGAN_EXPO', 'MILESTONE'])) {
+            if (in_array($evaluationType, ['BIMBINGAN_SEMPRO', 'NILAI_DOSEN', 'EXPO', 'MILESTONE'], true)) {
                 $isComplete = $this->areAllBimbinganScoresComplete($groupId, $evaluationType);
 
                 if ($isComplete) {
@@ -490,8 +665,10 @@ class SupervisorEvaluationController extends Controller
                     
                     $evaluationName = match ($evaluationType) {
                         'BIMBINGAN_SEMPRO' => 'SEMPRO',
-                        'BIMBINGAN_EXPO' => 'EXPO',
+                        'NILAI_DOSEN' => 'Nilai Dosen Pembimbing',
+                        'EXPO' => 'Evaluasi EXPO',
                         'MILESTONE' => 'Milestone',
+                        'BIMBINGAN_TA' => 'TA Defense',
                         default => $evaluationType,
                     };
                     
@@ -563,13 +740,34 @@ class SupervisorEvaluationController extends Controller
     }
 
     /**
+     * Check if period_assessment_components table exists
+     */
+    private function usesPeriodAssessmentComponents(): bool
+    {
+        return Schema::hasTable('period_assessment_components');
+    }
+
+    /**
      * Get evaluation status for a group
      */
     private function getEvaluationStatus(int $groupId, int $supervisorId, string $evaluationType): string
     {
-        $componentCount = PeriodAssessmentComponent::whereHas('period.groups', fn($q) => $q->where('groups.id', $groupId))
-            ->where('type', $evaluationType)
-            ->count();
+        $group = Group::find($groupId);
+        if (!$group) {
+            return 'not_configured';
+        }
+
+        // Schema-aware component count
+        if ($this->usesPeriodAssessmentComponents()) {
+            $componentCount = PeriodAssessmentComponent::whereHas('period.groups', fn($q) => $q->where('groups.id', $groupId))
+                ->where('type', $evaluationType)
+                ->count();
+        } else {
+            // Legacy schema: use assessment_components
+            $componentCount = AssessmentComponent::where('period_id', $group->period_id)
+                ->where('type', $evaluationType)
+                ->count();
+        }
 
         if ($componentCount === 0) {
             return 'not_configured';
@@ -593,80 +791,6 @@ class SupervisorEvaluationController extends Controller
     }
 
     /**
-     * Get schedules for a group
-     */
-    private function getGroupSchedules(int $groupId): array
-    {
-        $schedules = [];
-
-        // Check seminar schedules (SEMPRO)
-        $seminarSchedules = SeminarSchedule::where('group_id', $groupId)
-            ->get();
-
-        foreach ($seminarSchedules as $ss) {
-            $deadline = null;
-            if ($ss->date) {
-                $deadline = date('Y-m-d H:i:s', strtotime($ss->date . ' +2 days'));
-            }
-            $schedules[] = [
-                'id' => $ss->id,
-                'type' => 'SEMINAR',
-                'date' => $ss->date,
-                'room' => $ss->room,
-                'evaluation_deadline' => $deadline,
-            ];
-        }
-
-        // Check TA defense schedules (SIDANG_TA)
-        $taSchedules = TaDefenseSchedule::where('group_id', $groupId)
-            ->get();
-
-        foreach ($taSchedules as $ts) {
-            $deadline = null;
-            if ($ts->date) {
-                $deadline = date('Y-m-d H:i:s', strtotime($ts->date . ' +2 days'));
-            }
-            $schedules[] = [
-                'id' => $ts->id,
-                'type' => 'TA_DEFENSE',
-                'date' => $ts->date,
-                'room' => $ts->room,
-                'evaluation_deadline' => $deadline,
-            ];
-        }
-
-        // Check expo schedules
-        $expoSchedules = Schedule::where('group_id', $groupId)
-            ->where('type', 'EXPO')
-            ->get();
-
-        foreach ($expoSchedules as $es) {
-            $schedules[] = [
-                'id' => $es->id,
-                'type' => 'EXPO',
-                'date' => $es->date,
-                'room' => $es->room,
-                'evaluation_deadline' => $es->evaluation_deadline,
-            ];
-        }
-
-        return $schedules;
-    }
-
-    /**
-     * Map schedule type to evaluation type
-     */
-    private function getEvaluationType(string $scheduleType): ?string
-    {
-        return match ($scheduleType) {
-            'SEMINAR' => 'BIMBINGAN_SEMPRO',
-            'TA_DEFENSE' => 'BIMBINGAN_TA',
-            'EXPO' => 'BIMBINGAN_EXPO',
-            default => null,
-        };
-    }
-
-    /**
      * Get schedule info for a specific evaluation type
      */
     private function getScheduleForType(int $groupId, string $evaluationType): ?array
@@ -674,7 +798,9 @@ class SupervisorEvaluationController extends Controller
         $scheduleType = match ($evaluationType) {
             'BIMBINGAN_SEMPRO' => 'SEMINAR',
             'BIMBINGAN_TA' => 'TA_DEFENSE',
-            'BIMBINGAN_EXPO', 'MILESTONE' => 'EXPO',
+            'EXPO' => 'EXPO',
+            'MILESTONE' => 'EXPO',
+            // NILAI_DOSEN has no schedule
             default => null,
         };
 
@@ -747,7 +873,7 @@ class SupervisorEvaluationController extends Controller
         $evaluationTypes = match ($schedule->type) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'BIMBINGAN_EXPO', 'MILESTONE'],
+            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
             default => [],
         };
 
@@ -867,7 +993,7 @@ class SupervisorEvaluationController extends Controller
         $evaluationTypes = match ($schedule->type) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'BIMBINGAN_EXPO', 'MILESTONE'],
+            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
             default => [],
         };
 

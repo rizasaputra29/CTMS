@@ -30,6 +30,17 @@ interface Bid {
         id: number;
         members: { id: number; student: { name: string; email: string }; is_leader: boolean }[];
     };
+    allowed_actions?: {
+        can_accept: boolean;
+        can_reject: boolean;
+        can_cancel_accept: boolean;
+        reason: string | null;
+    };
+}
+
+interface LecturerBidsFlow {
+    can_recommend_bid: boolean;
+    reason: string | null;
 }
 
 export default function DosenBidsPage() {
@@ -40,6 +51,7 @@ export default function DosenBidsPage() {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [submitting, setSubmitting] = useState<number | null>(null);
+    const [bidsFlow, setBidsFlow] = useState<LecturerBidsFlow | null>(null);
 
     const fetchData = useCallback(async (periodId?: string) => {
         if (periodId) setRefreshing(true);
@@ -58,6 +70,7 @@ export default function DosenBidsPage() {
             
             const res = await api.get(url);
             setBids(res.data.data || []);
+            setBidsFlow(res.data.flow || null);
         } catch (err) {
             console.error('Failed to fetch bids', err);
         } finally {
@@ -98,6 +111,13 @@ export default function DosenBidsPage() {
             bid.group.members.some(m => m.student.name.toLowerCase().includes(q))
         );
     }, [bids, searchQuery]);
+
+    const flowReasonMap: Record<string, string> = {
+        PERIOD_FINALIZED: 'Periode sudah difinalisasi. Rekomendasi bidding tidak dapat diubah.',
+        BIDDING_LOCKED: 'Bidding sudah dikunci oleh sistem/admin.',
+    };
+
+    const globalFlowMessage = bidsFlow?.reason ? flowReasonMap[bidsFlow.reason] || 'Aksi bidding saat ini tidak tersedia.' : null;
 
     if (loading) {
         return (
@@ -153,6 +173,12 @@ export default function DosenBidsPage() {
                 />
             </div>
 
+            {globalFlowMessage && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {globalFlowMessage}
+                </div>
+            )}
+
             {Object.keys(byTitle).length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <Gavel className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
@@ -175,7 +201,7 @@ export default function DosenBidsPage() {
                                         <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
                                             <strong className="text-green-700">Kelompok Diterima:</strong>{' '}
                                             <span className="text-green-600">
-                                                Group #{acceptedBid.group_id} - {acceptedBid.group.members.map(m => m.student.name).join(', ')}
+                                                Group {acceptedBid.group_id} - {acceptedBid.group.members.map(m => m.student.name).join(', ')}
                                             </span>
                                             <p className="text-xs text-green-600 mt-1">Kelompok lain untuk judul ini otomatis ditolak.</p>
                                         </div>
@@ -184,6 +210,15 @@ export default function DosenBidsPage() {
                                         const isAccepted = bid.lecturer_recommendation === 'ACCEPT';
                                         const isRejected = bid.lecturer_recommendation === 'REJECT';
                                         const canAcceptOthers = !acceptedBid || acceptedBid.id === bid.id;
+                                        const actions = bid.allowed_actions ?? {
+                                            can_accept: !isAccepted && !isRejected,
+                                            can_reject: !isRejected,
+                                            can_cancel_accept: isAccepted,
+                                            reason: canAcceptOthers ? null : 'TITLE_ALREADY_HAS_ACCEPTED_BID',
+                                        };
+                                        const canAccept = actions.can_accept && canAcceptOthers;
+                                        const canReject = actions.can_reject;
+                                        const canCancelAccept = actions.can_cancel_accept;
                                         
                                         return (
                                             <div 
@@ -208,7 +243,7 @@ export default function DosenBidsPage() {
                                                         <div className={`font-medium text-sm ${isRejected ? 'text-muted-foreground' : ''}`}>
                                                             {bid.group.members.map(m => m.student.name).join(', ')}
                                                         </div>
-                                                        <div className="text-xs text-muted-foreground">Group #{bid.group_id}</div>
+                                                        <div className="text-xs text-muted-foreground">Group {bid.group_id}</div>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-2">
@@ -218,15 +253,15 @@ export default function DosenBidsPage() {
                                                                 {bid.lecturer_recommendation === 'ACCEPT' ? 'DITERIMA' : 'DITOLAK'}
                                                             </Badge>
                                                             {isAccepted && (
-                                                                <Button
-                                                                    size="sm"
-                                                                    variant="outline"
-                                                                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
-                                                                    onClick={() => handleRecommend(bid.id, 'REJECT')}
-                                                                    disabled={submitting === bid.id}
-                                                                >
-                                                                    Batalkan
-                                                                </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                                                                onClick={() => handleRecommend(bid.id, 'REJECT')}
+                                                                disabled={submitting === bid.id || !canCancelAccept}
+                                                            >
+                                                                Batalkan
+                                                            </Button>
                                                             )}
                                                         </>
                                                     ) : (
@@ -236,8 +271,8 @@ export default function DosenBidsPage() {
                                                                 variant="outline"
                                                                 className="text-green-600 border-green-300 hover:bg-green-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                                                 onClick={() => handleRecommend(bid.id, 'ACCEPT')}
-                                                                disabled={submitting === bid.id || !canAcceptOthers}
-                                                                title={!canAcceptOthers ? 'Anda sudah menerima kelompok lain untuk judul ini' : ''}
+                                                                disabled={submitting === bid.id || !canAccept}
+                                                                title={!canAccept ? 'Anda sudah menerima kelompok lain untuk judul ini' : ''}
                                                             >
                                                                 <ThumbsUp className="mr-1 h-3 w-3" /> Accept
                                                             </Button>
@@ -246,7 +281,7 @@ export default function DosenBidsPage() {
                                                                 variant="outline"
                                                                 className="text-red-600 border-red-300 hover:bg-red-50"
                                                                 onClick={() => handleRecommend(bid.id, 'REJECT')}
-                                                                disabled={submitting === bid.id}
+                                                                disabled={submitting === bid.id || !canReject}
                                                             >
                                                                 <ThumbsDown className="mr-1 h-3 w-3" /> Reject
                                                             </Button>

@@ -281,15 +281,23 @@ class SchedulingService
 
     /**
      * Auto-generate PENDING evaluation rows for a seminar schedule.
+     * Note: EXPO does not require examiner evaluations (only supervisors).
      */
     public function autoGenerateSeminarEvaluations(SeminarSchedule $schedule): void
     {
+        // Skip examiner evaluations for EXPO - only supervisors evaluate EXPO
+        if ($schedule->type === 'EXPO') {
+            return;
+        }
+
         foreach ([$schedule->examiner_1_id, $schedule->examiner_2_id] as $examinerId) {
-            SeminarEvaluation::create([
-                'schedule_id' => $schedule->id,
-                'examiner_id' => $examinerId,
-                'status' => 'PENDING',
-            ]);
+            if ($examinerId) {
+                SeminarEvaluation::create([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $examinerId,
+                    'status' => 'PENDING',
+                ]);
+            }
         }
     }
 
@@ -354,7 +362,13 @@ class SchedulingService
                 $allSupervisorSubmitted = $this->checkSupervisorEvaluationsComplete($schedule);
             }
 
-            $allSubmitted = $allExaminerSubmitted && $allSupervisorSubmitted;
+            // For EXPO: only require supervisor evaluations (no examiners)
+            // For SEMPRO: require both examiners and supervisors
+            if ($schedule->type === 'EXPO') {
+                $allSubmitted = $allSupervisorSubmitted;
+            } else {
+                $allSubmitted = $allExaminerSubmitted && $allSupervisorSubmitted;
+            }
 
             if ($allSubmitted) {
                 $schedule->update(['status' => 'COMPLETED']);
@@ -497,18 +511,34 @@ class SchedulingService
     {
         // Create evaluation record for examiner 1
         TaDefenseEvaluation::firstOrCreate([
-            'ta_defense_schedule_id' => $schedule->id,
+            'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_1_id,
         ], [
             'status' => 'PENDING',
         ]);
 
+        // Create examiner record for examiner 1 (required for examiner lookup)
+        TaDefenseExaminer::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_1_id,
+        ], [
+            'role' => 'EXAMINER_1',
+        ]);
+
         // Create evaluation record for examiner 2
         TaDefenseEvaluation::firstOrCreate([
-            'ta_defense_schedule_id' => $schedule->id,
+            'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_2_id,
         ], [
             'status' => 'PENDING',
+        ]);
+
+        // Create examiner record for examiner 2 (required for examiner lookup)
+        TaDefenseExaminer::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_2_id,
+        ], [
+            'role' => 'EXAMINER_2',
         ]);
     }
 

@@ -142,7 +142,7 @@ class FinalizationController extends Controller
 
         $loadData = $this->finalizationService->getSupervisorLoad(
             $period->id,
-            $period->max_supervisor_load ?? 8
+            $period->supervisorLoadLimit(8)
         );
 
         return response()->json(['data' => $loadData]);
@@ -338,7 +338,7 @@ class FinalizationController extends Controller
             'PDC2_READY_FOR_EXPO',
             'EXPO_REGISTERED',
             'EXPO_DONE',
-            'PDC2_COMPLETED',
+            'READY_FOR_TA_INDIVIDUAL',
         ];
 
         $hasFinalizedGroups = Group::where('period_id', $period->id)
@@ -405,6 +405,7 @@ class FinalizationController extends Controller
             'period' => $period,
             'tab' => $tab,
             'stats' => $this->getDashboardStats($period),
+            'flow' => $this->buildAdminFinalizationFlowPayload($period, $tab, $request->get('sub_tab', 'no_group')),
         ];
 
         switch ($tab) {
@@ -518,7 +519,10 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
@@ -545,7 +549,10 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
@@ -614,7 +621,10 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
@@ -641,7 +651,100 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    private function buildAdminGroupPayload(Group $group, Period $period): array
+    {
+        $groupArray = $group->toArray();
+        $groupArray['name'] = $this->resolveAdminGroupName($group);
+        $groupArray['status_label'] = $this->resolveGroupStatusLabel($group->status);
+        $groupArray['allowed_actions'] = $this->resolveAdminAllowedActions($group, $period);
+
+        return $groupArray;
+    }
+
+    private function resolveAdminGroupName(Group $group): string
+    {
+        $name = trim((string) ($group->name ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return "Kelompok #{$group->id}";
+    }
+
+    private function resolveGroupStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'FORMING' => 'Incomplete Group',
+            'FORMING_SOLO' => 'Solo Seeker',
+            'READY_FOR_BIDDING' => 'Ready for Bidding',
+            'WAITING_SUPERVISOR_APPROVAL' => 'Waiting Supervisor Approval',
+            'TITLE_APPROVED' => 'Title Approved',
+            'READY_FOR_FINALIZATION' => 'Ready for Finalization',
+            'KELOMPOK_FINAL' => 'Kelompok Final',
+            'PDC1_ACTIVE' => 'PDC1 Active',
+            'PDC2_ACTIVE' => 'PDC2 Active',
+            default => str_replace('_', ' ', $status),
+        };
+    }
+
+    private function resolveAdminAllowedActions(Group $group, Period $period): array
+    {
+        $isPeriodFinalized = (bool) $period->is_finalized;
+        $canSetSupervisor = !$isPeriodFinalized && $group->status === 'READY_FOR_FINALIZATION';
+        $canMarkKelompokFinal = $canSetSupervisor
+            && (bool) ($group->supervisor_1_id || $group->title?->lecturer?->id)
+            && (bool) $group->supervisor_2_id;
+
+        $reason = null;
+        if ($isPeriodFinalized) {
+            $reason = 'PERIOD_FINALIZED';
+        } elseif ($group->status === 'READY_FOR_FINALIZATION' && !$canMarkKelompokFinal) {
+            if (!$group->supervisor_1_id && !$group->title?->lecturer?->id) {
+                $reason = 'SUPERVISOR_1_REQUIRED';
+            } elseif (!$group->supervisor_2_id) {
+                $reason = 'SUPERVISOR_2_REQUIRED';
+            }
+        }
+
+        return [
+            'can_set_supervisor' => $canSetSupervisor,
+            'can_mark_kelompok_final' => $canMarkKelompokFinal,
+            'can_cancel_kelompok_final' => !$isPeriodFinalized && $group->status === 'KELOMPOK_FINAL',
+            'can_assign_title' => !$isPeriodFinalized && $group->status === 'READY_FOR_BIDDING' && !$group->title_id,
+            'can_promote_to_ready_for_finalization' => !$isPeriodFinalized && $group->status === 'TITLE_APPROVED',
+            'reason' => $reason,
+        ];
+    }
+
+    private function buildAdminFinalizationFlowPayload(Period $period, string $tab, string $subTab): array
+    {
+        if ($period->is_finalized) {
+            return [
+                'can_modify' => false,
+                'can_execute_finalization' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        $canExecuteFinalization = $tab === 'final'
+            ? Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0
+                && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0
+            : false;
+
+        return [
+            'can_modify' => true,
+            'can_execute_finalization' => $canExecuteFinalization,
+            'tab' => $tab,
+            'sub_tab' => $subTab,
+            'reason' => null,
+        ];
     }
 
     /**
@@ -760,7 +863,10 @@ class FinalizationController extends Controller
 
             return response()->json([
                 'message' => $statusMsg,
-                'group' => $group->fresh(['supervisor1', 'supervisor2', 'members.student', 'title']),
+                'group' => $this->buildAdminGroupPayload(
+                    $group->fresh(['supervisor1', 'supervisor2', 'members.student', 'title.lecturer', 'period']),
+                    $group->period
+                ),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -805,7 +911,7 @@ class FinalizationController extends Controller
             'PDC2_READY_FOR_EXPO',
             'EXPO_REGISTERED',
             'EXPO_DONE',
-            'PDC2_COMPLETED',
+            'READY_FOR_TA_INDIVIDUAL',
             'CLOSED',
             'DISSOLVED',
         ];
@@ -1052,7 +1158,10 @@ class FinalizationController extends Controller
 
             return response()->json([
                 'message' => "Cancel Kelompok Final berhasil. Grup #{$group->id} dikembalikan ke READY_FOR_FINALIZATION.",
-                'group' => $group->fresh(['members.student', 'title', 'supervisor1', 'supervisor2']),
+                'group' => $this->buildAdminGroupPayload(
+                    $group->fresh(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period']),
+                    $period
+                ),
                 'old_status' => $oldStatus,
                 'new_status' => $newStatus,
             ]);
@@ -1171,7 +1280,7 @@ class FinalizationController extends Controller
 
         // Get load data for each lecturer
         $loadService = app(\App\Services\SupervisorLoadService::class);
-        $maxLoad = $period->max_supervisor_load ?? 8;
+        $maxLoad = $period->supervisorLoadLimit(8);
 
         $lecturers->each(function ($lecturer) use ($period, $loadService, $maxLoad) {
             $load = $loadService->getLoad($lecturer->id, $period->id);

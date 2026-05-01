@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -16,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Period { id: number; name: string; is_active: boolean; }
 interface Dosen { id: number; name: string; email: string; }
@@ -31,8 +33,8 @@ interface TaDefenseSchedule {
     end_time: string;
     room: string | null;
     status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
-    examiner_1: Dosen;
-    examiner_2: Dosen;
+    examiner1: Dosen;
+    examiner2: Dosen;
     evaluation_deadline: string;
     notes: string | null;
 }
@@ -75,22 +77,50 @@ export default function AdminTaDefensePage() {
     const fetchData = useCallback(async () => {
         try {
             setLoading(true);
-            const [periodsRes, dosensRes, groupsRes] = await Promise.all([
+            const [periodsRes, dosensRes, eligibleRes] = await Promise.all([
                 api.get('/admin/periods'),
-                api.get('/admin/dosens'),
-                api.get('/admin/groups', { params: { status: 'PDC2_COMPLETED' } }),
+                api.get('/admin/users?role=dosen'),
+                api.get('/admin/ta-defense-schedules/eligible-students', {
+                    params: selectedPeriod ? { period_id: selectedPeriod } : {}
+                }),
             ]);
 
             setPeriods(periodsRes.data.data || []);
-            setDosens(dosensRes.data || []);
-            setGroups(groupsRes.data.data || []);
+            // UserController returns paginated data with 'data' key containing the users
+            const dosensData = dosensRes.data?.data || dosensRes.data || [];
+            setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
+
+            // Transform eligible students data into groups format
+            const eligibleData = eligibleRes.data.data || [];
+            const groupsMap = new Map();
+            
+            eligibleData.forEach((item: any) => {
+                const group = item.group;
+                if (!groupsMap.has(group.id)) {
+                    groupsMap.set(group.id, {
+                        ...group,
+                        members: [],
+                        supervisions: item.supervisors?.map((s: any) => ({
+                            supervisor_id: s.id,
+                            role: s.pivot?.role || 'SUPERVISOR_1'
+                        })) || []
+                    });
+                }
+                groupsMap.get(group.id).members.push({
+                    student: item.student,
+                    is_leader: false,
+                    submission_id: item.submission?.id
+                });
+            });
+
+            setGroups(Array.from(groupsMap.values()));
 
             // Set active period as default
             const activePeriod = periodsRes.data.data?.find((p: Period) => p.is_active);
             if (activePeriod && !selectedPeriod) {
                 setSelectedPeriod(activePeriod.id.toString());
             }
-        } catch (error) {
+        } catch {
             toast.error('Failed to load data');
         } finally {
             setLoading(false);
@@ -104,7 +134,7 @@ export default function AdminTaDefensePage() {
                 params: { period_id: selectedPeriod }
             });
             setSchedules(res.data.data || []);
-        } catch (error) {
+        } catch {
             toast.error('Failed to load schedules');
         }
     }, [selectedPeriod]);
@@ -121,9 +151,12 @@ export default function AdminTaDefensePage() {
         const group = groups.find(g => g.id.toString() === selectedGroupId);
         if (!group) return [];
         
-        // Filter students who don't have a schedule yet
-        const scheduledStudentIds = schedules.map(s => s.student.id);
-        return group.members.filter(m => !scheduledStudentIds.includes(m.student.id));
+        // Filter students who don't have an ACTIVE schedule (SCHEDULED or DONE)
+        // Cancelled students can be rescheduled
+        const activeScheduledStudentIds = schedules
+            .filter(s => s.status === 'SCHEDULED' || s.status === 'DONE')
+            .map(s => s.student.id);
+        return group.members.filter(m => !activeScheduledStudentIds.includes(m.student.id));
     };
 
     const getSupervisorIds = () => {
@@ -177,8 +210,10 @@ export default function AdminTaDefensePage() {
             setCreateOpen(false);
             resetForm();
             fetchSchedules();
-        } catch (error: any) {
-            const message = error.response?.data?.message || 'Failed to create schedule';
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error)
+                ? (error.response?.data?.message as string) || 'Failed to create schedule'
+                : 'Failed to create schedule';
             toast.error(message);
             if (message.includes('supervisor')) {
                 setExaminerError(message);
@@ -192,12 +227,12 @@ export default function AdminTaDefensePage() {
         if (!cancelSchedule) return;
         
         try {
-            await api.post(`/admin/ta-defense-schedules/${cancelSchedule.id}/cancel`);
+            await api.put(`/admin/ta-defense-schedules/${cancelSchedule.id}/cancel`);
             toast.success('Schedule cancelled successfully');
             setCancelOpen(false);
             setCancelSchedule(null);
             fetchSchedules();
-        } catch (error) {
+        } catch {
             toast.error('Failed to cancel schedule');
         }
     };
@@ -220,8 +255,7 @@ export default function AdminTaDefensePage() {
         return (
             s.student.name.toLowerCase().includes(query) ||
             s.student.nim.toLowerCase().includes(query) ||
-            s.group.name.toLowerCase().includes(query) ||
-            s.group.code.toLowerCase().includes(query) ||
+            s.group.id.toString().includes(query) ||
             s.room?.toLowerCase().includes(query)
         );
     });
@@ -266,8 +300,8 @@ export default function AdminTaDefensePage() {
 
             {/* Filters */}
             <Card className="mb-6">
-                <CardContent className="pt-6">
-                    <div className="flex gap-4 items-center">
+                <CardContent className="pt-4">
+                    <div className="flex gap-12 items-center">
                         <div className="w-64">
                             <Label>Period</Label>
                             <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
@@ -299,81 +333,8 @@ export default function AdminTaDefensePage() {
                 </CardContent>
             </Card>
 
-            {/* Schedules List */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {filteredSchedules.map(schedule => (
-                    <Card key={schedule.id} className={schedule.status === 'CANCELLED' ? 'opacity-60' : ''}>
-                        <CardHeader className="pb-3">
-                            <div className="flex justify-between items-start">
-                                {getStatusBadge(schedule.status)}
-                                {schedule.status === 'SCHEDULED' && (
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-destructive hover:text-destructive"
-                                        onClick={() => {
-                                            setCancelSchedule(schedule);
-                                            setCancelOpen(true);
-                                        }}
-                                    >
-                                        Cancel
-                                    </Button>
-                                )}
-                            </div>
-                            <CardTitle className="text-lg mt-2">{schedule.student.name}</CardTitle>
-                            <CardDescription>{schedule.student.nim}</CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <Users className="mr-2 h-4 w-4" />
-                                {schedule.group.name} ({schedule.group.code})
-                            </div>
-                            
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <Calendar className="mr-2 h-4 w-4" />
-                                {new Date(schedule.date).toLocaleDateString('id-ID', {
-                                    weekday: 'long',
-                                    year: 'numeric',
-                                    month: 'long',
-                                    day: 'numeric'
-                                })}
-                            </div>
-                            
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <Clock className="mr-2 h-4 w-4" />
-                                {schedule.start_time} - {schedule.end_time}
-                            </div>
-                            
-                            <div className="flex items-center text-sm text-muted-foreground">
-                                <MapPin className="mr-2 h-4 w-4" />
-                                {schedule.room || 'Room not set'}
-                            </div>
-
-                            <div className="pt-3 border-t">
-                                <p className="text-sm font-medium mb-2">Examiners:</p>
-                                <div className="space-y-1">
-                                    <div className="text-sm text-muted-foreground">
-                                        1. {schedule.examiner_1?.name || 'Not assigned'}
-                                    </div>
-                                    <div className="text-sm text-muted-foreground">
-                                        2. {schedule.examiner_2?.name || 'Not assigned'}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {schedule.evaluation_deadline && (
-                                <div className="pt-2 border-t">
-                                    <p className="text-xs text-muted-foreground">
-                                        Evaluation deadline: {new Date(schedule.evaluation_deadline).toLocaleDateString('id-ID')}
-                                    </p>
-                                </div>
-                            )}
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
-
-            {filteredSchedules.length === 0 && (
+            {/* Schedules List with Tabs */}
+            {filteredSchedules.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <GraduationCap className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <p className="text-muted-foreground">No TA defense schedules found</p>
@@ -381,6 +342,160 @@ export default function AdminTaDefensePage() {
                         Create First Schedule
                     </Button>
                 </div>
+            ) : (
+                <Tabs defaultValue="active" className="space-y-6">
+                    <TabsList className="grid w-full max-w-md grid-cols-2">
+                        <TabsTrigger value="active">
+                            Active Schedules ({filteredSchedules.filter(s => s.status !== 'CANCELLED').length})
+                        </TabsTrigger>
+                        <TabsTrigger value="cancelled">
+                            Cancelled Schedules ({filteredSchedules.filter(s => s.status === 'CANCELLED').length})
+                        </TabsTrigger>
+                    </TabsList>
+                    
+                    <TabsContent value="active" className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {filteredSchedules
+                                .filter(schedule => schedule.status !== 'CANCELLED')
+                                .map(schedule => (
+                                    <Card key={schedule.id}>
+                                        <CardHeader className="pb-3">
+                                            <div className="flex justify-between items-start">
+                                                {getStatusBadge(schedule.status)}
+                                                {schedule.status === 'SCHEDULED' && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="text-destructive hover:text-destructive"
+                                                        onClick={() => {
+                                                            setCancelSchedule(schedule);
+                                                            setCancelOpen(true);
+                                                        }}
+                                                    >
+                                                        Cancel
+                                                    </Button>
+                                                )}
+                                            </div>
+                                            <CardTitle className="text-lg mt-2">{schedule.student.name}</CardTitle>
+                                            <CardDescription>{schedule.student.nim}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Users className="mr-2 h-4 w-4" />
+                                                Group {schedule.group.id}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Calendar className="mr-2 h-4 w-4" />
+                                                {new Date(schedule.date).toLocaleDateString('id-ID', {
+                                                    weekday: 'long',
+                                                    year: 'numeric',
+                                                    month: 'long',
+                                                    day: 'numeric'
+                                                })}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Clock className="mr-2 h-4 w-4" />
+                                                {schedule.start_time} - {schedule.end_time}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <MapPin className="mr-2 h-4 w-4" />
+                                                {schedule.room || 'Room not set'}
+                                            </div>
+
+                                            <div className="pt-3 border-t">
+                                                <p className="text-sm font-medium mb-2">Examiners:</p>
+                                                <div className="space-y-1">
+                                                    <div className="text-sm text-muted-foreground">
+                                                        1. {schedule.examiner1?.name || 'Not assigned'}
+                                                    </div>
+                                                    <div className="text-sm text-muted-foreground">
+                                                        2. {schedule.examiner2?.name || 'Not assigned'}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {schedule.evaluation_deadline && (
+                                                <div className="pt-2 border-t">
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Evaluation deadline: {new Date(schedule.evaluation_deadline).toLocaleDateString('id-ID')}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                        </div>
+                        {filteredSchedules.filter(s => s.status !== 'CANCELLED').length === 0 && (
+                            <div className="text-center py-12 border rounded-lg border-dashed">
+                                <p className="text-muted-foreground">No active schedules</p>
+                            </div>
+                        )}
+                    </TabsContent>
+                    
+                    <TabsContent value="cancelled" className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {filteredSchedules
+                                .filter(schedule => schedule.status === 'CANCELLED')
+                                .map(schedule => (
+                                    <Card key={schedule.id} className="opacity-60">
+                                        <CardHeader className="pb-3">
+                                            <div className="flex justify-between items-start">
+                                                {getStatusBadge(schedule.status)}
+                                            </div>
+                                            <CardTitle className="text-lg mt-2">{schedule.student.name}</CardTitle>
+                                            <CardDescription>{schedule.student.nim}</CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Users className="mr-2 h-4 w-4" />
+                                                Group {schedule.group.id}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Calendar className="mr-2 h-4 w-4" />
+                                                {new Date(schedule.date).toLocaleDateString('id-ID', {
+                                                    weekday: 'long',
+                                                    year: 'numeric',
+                                                    month: 'long',
+                                                    day: 'numeric'
+                                                })}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <Clock className="mr-2 h-4 w-4" />
+                                                {schedule.start_time} - {schedule.end_time}
+                                            </div>
+                                            
+                                            <div className="flex items-center text-sm text-muted-foreground">
+                                                <MapPin className="mr-2 h-4 w-4" />
+                                                {schedule.room || 'Room not set'}
+                                            </div>
+
+                                            <div className="pt-3 border-t">
+                                                <p className="text-sm font-medium mb-2">Examiners:</p>
+                                                <div className="space-y-1">
+                                                    <div className="text-sm text-muted-foreground">
+                                                        1. {schedule.examiner1?.name || 'Not assigned'}
+                                                    </div>
+                                                    <div className="text-sm text-muted-foreground">
+                                                        2. {schedule.examiner2?.name || 'Not assigned'}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                        </div>
+                        {filteredSchedules.filter(s => s.status === 'CANCELLED').length === 0 && (
+                            <div className="text-center py-12 border rounded-lg border-dashed">
+                                <p className="text-muted-foreground">No cancelled schedules</p>
+                            </div>
+                        )}
+                    </TabsContent>
+                </Tabs>
             )}
 
             {/* Create Dialog */}
@@ -415,7 +530,7 @@ export default function AdminTaDefensePage() {
                                     <SelectContent>
                                         {groups.map(g => (
                                             <SelectItem key={g.id} value={g.id.toString()}>
-                                                {g.name} ({g.code})
+                                                Group {g.id}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -555,7 +670,7 @@ export default function AdminTaDefensePage() {
                         <div className="py-4">
                             <p className="font-medium">{cancelSchedule.student.name}</p>
                             <p className="text-sm text-muted-foreground">
-                                {cancelSchedule.group.name} - {new Date(cancelSchedule.date).toLocaleDateString('id-ID')}
+                                Group {cancelSchedule.group.id} - {new Date(cancelSchedule.date).toLocaleDateString('id-ID')}
                             </p>
                         </div>
                     )}
