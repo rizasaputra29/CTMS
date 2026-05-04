@@ -150,4 +150,49 @@ class Period extends Model
     {
         return $this->hasMany(PeriodPeerReviewIndicator::class);
     }
+
+    /**
+     * Get the currently active period with caching.
+     * Cache for 5 minutes to reduce database queries.
+     */
+    public static function getActive(?string $cacheKey = null): ?self
+    {
+        $cacheKey = $cacheKey ?? 'period:active';
+
+        return cache()->remember($cacheKey, now()->addMinutes(5), function () {
+            return self::where('is_active', true)->first();
+        });
+    }
+
+    /**
+     * Get all active periods with caching.
+     */
+    public static function getAllActive(): \Illuminate\Support\Collection
+    {
+        return cache()->remember('periods:active:all', now()->addMinutes(5), function () {
+            return self::where('is_active', true)->get();
+        });
+    }
+
+    /**
+     * Clear the active period cache.
+     * Call this when a period is created, updated, or deleted.
+     */
+    public static function clearActiveCache(): void
+    {
+        cache()->forget('period:active');
+        cache()->forget('periods:active:all');
+    }
+
+    protected static function booted(): void
+    {
+        // Clear cache when period is saved or deleted
+        static::saved(function ($period) {
+            self::clearActiveCache();
+        });
+
+        static::deleted(function ($period) {
+            self::clearActiveCache();
+        });
+    }
 }

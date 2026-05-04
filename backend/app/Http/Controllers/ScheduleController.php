@@ -196,7 +196,8 @@ class ScheduleController extends Controller
         $allSchedules = [];
 
         // 1. BIMBINGAN schedules from schedules table
-        $bimbinganSchedules = Schedule::with('group.title.lecturer')
+        // OPTIMIZED: Added 'group.members.student' to eager loading to prevent N+1 queries
+        $bimbinganSchedules = Schedule::with(['group.title.lecturer', 'group.members.student'])
             ->where('group_id', $groupId)
             ->where('type', 'BIMBINGAN')
             ->get()
@@ -347,7 +348,8 @@ class ScheduleController extends Controller
             $q->where('supervisor_id', $user->id);
         })->pluck('id');
 
-        $bimbinganSchedules = Schedule::with('group.title.lecturer')
+        // OPTIMIZED: Added 'group.members.student' to eager loading to prevent N+1 queries
+        $bimbinganSchedules = Schedule::with(['group.title.lecturer', 'group.members.student'])
             ->whereIn('group_id', $supervisedGroupIds)
             ->where('type', 'BIMBINGAN')
             ->get()

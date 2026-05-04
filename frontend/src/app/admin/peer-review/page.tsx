@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,7 +43,7 @@ interface GroupMemberScore {
   student_id: number;
   student_name: string;
   weighted_avg: number;
-  individual_scores: { indicator_code: string; score: number; weight: number }[];
+  individual_scores: { indicator_code: string; raw_score: number; converted_score: number; weight: number }[];
 }
 
 interface GroupScore {
@@ -99,9 +100,12 @@ export default function AdminPeerReviewPage() {
     try {
       const res = await api.get(`/admin/peer-review/scores?period_id=${selectedPeriod}`);
       setScoresData(res.data?.groups || []);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to load scores:', error);
-      toast.error('Failed to load peer review scores: ' + (error?.response?.data?.message || 'Unknown error'));
+      const message = axios.isAxiosError(error)
+        ? error.response?.data?.message || 'Unknown error'
+        : 'Unknown error';
+      toast.error('Failed to load peer review scores: ' + message);
       setScoresData([]);
     } finally {
       setScoresLoading(false);
@@ -177,9 +181,22 @@ export default function AdminPeerReviewPage() {
 
   const totalWeight = selectedIndicators.reduce((sum, i) => sum + Number(i.weight), 0);
 
-  const getScoreColor = (score: number) => {
-    if (score >= 80) return 'text-green-600';
-    if (score >= 60) return 'text-amber-600';
+  // Convert 1-4 scale to 0-100 scale - commented out as unused
+  // const convertScoreTo100 = (rawScore: number): number => {
+  //   return rawScore > 0 ? rawScore * 25 : 0;
+  // };
+
+  // const getScoreColor = (score: number) => {
+  //   // For converted scores (0-100 scale)
+  //   if (score >= 80) return 'text-green-600';
+  //   if (score >= 60) return 'text-amber-600';
+  //   return 'text-red-600';
+  // };
+
+  const getRawScoreColor = (score: number) => {
+    // For raw scores (1-4 scale)
+    if (score >= 3) return 'text-green-600';
+    if (score >= 2) return 'text-amber-600';
     return 'text-red-600';
   };
 
@@ -461,7 +478,10 @@ export default function AdminPeerReviewPage() {
                                 <span className="block text-xs font-normal text-muted-foreground">({score.weight}%)</span>
                               </th>
                             ))}
-                            <th className="px-4 py-3 text-center font-semibold">Weighted Average</th>
+                            <th className="px-4 py-3 text-center font-semibold">
+                              Weighted Average
+                              <span className="block text-xs font-normal text-muted-foreground">(0-100 scale)</span>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -470,9 +490,14 @@ export default function AdminPeerReviewPage() {
                               <td className="px-4 py-3 font-medium">{member.student_name}</td>
                               {member.individual_scores.map((score) => (
                                 <td key={score.indicator_code} className="px-4 py-3 text-center">
-                                  <span className={`font-bold ${getScoreColor(score.score)}`}>
-                                    {score.score.toFixed(1)}
-                                  </span>
+                                  <div className="flex flex-col items-center">
+                                    <span className={`font-bold ${getRawScoreColor(score.raw_score)}`}>
+                                      {score.raw_score}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      ({score.converted_score})
+                                    </span>
+                                  </div>
                                 </td>
                               ))}
                               <td className="px-4 py-3 text-center">
@@ -484,6 +509,11 @@ export default function AdminPeerReviewPage() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                    <div className="p-4 bg-muted/30 text-xs text-muted-foreground flex items-center gap-4">
+                      <span><strong>Raw Score (1-4):</strong> 1=Poor, 2=Fair, 3=Good, 4=Excellent</span>
+                      <span className="text-border">|</span>
+                      <span><strong>Converted:</strong> Raw × 25 (0-100 scale)</span>
                     </div>
                   </CardContent>
                 </Card>

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -81,6 +81,12 @@ interface ScheduleSummary {
   completed_evaluators: number;
   average_score: number | null;
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED';
+  // Grade columns
+  pdc1_score?: number | null;
+  pdc2_score?: number | null;
+  final_grade?: number | null;
+  letter_grade?: string | null;
+  grade_status?: 'COMPLETE' | 'INCOMPLETE' | 'PARTIAL';
 }
 
 interface Evaluator {
@@ -152,8 +158,9 @@ const TYPE_OPTIONS = [
   { value: 'EXPO', label: 'EXPO' },
   { value: 'BIMBINGAN_SEMPRO', label: 'Bimbingan SEMPRO' },
   { value: 'BIMBINGAN_TA', label: 'Bimbingan TA' },
-  { value: 'BIMBINGAN_EXPO', label: 'Bimbingan EXPO' },
   { value: 'MILESTONE', label: 'MILESTONE' },
+  { value: 'NILAI_DOSEN', label: 'Nilai Dosen' },
+  { value: 'PEER_REVIEW', label: 'Peer Review' },
 ];
 
 const STATUS_OPTIONS = [
@@ -476,6 +483,8 @@ export default function EvaluationSummaryAnalyticsPage() {
       partial: schedules.filter(s => s.status === 'PARTIAL').length,
       pending: schedules.filter(s => s.status === 'PENDING').length,
       withScore: schedules.filter(s => s.average_score !== null).length,
+      withGrades: schedules.filter(s => s.final_grade !== null).length,
+      gradeComplete: schedules.filter(s => s.grade_status === 'COMPLETE').length,
     };
   }, [schedules, totalItems]);
 
@@ -583,6 +592,42 @@ export default function EvaluationSummaryAnalyticsPage() {
     }
   };
 
+  // Get grade status badge - commented out as unused
+  // const getGradeStatusBadge = (status?: string) => {
+  //   switch (status) {
+  //     case 'COMPLETE':
+  //       return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100"><CheckCircle2 className="w-3 h-3 mr-1" />Lengkap</Badge>;
+  //     case 'PARTIAL':
+  //       return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100"><AlertCircle className="w-3 h-3 mr-1" />Sebagian</Badge>;
+  //     case 'INCOMPLETE':
+  //       return <Badge variant="secondary"><AlertCircle className="w-3 h-3 mr-1" />Belum Lengkap</Badge>;
+  //     default:
+  //       return <Badge variant="outline">-</Badge>;
+  //   }
+  // };
+
+  // Get score color class
+  const getScoreColorClass = (score?: number | null) => {
+    if (score === null || score === undefined) return 'text-muted-foreground';
+    if (score >= 85) return 'text-emerald-600 font-semibold';
+    if (score >= 70) return 'text-blue-600 font-semibold';
+    if (score >= 60) return 'text-amber-600 font-semibold';
+    return 'text-red-600 font-semibold';
+  };
+
+  // Get letter grade badge
+  const getLetterGradeBadge = (grade?: string | null) => {
+    if (!grade) return <Badge variant="outline">-</Badge>;
+    const colorMap: Record<string, string> = {
+      'A': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+      'B': 'bg-blue-100 text-blue-800 border-blue-300',
+      'C': 'bg-amber-100 text-amber-800 border-amber-300',
+      'D': 'bg-orange-100 text-orange-800 border-orange-300',
+      'E': 'bg-red-100 text-red-800 border-red-300',
+    };
+    return <Badge className={colorMap[grade] || 'bg-gray-100 text-gray-800'}>{grade}</Badge>;
+  };
+
   // Clear all filters
   const clearFilters = () => {
     setFilters({
@@ -648,7 +693,7 @@ export default function EvaluationSummaryAnalyticsPage() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Jadwal</CardTitle>
@@ -687,6 +732,22 @@ export default function EvaluationSummaryAnalyticsPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">{stats.withScore}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-emerald-600">Grade Lengkap</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-emerald-600">{stats.gradeComplete}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-purple-600">Dengan Grade</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-600">{stats.withGrades}</div>
           </CardContent>
         </Card>
       </div>
@@ -872,11 +933,21 @@ export default function EvaluationSummaryAnalyticsPage() {
                               <Users className="w-3 h-3 inline mr-1" />
                               {schedule.completed_evaluators}/{schedule.evaluator_count} evaluator
                             </span>
-                            {schedule.average_score !== null && (
-                              <Badge variant="secondary" className="text-xs">
-                                Avg: {schedule.average_score.toFixed(2)}
-                              </Badge>
-                            )}
+                            <div className="flex items-center gap-2">
+                              {schedule.final_grade !== null && schedule.final_grade !== undefined && (
+                                <div className="flex items-center gap-1">
+                                  {getLetterGradeBadge(schedule.letter_grade)}
+                                  <span className={`text-xs ${getScoreColorClass(schedule.final_grade)}`}>
+                                    {Number(schedule.final_grade).toFixed(1)}
+                                  </span>
+                                </div>
+                              )}
+                              {schedule.average_score !== null && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Avg: {Number(schedule.average_score).toFixed(1)}
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -995,9 +1066,50 @@ export default function EvaluationSummaryAnalyticsPage() {
                               <p className="text-sm text-muted-foreground">{studentData.student.nim}</p>
                             </div>
                           </div>
-                          
+
+                          {/* Grade Summary Cards */}
+                          <div className="grid grid-cols-3 gap-3">
+                            <Card className="bg-blue-50 border-blue-200">
+                              <CardHeader className="pb-1 pt-3 px-3">
+                                <CardTitle className="text-xs text-blue-600">PDC 1</CardTitle>
+                              </CardHeader>
+                              <CardContent className="pt-0 pb-3 px-3">
+                                <div className="text-lg font-bold text-blue-700">
+                                  {(studentData as {pdc1_score?: number}).pdc1_score !== undefined ? Number((studentData as {pdc1_score?: number}).pdc1_score).toFixed(1) : '-'}
+                                </div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-purple-50 border-purple-200">
+                              <CardHeader className="pb-1 pt-3 px-3">
+                                <CardTitle className="text-xs text-purple-600">PDC 2</CardTitle>
+                              </CardHeader>
+                              <CardContent className="pt-0 pb-3 px-3">
+                                <div className="text-lg font-bold text-purple-700">
+                                  {(studentData as {pdc2_score?: number}).pdc2_score !== undefined ? Number((studentData as {pdc2_score?: number}).pdc2_score).toFixed(1) : '-'}
+                                </div>
+                              </CardContent>
+                            </Card>
+                            <Card className="bg-emerald-50 border-emerald-200">
+                              <CardHeader className="pb-1 pt-3 px-3">
+                                <CardTitle className="text-xs text-emerald-600">Final</CardTitle>
+                              </CardHeader>
+                              <CardContent className="pt-0 pb-3 px-3">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-lg font-bold text-emerald-700">
+                                    {(studentData as {final_grade?: number}).final_grade !== undefined ? Number((studentData as {final_grade?: number}).final_grade).toFixed(1) : '-'}
+                                  </span>
+                                  {(studentData as {letter_grade?: string}).letter_grade && (
+                                    <Badge className="bg-emerald-100 text-emerald-800">
+                                      {(studentData as {letter_grade?: string}).letter_grade}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          </div>
+
                           <Separator />
-                          
+
                           {studentData.evaluators.length === 0 ? (
                             <div className="text-center py-8 text-muted-foreground">
                               <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
@@ -1020,7 +1132,7 @@ export default function EvaluationSummaryAnalyticsPage() {
                                       <div className="text-right">
                                         <p className="text-xs text-muted-foreground">Rata-rata Tertimbang</p>
                                         <p className="text-xl font-bold text-primary">
-                                          {evaluatorData.weighted_average.toFixed(2)}
+                                          {Number(evaluatorData.weighted_average).toFixed(2)}
                                         </p>
                                       </div>
                                     </div>
@@ -1045,7 +1157,7 @@ export default function EvaluationSummaryAnalyticsPage() {
                                             <TableCell className="text-xs text-right py-1">{score.weight}%</TableCell>
                                             <TableCell className="text-xs text-right py-1 font-medium">{score.score}</TableCell>
                                             <TableCell className="text-xs text-right py-1">
-                                              {((score.score * score.weight) / 100).toFixed(2)}
+                                              {((Number(score.score) * Number(score.weight)) / 100).toFixed(2)}
                                             </TableCell>
                                           </TableRow>
                                         ))}

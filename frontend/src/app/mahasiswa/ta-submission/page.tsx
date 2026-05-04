@@ -178,9 +178,10 @@ export default function TaSubmissionPage() {
       setLoading(true);
       const response = await api.get('/mahasiswa/ta-detailed-status');
       setStatusData(response.data);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to fetch TA data', err);
-      if (err.response?.status === 400) {
+      const axiosError = err as { response?: { status?: number } };
+      if (axiosError.response?.status === 400) {
         setStatusData({
           can_access: false,
           status: 'TA_LOCKED',
@@ -283,8 +284,9 @@ export default function TaSubmissionPage() {
       setSelectedFile(null);
       setSelectedDocType('');
       fetchData();
-    } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Upload failed');
+    } catch (error: unknown) {
+      const axiosError = error as { response?: { data?: { message?: string } } };
+      toast.error(axiosError.response?.data?.message || 'Upload failed');
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -462,8 +464,8 @@ export default function TaSubmissionPage() {
               {STEPS.map((step, index) => {
                 const isCompleted = index < currentStep;
                 const isCurrent = index === currentStep;
-                const isPending = index > currentStep;
-                
+                // const isPending = index > currentStep;
+
                 return (
                   <div key={step.id} className="relative flex md:flex-col items-start md:items-center gap-3 md:gap-2">
                     {/* Step Circle */}

@@ -11,15 +11,23 @@ use Illuminate\Http\Request;
 class GradeConfigurationController extends Controller
 {
     private const DEFAULT_PDC1_WEIGHTS = [
-        'SEMPRO' => 60,
-        'BIMBINGAN_SEMPRO' => 40
+        'SEMPRO' => 50,
+        'BIMBINGAN_SEMPRO' => 50
     ];
 
     private const DEFAULT_PDC2_WEIGHTS = [
-        'EXPO' => 50,
-        'BIMBINGAN_EXPO' => 25,
-        'MILESTONE' => 25
+        'NILAI_DOSEN' => 25,
+        'MILESTONE' => 25,
+        'EXPO' => 25,
+        'PEER_REVIEW' => 25
     ];
+
+    protected $gradeCalculationService;
+
+    public function __construct(\App\Services\GradeCalculationService $gradeCalculationService)
+    {
+        $this->gradeCalculationService = $gradeCalculationService;
+    }
 
     /**
      * Get grade weight configuration for PDC1
@@ -67,9 +75,10 @@ class GradeConfigurationController extends Controller
             'pdc1_weights.SEMPRO' => 'nullable|numeric|min:0',
             'pdc1_weights.BIMBINGAN_SEMPRO' => 'nullable|numeric|min:0',
             'pdc2_weights' => 'nullable|array',
-            'pdc2_weights.EXPO' => 'nullable|numeric|min:0',
-            'pdc2_weights.BIMBINGAN_EXPO' => 'nullable|numeric|min:0',
+            'pdc2_weights.NILAI_DOSEN' => 'nullable|numeric|min:0',
             'pdc2_weights.MILESTONE' => 'nullable|numeric|min:0',
+            'pdc2_weights.EXPO' => 'nullable|numeric|min:0',
+            'pdc2_weights.PEER_REVIEW' => 'nullable|numeric|min:0',
         ]);
 
         $gradeConfig = $period->grade_configuration ?? [];
@@ -224,7 +233,7 @@ class GradeConfigurationController extends Controller
             ],
             'pdc2' => [
                 'weights' => $config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
-                'components' => ['EXPO', 'BIMBINGAN_EXPO', 'MILESTONE'],
+                'components' => ['NILAI_DOSEN', 'MILESTONE', 'EXPO', 'PEER_REVIEW'],
                 'total_weight' => array_sum($config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS)
             ]
         ]);
@@ -248,6 +257,111 @@ class GradeConfigurationController extends Controller
             'message' => 'Grade configuration reset to defaults',
             'period_id' => $periodId,
             'grade_configuration' => $gradeConfig
+        ]);
+    }
+
+    /**
+     * Get grades for the authenticated student (my grades)
+     */
+    public function getMyGrades(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        
+        // Get student's group
+        $groupMember = \App\Models\GroupMember::with('group.period')
+            ->where('student_id', $user->id)
+            ->first();
+
+        if (!$groupMember || !$groupMember->group) {
+            return response()->json([
+                'message' => 'You are not assigned to any group',
+                'grades' => null
+            ], 404);
+        }
+
+        $group = $groupMember->group;
+        
+        // Calculate grades using the service
+        $grades = $this->gradeCalculationService->calculateFinalGradeForStudent(
+            $user->id, 
+            $group->id
+        );
+
+        if (!$grades) {
+            return response()->json([
+                'message' => 'No grades available yet',
+                'grades' => null,
+                'group' => [
+                    'id' => $group->id,
+                    'name' => $group->name,
+                ],
+                'period' => [
+                    'id' => $group->period->id,
+                    'name' => $group->period->name,
+                ]
+            ]);
+        }
+
+        return response()->json([
+            'grades' => $grades,
+            'group' => [
+                'id' => $group->id,
+                'name' => $group->name,
+            ],
+            'period' => [
+                'id' => $group->period->id,
+                'name' => $group->period->name,
+            ],
+            'student' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'nim' => $user->nim,
+            ]
+        ]);
+    }
+
+    /**
+     * Get grades for a specific student (admin/dosen only)
+     */
+    public function getStudentGrades(Request $request, int $studentId): JsonResponse
+    {
+        $student = \App\Models\User::findOrFail($studentId);
+        
+        // Get student's group
+        $groupMember = \App\Models\GroupMember::with('group.period')
+            ->where('student_id', $studentId)
+            ->first();
+
+        if (!$groupMember || !$groupMember->group) {
+            return response()->json([
+                'message' => 'Student is not assigned to any group',
+                'grades' => null
+            ], 404);
+        }
+
+        $group = $groupMember->group;
+        
+        // Calculate grades using the service
+        $grades = $this->gradeCalculationService->calculateFinalGradeForStudent(
+            $studentId, 
+            $group->id
+        );
+
+        return response()->json([
+            'grades' => $grades,
+            'group' => [
+                'id' => $group->id,
+                'name' => $group->name,
+            ],
+            'period' => [
+                'id' => $group->period->id,
+                'name' => $group->period->name,
+            ],
+            'student' => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'nim' => $student->nim,
+            ]
         ]);
     }
 }

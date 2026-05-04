@@ -6,6 +6,8 @@ use App\Models\AssessmentScore;
 use App\Models\PeerReview;
 use App\Models\GradeConsistencyCheck;
 use App\Models\Group;
+use App\Models\GroupMember;
+use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -28,6 +30,7 @@ class ReportExportController extends Controller
             'peer-reviews' => $this->exportPeerReviews($periodId),
             'grade-consistency' => $this->exportGradeConsistency($periodId),
             'groups' => $this->exportGroups($periodId),
+            'final-grades' => $this->exportFinalGrades($periodId),
             default => response()->json(['message' => 'Unknown report type'], 400),
         };
     }
@@ -70,7 +73,7 @@ class ReportExportController extends Controller
 
     private function exportPeerReviews($periodId): StreamedResponse
     {
-        $reviews = PeerReview::with(['reviewer', 'reviewee', 'indicator', 'group'])
+        $reviews = PeerReview::with(['reviewer', 'reviewee', 'periodIndicator.template', 'group'])
             ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
             ->get();
 
@@ -80,17 +83,25 @@ class ReportExportController extends Controller
             'Reviewee',
             'Indicator',
             'Weight',
-            'Score',
+            'Raw Score (1-4)',
+            'Converted Score (0-100)',
             'Comment'
-        ], $reviews->map(fn($r) => [
+        ], $reviews->map(function($r) {
+            // Use stored values: raw_score (1-4) and score (0-100)
+            $rawScore = $r->raw_score;
+            $convertedScore = $r->score; // Should always be raw_score × 25
+            
+            return [
                 $r->group_id,
                 $r->reviewer->name ?? '',
                 $r->reviewee->name ?? '',
-                $r->indicator->name ?? '',
-                $r->indicator->weight ?? '',
-                $r->score,
+                $r->periodIndicator->template->name ?? ($r->indicator->name ?? ''),
+                $r->periodIndicator->template->weight ?? ($r->indicator->weight ?? ''),
+                $rawScore,
+                $convertedScore,
                 $r->comment ?? '',
-            ])->toArray());
+            ];
+        })->toArray());
     }
 
     private function exportGradeConsistency($periodId): StreamedResponse
@@ -145,6 +156,76 @@ class ReportExportController extends Controller
                 $g->supervisor2->name ?? '',
                 $g->members->map(fn($m) => $m->student->name ?? '')->implode('; '),
             ])->toArray());
+    }
+
+    private function exportFinalGrades($periodId): StreamedResponse
+    {
+        $gradeService = new GradeCalculationService();
+
+        // Get all groups in the period with their members
+        $groups = Group::where('period_id', $periodId)
+            ->with(['title', 'members.student'])
+            ->get();
+
+        $gradeRows = [];
+
+        foreach ($groups as $group) {
+            foreach ($group->members as $member) {
+                $student = $member->student;
+                if (!$student) continue;
+
+                // Calculate grades for this student
+                $pdc1Data = $gradeService->calculatePDC1ForStudent($student->id, $group->id);
+                $pdc2Data = $gradeService->calculatePDC2ForStudent($student->id, $group->id);
+
+                $pdc1Score = $pdc1Data ? $pdc1Data['grade'] : 0;
+                $pdc2Score = $pdc2Data ? $pdc2Data['grade'] : 0;
+
+                // Calculate final grade
+                if ($pdc1Score > 0 && $pdc2Score > 0) {
+                    $finalGrade = ($pdc1Score + $pdc2Score) / 2;
+                } elseif ($pdc1Score > 0) {
+                    $finalGrade = $pdc1Score;
+                } elseif ($pdc2Score > 0) {
+                    $finalGrade = $pdc2Score;
+                } else {
+                    $finalGrade = 0;
+                }
+
+                $letterGrade = $finalGrade > 0 ? $gradeService->getLetterGrade($finalGrade) : 'N/A';
+
+                // Check if all components are complete
+                $isComplete = $pdc1Data && $pdc2Data &&
+                             $pdc1Data['status'] === 'COMPLETE' &&
+                             $pdc2Data['status'] === 'COMPLETE';
+
+                $gradeRows[] = [
+                    'group_id' => $group->id,
+                    'group_title' => $group->title->title ?? '',
+                    'student_id' => $student->id,
+                    'student_name' => $student->name,
+                    'student_nim' => $student->nim ?? '',
+                    'pdc1_score' => $pdc1Score > 0 ? number_format($pdc1Score, 2) : 'N/A',
+                    'pdc2_score' => $pdc2Score > 0 ? number_format($pdc2Score, 2) : 'N/A',
+                    'final_grade' => $finalGrade > 0 ? number_format($finalGrade, 2) : 'N/A',
+                    'letter_grade' => $letterGrade,
+                    'status' => $isComplete ? 'Complete' : 'Incomplete',
+                ];
+            }
+        }
+
+        return $this->streamCsv('final_grades.csv', [
+            'Group ID',
+            'Group Title',
+            'Student ID',
+            'Student Name',
+            'NIM',
+            'PDC1 Score',
+            'PDC2 Score',
+            'Final Grade',
+            'Letter Grade',
+            'Status'
+        ], $gradeRows);
     }
 
     /**

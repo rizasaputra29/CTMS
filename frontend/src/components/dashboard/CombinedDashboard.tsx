@@ -18,9 +18,20 @@ import { SectionHeader } from '@/components/dashboard/SectionHeader';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
 import {
-  LayoutDashboard, Users, BookOpen, Calendar, GraduationCap,
-  FileText, ClipboardCheck, Gavel, Star, Settings,
+  Users, BookOpen, Calendar, GraduationCap,
+  FileText, ClipboardCheck, Gavel, Star,
 } from 'lucide-react';
+
+interface ApiResponse<T> {
+  data?: T;
+  [key: string]: unknown;
+}
+
+interface GroupItem {
+  id: number;
+  status?: string;
+  period?: { name?: string };
+}
 
 interface DashboardData {
   admin: {
@@ -56,7 +67,7 @@ export default function CombinedDashboard() {
           api.get('/dosen/supervisor-evaluation/pending-count'),
         ]);
 
-        const getData = (result: PromiseSettledResult<any>) =>
+        const getData = (result: PromiseSettledResult<ApiResponse<unknown>>) =>
           result.status === 'fulfilled' ? result.value.data : null;
 
         const periodsData = getData(periodsRes);
@@ -69,7 +80,7 @@ export default function CombinedDashboard() {
         const supervised = supervisedData?.data || supervisedData || [];
 
         // Transform recent groups
-        const recentGroups = (Array.isArray(groups) ? groups.slice(0, 5) : []).map((g: any) => ({
+        const recentGroups = (Array.isArray(groups) ? groups.slice(0, 5) : []).map((g: GroupItem) => ({
           id: g.id,
           label: `Group ${g.id}`,
           subtitle: g.status || '',
@@ -83,7 +94,7 @@ export default function CombinedDashboard() {
         }));
 
         // Transform recent supervised groups
-        const recentSubmissions = (Array.isArray(supervised) ? supervised.slice(0, 5) : []).map((g: any) => ({
+        const recentSubmissions = (Array.isArray(supervised) ? supervised.slice(0, 5) : []).map((g: GroupItem) => ({
           id: g.id,
           label: `Group ${g.id}`,
           subtitle: `Period: ${g.period?.name || 'N/A'}`,
@@ -96,7 +107,7 @@ export default function CombinedDashboard() {
 
         // Count pending finalization groups
         const pendingFinalization = Array.isArray(groups)
-          ? groups.filter((g: any) => g.status === 'READY_FOR_FINALIZATION').length
+          ? groups.filter((g: GroupItem) => g.status === 'READY_FOR_FINALIZATION').length
           : 0;
 
         setData({

@@ -109,10 +109,17 @@ class FinalizationController extends Controller
             })
             ->get();
 
-        $titles->each(function ($title) {
-            $title->current_allocations = Group::where('title_id', $title->id)
-                ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
-                ->count();
+        // Pre-load all allocation counts in a single query to avoid N+1
+        $titleIds = $titles->pluck('id')->toArray();
+        $allocationCounts = Group::whereIn('title_id', $titleIds)
+            ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
+            ->groupBy('title_id')
+            ->selectRaw('title_id, COUNT(*) as count')
+            ->pluck('count', 'title_id')
+            ->toArray();
+
+        $titles->each(function ($title) use ($allocationCounts) {
+            $title->current_allocations = $allocationCounts[$title->id] ?? 0;
             $title->remaining_quota = $title->quota - $title->current_allocations;
         });
 
@@ -947,49 +954,69 @@ class FinalizationController extends Controller
                 ->get();
 
             $finalizedCount = 0;
+            $supervisionData = [];
+            $auditLogs = [];
+            $now = now();
 
             foreach ($groups as $group) {
                 $group->update([
                     'status' => 'PDC1_ACTIVE',
-                    'finalized_at' => now(),
+                    'finalized_at' => $now,
                     'finalized_by' => $user->id,
                 ]);
 
-                // Create supervision records
+                // Collect supervision records for batch upsert
                 if ($group->supervisor_1_id) {
-                    \App\Models\Supervision::updateOrCreate(
-                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_1'],
-                        ['supervisor_id' => $group->supervisor_1_id, 'assigned_by' => $user->id]
-                    );
+                    $supervisionData[] = [
+                        'group_id' => $group->id,
+                        'role' => 'SUPERVISOR_1',
+                        'supervisor_id' => $group->supervisor_1_id,
+                        'assigned_by' => $user->id,
+                    ];
                 }
 
                 if ($group->supervisor_2_id) {
-                    \App\Models\Supervision::updateOrCreate(
-                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
-                        ['supervisor_id' => $group->supervisor_2_id, 'assigned_by' => $user->id]
-                    );
+                    $supervisionData[] = [
+                        'group_id' => $group->id,
+                        'role' => 'SUPERVISOR_2',
+                        'supervisor_id' => $group->supervisor_2_id,
+                        'assigned_by' => $user->id,
+                    ];
                 }
 
-                // Audit log
-                \App\Models\FinalizationAudit::create([
+                // Collect audit logs for batch insert
+                $auditLogs[] = [
                     'period_id' => $period->id,
                     'group_id' => $group->id,
                     'user_id' => $user->id,
                     'action' => 'FINALIZATION_EXECUTED',
-                    'old_values' => ['status' => 'KELOMPOK_FINAL'],
-                    'new_values' => ['status' => 'PDC1_ACTIVE'],
-                ]);
+                    'old_values' => json_encode(['status' => 'KELOMPOK_FINAL']),
+                    'new_values' => json_encode(['status' => 'PDC1_ACTIVE']),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
 
                 $finalizedCount++;
             }
 
-            // Lock period after successful admin finalization execution.
-            $period->update(['is_finalized' => true]);
+            // Batch upsert supervision records
+            if (!empty($supervisionData)) {
+                \App\Models\Supervision::upsert(
+                    $supervisionData,
+                    ['group_id', 'role'],
+                    ['supervisor_id', 'assigned_by']
+                );
+            }
+
+            // Batch insert audit logs
+            if (!empty($auditLogs)) {
+                \App\Models\FinalizationAudit::insert($auditLogs);
+            }
+
+            DB::commit();
 
             // Notify all groups and lecturers
             $this->notifyFinalizationCompletion($period, $groups, $user);
-
-            DB::commit();
 
             return response()->json([
                 'message' => "Finalisasi berhasil. {$finalizedCount} grup telah difinalisasi ke PDC1_ACTIVE.",
@@ -1030,11 +1057,15 @@ class FinalizationController extends Controller
                 $query->whereIn('id', $request->group_ids);
             }
 
-            $groups = $query->get();
+            $groups = $query->with('members')->get();
 
             if ($groups->isEmpty()) {
                 return response()->json(['message' => 'Tidak ada grup yang dapat di-rollback.'], 400);
             }
+
+            $auditLogs = [];
+            $notifications = [];
+            $now = now();
 
             foreach ($groups as $group) {
                 $oldStatus = $group->status;
@@ -1046,28 +1077,42 @@ class FinalizationController extends Controller
                     'finalized_by' => $oldStatus === 'PDC1_ACTIVE' ? null : $group->finalized_by,
                 ]);
 
-                // Audit log
-                \App\Models\FinalizationAudit::create([
+                // Collect audit logs for batch insert
+                $auditLogs[] = [
                     'period_id' => $period->id,
                     'group_id' => $group->id,
                     'user_id' => $user->id,
                     'action' => 'FINALIZATION_ROLLBACK',
-                    'old_values' => ['status' => $oldStatus],
-                    'new_values' => ['status' => $newStatus],
+                    'old_values' => json_encode(['status' => $oldStatus]),
+                    'new_values' => json_encode(['status' => $newStatus]),
                     'notes' => $request->reason,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
 
-                // Notify group
+                // Collect notifications for batch insert
                 foreach ($group->members as $member) {
-                    \App\Models\Notification::create([
+                    $notifications[] = [
                         'user_id' => $member->student_id,
                         'type' => 'FINALIZATION_ROLLBACK',
                         'title' => 'Finalisasi Dibatalkan',
                         'message' => "Finalisasi kelompok Anda telah dibatalkan. Alasan: {$request->reason}",
                         'related_type' => 'Group',
                         'related_id' => $group->id,
-                    ]);
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
                 }
+            }
+
+            // Batch insert audit logs
+            if (!empty($auditLogs)) {
+                \App\Models\FinalizationAudit::insert($auditLogs);
+            }
+
+            // Batch insert notifications
+            if (!empty($notifications)) {
+                \App\Models\Notification::insert($notifications);
             }
 
             DB::commit();

@@ -34,11 +34,14 @@ use App\Http\Controllers\PeriodAssessmentConfigController;
 use App\Http\Controllers\PeriodPeerReviewConfigController;
 use App\Http\Controllers\SupervisorEvaluationController;
 use App\Http\Controllers\GradeConsistencyController;
+use App\Http\Controllers\GradeCheckController;
 use App\Http\Controllers\StudentStateController;
 use App\Http\Controllers\GradeConfigurationController;
 use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\DigitalSignatureController;
 use App\Http\Controllers\ReportExportController;
+use App\Http\Controllers\ReportSummaryController;
+use App\Http\Controllers\ReportDetailController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\RegistrationController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
@@ -199,6 +202,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/grade-consistency/generate', [GradeConsistencyController::class, 'generate']);
         Route::put('/grade-consistency/{id}', [GradeConsistencyController::class, 'update']);
 
+        // Grade Check (admin) - Raw score viewer with filtering
+        Route::get('/grade-check', [GradeCheckController::class, 'index']);
+        Route::get('/grade-check/export', [GradeCheckController::class, 'export']);
+
         // Document Types (admin)
         Route::apiResource('document-types', DocumentTypeController::class);
 
@@ -216,6 +223,16 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
         // Report Export (admin)
         Route::get('/reports/{type}/export', [ReportExportController::class, 'export']);
+
+        // Report Summary (admin)
+        Route::get('/reports/summary', [ReportSummaryController::class, 'summary']);
+
+        // Report Detail Pages (admin)
+        Route::get('/reports/assessments', [ReportDetailController::class, 'assessments']);
+        Route::get('/reports/peer-reviews', [ReportDetailController::class, 'peerReviews']);
+        Route::get('/reports/final-grades', [ReportDetailController::class, 'finalGrades']);
+        Route::get('/reports/grade-consistency', [ReportDetailController::class, 'gradeConsistency']);
+        Route::get('/reports/groups', [ReportDetailController::class, 'groups']);
 
         // Assign Supervisor 2 (admin only)
         Route::post('/groups/{group}/assign-supervisor-2', [GroupController::class, 'assignSupervisor2']);
@@ -235,6 +252,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/grade-configuration/{periodId}/pdc1', [GradeConfigurationController::class, 'getPDC1Weights']);
         Route::get('/grade-configuration/{periodId}/pdc2', [GradeConfigurationController::class, 'getPDC2Weights']);
         Route::get('/grade-configuration/calculate/{groupId}', [GradeConfigurationController::class, 'calculateGroupGrades']);
+        Route::get('/student-grades/{studentId}', [GradeConfigurationController::class, 'getStudentGrades']);
 
         // Peer Review Dashboard (admin)
         Route::get('/peer-review-dashboard/groups', [PeerReviewController::class, 'adminGroupProgress']);
@@ -402,6 +420,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/peer-review/status', [PeerReviewController::class, 'status']);
         Route::get('/peer-review/my-status', [PeerReviewController::class, 'myStatus']);
         Route::post('/peer-review', [PeerReviewController::class, 'store']);
+
+        // Student Grades
+        Route::get('/my-grades', [GradeConfigurationController::class, 'getMyGrades']);
 
         // TA Status & Access
         Route::get('/ta-status', [StudentStateController::class, 'getMyTAStatus']);

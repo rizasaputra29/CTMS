@@ -322,11 +322,11 @@ class DocumentController extends Controller
 
         $indicatorCount = 0;
         if ($hasNewIndicators) {
-            $indicatorCount = (int) DB::table('period_peer_review_indicators')
+            $indicatorCount = DB::table('period_peer_review_indicators')
                 ->where('period_id', $group->period_id)
                 ->count();
         } elseif ($hasLegacyIndicators) {
-            $indicatorCount = (int) DB::table('peer_review_indicators')
+            $indicatorCount = DB::table('peer_review_indicators')
                 ->where('period_id', $group->period_id)
                 ->count();
         }
@@ -354,28 +354,37 @@ class DocumentController extends Controller
                 ->where('group_id', $group->id)
                 ->where('has_completed_peer_review', true)
                 ->pluck('student_id')
-                ->map(fn ($id) => (int) $id)
                 ->all();
         } elseif ($hasPeerReviews) {
             $useFinalSubmission = Schema::hasColumn('peer_reviews', 'is_final_submission');
-            foreach ($memberRows as $member) {
-                $expected = $indicatorCount * max($totalMembers - 1, 0);
-                if ($expected === 0) {
-                    $completedStudentIds[] = (int) $member->student_id;
-                    continue;
-                }
+            $expected = $indicatorCount * max($totalMembers - 1, 0);
 
+            if ($expected === 0) {
+                // If no reviews expected, all members are completed
+                $completedStudentIds = $memberRows->pluck('student_id')->all();
+            } else {
+                // Single query to get all reviewer counts at once
                 $query = DB::table('peer_reviews')
                     ->where('group_id', $group->id)
-                    ->where('reviewer_id', $member->student_id);
+                    ->whereIn('reviewer_id', $memberRows->pluck('student_id'));
 
                 if ($useFinalSubmission) {
                     $query->where('is_final_submission', true);
                 }
 
-                $submitted = (int) $query->count();
-                if ($submitted >= $expected) {
-                    $completedStudentIds[] = (int) $member->student_id;
+                // Get counts grouped by reviewer_id
+                $reviewerCounts = $query
+                    ->groupBy('reviewer_id')
+                    ->selectRaw('reviewer_id, COUNT(*) as count')
+                    ->pluck('count', 'reviewer_id')
+                    ->all();
+
+                // Check which members have completed their reviews
+                foreach ($memberRows as $member) {
+                    $submitted = $reviewerCounts[$member->student_id] ?? 0;
+                    if ($submitted >= $expected) {
+                        $completedStudentIds[] = $member->student_id;
+                    }
                 }
             }
         }

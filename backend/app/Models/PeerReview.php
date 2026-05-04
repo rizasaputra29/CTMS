@@ -13,6 +13,7 @@ class PeerReview extends Model
         'indicator_id',
         'period_indicator_id',
         'score',
+        'raw_score',
         'comment',
         'is_final_submission',
         'submitted_at',
@@ -20,6 +21,7 @@ class PeerReview extends Model
 
     protected $casts = [
         'score' => 'decimal:2',
+        'raw_score' => 'integer',
     ];
 
     public function group()

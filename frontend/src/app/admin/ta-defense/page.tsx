@@ -47,6 +47,13 @@ interface GroupItem {
     supervisions: { supervisor_id: number; role: 'SUPERVISOR_1' | 'SUPERVISOR_2' }[];
 }
 
+interface EligibleStudentData {
+    group: { id: number; name: string; code: string };
+    student: Student;
+    supervisors: { id: number; pivot?: { role: string } }[];
+    submission?: { id: number };
+}
+
 export default function AdminTaDefensePage() {
     const [schedules, setSchedules] = useState<TaDefenseSchedule[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
@@ -94,13 +101,13 @@ export default function AdminTaDefensePage() {
             const eligibleData = eligibleRes.data.data || [];
             const groupsMap = new Map();
             
-            eligibleData.forEach((item: any) => {
+            eligibleData.forEach((item: EligibleStudentData) => {
                 const group = item.group;
                 if (!groupsMap.has(group.id)) {
                     groupsMap.set(group.id, {
                         ...group,
                         members: [],
-                        supervisions: item.supervisors?.map((s: any) => ({
+                        supervisions: item.supervisors?.map((s: { id: number; pivot?: { role: string } }) => ({
                             supervisor_id: s.id,
                             role: s.pivot?.role || 'SUPERVISOR_1'
                         })) || []

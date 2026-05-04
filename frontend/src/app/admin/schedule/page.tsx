@@ -51,11 +51,31 @@ interface TaDefenseSchedule {
 }
 
 interface GroupItem { id: number; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
- 
+
 interface Period {
     id: number;
     name: string;
     is_active: boolean;
+}
+
+interface User {
+    id: number;
+    name: string;
+    email: string;
+    role: string;
+}
+
+interface SchedulePayload {
+    group_id: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string;
+    mode?: 'ONLINE' | 'OFFLINE';
+    notes?: string;
+    examiners?: number[];
+    examiner_1_id?: number;
+    examiner_2_id?: number;
 }
 
 export default function AdminSchedulePage() {
@@ -138,7 +158,7 @@ export default function AdminSchedulePage() {
         try {
             const res = await api.get('/admin/users');
             const all = res.data.data || [];
-            setDosens(all.filter((u: { role: string }) => u.role === 'dosen'));
+            setDosens(all.filter((u: User) => u.role === 'dosen'));
         } catch (err) {
             console.error(err);
         }
@@ -184,7 +204,7 @@ export default function AdminSchedulePage() {
                 });
             } else {
                 const endpoint = scheduleType === 'SEMPRO' ? '/admin/sempro/schedule' : '/admin/expo/schedule';
-                const payload: any = {
+                const payload: SchedulePayload = {
                     group_id: Number(formGroupId),
                     date: formDate, start_time: formStartTime, end_time: formEndTime,
                     room: formRoom || null,
@@ -239,7 +259,8 @@ export default function AdminSchedulePage() {
                     ? `/admin/sempro/schedules/${approveId}/approve`
                     : `/admin/expo/schedules/${approveId}/approve`;
 
-            const payload: any = {
+            const payload: SchedulePayload = {
+                group_id: 0, // Will be set by the API endpoint
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,

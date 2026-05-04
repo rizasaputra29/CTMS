@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,9 +8,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Loader2, Save, RotateCcw, Info } from 'lucide-react';
+import { Loader2, Save, RotateCcw, Info, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface GradeWeights {
   pdc1: {
@@ -18,9 +25,10 @@ interface GradeWeights {
     BIMBINGAN_SEMPRO: number;
   };
   pdc2: {
-    EXPO: number;
-    BIMBINGAN_EXPO: number;
+    NILAI_DOSEN: number;
     MILESTONE: number;
+    EXPO: number;
+    PEER_REVIEW: number;
   };
 }
 
@@ -30,28 +38,59 @@ interface GradeConfig {
     BIMBINGAN_SEMPRO: number;
   };
   pdc2: {
-    EXPO: number;
-    BIMBINGAN_EXPO: number;
+    NILAI_DOSEN: number;
     MILESTONE: number;
+    EXPO: number;
+    PEER_REVIEW: number;
   };
   defaults: GradeWeights;
+}
+
+interface Period {
+  id: number;
+  name: string;
+  is_active: boolean;
 }
 
 export default function GradeConfigurationPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [, setConfig] = useState<GradeConfig | null>(null);
-  const [pdc1Weights, setPdc1Weights] = useState({ SEMPRO: 60, BIMBINGAN_SEMPRO: 40 });
-  const [pdc2Weights, setPdc2Weights] = useState({ EXPO: 50, BIMBINGAN_EXPO: 25, MILESTONE: 25 });
+  const [pdc1Weights, setPdc1Weights] = useState({ SEMPRO: 50, BIMBINGAN_SEMPRO: 50 });
+  const [pdc2Weights, setPdc2Weights] = useState({ NILAI_DOSEN: 25, MILESTONE: 25, EXPO: 25, PEER_REVIEW: 25 });
+  const [periods, setPeriods] = useState<Period[]>([]);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('');
 
   useEffect(() => {
-    fetchConfig();
+    fetchPeriods();
   }, []);
 
-  const fetchConfig = async () => {
+  useEffect(() => {
+    if (selectedPeriod) {
+      fetchConfig();
+    }
+  }, [selectedPeriod, fetchConfig]);
+
+  const fetchPeriods = async () => {
+    try {
+      const res = await api.get('/admin/periods');
+      setPeriods(res.data);
+      const active = res.data.find((p: Period) => p.is_active);
+      if (active) {
+        setSelectedPeriod(active.id.toString());
+      } else if (res.data.length > 0) {
+        setSelectedPeriod(res.data[0].id.toString());
+      }
+    } catch {
+      toast.error('Failed to load periods');
+    }
+  };
+
+  const fetchConfig = useCallback(async () => {
+    if (!selectedPeriod) return;
     try {
       setLoading(true);
-      const res = await api.get('/admin/grade-configuration');
+      const res = await api.get(`/admin/grade-configuration/${selectedPeriod}`);
       setConfig(res.data);
       setPdc1Weights(res.data.pdc1);
       setPdc2Weights(res.data.pdc2);
@@ -60,12 +99,13 @@ export default function GradeConfigurationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedPeriod]);
 
   const handleSave = async () => {
+    if (!selectedPeriod) return;
     try {
       setSaving(true);
-      await api.post('/admin/grade-configuration', {
+      await api.post(`/admin/grade-configuration/${selectedPeriod}`, {
         pdc1: pdc1Weights,
         pdc2: pdc2Weights,
       });
@@ -79,11 +119,12 @@ export default function GradeConfigurationPage() {
   };
 
   const handleReset = async () => {
+    if (!selectedPeriod) return;
     if (!confirm('Reset to default weights? This will overwrite your current configuration.')) return;
     
     try {
       setSaving(true);
-      await api.post('/admin/grade-configuration/reset');
+      await api.post(`/admin/grade-configuration/${selectedPeriod}/reset`);
       toast.success('Reset to defaults');
       fetchConfig();
     } catch {
@@ -113,17 +154,34 @@ export default function GradeConfigurationPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start">
-        <div>
+      <div className="flex flex-col gap-4 md:flex-row md:justify-between md:items-start">
+        <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">Grade Configuration</h1>
           <p className="text-muted-foreground">Configure grade weights for PDC1 and PDC2 evaluations.</p>
+          
+          {/* Period Selector */}
+          <div className="flex items-center gap-2 pt-2">
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+            <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Select period" />
+              </SelectTrigger>
+              <SelectContent>
+                {periods.map((period) => (
+                  <SelectItem key={period.id} value={period.id.toString()}>
+                    {period.name} {period.is_active && '(Active)'}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleReset} disabled={saving}>
+          <Button variant="outline" onClick={handleReset} disabled={saving || !selectedPeriod}>
             <RotateCcw className="mr-2 h-4 w-4" />
             Reset to Defaults
           </Button>
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={handleSave} disabled={saving || !selectedPeriod}>
             {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
             Save Configuration
           </Button>
@@ -196,35 +254,17 @@ export default function GradeConfigurationPage() {
           <CardContent className="space-y-4">
             <div className="space-y-2">
               <div className="flex justify-between">
-                <Label htmlFor="expo-weight">EXPO</Label>
-                <Badge variant="outline">{pdc2Weights.EXPO}%</Badge>
+                <Label htmlFor="nilai-dosen-weight">NILAI_DOSEN (Supervisor)</Label>
+                <Badge variant="outline">{pdc2Weights.NILAI_DOSEN}%</Badge>
               </div>
               <Input
-                id="expo-weight"
+                id="nilai-dosen-weight"
                 type="number"
                 min={0}
                 max={100}
                 step={5}
-                value={pdc2Weights.EXPO}
-                onChange={(e) => updatePdc2Weight('EXPO', e.target.value)}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <div className="flex justify-between">
-                <Label htmlFor="bimbingan-expo-weight">BIMBINGAN_EXPO</Label>
-                <Badge variant="outline">{pdc2Weights.BIMBINGAN_EXPO}%</Badge>
-              </div>
-              <Input
-                id="bimbingan-expo-weight"
-                type="number"
-                min={0}
-                max={100}
-                step={5}
-                value={pdc2Weights.BIMBINGAN_EXPO}
-                onChange={(e) => updatePdc2Weight('BIMBINGAN_EXPO', e.target.value)}
+                value={pdc2Weights.NILAI_DOSEN}
+                onChange={(e) => updatePdc2Weight('NILAI_DOSEN', e.target.value)}
               />
             </div>
 
@@ -246,9 +286,45 @@ export default function GradeConfigurationPage() {
               />
             </div>
 
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="expo-weight">EXPO</Label>
+                <Badge variant="outline">{pdc2Weights.EXPO}%</Badge>
+              </div>
+              <Input
+                id="expo-weight"
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={pdc2Weights.EXPO}
+                onChange={(e) => updatePdc2Weight('EXPO', e.target.value)}
+              />
+            </div>
+
+            <Separator />
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <Label htmlFor="peer-review-weight">PEER_REVIEW</Label>
+                <Badge variant="outline">{pdc2Weights.PEER_REVIEW}%</Badge>
+              </div>
+              <Input
+                id="peer-review-weight"
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={pdc2Weights.PEER_REVIEW}
+                onChange={(e) => updatePdc2Weight('PEER_REVIEW', e.target.value)}
+              />
+            </div>
+
             <div className="pt-4 border-t">
               <p className="text-sm text-muted-foreground">
-                Default: EXPO (50%) + BIMBINGAN_EXPO (25%) + MILESTONE (25%)
+                Default: NILAI_DOSEN (25%) + MILESTONE (25%) + EXPO (25%) + PEER_REVIEW (25%)
               </p>
             </div>
           </CardContent>
@@ -271,7 +347,7 @@ export default function GradeConfigurationPage() {
           <div className="bg-muted p-4 rounded-lg">
             <p className="font-medium mb-2">PDC2 Grade:</p>
             <p className="text-sm text-muted-foreground">
-              (EXPO × {pdc2Weights.EXPO}%) + (BIMBINGAN_EXPO × {pdc2Weights.BIMBINGAN_EXPO}%) + (MILESTONE × {pdc2Weights.MILESTONE}%)
+              (NILAI_DOSEN × {pdc2Weights.NILAI_DOSEN}%) + (MILESTONE × {pdc2Weights.MILESTONE}%) + (EXPO × {pdc2Weights.EXPO}%) + (PEER_REVIEW × {pdc2Weights.PEER_REVIEW}%)
             </p>
           </div>
         </CardContent>

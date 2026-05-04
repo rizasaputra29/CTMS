@@ -36,7 +36,18 @@ class GradeConsistencyController extends Controller
         ]);
 
         $groups = Group::where('period_id', $request->period_id)
-            ->where('status', 'APPROVED')
+            ->whereIn('status', [
+                'PDC1_ACTIVE',
+                'PDC2_ACTIVE',
+                'READY_FOR_TA_INDIVIDUAL',
+                'SEMPRO_DONE',
+                'EXPO_DONE',
+                'TITLE_APPROVED',
+                'KELOMPOK_FINAL',
+                'READY_FOR_SEMPRO',
+                'PDC2_READY_FOR_EXPO',
+                'EXPO_REGISTERED'
+            ])
             ->with('members')
             ->get();
 

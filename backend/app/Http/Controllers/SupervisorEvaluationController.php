@@ -600,6 +600,8 @@ class SupervisorEvaluationController extends Controller
 
         DB::beginTransaction();
         try {
+            // Prepare batch upsert data for better performance
+            $upsertData = [];
             foreach ($validated['scores'] as $scoreData) {
                 // Extract component ID from whichever field was provided
                 $componentId = $scoreData['period_component_id'] ?? $scoreData['component_id'] ?? null;
@@ -622,18 +624,20 @@ class SupervisorEvaluationController extends Controller
                     $insertData['period_component_id'] = $componentId;
                 }
 
-                AssessmentScore::updateOrCreate(
-                    [
-                        $componentIdField => $componentId,
-                        'evaluator_id' => $user->id,
-                        'group_id' => $groupId,
-                        'student_id' => $scoreData['student_id'],
-                        'evaluation_type' => $evaluationType,
-                    ],
-                    [
-                        'score' => $scoreData['score'],
-                        'notes' => $scoreData['notes'] ?? null,
-                    ]
+                $upsertData[] = $insertData;
+            }
+
+            // Batch upsert all scores in a single query
+            if (!empty($upsertData)) {
+                $updateColumns = ['score', 'notes'];
+                if (!$usesPeriodComponents && Schema::hasColumn('assessment_scores', 'period_component_id')) {
+                    $updateColumns[] = 'period_component_id';
+                }
+
+                AssessmentScore::upsert(
+                    $upsertData,
+                    [$componentIdField, 'evaluator_id', 'group_id', 'student_id', 'evaluation_type'],
+                    $updateColumns
                 );
             }
 

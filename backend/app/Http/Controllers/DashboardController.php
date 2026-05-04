@@ -16,14 +16,14 @@ class DashboardController extends Controller
 {
     public function admin()
     {
-        $currentPeriod = Period::where('is_active', true)->orderBy('created_at', 'desc')->first();
+        $currentPeriod = Period::getActive('period:active:latest');
         $readinessStats = $currentPeriod ? app(FinalizationService::class)->getReadinessStats($currentPeriod->id) : null;
 
         return response()->json([
             'total_users' => User::count(),
             'total_students' => User::where('role', 'mahasiswa')->count(),
             'total_lecturers' => User::where('role', 'dosen')->count(),
-            'active_periods' => Period::where('is_active', true)->get(),
+            'active_periods' => Period::getAllActive(),
             'registration_summary' => $readinessStats ? [
                 'total' => $readinessStats['total_registered'],
                 'assigned' => $readinessStats['total_assigned'],
@@ -43,11 +43,9 @@ class DashboardController extends Controller
         $user = Auth::user();
         $periodId = $request->query('period_id');
 
-        // Resolve current period if not provided
+        // Resolve current period if not provided (use cached version)
         if (!$periodId) {
-            $currentPeriod = Period::where('is_active', true)
-                ->orderBy('created_at', 'desc')
-                ->first();
+            $currentPeriod = Period::getActive('period:active:latest');
             $periodId = $currentPeriod ? $currentPeriod->id : null;
         }
 
@@ -110,10 +108,8 @@ class DashboardController extends Controller
     {
         $user = Auth::user();
         
-        // Get current active period
-        $currentPeriod = Period::where('is_active', true)
-            ->orderBy('created_at', 'desc')
-            ->first();
+        // Get current active period (cached)
+        $currentPeriod = Period::getActive('period:active:latest');
         
         // Find group where user is a member (exclude rejected groups) for current period only
         $groupMember = GroupMember::with(['group.title'])
@@ -178,7 +174,7 @@ class DashboardController extends Controller
             'readiness' => $group ? ($group->readiness_status ?? $group->calculateReadiness()) : null,
             'title' => $group && $group->title ? $group->title->title : null,
             'group_period' => $group ? $group->period : null,
-            'active_periods' => Period::where('is_active', true)->get(),
+            'active_periods' => Period::getAllActive(),
             'steps' => $steps,
             'is_graduated' => $isGraduated,
             'pending_proposal' => $pendingProposal,

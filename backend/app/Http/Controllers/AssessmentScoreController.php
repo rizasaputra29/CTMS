@@ -122,27 +122,44 @@ class AssessmentScoreController extends Controller
             ], 422);
         }
 
+        // OPTIMIZED: Use upsert instead of updateOrCreate in loop for better performance
+        $scoresData = [];
+        $now = now();
+
         foreach ($request->scores as $scoreData) {
-            $match = [
+            $data = [
                 'evaluator_id' => $user->id,
                 'student_id' => $scoreData['student_id'] ?? null,
-            ];
-
-            if ($usePeriodComponents && $hasPeriodComponentColumn) {
-                $match['period_component_id'] = $scoreData['period_component_id'];
-            } else {
-                $match['component_id'] = $scoreData['period_component_id'];
-            }
-
-            $saved[] = AssessmentScore::updateOrCreate($match, [
                 'group_id' => $request->group_id,
                 'score' => $scoreData['score'],
                 'notes' => $scoreData['notes'] ?? null,
                 'evaluation_type' => $request->evaluation_type,
-            ]);
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if ($usePeriodComponents && $hasPeriodComponentColumn) {
+                $data['period_component_id'] = $scoreData['period_component_id'];
+            } else {
+                $data['component_id'] = $scoreData['period_component_id'];
+            }
+
+            $scoresData[] = $data;
         }
 
-        return response()->json(['message' => 'Scores submitted', 'count' => count($saved)], 201);
+        // Determine unique keys and update columns based on schema
+        if ($usePeriodComponents && $hasPeriodComponentColumn) {
+            $uniqueKeys = ['evaluator_id', 'student_id', 'period_component_id'];
+        } else {
+            $uniqueKeys = ['evaluator_id', 'student_id', 'component_id'];
+        }
+
+        $updateColumns = ['group_id', 'score', 'notes', 'evaluation_type', 'updated_at'];
+
+        // Single query for all upserts - much more efficient than N updateOrCreate calls
+        AssessmentScore::upsert($scoresData, $uniqueKeys, $updateColumns);
+
+        return response()->json(['message' => 'Scores submitted', 'count' => count($scoresData)], 201);
     }
 
     /**

@@ -268,7 +268,7 @@ export default function EvaluationSummaryPage() {
                                     <TableCell className="text-right">{score.weight}%</TableCell>
                                     <TableCell className="text-right">{score.score}</TableCell>
                                     <TableCell className="text-right">
-                                      {((score.score * score.weight) / 100).toFixed(2)}
+                                      {((Number(score.score) * Number(score.weight)) / 100).toFixed(2)}
                                     </TableCell>
                                   </TableRow>
                                 ))}

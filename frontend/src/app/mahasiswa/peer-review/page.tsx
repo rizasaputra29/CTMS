@@ -20,7 +20,6 @@ import {
 import {
   Loader2,
   Star,
-  User,
   Send,
   Lock,
   CheckCircle2,
@@ -30,18 +29,24 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface GroupMember { id: number; student: { id: number; name: string; email: string; nim?: string }; is_leader: boolean; }
 interface Indicator { id: number; code: string; name: string; description: string | null; weight: number; }
-interface ExistingReview { reviewee_id: number; period_indicator_id: number; score: number; comment: string | null; }
+interface ExistingReview { reviewee_id: number; period_indicator_id: number; score: number; raw_score: number; comment: string | null; }
 
 export default function MahasiswaPeerReviewPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [members, setMembers] = useState<GroupMember[]>([]);
   const [indicators, setIndicators] = useState<Indicator[]>([]);
-  const [existingReviews, setExistingReviews] = useState<ExistingReview[]>([]);
+  // const [existingReviews, setExistingReviews] = useState<ExistingReview[]>([]);
   const [currentUser, setCurrentUser] = useState<number | null>(null);
   const [hasGroup, setHasGroup] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
@@ -65,7 +70,7 @@ export default function MahasiswaPeerReviewPage() {
 
       setMembers(formRes.data.members || []);
       setIndicators(formRes.data.indicators || []);
-      setExistingReviews(formRes.data.existing_reviews || []);
+      // setExistingReviews(formRes.data.existing_reviews || []);
       setCurrentUser(formRes.data.current_user_id || null);
       setIsLocked(formRes.data.is_locked || false);
       setHasSubmitted(formRes.data.has_submitted || false);
@@ -90,7 +95,7 @@ export default function MahasiswaPeerReviewPage() {
             (r: ExistingReview) => r.reviewee_id === m.student.id && r.period_indicator_id === ind.id
           );
           initial[m.student.id][ind.id] = {
-            score: existing?.score ?? 0,
+            score: existing?.raw_score ?? existing?.score ?? 0,
             comment: existing?.comment ?? '',
           };
         }
@@ -168,15 +173,21 @@ export default function MahasiswaPeerReviewPage() {
     } finally { setSubmitting(false); }
   };
 
+  // Conversion formula: 1-4 scale -> 0-100 scale (score * 25, or score * 10/4)
+  const convertScoreTo100 = (score: number): number => {
+    return score > 0 ? score * 25 : 0;
+  };
+
   const calculateWeightedAvg = (revieweeId: number) => {
     let totalWeighted = 0;
     let totalWeight = 0;
     for (const ind of indicators) {
       const s = scores[revieweeId]?.[ind.id];
-      if (s) {
+      if (s && s.score > 0) {
         const weight = Number(ind.weight) || 0;
-        const score = Number(s.score) || 0;
-        totalWeighted += score * weight;
+        // Convert 1-4 scale to 0-100 scale before calculating weighted average
+        const scoreIn100Scale = convertScoreTo100(Number(s.score));
+        totalWeighted += scoreIn100Scale * weight;
         totalWeight += weight;
       }
     }
@@ -343,9 +354,17 @@ export default function MahasiswaPeerReviewPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-sm text-muted-foreground space-y-2">
-                  <p>• Score range: <strong>0 – 100</strong></p>
+                  <p className="font-medium text-foreground">Scale: 1 (Worst) – 4 (Best)</p>
+                  <div className="grid grid-cols-2 gap-2 text-xs pl-2">
+                    <span className="text-red-600">1 = Poor</span>
+                    <span className="text-orange-600">2 = Fair</span>
+                    <span className="text-blue-600">3 = Good</span>
+                    <span className="text-green-600">4 = Excellent</span>
+                  </div>
+                  <Separator />
                   <p>• Each indicator has a specific weight</p>
                   <p>• Weighted average is calculated automatically</p>
+                  <p>• Scores are converted to 0-100 scale for reports</p>
                   <p>• Comments are optional but encouraged</p>
                 </div>
                 {hasSubmitted && (
@@ -373,7 +392,7 @@ export default function MahasiswaPeerReviewPage() {
                     <CardDescription>
                       {hasSubmitted
                         ? 'Your submitted scores (read-only)'
-                        : 'Enter scores (0–100) for each member and indicator'}
+                        : 'Enter scores (1-4) for each member and indicator'}
                     </CardDescription>
                   </div>
                   {hasSubmitted && (
@@ -400,7 +419,12 @@ export default function MahasiswaPeerReviewPage() {
                                 </div>
                               </th>
                             ))}
-                            <th className="px-4 py-3 text-center font-semibold">Weighted Avg</th>
+                            <th className="px-4 py-3 text-center font-semibold">
+                              <div className="flex flex-col items-center">
+                                <span>Weighted Avg</span>
+                                <span className="text-xs text-muted-foreground">(0-100 scale)</span>
+                              </div>
+                            </th>
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -419,11 +443,17 @@ export default function MahasiswaPeerReviewPage() {
                               </td>
                               {indicators.map(ind => {
                                 const score = scores[member.student.id]?.[ind.id]?.score ?? 0;
+                                const convertedScore = score > 0 ? (score * 25).toFixed(0) : 0;
                                 return (
                                   <td key={ind.id} className="px-4 py-3 text-center">
-                                    <span className={`font-bold ${score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
-                                      {score}
-                                    </span>
+                                    <div className="flex flex-col items-center">
+                                      <span className={`font-bold ${score >= 3 ? 'text-green-600' : score >= 2 ? 'text-amber-600' : 'text-red-600'}`}>
+                                        {score > 0 ? score : '-'}
+                                      </span>
+                                      {score > 0 && (
+                                        <span className="text-xs text-muted-foreground">({convertedScore})</span>
+                                      )}
+                                    </div>
                                   </td>
                                 );
                               })}
@@ -437,6 +467,9 @@ export default function MahasiswaPeerReviewPage() {
                         </tbody>
                       </table>
                     </div>
+                    <p className="text-xs text-muted-foreground mt-3 text-center">
+                      Scores shown in 1-4 scale with converted 0-100 values in parentheses
+                    </p>
                   </div>
                 ) : (
                   // Editable Form Before Submission
@@ -479,19 +512,25 @@ export default function MahasiswaPeerReviewPage() {
                                   </Label>
                                   <div className="flex items-center gap-2">
                                     <span className="text-xs text-muted-foreground">Score:</span>
-                                    <Input
-                                      type="number"
-                                      min={0}
-                                      max={100}
-                                      value={scoreVal}
-                                      onChange={(e) => {
-                                        const val = Math.round(parseFloat(e.target.value)) || 0;
-                                        if (val >= 0 && val <= 100) {
-                                          updateScore(member.student.id, ind.id, val);
+                                    <Select
+                                      value={scoreVal > 0 ? scoreVal.toString() : ''}
+                                      onValueChange={(val) => {
+                                        const numVal = parseInt(val);
+                                        if (numVal >= 1 && numVal <= 4) {
+                                          updateScore(member.student.id, ind.id, numVal);
                                         }
                                       }}
-                                      className="w-20 h-8 text-center text-sm"
-                                    />
+                                    >
+                                      <SelectTrigger className="w-20 h-8 text-center text-sm">
+                                        <SelectValue placeholder="-" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        <SelectItem value="1">1</SelectItem>
+                                        <SelectItem value="2">2</SelectItem>
+                                        <SelectItem value="3">3</SelectItem>
+                                        <SelectItem value="4">4</SelectItem>
+                                      </SelectContent>
+                                    </Select>
                                   </div>
                                 </div>
                                 <Textarea
@@ -594,7 +633,10 @@ export default function MahasiswaPeerReviewPage() {
                         <span className="block text-xs font-normal text-muted-foreground">({ind.weight}%)</span>
                       </th>
                     ))}
-                    <th className="px-4 py-2 text-center font-semibold">Weighted Avg</th>
+                    <th className="px-4 py-2 text-center font-semibold">
+                      Weighted Avg
+                      <span className="block text-xs font-normal text-muted-foreground">(0-100)</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -603,11 +645,17 @@ export default function MahasiswaPeerReviewPage() {
                       <td className="px-4 py-3 font-medium">{member.student.name}</td>
                       {indicators.map(ind => {
                         const score = scores[member.student.id]?.[ind.id]?.score ?? 0;
+                        const convertedScore = score > 0 ? (score * 25) : 0;
                         return (
                           <td key={ind.id} className="px-4 py-3 text-center">
-                            <span className={`font-bold ${score >= 80 ? 'text-green-600' : score >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
-                              {score}
-                            </span>
+                            <div className="flex flex-col items-center">
+                              <span className={`font-bold ${score >= 3 ? 'text-green-600' : score >= 2 ? 'text-amber-600' : 'text-red-600'}`}>
+                                {score > 0 ? score : '-'}
+                              </span>
+                              {score > 0 && (
+                                <span className="text-xs text-muted-foreground">({convertedScore})</span>
+                              )}
+                            </div>
                           </td>
                         );
                       })}
@@ -624,7 +672,7 @@ export default function MahasiswaPeerReviewPage() {
 
             {/* Overall Average */}
             <div className="bg-primary/5 p-4 rounded-lg text-center">
-              <p className="text-sm text-muted-foreground">Overall Average Score</p>
+              <p className="text-sm text-muted-foreground">Overall Average Score (0-100 scale)</p>
               <p className="text-3xl font-black text-primary">{calculateTotalWeightedAvg()}</p>
             </div>
 

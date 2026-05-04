@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Download, Loader2, Search, Eye } from 'lucide-react';
+import { FileText, Loader2, Search, Eye } from 'lucide-react';
 import { toast } from "sonner";
 import {
     Select,

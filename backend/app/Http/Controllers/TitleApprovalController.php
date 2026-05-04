@@ -147,19 +147,28 @@ class TitleApprovalController extends Controller
 
             // Notify all group members
             $verb = $newStatus === 'APPROVED' ? 'Approved' : 'Under Review';
-            $msgPart = $newStatus === 'APPROVED' 
-                ? "await admin finalization." 
+            $msgPart = $newStatus === 'APPROVED'
+                ? "await admin finalization."
                 : "complete your team members first.";
 
+            // Batch insert notifications for better performance
+            $notifications = [];
+            $now = now();
             foreach ($group->members()->with('student')->get() as $member) {
-                Notification::create([
+                $notifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'PROPOSAL_APPROVED',
                     'title' => "Title Proposal {$verb}",
                     'message' => "Your title proposal \"{$title->title}\" has been {$verb} by the supervisor! Please {$msgPart}",
                     'related_type' => 'Title',
                     'related_id' => $title->id,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if (!empty($notifications)) {
+                Notification::insert($notifications);
             }
 
             DB::commit();
@@ -216,15 +225,23 @@ class TitleApprovalController extends Controller
             $group->save();
 
             // Notify all group members
+            $notifications = [];
+            $now = now();
             foreach ($group->members()->with('student')->get() as $member) {
-                Notification::create([
+                $notifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'PROPOSAL_REJECTED',
                     'title' => 'Title Proposal Rejected',
                     'message' => "Your title proposal \"{$title->title}\" was rejected. Reason: {$validated['rejection_reason']}",
                     'related_type' => 'Title',
                     'related_id' => $title->id,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if (!empty($notifications)) {
+                Notification::insert($notifications);
             }
 
             DB::commit();

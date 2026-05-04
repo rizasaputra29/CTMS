@@ -105,7 +105,8 @@ const navItems: Record<string, NavItem[]> = {
             icon: BarChart3,
             items: [
                 { title: 'Evaluation Summary', url: '/admin/analytics/evaluation-summary', icon: FileText },
-                { title: 'Grade Check', url: '/admin/grade-consistency', icon: GitCompare },
+                { title: 'Grade Check', url: '/admin/analytics/grade-check', icon: GitCompare },
+                { title: 'Grade Consistency', url: '/admin/grade-consistency', icon: ShieldCheck },
                 { title: 'Grade Config', url: '/admin/grade-configuration', icon: GraduationCap },
                 { title: 'Peer Review Dashboard', url: '/admin/peer-review-dashboard', icon: Users },
                 { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
@@ -419,32 +420,32 @@ export function AppSidebar() {
             'Schedule & Review': 'dosen-schedule',
         };
 
-        const renderSubItems = (items: { title: string; url: string; icon?: React.ElementType }[], parentLabel: string) => {
-            return items.map((subItem) => (
-                <SidebarMenuSubItem key={subItem.title}>
-                    <SidebarMenuSubButton
-                        asChild
-                        isActive={pathname === subItem.url}
-                    >
-                        <Link href={subItem.url} className="flex items-center justify-between w-full">
-                            <div className="flex items-center">
-                                <span>{subItem.title}</span>
-                            </div>
-                            {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
-                                <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                    {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
-                                </span>
-                            )}
-                            {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
-                                <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                    {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
-                                </span>
-                            )}
-                        </Link>
-                    </SidebarMenuSubButton>
-                </SidebarMenuSubItem>
-            ));
-        };
+        // const renderSubItems = (items: { title: string; url: string; icon?: React.ElementType }[], parentLabel: string) => {
+        //     return items.map((subItem) => (
+        //         <SidebarMenuSubItem key={subItem.title}>
+        //             <SidebarMenuSubButton
+        //                 asChild
+        //                 isActive={pathname === subItem.url}
+        //             >
+        //                 <Link href={subItem.url} className="flex items-center justify-between w-full">
+        //                     <div className="flex items-center">
+        //                         <span>{subItem.title}</span>
+        //                     </div>
+        //                     {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
+        //                         <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+        //                             {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
+        //                         </span>
+        //                     )}
+        //                     {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
+        //                         <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+        //                             {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
+        //                         </span>
+        //                     )}
+        //                 </Link>
+        //             </SidebarMenuSubButton>
+        //         </SidebarMenuSubItem>
+        //     ));
+        // };
 
         const renderCategorySection = (item: NavItem, idx: number) => {
             const sectionId = categoryIds[item.title] || item.title.toLowerCase().replace(/\s+/g, '-');
