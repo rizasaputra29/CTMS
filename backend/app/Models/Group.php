@@ -5,6 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * @property int $id
+ * @property int $period_id
+ * @property string $status
+ * @property string $group_mode
+ * @property int|null $title_id
+ */
 class Group extends Model
 {
     // WARNING: Do not mutate title_id or assignment_type directly.
@@ -25,7 +32,7 @@ class Group extends Model
         'readiness_status',
         'finalization_notes',
         'finalized_at',
-        'finalized_by'
+        'finalized_by',
     ];
 
     protected $casts = [
@@ -46,7 +53,7 @@ class Group extends Model
             if ($group->isDirty('status')) {
                 $oldStatus = $group->getOriginal('status');
                 $newStatus = $group->status;
-                
+
                 // Only log if transitioning TO READY_FOR_FINALIZATION
                 if ($newStatus === 'READY_FOR_FINALIZATION') {
                     Log::warning('group.status_change.READY_FOR_FINALIZATION', [
@@ -54,8 +61,8 @@ class Group extends Model
                         'from' => $oldStatus,
                         'to' => $newStatus,
                         'trace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 15))
-                            ->map(fn($t) => ($t['class'] ?? '') . '::' . ($t['function'] ?? '') . ':' . ($t['line'] ?? ''))
-                            ->toArray()
+                            ->map(fn ($t) => ($t['class'] ?? '').'::'.($t['function'] ?? '').':'.($t['line'] ?? ''))
+                            ->toArray(),
                     ]);
                 }
             }
@@ -162,11 +169,11 @@ class Group extends Model
     /**
      * Determine group status based ONLY on member count.
      * This is the core logic for automatic status calculation.
-     * 
+     *
      * Status is determined by:
      * - Number of members
      * - Period settings (min_group_size, allow_solo)
-     * 
+     *
      * NOT determined by:
      * - Bid/Proposal status (these are independent)
      * - Any preference/choice actions
@@ -225,7 +232,7 @@ class Group extends Model
         $hasBids = $this->bids()
             ->whereIn('status', ['PENDING', 'ACCEPTED'])
             ->exists();
-        
+
         // Check active proposals (PENDING or APPROVED)
         $hasProposals = \App\Models\Title::where('proposed_by_group_id', $this->id)
             ->where('title_source', 'STUDENT')
@@ -253,12 +260,12 @@ class Group extends Model
     public function canMarkReadyForFinalization(): bool
     {
         // Must be in READY_FOR_BIDDING or TITLE_APPROVED status
-        if (!in_array($this->status, ['READY_FOR_BIDDING', 'TITLE_APPROVED'])) {
+        if (! in_array($this->status, ['READY_FOR_BIDDING', 'TITLE_APPROVED'])) {
             return false;
         }
 
         // Period must be active
-        if (!$this->period || !$this->period->is_active) {
+        if (! $this->period || ! $this->period->is_active) {
             return false;
         }
 
@@ -294,7 +301,7 @@ class Group extends Model
         }
 
         // Period must still be active
-        if (!$this->period || !$this->period->is_active) {
+        if (! $this->period || ! $this->period->is_active) {
             return false;
         }
 
@@ -343,29 +350,29 @@ class Group extends Model
      */
     public function refreshReadinessSnapshot(): self
     {
+        $memberCount = $this->members()->count();
+
         $snapshot = [
             'is_ready' => $this->isReadyForBidding(),
             'issues' => $this->getReadinessIssues(),
-            'member_count' => $this->members()->count(),
+            'member_count' => $memberCount,
             'supervisor_assigned' => $this->supervisor_1_id !== null && $this->supervisor_2_id !== null,
             'title_assigned' => $this->title_id !== null,
-            'progress' => $this->calculateProgressScore(),
+            'progress' => $this->calculateProgressScore($memberCount),
             'last_checked_at' => now()->toIso8601String(),
         ];
 
-        // Persist within transaction for safety
         \Illuminate\Support\Facades\DB::transaction(function () use ($snapshot) {
             $this->update(['readiness_status' => $snapshot]);
 
-            // Audit log for transparency
             AuditLog::create([
-                'user_id' => null, // System-triggered
+                'user_id' => null,
                 'action' => 'READINESS_SNAPSHOT_REFRESHED',
                 'target_type' => self::class,
                 'target_id' => $this->id,
                 'payload' => [
                     'snapshot' => $snapshot,
-                    'triggered_by' => 'observer', // or 'manual', 'command', etc.
+                    'triggered_by' => 'observer',
                 ],
             ]);
         });
@@ -396,19 +403,19 @@ class Group extends Model
 
         // Always check size constraints
         $sizeIssues = $this->checkSizeConstraints();
-        if (!empty($sizeIssues)) {
+        if (! empty($sizeIssues)) {
             $issues['critical'] = array_merge($issues['critical'], $sizeIssues);
         }
 
         // Always check title requirement
         $titleIssues = $this->checkTitleRequirement();
-        if (!empty($titleIssues)) {
+        if (! empty($titleIssues)) {
             $issues['critical'] = array_merge($issues['critical'], $titleIssues);
         }
 
         // Always check supervisor requirement
         $supervisorIssues = $this->checkSupervisorRequirement();
-        if (!empty($supervisorIssues)) {
+        if (! empty($supervisorIssues)) {
             $issues['critical'] = array_merge($issues['critical'], $supervisorIssues);
         }
 
@@ -417,13 +424,16 @@ class Group extends Model
 
     /**
      * Check group size constraints.
+     *
      * @return array Issues found
      */
     private function checkSizeConstraints(): array
     {
         $issues = [];
         $period = $this->period;
-        if (!$period) return $issues;
+        if (! $period) {
+            return $issues;
+        }
 
         $minSize = $period->min_group_size ?? 3;
         $maxSize = $period->max_group_size ?? 4;
@@ -441,6 +451,7 @@ class Group extends Model
     /**
      * Check title assignment requirement.
      * Title can come from bidding or student proposal.
+     *
      * @return array Issues found
      */
     private function checkTitleRequirement(): array
@@ -457,8 +468,8 @@ class Group extends Model
             ->where('lecturer_recommendation', 'ACCEPT')
             ->exists();
 
-        if (!$hasAcceptedBid) {
-            $issues[] = "Judul (Bursa Ide/Proposal) belum ditetapkan";
+        if (! $hasAcceptedBid) {
+            $issues[] = 'Judul (Bursa Ide/Proposal) belum ditetapkan';
         }
 
         return $issues;
@@ -467,6 +478,7 @@ class Group extends Model
     /**
      * Check supervisor assignment requirement.
      * Both supervisors must be assigned.
+     *
      * @return array Issues found
      */
     private function checkSupervisorRequirement(): array
@@ -474,15 +486,15 @@ class Group extends Model
         $issues = [];
         $missing = [];
 
-        if (!$this->supervisor_1_id) {
-            $missing[] = "Pembimbing 1";
+        if (! $this->supervisor_1_id) {
+            $missing[] = 'Pembimbing 1';
         }
-        if (!$this->supervisor_2_id) {
-            $missing[] = "Pembimbing 2";
+        if (! $this->supervisor_2_id) {
+            $missing[] = 'Pembimbing 2';
         }
 
-        if (!empty($missing)) {
-            $issues[] = "Belum memiliki " . implode(' & ', $missing);
+        if (! empty($missing)) {
+            $issues[] = 'Belum memiliki '.implode(' & ', $missing);
         }
 
         return $issues;
@@ -491,13 +503,13 @@ class Group extends Model
     /**
      * Calculate Progress Score (0-100) based on readiness criteria.
      */
-    public function calculateProgressScore(): int
+    public function calculateProgressScore(?int $memberCount = null): int
     {
         $criteria = 3;
         $met = 0;
 
-        $activeMembersCount = $this->members()->count();
-        $minSize = ($this->period->min_group_size ?? 3);
+        $activeMembersCount = $memberCount ?? $this->members()->count();
+        $minSize = $this->period->min_group_size ?? 3;
         if ($activeMembersCount >= $minSize) {
             $met++;
         }
@@ -540,6 +552,7 @@ class Group extends Model
     public function canAcceptNewMembers(): bool
     {
         $maxSize = $this->period->max_group_size ?? 4;
+
         return $this->members()->count() < $maxSize;
     }
 
@@ -549,6 +562,7 @@ class Group extends Model
     public function isAtMaxCapacity(): bool
     {
         $maxSize = $this->period->max_group_size ?? 4;
+
         return $this->members()->count() >= $maxSize;
     }
 
@@ -565,7 +579,7 @@ class Group extends Model
      */
     public function getApprovalAuditHistory()
     {
-        if (!$this->title_id) {
+        if (! $this->title_id) {
             return collect();
         }
 
@@ -613,6 +627,6 @@ class Group extends Model
      */
     public function hasSupervisors(): bool
     {
-        return !is_null($this->supervisor_1_id);
+        return ! is_null($this->supervisor_1_id);
     }
 }
