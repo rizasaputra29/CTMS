@@ -437,21 +437,21 @@ class SchedulingService
         return DB::transaction(function () use ($evaluationId, $rubricJson, $score, $result, $userId) {
             $evaluation = TaDefenseEvaluation::lockForUpdate()->findOrFail($evaluationId);
 
-            if ($evaluation->status === 'COMPLETED') {
+            if ($evaluation->status === 'SUBMITTED') {
                 throw new \InvalidArgumentException('Evaluation already submitted.');
             }
 
             $evaluation->update([
                 'rubric_json' => $rubricJson,
                 'score' => $score,
-                'status' => 'COMPLETED',
+                'status' => 'SUBMITTED',
             ]);
 
             // Check if ALL evaluations for this TA defense are completed
             $schedule = TaDefenseSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
             $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
-                ->where('status', 'COMPLETED')
+                ->where('status', 'SUBMITTED')
                 ->count();
 
             $allSubmitted = $submittedEvals >= $totalEvals;

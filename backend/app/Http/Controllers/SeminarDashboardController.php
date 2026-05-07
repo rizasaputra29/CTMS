@@ -330,66 +330,55 @@ class SeminarDashboardController extends Controller
                 'type' => 'SEMINAR'
             ]);
         } else {
-            // Try to find existing evaluation by ID
-            $evaluation = TaDefenseEvaluation::where('id', $id)
-                ->where('examiner_id', $user->id)
-                ->first();
-            
-            // If not found by ID, check if this is a valid evaluation ID that belongs to the user
-            // or auto-create the evaluation if the user is assigned as examiner
-            if (!$evaluation) {
-                // First, try to find the evaluation by ID alone to see if it exists
-                $existingEval = TaDefenseEvaluation::find($id);
-                
-                if ($existingEval) {
-                    // Evaluation exists but doesn't belong to this user
-                    return response()->json([
-                        'message' => 'Anda tidak memiliki akses ke penilaian ini'
-                    ], 403);
-                }
-                
-                // The ID might be a schedule ID - check if user is examiner for this schedule
+            $scheduleId = $request->query('schedule_id');
+
+            if ($scheduleId) {
                 $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
-                    ->find($id);
-                
+                    ->find($scheduleId);
+
                 if (!$schedule) {
                     return response()->json([
                         'message' => 'Jadwal tidak ditemukan'
                     ], 404);
                 }
-                
-                // Check if user is an examiner for this schedule
+
                 $isExaminer = TaDefenseExaminer::where('schedule_id', $schedule->id)
                     ->where('examiner_id', $user->id)
                     ->exists();
-                
+
                 if (!$isExaminer) {
                     return response()->json([
                         'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini'
                     ], 403);
                 }
-                
-                // Check if evaluation already exists for this schedule/examiner (race condition)
-                $existingEvaluation = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+
+                $evaluation = TaDefenseEvaluation::firstOrCreate([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $user->id,
+                ], [
+                    'student_id' => $schedule->student_id,
+                    'status' => 'PENDING',
+                    'score' => 0,
+                    'rubric_json' => null,
+                ]);
+            } else {
+                $evaluation = TaDefenseEvaluation::where('id', $id)
                     ->where('examiner_id', $user->id)
                     ->first();
-                
-                if ($existingEvaluation) {
-                    $evaluation = $existingEvaluation;
-                } else {
-                    // Auto-create evaluation record using firstOrCreate to handle race conditions
-                    $evaluation = TaDefenseEvaluation::firstOrCreate([
-                        'schedule_id' => $schedule->id,
-                        'examiner_id' => $user->id,
-                    ], [
-                        'student_id' => $schedule->student_id,
-                        'status' => 'PENDING',
-                        'score' => 0,
-                        'rubric_json' => null,
-                    ]);
+
+                if (!$evaluation) {
+                    $existingEval = TaDefenseEvaluation::find($id);
+                    if ($existingEval) {
+                        return response()->json([
+                            'message' => 'Anda tidak memiliki akses ke penilaian ini'
+                        ], 403);
+                    }
+
+                    return response()->json([
+                        'message' => 'Penilaian tidak ditemukan'
+                    ], 404);
                 }
-            } else {
-                // Evaluation found, load the schedule
+
                 $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
                     ->findOrFail($evaluation->schedule_id);
             }

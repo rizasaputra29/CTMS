@@ -14,18 +14,13 @@ return new class extends Migration
     public function up(): void
     {
         // Update ta_defense_evaluations with student_id from ta_defense_schedules
-        DB::statement('
+        $updatedCount = DB::affectingStatement('
             UPDATE ta_defense_evaluations 
             SET student_id = ta_defense_schedules.student_id
             FROM ta_defense_schedules
             WHERE ta_defense_evaluations.schedule_id = ta_defense_schedules.id
             AND ta_defense_evaluations.student_id IS NULL
         ');
-
-        // Log the backfill operation
-        $updatedCount = DB::table('ta_defense_evaluations')
-            ->whereNotNull('student_id')
-            ->count();
 
         \Illuminate\Support\Facades\Log::info("Backfilled student_id for {$updatedCount} ta_defense_evaluations records");
     }

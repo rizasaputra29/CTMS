@@ -28,9 +28,7 @@ import {
     AlertCircle,
     Calendar,
     Eye,
-    Play,
-    Edit,
-    User
+    Play
 } from 'lucide-react';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
@@ -44,7 +42,7 @@ interface Evaluation {
     start_time: string;
     end_time: string;
     room: string;
-    status: 'PENDING' | 'COMPLETED';
+    status: 'PENDING' | 'COMPLETED' | 'SUBMITTED';
     points: number;
     notes: string;
     deadline: string | null;
@@ -86,7 +84,9 @@ interface SeminarData {
 const getStatusBadge = (status: string) => {
     switch (status) {
         case 'COMPLETED':
+        case 'SUBMITTED':
         case 'completed':
+        case 'submitted':
             return (
                 <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
                     <FileCheck className="w-3 h-3 mr-1" />
@@ -106,6 +106,27 @@ const getStatusBadge = (status: string) => {
     }
 };
 
+const isCompletedStatus = (status: string) =>
+    status === 'COMPLETED' || status === 'SUBMITTED' || status === 'completed' || status === 'submitted';
+
+const normalizeEvaluationStatus = (status?: string): Evaluation['status'] => {
+    const normalized = (status ?? 'PENDING').toUpperCase();
+    if (normalized === 'COMPLETED' || normalized === 'SUBMITTED') {
+        return normalized;
+    }
+    return 'PENDING';
+};
+
+const getButtonText = (status: string) => {
+    if (isCompletedStatus(status)) return 'Lihat Nilai';
+    return 'Nilai Sekarang';
+};
+
+const getButtonIcon = (status: string) => {
+    if (isCompletedStatus(status)) return <Eye className="w-4 h-4 mr-2" />;
+    return <Play className="w-4 h-4 mr-2" />;
+};
+
 const getEvaluationTypeLabel = (type: string, scheduleType?: string) => {
     if (type === 'TA_DEFENSE') return 'SIDANG_TA';
     return scheduleType || type;
@@ -122,6 +143,115 @@ const getEvaluationTypeColor = (type: string, scheduleType?: string) => {
             return 'bg-gray-100 text-gray-800';
     }
 };
+
+function EvaluationCard({ 
+    evalItem, 
+    onEvaluate, 
+    isUrgent, 
+    isOverdue,
+    showScore = false
+}: { 
+    evalItem: Evaluation; 
+    onEvaluate: () => void; 
+    isUrgent: boolean;
+    isOverdue: boolean;
+    showScore?: boolean;
+}) {
+    const displayTitle = evalItem.group.title?.title || evalItem.group.title?.name || `Group ${evalItem.group.id}`;
+    const students = evalItem.type === 'TA_DEFENSE' && evalItem.student
+        ? [evalItem.student]
+        : evalItem.group.members?.map(m => m.student) || [];
+
+    return (
+        <Card className={`transition-all hover:shadow-md ${
+            isOverdue ? 'border-red-500 bg-red-50' : ''
+        } ${isCompletedStatus(evalItem.status) ? 'opacity-75' : ''}`}>
+            <CardHeader className="pb-3">
+                <div className="flex justify-between items-start">
+                    <Badge className={getEvaluationTypeColor(evalItem.type, evalItem.schedule_type)}>
+                        {getEvaluationTypeLabel(evalItem.type, evalItem.schedule_type)}
+                    </Badge>
+                    {getStatusBadge(evalItem.status)}
+                </div>
+                <CardTitle className="text-lg mt-2 leading-tight">
+                    {displayTitle}
+                </CardTitle>
+            </CardHeader>
+            
+            <CardContent className="space-y-3">
+                {evalItem.date && (
+                    <div className="flex items-center text-sm text-muted-foreground">
+                        <CalendarDays className="mr-2 h-4 w-4" />
+                        {format(parseISO(evalItem.date), 'EEEE, dd MMMM yyyy', { locale: idLocale })}
+                    </div>
+                )}
+
+                <div className="flex items-center text-sm text-muted-foreground">
+                    <Clock className="mr-2 h-4 w-4" />
+                    {evalItem.start_time?.substring(0, 5) || '--:--'} - {evalItem.end_time?.substring(0, 5) || '--:--'}
+                </div>
+
+                <div className="flex items-center text-sm text-muted-foreground">
+                    <MapPin className="mr-2 h-4 w-4" />
+                    {evalItem.room}
+                </div>
+
+                {evalItem.deadline && (
+                    <div className={`flex items-center text-sm ${
+                        isOverdue ? 'text-red-600 font-medium' : 
+                        isUrgent ? 'text-yellow-600 font-medium' : 'text-muted-foreground'
+                    }`}>
+                        <AlertCircle className="mr-2 h-4 w-4" />
+                        Deadline: {format(parseISO(evalItem.deadline), 'dd MMMM yyyy HH:mm', { locale: idLocale })}
+                        {isOverdue && ' (Terlewat)'}
+                    </div>
+                )}
+
+                <div className="pt-2 border-t">
+                    <p className="text-sm font-medium mb-2">Mahasiswa:</p>
+                    <div className="flex flex-wrap gap-1">
+                        {students.map((student) => (
+                            <Badge key={student.id} variant="secondary" className="text-xs">
+                                {student.name}
+                            </Badge>
+                        ))}
+                    </div>
+                </div>
+
+                {showScore && isCompletedStatus(evalItem.status) && (
+                    <div className="pt-2 border-t bg-green-50 rounded-lg p-3">
+                        <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-green-800">Nilai:</span>
+                            <span className="font-bold text-2xl text-green-600">{evalItem.points}</span>
+                        </div>
+                        <div className="text-xs text-green-600 text-right">/ 100</div>
+                        {evalItem.updated_at && (
+                            <div className="text-xs text-muted-foreground mt-2">
+                                Dinilai: {format(parseISO(evalItem.updated_at), 'dd MMMM yyyy', { locale: idLocale })}
+                            </div>
+                        )}
+                        {evalItem.notes && (
+                            <p className="text-xs text-muted-foreground mt-2 italic border-t border-green-200 pt-2">
+                                &ldquo;{evalItem.notes}&rdquo;
+                            </p>
+                        )}
+                    </div>
+                )}
+            </CardContent>
+
+            <CardFooter>
+                <Button 
+                    className="w-full"
+                    variant={isCompletedStatus(evalItem.status) ? 'outline' : 'default'}
+                    onClick={onEvaluate}
+                >
+                    {getButtonIcon(evalItem.status)}
+                    {getButtonText(evalItem.status)}
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
 
 export default function DosenExaminerPage() {
     const router = useRouter();
@@ -169,7 +299,7 @@ export default function DosenExaminerPage() {
                             start_time: s.start_time,
                             end_time: s.end_time,
                             room: s.room,
-                            status: myEval.status as 'PENDING' | 'COMPLETED',
+                            status: normalizeEvaluationStatus(myEval.status),
                             points: myEval.score,
                             notes: myEval.feedback || '',
                             deadline: s.evaluation_deadline || null,
@@ -185,7 +315,7 @@ export default function DosenExaminerPage() {
                 taDefenses.forEach((t) => {
                     const myEval = t.evaluations?.[0];
                     mapped.push({
-                        id: myEval?.id || t.id, // Use schedule ID if no evaluation exists
+                        id: myEval?.id ?? 0,
                         type: 'TA_DEFENSE',
                         schedule_type: 'SIDANG_TA',
                         schedule_id: t.id,
@@ -193,7 +323,7 @@ export default function DosenExaminerPage() {
                         start_time: t.start_time,
                         end_time: t.end_time,
                         room: t.room,
-                        status: (myEval?.status as 'PENDING' | 'COMPLETED') || 'PENDING',
+                        status: normalizeEvaluationStatus(myEval?.status),
                         points: myEval?.score || 0,
                         notes: myEval?.feedback || '',
                         deadline: t.evaluation_deadline || null,
@@ -230,9 +360,9 @@ export default function DosenExaminerPage() {
         // Filter by status
         if (filter !== 'all') {
             if (filter === 'pending') {
-                filtered = filtered.filter(e => e.status === 'PENDING');
+                filtered = filtered.filter(e => !isCompletedStatus(e.status));
             } else if (filter === 'completed') {
-                filtered = filtered.filter(e => e.status === 'COMPLETED');
+                filtered = filtered.filter(e => isCompletedStatus(e.status));
             }
         }
         
@@ -240,13 +370,13 @@ export default function DosenExaminerPage() {
     }, [evaluations, searchQuery, filter]);
 
     // Time-based sections (for "Semua" and "Belum Dinilai" tabs)
-    const todayEvaluations = filteredEvaluations.filter((e) => e.status === 'PENDING' && e.date && isToday(parseISO(e.date)));
-    const upcomingEvaluations = filteredEvaluations.filter((e) => e.status === 'PENDING' && e.date && isFuture(parseISO(e.date)) && !isToday(parseISO(e.date)));
-    const pastEvaluations = filteredEvaluations.filter((e) => e.status === 'PENDING' && e.date && isPast(parseISO(e.date)) && !isToday(parseISO(e.date)));
+    const todayEvaluations = filteredEvaluations.filter((e) => !isCompletedStatus(e.status) && e.date && isToday(parseISO(e.date)));
+    const upcomingEvaluations = filteredEvaluations.filter((e) => !isCompletedStatus(e.status) && e.date && isFuture(parseISO(e.date)) && !isToday(parseISO(e.date)));
+    const pastEvaluations = filteredEvaluations.filter((e) => !isCompletedStatus(e.status) && e.date && isPast(parseISO(e.date)) && !isToday(parseISO(e.date)));
     
     // Completed evaluations sorted by completion date (most recent first)
     const completedEvaluations = filteredEvaluations
-        .filter((e) => e.status === 'COMPLETED')
+        .filter((e) => isCompletedStatus(e.status))
         .sort((a, b) => {
             const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
             const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
@@ -254,7 +384,11 @@ export default function DosenExaminerPage() {
         });
 
     const handleEvaluate = (evalItem: Evaluation) => {
-        router.push(`/dosen/evaluation/${evalItem.id}?type=${evalItem.type}`);
+        const query = new URLSearchParams({ type: evalItem.type });
+        if (evalItem.type === 'TA_DEFENSE') {
+            query.set('schedule_id', String(evalItem.schedule_id));
+        }
+        router.push(`/dosen/evaluation/${evalItem.id}?${query.toString()}`);
     };
 
     const isDeadlineUrgent = (deadline: string | null) => {
@@ -268,16 +402,6 @@ export default function DosenExaminerPage() {
     const isDeadlineOverdue = (deadline: string | null) => {
         if (!deadline) return false;
         return isPast(parseISO(deadline));
-    };
-
-    const getButtonText = (status: string) => {
-        if (status === 'COMPLETED') return 'Lihat Nilai';
-        return 'Nilai Sekarang';
-    };
-
-    const getButtonIcon = (status: string) => {
-        if (status === 'COMPLETED') return <Eye className="w-4 h-4 mr-2" />;
-        return <Play className="w-4 h-4 mr-2" />;
     };
 
     if (loading) {
@@ -517,7 +641,7 @@ export default function DosenExaminerPage() {
                                     evalItem={evalItem}
                                     onEvaluate={() => handleEvaluate(evalItem)}
                                     isUrgent={isDeadlineUrgent(evalItem.deadline)}
-                                    isOverdue={isDeadlineOverdue(evalItem.deadline) && evalItem.status !== 'COMPLETED'}
+                                    isOverdue={isDeadlineOverdue(evalItem.deadline) && !isCompletedStatus(evalItem.status)}
                                 />
                             ))}
                         </div>
@@ -526,120 +650,4 @@ export default function DosenExaminerPage() {
             </Tabs>
         </div>
     );
-
-    function EvaluationCard({ 
-        evalItem, 
-        onEvaluate, 
-        isUrgent, 
-        isOverdue,
-        showScore = false
-    }: { 
-        evalItem: Evaluation; 
-        onEvaluate: () => void; 
-        isUrgent: boolean;
-        isOverdue: boolean;
-        showScore?: boolean;
-    }) {
-        // Get display title
-        const displayTitle = evalItem.group.title?.title || evalItem.group.title?.name || `Group ${evalItem.group.id}`;
-        
-        // Get students to display
-        const students = evalItem.type === 'TA_DEFENSE' && evalItem.student
-            ? [evalItem.student]
-            : evalItem.group.members?.map(m => m.student) || [];
-
-        return (
-            <Card className={`transition-all hover:shadow-md ${
-                isOverdue ? 'border-red-500 bg-red-50' : ''
-            } ${evalItem.status === 'COMPLETED' ? 'opacity-75' : ''}`}>
-                <CardHeader className="pb-3">
-                    <div className="flex justify-between items-start">
-                        <Badge className={getEvaluationTypeColor(evalItem.type, evalItem.schedule_type)}>
-                            {getEvaluationTypeLabel(evalItem.type, evalItem.schedule_type)}
-                        </Badge>
-                        {getStatusBadge(evalItem.status)}
-                    </div>
-                    <CardTitle className="text-lg mt-2 leading-tight">
-                        {displayTitle}
-                    </CardTitle>
-                </CardHeader>
-                
-                <CardContent className="space-y-3">
-                    {/* Schedule Info */}
-                    {evalItem.date && (
-                        <div className="flex items-center text-sm text-muted-foreground">
-                            <CalendarDays className="mr-2 h-4 w-4" />
-                            {format(parseISO(evalItem.date), 'EEEE, dd MMMM yyyy', { locale: idLocale })}
-                        </div>
-                    )}
-
-                    <div className="flex items-center text-sm text-muted-foreground">
-                        <Clock className="mr-2 h-4 w-4" />
-                        {evalItem.start_time?.substring(0, 5) || '--:--'} - {evalItem.end_time?.substring(0, 5) || '--:--'}
-                    </div>
-
-                    <div className="flex items-center text-sm text-muted-foreground">
-                        <MapPin className="mr-2 h-4 w-4" />
-                        {evalItem.room}
-                    </div>
-
-                    {/* Deadline */}
-                    {evalItem.deadline && (
-                        <div className={`flex items-center text-sm ${
-                            isOverdue ? 'text-red-600 font-medium' : 
-                            isUrgent ? 'text-yellow-600 font-medium' : 'text-muted-foreground'
-                        }`}>
-                            <AlertCircle className="mr-2 h-4 w-4" />
-                            Deadline: {format(parseISO(evalItem.deadline), 'dd MMMM yyyy HH:mm', { locale: idLocale })}
-                            {isOverdue && ' (Terlewat)'}
-                        </div>
-                    )}
-
-                    {/* Students */}
-                    <div className="pt-2 border-t">
-                        <p className="text-sm font-medium mb-2">Mahasiswa:</p>
-                        <div className="flex flex-wrap gap-1">
-                            {students.map((student) => (
-                                <Badge key={student.id} variant="secondary" className="text-xs">
-                                    {student.name}
-                                </Badge>
-                            ))}
-                        </div>
-                    </div>
-
-                    {/* Score section - shown when showScore is true (for completed evaluations view) */}
-                    {showScore && evalItem.status === 'COMPLETED' && (
-                        <div className="pt-2 border-t bg-green-50 rounded-lg p-3">
-                            <div className="flex justify-between items-center">
-                                <span className="text-sm font-medium text-green-800">Nilai:</span>
-                                <span className="font-bold text-2xl text-green-600">{evalItem.points}</span>
-                            </div>
-                            <div className="text-xs text-green-600 text-right">/ 100</div>
-                            {evalItem.updated_at && (
-                                <div className="text-xs text-muted-foreground mt-2">
-                                    Dinilai: {format(parseISO(evalItem.updated_at), 'dd MMMM yyyy', { locale: idLocale })}
-                                </div>
-                            )}
-                            {evalItem.notes && (
-                                <p className="text-xs text-muted-foreground mt-2 italic border-t border-green-200 pt-2">
-                                    &ldquo;{evalItem.notes}&rdquo;
-                                </p>
-                            )}
-                        </div>
-                    )}
-                </CardContent>
-
-                <CardFooter>
-                    <Button 
-                        className="w-full"
-                        variant={evalItem.status === 'COMPLETED' ? 'outline' : 'default'}
-                        onClick={onEvaluate}
-                    >
-                        {getButtonIcon(evalItem.status)}
-                        {getButtonText(evalItem.status)}
-                    </Button>
-                </CardFooter>
-            </Card>
-        );
-    }
 }

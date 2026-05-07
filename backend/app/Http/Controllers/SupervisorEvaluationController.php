@@ -946,16 +946,18 @@ class SupervisorEvaluationController extends Controller
                         continue;
                     }
 
-                    $byEvaluator = $evaluations->map(function ($eval) use ($scheduleId) {
-                        // Parse rubric_json for component scores
-                        $rubric = $eval->rubric_json ?? [];
-                        $componentScores = collect($rubric)->map(function ($r) {
-                            return [
-                                'component' => $r['component'] ?? $r['name'] ?? 'Unknown',
-                                'score' => $r['score'] ?? 0,
-                                'weight' => $r['weight'] ?? 0,
-                            ];
-                        });
+                    $byEvaluator = $evaluations->map(function ($eval) use ($scheduleId, $group, $student) {
+                        $componentScores = AssessmentScore::with('component')
+                            ->where('group_id', $group->id)
+                            ->where('student_id', $student->id)
+                            ->where('evaluation_type', 'SIDANG_TA')
+                            ->where('evaluator_id', $eval->examiner_id)
+                            ->get()
+                            ->map(fn($score) => [
+                                'component' => $score->component?->name ?? 'Unknown',
+                                'score' => $score->score,
+                                'weight' => $score->component?->weight ?? 0,
+                            ]);
 
                         // Get examiner role
                         $examinerRecord = TaDefenseExaminer::where('schedule_id', $scheduleId)
@@ -1134,14 +1136,17 @@ class SupervisorEvaluationController extends Controller
                     }
 
                     foreach ($evaluations as $eval) {
-                        $rubric = $eval->rubric_json ?? [];
-                        $componentScores = collect($rubric)->map(function ($r) {
-                            return [
-                                'component' => $r['component'] ?? $r['name'] ?? 'Unknown',
-                                'score' => $r['score'] ?? 0,
-                                'weight' => $r['weight'] ?? 0,
-                            ];
-                        });
+                        $componentScores = AssessmentScore::with('component')
+                            ->where('group_id', $group->id)
+                            ->where('student_id', $student->id)
+                            ->where('evaluation_type', 'SIDANG_TA')
+                            ->where('evaluator_id', $eval->examiner_id)
+                            ->get()
+                            ->map(fn($score) => [
+                                'component' => $score->component?->name ?? 'Unknown',
+                                'score' => $score->score,
+                                'weight' => $score->component?->weight ?? 0,
+                            ]);
 
                         $examinerRecord = TaDefenseExaminer::where('schedule_id', $scheduleId)
                             ->where('examiner_id', $eval->examiner_id)
@@ -1273,13 +1278,18 @@ class SupervisorEvaluationController extends Controller
                     'letter_grade' => $finalGradeData['letter_grade'] ?? null,
                 ];
             } catch (\Exception $e) {
+                Log::error('Failed to calculate grades for student in schedule summary', [
+                    'schedule_id' => $scheduleId,
+                    'student_id' => $student->id,
+                    'exception' => $e,
+                ]);
                 $grades[$student->id] = [
                     'student' => [
                         'id' => $student->id,
                         'name' => $student->name,
                         'nim' => $student->nim,
                     ],
-                    'error' => 'Failed to calculate grades: ' . $e->getMessage(),
+                    'error' => 'Failed to calculate grades',
                 ];
             }
         }

@@ -65,7 +65,9 @@ export default function TaEvaluationPage() {
     useEffect(() => {
         const fetchContext = async () => {
             try {
-                const response = await api.get(`/dosen/evaluation-context/TA_DEFENSE/${id}`);
+                const response = await api.get(`/dosen/evaluation-context/TA_DEFENSE/${id}`, {
+                    params: { schedule_id: id }
+                });
                 const data = response.data.data;
                 setContext(data);
 

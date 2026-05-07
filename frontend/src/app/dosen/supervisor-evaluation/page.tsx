@@ -56,7 +56,7 @@ interface Schedule {
     name: string;
     code: string;
   };
-  students: GroupMember[];
+  students?: GroupMember[];
   student: GroupMember | null; // For per-student evaluations like BIMBINGAN_TA
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'NOT_CONFIGURED';
   supervisor_role: 'SUPERVISOR_1' | 'SUPERVISOR_2';

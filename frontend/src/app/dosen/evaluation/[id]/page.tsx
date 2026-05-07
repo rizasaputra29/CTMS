@@ -59,7 +59,7 @@ interface Schedule {
 
 interface Evaluation {
     id: number
-    status: 'PENDING' | 'COMPLETED'
+    status: 'PENDING' | 'COMPLETED' | 'SUBMITTED'
 }
 
 interface EvaluationContext {
@@ -78,6 +78,7 @@ export default function EvaluationDetailPage() {
     const searchParams = useSearchParams()
     const router = useRouter()
     const type = searchParams.get('type') as 'SEMINAR' | 'TA_DEFENSE' | null // SEMINAR or TA_DEFENSE
+    const scheduleId = searchParams.get('schedule_id')
 
     const [loading, setLoading] = useState(true)
     const [submitting, setSubmitting] = useState(false)
@@ -92,12 +93,15 @@ export default function EvaluationDetailPage() {
         
         try {
             setLoading(true)
-            const response = await axios.get(`/dosen/evaluation-context/${type}/${id}`)
+            const contextId = type === 'TA_DEFENSE' && scheduleId ? scheduleId : id
+            const response = await axios.get(`/dosen/evaluation-context/${type}/${contextId}`, {
+                params: type === 'TA_DEFENSE' && scheduleId ? { schedule_id: scheduleId } : undefined,
+            })
             const data = response.data as EvaluationContext
             setContext(data)
 
             // Determine if view-only mode (completed evaluation)
-            const viewOnly = data.evaluation?.status === 'COMPLETED'
+            const viewOnly = data.evaluation?.status === 'COMPLETED' || data.evaluation?.status === 'SUBMITTED'
             setIsViewOnly(viewOnly)
 
             // Get students to evaluate
@@ -130,7 +134,7 @@ export default function EvaluationDetailPage() {
         } finally {
             setLoading(false)
         }
-    }, [id, type])
+    }, [id, type, scheduleId])
 
     useEffect(() => {
         if (id && type) {
@@ -174,8 +178,6 @@ export default function EvaluationDetailPage() {
         setSubmitting(true)
 
         try {
-            const students = getStudents()
-            
             // 1. Submit detailed scores to AssessmentScoreController
             const scorePayload = {
                 group_id: context.group.id,
@@ -280,7 +282,7 @@ export default function EvaluationDetailPage() {
                     )}
                     <Badge variant={context.evaluation.status === 'PENDING' ? 'secondary' : 'outline'} 
                         className={context.evaluation.status !== 'PENDING' ? "bg-green-500/10 text-green-700 border-green-500/20 px-3 py-1 text-sm" : "px-3 py-1 text-sm"}>
-                        {context.evaluation.status === 'COMPLETED' ? 'Sudah Dinilai' : 'Belum Dinilai'}
+                        {context.evaluation.status === 'COMPLETED' || context.evaluation.status === 'SUBMITTED' ? 'Sudah Dinilai' : 'Belum Dinilai'}
                     </Badge>
                 </div>
             </div>
@@ -318,7 +320,7 @@ export default function EvaluationDetailPage() {
                                     <Label className="text-xs text-muted-foreground uppercase font-semibold">
                                         {isTaDefense ? 'Mahasiswa' : 'Anggota'}
                                     </Label>
-                                    {students.map((student, i) => (
+                                    {students.map((student) => (
                                         <div key={student.id} className="flex items-center gap-3 bg-background p-2 rounded-lg border border-primary/5 shadow-sm">
                                             <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                                                 {student.name.charAt(0)}
