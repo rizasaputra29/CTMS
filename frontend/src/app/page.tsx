@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/layout/Navbar';
@@ -15,37 +15,27 @@ import CombinedDashboard from '@/components/dashboard/CombinedDashboard';
 export default function Home() {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const redirected = useRef(false);
 
-  // Redirect single-role users to their role dashboard
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || redirected.current) return;
     if (user) {
       const roles = user.roles || [user.role || 'mahasiswa'];
-      const isAdmin = roles.includes('admin');
-      const isDosen = roles.includes('dosen');
 
-      if (!(isAdmin && isDosen)) {
-        // Single role user - redirect to their dashboard
+      if (!(roles.includes('admin') && roles.includes('dosen'))) {
         const targetRole = roles[0] || 'mahasiswa';
+        redirected.current = true;
         router.replace(`/${targetRole}/dashboard`);
       }
     }
   }, [user, isLoading, router]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
 
   // Multi-role user (admin + dosen) → show combined dashboard
   if (user) {
     return <CombinedDashboard />;
   }
 
-  // Unauthenticated → show landing page
+  // Unauthenticated → render landing immediately (no loading spinner)
   return (
     <div className="min-h-screen bg-background text-foreground selection:bg-black selection:text-white dark:selection:bg-white dark:selection:text-black font-sans">
       <Navbar />

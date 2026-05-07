@@ -96,6 +96,7 @@ const navItems: Record<string, NavItem[]> = {
                 { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
                 { title: 'Groups', url: '/admin/groups', icon: Users },
                 { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
+                { title: 'Sidang Proposal', url: '/admin/sempro', icon: ClipboardCheck },
                 { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
                 { title: 'TA Defense', url: '/admin/ta-defense', icon: GraduationCap },
             ]
@@ -277,6 +278,7 @@ function SidebarSubSection({
 }
 
 // ─── Main Component ─────────────────────────────────────────
+
 export function AppSidebar() {
     const { user, activeRole, logout, switchRole } = useAuth();
     const pathname = usePathname();
@@ -384,7 +386,6 @@ export function AppSidebar() {
         ];
         return !allowedStatuses.includes(groupStatus);
     };
-
     const getTooltipMessage = (menuTitle: string, url: string) => {
         const isMahasiswa = activeRole === 'mahasiswa';
         const isRegistrationItem = url === '/mahasiswa/registration';
@@ -451,30 +452,34 @@ export function AppSidebar() {
             const sectionId = categoryIds[item.title] || item.title.toLowerCase().replace(/\s+/g, '-');
             return (
                 <SidebarSubSection key={idx} sectionId={sectionId} label={item.title} icon={item.icon}>
-                    {item.items?.map((subItem) => (
+                    {item.items?.map((subItem) => {
+                        const disabled = isItemDisabled(subItem.title, subItem.url);
+                        return (
                         <SidebarMenuSubItem key={subItem.title}>
                             <SidebarMenuSubButton
                                 asChild
                                 isActive={pathname === subItem.url}
+                                className={disabled ? 'pointer-events-none opacity-50' : ''}
                             >
-                                <Link href={subItem.url} className="flex items-center justify-between w-full">
-                                    <div className="flex items-center">
-                                        <span>{subItem.title}</span>
+                                <Link href={subItem.url} className={`flex items-center justify-between w-full gap-2 min-w-0 ${disabled ? 'pointer-events-none' : ''}`}>
+                                    <div className="flex items-center min-w-0">
+                                        <span className="truncate">{subItem.title}</span>
                                     </div>
                                     {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
-                                        <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+                                        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold shrink-0">
                                             {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
                                         </span>
                                     )}
                                     {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
-                                        <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
+                                        <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold shrink-0">
                                             {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
                                         </span>
                                     )}
                                 </Link>
                             </SidebarMenuSubButton>
                         </SidebarMenuSubItem>
-                    ))}
+                        );
+                    })}
                 </SidebarSubSection>
             );
         };
@@ -642,11 +647,13 @@ export function AppSidebar() {
                                     </SidebarMenuButton>
                                 </SidebarMenuItem>
 
+
                                 {items.map((item) => {
                                     const isItemActive = pathname === item.url;
                                     const hasActiveSubitem = item.items?.some(sub => pathname === sub.url);
                                     const isDefaultOpen = isItemActive || hasActiveSubitem;
                                     const disabled = isItemDisabled(item.title, item.url || '');
+                                    const disableParent = disabled;
 
                                     if (item.items && item.items.length > 0) {
                                         return (
@@ -661,7 +668,7 @@ export function AppSidebar() {
                                                         <SidebarMenuButton
                                                             tooltip={getTooltipMessage(item.title, item.url || '')}
                                                             isActive={hasActiveSubitem}
-                                                            className={disabled ? 'opacity-50' : ''}
+                                                            className={disableParent ? 'opacity-50' : ''}
                                                         >
                                                             {item.icon && <item.icon />}
                                                             <span>{item.title}</span>
@@ -670,32 +677,35 @@ export function AppSidebar() {
                                                     </CollapsibleTrigger>
                                                     <CollapsibleContent>
                                                         <SidebarMenuSub>
-                                                            {item.items.map((subItem) => (
-                                                                <SidebarMenuSubItem key={subItem.title}>
-                                                                    <SidebarMenuSubButton
-                                                                        asChild
-                                                                        isActive={pathname === subItem.url}
-                                                                        className={disabled ? 'pointer-events-none opacity-50' : ''}
-                                                                    >
-                                                                        <Link href={subItem.url} className="flex items-center justify-between w-full">
-                                                                            <div className="flex items-center">
-                                                                                {subItem.icon && <subItem.icon className="mr-2 h-4 w-4" />}
-                                                                                <span>{subItem.title}</span>
-                                                                            </div>
-                                                                            {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
-                                                                                <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                                                                    {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
-                                                                                </span>
-                                                                            )}
-                                                                            {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
-                                                                                <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                                                                    {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
-                                                                                </span>
-                                                                            )}
-                                                                        </Link>
-                                                                    </SidebarMenuSubButton>
-                                                                </SidebarMenuSubItem>
-                                                            ))}
+                                                            {item.items.map((subItem) => {
+                                                                const subItemDisabled = disableParent;
+                                                                return (
+                                                                    <SidebarMenuSubItem key={subItem.title}>
+                                                                        <SidebarMenuSubButton
+                                                                            asChild
+                                                                            isActive={pathname === subItem.url}
+                                                                            className={subItemDisabled ? 'pointer-events-none opacity-50' : ''}
+                                                                        >
+                                                                            <Link href={subItem.url} className={`flex items-center justify-between w-full gap-2 min-w-0 ${subItemDisabled ? 'pointer-events-none' : ''}`}>
+                                                                                <div className="flex items-center min-w-0">
+                                                                                    {subItem.icon && <subItem.icon className="mr-2 h-4 w-4 shrink-0" />}
+                                                                                    <span className="truncate">{subItem.title}</span>
+                                                                                </div>
+                                                                                {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (
+                                                                                    <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold shrink-0">
+                                                                                        {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
+                                                                                    </span>
+                                                                                )}
+                                                                                {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
+                                                                                    <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold shrink-0">
+                                                                                        {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
+                                                                                    </span>
+                                                                                )}
+                                                                            </Link>
+                                                                        </SidebarMenuSubButton>
+                                                                    </SidebarMenuSubItem>
+                                                                );
+                                                            })}
                                                         </SidebarMenuSub>
                                                     </CollapsibleContent>
                                                 </SidebarMenuItem>

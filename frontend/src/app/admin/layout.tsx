@@ -1,5 +1,10 @@
 import DashboardLayout from "@/components/layout/DashboardLayout"
+import { PeriodSelectionProvider } from "@/context/PeriodSelectionContext"
 
 export default function Layout({ children }: { children: React.ReactNode }) {
-  return <DashboardLayout>{children}</DashboardLayout>
+  return (
+    <PeriodSelectionProvider>
+      <DashboardLayout>{children}</DashboardLayout>
+    </PeriodSelectionProvider>
+  )
 }

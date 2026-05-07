@@ -1,33 +1,23 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-    Loader2, Plus, CalendarDays, MapPin, Users, Eye, EyeOff,
-    Trash2, Edit, Clock,
-} from 'lucide-react';
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
+import { Loader2, Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Eye, EyeOff, Edit, Trash2 } from 'lucide-react';
 
 interface ExpoEvent {
     id: number;
@@ -50,15 +40,20 @@ interface Period {
     is_active: boolean;
 }
 
+type SortKey = 'name' | 'date';
+type SortDir = 'asc' | 'desc';
+const PAGE_SIZES = [10, 25, 50];
+
 export default function AdminExpoPage() {
     const [events, setEvents] = useState<ExpoEvent[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
     const [loading, setLoading] = useState(true);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [searchQuery, setSearchQuery] = useState('');
+
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ExpoEvent | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-    const [searchQuery, setSearchQuery] = useState('');
     const [form, setForm] = useState({
         period_id: '',
         name: '',
@@ -69,22 +64,25 @@ export default function AdminExpoPage() {
         capacity: '30',
     });
 
-    const fetchData = useCallback(async (periodId?: string) => {
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [sortKey, setSortKey] = useState<SortKey>('date');
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+
+    const fetchData = useCallback(async () => {
+        setLoading(true);
         try {
-            const currentPeriod = periodId || selectedPeriod;
-            const query = currentPeriod ? `?period_id=${currentPeriod}` : '';
-            
             const [evtRes, perRes] = await Promise.all([
-                api.get(`/admin/expo-events${query}`),
+                api.get('/admin/expo-events', { params: selectedPeriod ? { period_id: selectedPeriod } : {} }),
                 api.get('/admin/periods'),
             ]);
-            // Handle both formats: { data: [...] } and direct array [...]
             const eventsData = evtRes.data?.data ?? (Array.isArray(evtRes.data) ? evtRes.data : []);
             setEvents(eventsData);
             const allPeriods = perRes.data?.data || [];
             setPeriods(allPeriods);
-            
-            if (!selectedPeriod && !periodId) {
+
+            if (!selectedPeriod) {
                 const active = allPeriods.find((p: Period) => p.is_active);
                 if (active) setSelectedPeriod(active.id.toString());
             }
@@ -95,20 +93,37 @@ export default function AdminExpoPage() {
         }
     }, [selectedPeriod]);
 
-    useEffect(() => { 
-        if (!selectedPeriod) {
-            fetchData();
-        } else {
-            fetchData(selectedPeriod);
-        }
-    }, [selectedPeriod, fetchData]);
+    useEffect(() => { fetchData(); }, [selectedPeriod]);
+    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
 
-    const filteredEvents = useMemo(() => {
-        return events.filter(evt => 
-            evt.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            evt.room.toLowerCase().includes(searchQuery.toLowerCase())
-        );
-    }, [events, searchQuery]);
+    const filteredAndSorted = useMemo(() => {
+        const result = events.filter(evt => {
+            const q = searchQuery.toLowerCase();
+            return evt.name.toLowerCase().includes(q) || evt.room.toLowerCase().includes(q);
+        });
+
+        result.sort((a, b) => {
+            let cmp = 0;
+            if (sortKey === 'name') {
+                cmp = a.name.localeCompare(b.name);
+            } else if (sortKey === 'date') {
+                cmp = (a.date || '').localeCompare(b.date || '');
+            }
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+
+        return result;
+    }, [events, searchQuery, sortKey, sortDir]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const paginated = useMemo(() => {
+        const start = (safePage - 1) * pageSize;
+        return filteredAndSorted.slice(start, start + pageSize);
+    }, [filteredAndSorted, safePage, pageSize]);
+
+    const showingStart = filteredAndSorted.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+    const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
 
     const openCreate = () => {
         setEditing(null);
@@ -172,114 +187,341 @@ export default function AdminExpoPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+    };
+
+    const toggleExpanded = (id: number) => {
+        setExpandedEvents(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const formatDate = (dateStr: string) => {
+        try {
+            return format(new Date(dateStr), 'dd MMM yyyy');
+        } catch {
+            return dateStr;
+        }
+    };
+
+    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
+        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort(sortKeyName)}>
+            <div className="flex items-center gap-1">
+                {label}
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
             </div>
-        );
-    }
+        </TableHead>
+    );
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Expo Events</h1>
-                    <p className="text-muted-foreground">Create and manage expo events for student groups.</p>
+                    <h1 className="text-2xl font-semibold tracking-tight">Expo Events</h1>
+                    <p className="text-muted-foreground text-sm mt-0.5">Create and manage expo events for student groups.</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <Button onClick={openCreate}>
+                    <Plus className="mr-2 h-4 w-4" /> New Event
+                </Button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">Period</span>
                     <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                        <SelectTrigger className="w-[180px]">
-                            <SelectValue placeholder="Filter period" />
+                        <SelectTrigger className="w-[220px]">
+                            <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">All Periods</SelectItem>
                             {periods.map((p) => (
-                                <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                                <SelectItem key={p.id} value={p.id.toString()}>
+                                    {p.name}
+                                    {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                </SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
-                    <Button onClick={openCreate}>
-                        <Plus className="mr-2 h-4 w-4" /> New Event
-                    </Button>
+                </div>
+                <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search by name or room..."
+                        className="pl-9"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
                 </div>
             </div>
 
-            <div className="relative max-w-sm">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                    placeholder="Search events by name or room..."
-                    className="pl-9"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                />
-            </div>
-
-            {filteredEvents.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <CalendarDays className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Expo Events Found</h2>
-                    <p className="text-muted-foreground">Try adjusting your filters or create a new event.</p>
-                </div>
-            ) : (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {filteredEvents.map((evt) => (
-                        <Card key={evt.id} className={!evt.is_published ? 'opacity-70 border-dashed' : ''}>
-                            <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                    <CardTitle className="text-base">{evt.name}</CardTitle>
-                                    <Badge variant={evt.is_published ? 'default' : 'secondary'}>
-                                        {evt.is_published ? 'Published' : 'Draft'}
-                                    </Badge>
-                                </div>
-                                <CardDescription>{evt.period?.name}</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                                <div className="flex items-center gap-2 text-sm">
-                                    <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                                    <span>{new Date(evt.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Clock className="h-4 w-4 text-muted-foreground" />
-                                    <span>{evt.start_time.slice(0, 5)} – {evt.end_time.slice(0, 5)}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <MapPin className="h-4 w-4 text-muted-foreground" />
-                                    <span>{evt.room}</span>
-                                </div>
-                                <div className="flex items-center gap-2 text-sm">
-                                    <Users className="h-4 w-4 text-muted-foreground" />
-                                    <span>{evt.registrations_count}/{evt.capacity} registered</span>
-                                    {evt.registrations_count >= evt.capacity && (
-                                        <Badge variant="destructive" className="text-xs">Full</Badge>
-                                    )}
-                                </div>
-                                {/* Capacity bar */}
-                                <div className="w-full bg-muted rounded-full h-2">
-                                    <div
-                                        className={`h-2 rounded-full transition-all ${evt.registrations_count >= evt.capacity ? 'bg-destructive' : 'bg-primary'}`}
-                                        style={{ width: `${Math.min(100, (evt.registrations_count / evt.capacity) * 100)}%` }}
-                                    />
-                                </div>
-                                <div className="flex gap-2 pt-2">
-                                    <Button size="sm" variant="outline" onClick={() => handlePublish(evt)}>
-                                        {evt.is_published ? <EyeOff className="mr-1 h-3 w-3" /> : <Eye className="mr-1 h-3 w-3" />}
-                                        {evt.is_published ? 'Unpublish' : 'Publish'}
-                                    </Button>
-                                    <Button size="sm" variant="outline" onClick={() => openEdit(evt)}>
-                                        <Edit className="mr-1 h-3 w-3" /> Edit
-                                    </Button>
-                                    <Button size="sm" variant="destructive" onClick={() => handleDelete(evt)} disabled={evt.registrations_count > 0}>
-                                        <Trash2 className="mr-1 h-3 w-3" /> Delete
-                                    </Button>
-                                </div>
-                            </CardContent>
-                        </Card>
-                    ))}
+            {loading && (
+                <div className="flex justify-center items-center h-64">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                 </div>
             )}
 
-            {/* Create/Edit Dialog */}
+            {!loading && filteredAndSorted.length === 0 && (
+                <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
+                    <CalendarDays className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
+                    <p className="text-sm font-medium">No Expo Events Found</p>
+                    <p className="text-[13px] text-muted-foreground/60 mt-1">
+                        Try adjusting your filters or create a new event.
+                    </p>
+                </div>
+            )}
+
+            {!loading && filteredAndSorted.length > 0 && (
+                <>
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="w-10" />
+                                    <SortHeader label="Event" sortKeyName="name" />
+                                    <SortHeader label="Date" sortKeyName="date" />
+                                    <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead className="w-[160px]">Registrations</TableHead>
+                                    <TableHead className="w-[110px]">Status</TableHead>
+                                    <TableHead className="w-[200px] text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {paginated.map((evt) => {
+                                    const isExpanded = expandedEvents.has(evt.id);
+                                    const isFull = evt.registrations_count >= evt.capacity;
+                                    const progressPct = Math.min(100, (evt.registrations_count / Math.max(1, evt.capacity)) * 100);
+
+                                    return (
+                                        <Fragment key={evt.id}>
+                                            <TableRow
+                                                className={`cursor-pointer ${!evt.is_published ? 'bg-muted/20 hover:bg-muted/40' : 'hover:bg-muted/50'}`}
+                                                onClick={() => toggleExpanded(evt.id)}
+                                            >
+                                                <TableCell>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
+                                                        onClick={(e) => { e.stopPropagation(); toggleExpanded(evt.id); }}
+                                                    >
+                                                        {isExpanded ? (
+                                                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                                        ) : (
+                                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </Button>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span className={`font-semibold ${!evt.is_published ? 'text-muted-foreground/70' : ''}`}>
+                                                        {evt.name}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+                                                        {formatDate(evt.date)}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+                                                        {evt.start_time.slice(0, 5)}
+                                                        <span className="text-muted-foreground/40 mx-0.5">–</span>
+                                                        {evt.end_time.slice(0, 5)}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="space-y-1">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className={`text-sm ${isFull ? 'text-destructive font-medium' : 'text-muted-foreground'} tabular-nums`}>
+                                                                {evt.registrations_count}/{evt.capacity}
+                                                            </span>
+                                                            {isFull && (
+                                                                <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4">Full</Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="w-full bg-muted rounded-full h-1.5">
+                                                            <div
+                                                                className={`h-1.5 rounded-full transition-all ${isFull ? 'bg-destructive' : 'bg-primary/60'}`}
+                                                                style={{ width: `${progressPct}%` }}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={evt.is_published ? 'default' : 'secondary'} className="text-[11px]">
+                                                        {evt.is_published ? 'Published' : 'Draft'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="text-[13px] h-7 px-2"
+                                                            onClick={() => handlePublish(evt)}
+                                                        >
+                                                            {evt.is_published ? (
+                                                                <EyeOff className="h-3.5 w-3.5" />
+                                                            ) : (
+                                                                <Eye className="h-3.5 w-3.5" />
+                                                            )}
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="outline"
+                                                            className="text-[13px] h-7 px-2"
+                                                            onClick={() => openEdit(evt)}
+                                                        >
+                                                            <Edit className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                        <Button
+                                                            size="sm"
+                                                            variant="destructive"
+                                                            className="text-[13px] h-7 px-2"
+                                                            onClick={() => handleDelete(evt)}
+                                                            disabled={evt.registrations_count > 0}
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5" />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+
+                                            {isExpanded && (
+                                                <TableRow className="bg-muted/30 hover:bg-inherit">
+                                                    <TableCell colSpan={8} className="p-4">
+                                                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                                            <div className="space-y-2">
+                                                                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                                                    Event Details
+                                                                </h4>
+                                                                <div className="space-y-1.5">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Date</span>
+                                                                        <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
+                                                                            {formatDate(evt.date)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Time</span>
+                                                                        <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
+                                                                            {evt.start_time.slice(0, 5)} — {evt.end_time.slice(0, 5)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                        <span className="text-[12px] text-muted-foreground">
+                                                                            {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Period</span>
+                                                                        <span className="text-[12px] font-medium text-foreground/80">{evt.period?.name || '—'}</span>
+                                                                    </div>
+                                                                    {evt.creator?.name && (
+                                                                        <div className="flex items-center justify-between">
+                                                                            <span className="text-muted-foreground/70 text-[12px]">Created by</span>
+                                                                            <span className="text-[12px] text-muted-foreground">{evt.creator.name}</span>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                                                    Registrations
+                                                                </h4>
+                                                                <div className="space-y-2">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Capacity</span>
+                                                                        <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
+                                                                            {evt.capacity}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Registered</span>
+                                                                        <span className={`text-[12px] font-mono tabular-nums ${isFull ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                                                                            {evt.registrations_count}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="w-full bg-muted rounded-full h-2 mt-1">
+                                                                        <div
+                                                                            className={`h-2 rounded-full transition-all ${isFull ? 'bg-destructive' : 'bg-primary'}`}
+                                                                            style={{ width: `${progressPct}%` }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </Fragment>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <p className="text-sm text-muted-foreground">
+                                Showing {showingStart}–{showingEnd} of {filteredAndSorted.length}
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[12px] text-muted-foreground/60">Rows</span>
+                                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                                    <SelectTrigger className="h-7 w-[60px] text-[12px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PAGE_SIZES.map(s => (
+                                            <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={safePage === 1}
+                            >
+                                <ChevronLeft className="h-4 w-4 mr-1" />
+                                Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground px-2">
+                                Page {safePage} of {totalPages}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={safePage === totalPages}
+                            >
+                                Next
+                                <ChevronRight className="h-4 w-4 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+                </>
+            )}
+
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogContent>
                     <DialogHeader>
