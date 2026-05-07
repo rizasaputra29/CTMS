@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -14,6 +15,8 @@ use App\Services\GroupStateMachine;
 
 class StudentProposalController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -293,7 +296,10 @@ class StudentProposalController extends Controller
                 $title->stakeholders()->sync($validated['stakeholder_ids'] ?? []);
             }
 
-            $group = Group::find($membership->group_id);
+            $group = Group::with('period')->find($membership->group_id);
+
+            $this->ensurePeriodIsActive($group);
+
             $group->update(['has_active_proposal' => true]);
 
             // Notify supervisor
@@ -360,6 +366,8 @@ class StudentProposalController extends Controller
         DB::beginTransaction();
         try {
             $group = Group::with('period', 'members')->find($membership->group_id);
+
+            $this->ensurePeriodIsActive($group);
 
             // Delete the title (this will cascade any notifications if set)
             $title->delete();

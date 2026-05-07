@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
+use App\Models\Group;
 use App\Models\Period;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -99,10 +101,40 @@ class PeriodController extends Controller
 
         $validated = $this->normalizePeriodPayload($validated);
 
-        // V4: Allow multiple active periods — no auto-deactivation
+        // Phase 1: Safe deactivation guard
+        if (isset($validated['is_active']) && $validated['is_active'] === false && $period->is_active === true) {
+            $activeGroups = Group::where('period_id', $period->id)
+                ->whereIn('status', [
+                    'PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE',
+                    'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED',
+                    'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL',
+                ])
+                ->count();
+
+            if ($activeGroups > 0) {
+                AuditLog::create([
+                    'user_id' => $request->user()->id,
+                    'action' => 'PERIOD_DEACTIVATED',
+                    'target_type' => 'Period',
+                    'target_id' => $period->id,
+                    'payload' => ['active_groups_at_deactivation' => $activeGroups],
+                ]);
+            }
+        }
+
+        // Phase 3: Reactivation audit log
+        if (isset($validated['is_active']) && $validated['is_active'] === true && $period->is_active === false) {
+            AuditLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'PERIOD_REACTIVATED',
+                'target_type' => 'Period',
+                'target_id' => $period->id,
+            ]);
+        }
 
         $period->update($validated);
         Cache::forget('active_period');
+        Cache::forget('periods:active:all');
 
         return $this->successResponse($period->fresh(), 'Period updated successfully');
     }

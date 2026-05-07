@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Schedule;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -10,11 +11,21 @@ use App\Models\ExpoRegistration;
 use App\Models\TaDefenseSchedule;
 use App\Models\SeminarSchedule;
 use App\Services\NotificationService;
+use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class ScheduleController extends Controller
 {
+    use RequiresActivePeriod;
+
+    protected $schedulingService;
+
+    public function __construct(SchedulingService $schedulingService)
+    {
+        $this->schedulingService = $schedulingService;
+    }
+
     /**
      * Display a listing of the resource.
      */
@@ -33,7 +44,7 @@ class ScheduleController extends Controller
         // Admin can only see SEMPRO, SIDANG, EXPO schedules
         if ($user->hasRole('admin')) {
             return response()->json([
-                'data' => $query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO'])->get()
+                'data' => $query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO', 'BIMBINGAN'])->get()
             ]);
         }
 
@@ -98,18 +109,45 @@ class ScheduleController extends Controller
         ]);
 
         $data = $request->all();
-        
+
+        $group = Group::with(['supervisions', 'title'])->find($request->group_id);
+        if ($group) {
+            $this->ensurePeriodIsActive($group);
+        }
+
+        // Validate scheduling conflicts for BIMBINGAN (cross-period)
+        if ($user->hasRole('dosen') && ($request->type === 'BIMBINGAN' || !$request->has('type'))) {
+            $scheduleDate = \Carbon\Carbon::parse($request->date);
+            $dateOnly = $scheduleDate->format('Y-m-d');
+            $startTime = $scheduleDate->format('H:i:00');
+            $endTime = $scheduleDate->copy()->addHour()->format('H:i:00');
+
+            $conflicts = $this->schedulingService->validateScheduleConflicts(
+                [$user->id],
+                $dateOnly,
+                $startTime,
+                $endTime,
+                $request->room
+            );
+
+            if (!empty($conflicts)) {
+                return response()->json([
+                    'message' => 'Scheduling conflicts detected.',
+                    'conflicts' => $conflicts
+                ], 400);
+            }
+        }
+
         // Auto-set evaluation deadline to 2 days after schedule date
         if (!isset($data['evaluation_deadline'])) {
             $data['evaluation_deadline'] = date('Y-m-d H:i:s', strtotime($data['date'] . ' +2 days'));
         }
-        
+
         $schedule = Schedule::create($data);
 
         // Send notifications to supervisors and examiners
         $notificationService = app(NotificationService::class);
-        $group = Group::with(['supervisions', 'title'])->find($request->group_id);
-        
+
         // Notify supervisors
         if ($group) {
             $notificationService->notifySupervisorsOfSchedule($group, $schedule, $request->type);
@@ -150,7 +188,10 @@ class ScheduleController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $schedule = Schedule::findOrFail($id);
+        $schedule = Schedule::with('group')->findOrFail($id);
+        if ($schedule->group) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
         $schedule->update($request->all());
 
         return response()->json(['message' => 'Schedule updated successfully', 'data' => $schedule]);
@@ -165,6 +206,10 @@ class ScheduleController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        $schedule = Schedule::with('group')->find($id);
+        if ($schedule && $schedule->group) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
         Schedule::destroy($id);
         return response()->json(['message' => 'Schedule deleted successfully']);
     }

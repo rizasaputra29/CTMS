@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -26,6 +27,8 @@ use Illuminate\Database\QueryException;
 
 class TaSubmissionController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -64,7 +67,9 @@ class TaSubmissionController extends Controller
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
 
-        $group = Group::findOrFail($membership->group_id);
+        $group = Group::with('period')->findOrFail($membership->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Gate: group must be at least PDC2_ACTIVE
         if (!$this->stateMachine->isAtLeast($group, 'PDC2_ACTIVE')) {
@@ -107,7 +112,9 @@ class TaSubmissionController extends Controller
 
         $user = $request->user();
 
-        $submission = TaSubmission::where('student_id', $user->id)->firstOrFail();
+        $submission = TaSubmission::with('group.period')->where('student_id', $user->id)->firstOrFail();
+
+        $this->ensurePeriodIsActive($submission->group);
 
         $submission->update([
             'status' => 'TA_REVISED',
@@ -205,7 +212,9 @@ class TaSubmissionController extends Controller
         ]);
 
         $user = $request->user();
-        $submission = TaSubmission::findOrFail($id);
+        $submission = TaSubmission::with('group.period')->findOrFail($id);
+
+        $this->ensurePeriodIsActive($submission->group);
 
         if ($request->result === 'APPROVE') {
             $submission->update([
@@ -233,7 +242,9 @@ class TaSubmissionController extends Controller
     public function defended(Request $request, $id)
     {
         $user = $request->user();
-        $submission = TaSubmission::findOrFail($id);
+        $submission = TaSubmission::with('group.period')->findOrFail($id);
+
+        $this->ensurePeriodIsActive($submission->group);
 
         if ($submission->status !== 'TA_REGISTERED') {
             return response()->json(['message' => 'TA must be in TA_REGISTERED status.'], 400);
@@ -493,10 +504,12 @@ class TaSubmissionController extends Controller
 
         $user = $request->user();
 
-        $submission = TaSubmission::where('student_id', $user->id)->first();
+        $submission = TaSubmission::with('group.period')->where('student_id', $user->id)->first();
         if (!$submission) {
             return response()->json(['message' => 'TA submission not found.'], 404);
         }
+
+        $this->ensurePeriodIsActive($submission->group);
 
         // Check if submission is in a valid state for document upload
         if (!in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
@@ -561,7 +574,10 @@ class TaSubmissionController extends Controller
         $document = Document::findOrFail($documentId);
 
         // Check if user is supervisor of the group
-        $group = Group::find($document->group_id);
+        $group = Group::with('period')->find($document->group_id);
+
+        $this->ensurePeriodIsActive($group);
+
         $isSupervisor = in_array($user->id, [$group->supervisor_1_id, $group->supervisor_2_id]);
         
         if (!$isSupervisor && !$user->hasRole('admin')) {

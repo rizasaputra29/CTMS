@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Models\TaDefenseEvaluation;
@@ -11,11 +12,14 @@ use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
 use App\Models\AuditLog;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SchedulingService
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -176,12 +180,16 @@ class SchedulingService
             ];
         }
 
-        // Check ta_defense_schedules via ta_defense_examiners
+        // Check ta_defense_schedules via direct columns and examiners pivot
         $taConflict = TaDefenseSchedule::where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
-            ->whereHas('examiners', fn($q) => $q->where('examiner_id', $examinerId))
+            ->where(function ($q) use ($examinerId) {
+                $q->where('examiner_1_id', $examinerId)
+                    ->orWhere('examiner_2_id', $examinerId)
+                    ->orWhereHas('examiners', fn($sq) => $sq->where('examiner_id', $examinerId));
+            })
             ->when($excludeTaDefenseId, fn($q) => $q->where('id', '!=', $excludeTaDefenseId))
             ->first();
 
@@ -190,6 +198,23 @@ class SchedulingService
                 'type' => 'ta_defense',
                 'schedule' => $taConflict,
                 'message' => "Examiner has a conflicting TA defense schedule on {$date} ({$taConflict->start_time}-{$taConflict->end_time})",
+            ];
+        }
+
+        // Check BIMBINGAN schedules (dosen as group supervisor)
+        $bimbinganConflict = Schedule::where('type', 'BIMBINGAN')
+            ->whereHas('group.supervisions', fn($q) => $q->where('supervisor_id', $examinerId))
+            ->whereRaw('DATE(date) = ?', [$date])
+            ->whereRaw('date < ?', [$date . ' ' . $endTime])
+            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->first();
+
+        if ($bimbinganConflict) {
+            $bTime = \Carbon\Carbon::parse($bimbinganConflict->date)->format('H:i');
+            return [
+                'type' => 'bimbingan',
+                'schedule' => $bimbinganConflict,
+                'message' => "Examiner has a conflicting BIMBINGAN schedule on {$date} at {$bTime}",
             ];
         }
 
@@ -238,6 +263,21 @@ class SchedulingService
             return [
                 'type' => 'ta_defense',
                 'message' => "Room '{$room}' is already booked for TA defense on {$date} ({$taConflict->start_time}-{$taConflict->end_time})",
+            ];
+        }
+
+        $bimbinganRoomConflict = Schedule::where('room', $room)
+            ->where('type', 'BIMBINGAN')
+            ->whereRaw('DATE(date) = ?', [$date])
+            ->whereRaw('date < ?', [$date . ' ' . $endTime])
+            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->first();
+
+        if ($bimbinganRoomConflict) {
+            $bTime = \Carbon\Carbon::parse($bimbinganRoomConflict->date)->format('H:i');
+            return [
+                'type' => 'bimbingan',
+                'message' => "Room '{$room}' is already booked for BIMBINGAN on {$date} at {$bTime}",
             ];
         }
 
@@ -376,6 +416,8 @@ class SchedulingService
                 // Determine group transition based on result
                 $group = Group::findOrFail($schedule->group_id);
 
+                $this->ensurePeriodIsActive($group);
+
                 if ($schedule->type === 'SEMPRO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
@@ -462,6 +504,9 @@ class SchedulingService
                 $taSubmission = TaSubmission::where('student_id', $schedule->student_id)
                     ->where('group_id', $schedule->group_id)
                     ->firstOrFail();
+
+                $group = Group::findOrFail($schedule->group_id);
+                $this->ensurePeriodIsActive($group);
 
                 if ($result === 'PASS') {
                     $taSubmission->update(['status' => 'TA_DEFENDED']);

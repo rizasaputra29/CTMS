@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -13,6 +14,8 @@ use App\Services\NotificationService;
 
 class TitleController extends Controller
 {
+    use RequiresActivePeriod;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -204,6 +207,8 @@ class TitleController extends Controller
 
     public function update(Request $request, Title $title)
     {
+        $this->ensureModelPeriodActive($title);
+
         if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
@@ -226,6 +231,8 @@ class TitleController extends Controller
 
     public function destroy(Request $request, Title $title)
     {
+        $this->ensureModelPeriodActive($title);
+
         if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
@@ -242,6 +249,8 @@ class TitleController extends Controller
      */
     public function withdrawApproval(Request $request, Title $title, NotificationService $notificationService)
     {
+        $this->ensureModelPeriodActive($title);
+
         // 1. Authorization: User is the lecturer who created this title
         if ($request->user()->id !== $title->lecturer_id) {
             abort(403, 'Only the lecturer can withdraw approval from this title');

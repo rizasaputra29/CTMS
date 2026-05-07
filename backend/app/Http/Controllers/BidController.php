@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Bid;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -13,6 +14,8 @@ use Illuminate\Support\Facades\DB;
 
 class BidController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected BiddingService $biddingService;
 
     public function __construct(BiddingService $biddingService)
@@ -90,6 +93,8 @@ class BidController extends Controller
         }
 
         $group = Group::with(['period', 'members'])->find($membership->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Member count check first - if enough members, allow bidding
         $minSize = $group->period->min_group_size ?? 3;
@@ -207,6 +212,8 @@ class BidController extends Controller
 
         $group = Group::with('period')->find($membership->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         if ($this->biddingService->isBiddingLocked($group->period)) {
             return response()->json(['message' => 'Bidding ditutup. Tidak dapat menghapus bidding.'], 400);
         }
@@ -236,6 +243,8 @@ class BidController extends Controller
         }
 
         $group = Group::with('period')->find($membership->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if ($this->biddingService->isBiddingLocked($group->period)) {
             return response()->json(['message' => 'Bidding ditutup. Tidak dapat mengubah urutan.'], 400);
@@ -322,6 +331,7 @@ class BidController extends Controller
 
         // Check lock
         $group = Group::with('period')->find($bid->group_id);
+        $this->ensurePeriodIsActive($group);
         if ($this->biddingService->isBiddingLocked($group->period)) {
             return response()->json(['message' => 'Bidding ditutup. Tidak dapat mengubah rekomendasi.'], 400);
         }

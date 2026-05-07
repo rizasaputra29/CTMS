@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaSubmission;
@@ -17,6 +18,8 @@ use Illuminate\Support\Facades\Validator;
 
 class TaDefenseScheduleController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected $schedulingService;
 
     public function __construct(SchedulingService $schedulingService)
@@ -61,7 +64,7 @@ class TaDefenseScheduleController extends Controller
             $query->where('status', $request->status);
         }
 
-        $schedules = $query->paginate($request->per_page ?? 20);
+        $schedules = $query->paginate($request->per_page ?? 1000);
 
         return response()->json([
             'data' => $schedules->items(),
@@ -104,7 +107,8 @@ class TaDefenseScheduleController extends Controller
         }
 
         // Validate examiners are not supervisors
-        $group = Group::with(['supervisors'])->findOrFail($request->group_id);
+        $group = Group::with(['supervisors', 'period'])->findOrFail($request->group_id);
+        $this->ensurePeriodIsActive($group);
         $supervisorIds = $group->supervisors->pluck('id')->toArray();
         
         if (in_array($request->examiner_1_id, $supervisorIds)) {
@@ -129,6 +133,23 @@ class TaDefenseScheduleController extends Controller
         
         if (!$examiner2->hasRole('dosen')) {
             return response()->json(['error' => 'Examiner 2 must be a dosen'], 400);
+        }
+
+        // Validate scheduling conflicts (cross-period)
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $conflicts = $this->schedulingService->validateScheduleConflicts(
+            $examinerIds,
+            $request->date,
+            $request->start_time,
+            $request->end_time,
+            $request->room
+        );
+
+        if (!empty($conflicts)) {
+            return response()->json([
+                'message' => 'Scheduling conflicts detected.',
+                'conflicts' => $conflicts
+            ], 400);
         }
 
         // Auto-calculate evaluation deadline (2 days after schedule)
@@ -207,10 +228,12 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $schedule = TaDefenseSchedule::findOrFail($id);
+        $schedule = TaDefenseSchedule::with('group.period')->findOrFail($id);
+
+        $this->ensurePeriodIsActive($schedule->group);
 
         if ($schedule->status === 'DONE') {
-            return response()->json(['error' => 'Cannot update completed schedule'], 400);
+            return response()->json(['error' => 'Cannot cancel completed schedule'], 400);
         }
 
         $validator = Validator::make($request->all(), [
@@ -224,6 +247,32 @@ class TaDefenseScheduleController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Validate scheduling conflicts when date/time/room is changed
+        if ($request->has('date') || $request->has('start_time') || $request->has('end_time') || $request->has('room')) {
+            $examDate = $request->date ?? $schedule->date;
+            $examStartTime = $request->start_time ?? $schedule->start_time;
+            $examEndTime = $request->end_time ?? $schedule->end_time;
+            $examRoom = $request->room ?? $schedule->room;
+
+            $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
+            $conflicts = $this->schedulingService->validateScheduleConflicts(
+                $examinerIds,
+                $examDate,
+                $examStartTime,
+                $examEndTime,
+                $examRoom,
+                null,
+                $schedule->id
+            );
+
+            if (!empty($conflicts)) {
+                return response()->json([
+                    'message' => 'Scheduling conflicts detected.',
+                    'conflicts' => $conflicts
+                ], 400);
+            }
         }
 
         $schedule->update($request->only([
@@ -290,7 +339,8 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $schedule = TaDefenseSchedule::findOrFail($id);
+        $schedule = TaDefenseSchedule::with('group.period')->findOrFail($id);
+        $this->ensurePeriodIsActive($schedule->group);
 
         if ($schedule->status === 'DONE') {
             return response()->json(['error' => 'Cannot cancel completed schedule'], 400);

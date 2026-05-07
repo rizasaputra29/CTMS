@@ -847,7 +847,7 @@ class SupervisorEvaluationController extends Controller
                 ];
             }
         } elseif ($scheduleType === 'EXPO') {
-            $schedule = Schedule::where('group_id', $groupId)
+            $schedule = SeminarSchedule::where('group_id', $groupId)
                 ->where('type', 'EXPO')
                 ->latest()
                 ->first();
@@ -870,25 +870,269 @@ class SupervisorEvaluationController extends Controller
      */
     public function adminScheduleSummary(Request $request, int $scheduleId): JsonResponse
     {
-        $schedule = Schedule::with(['group.period', 'group.members.student'])->findOrFail($scheduleId);
+        $schedule = TaDefenseSchedule::with(['group.period', 'group.members.student'])->find($scheduleId)
+            ?? SeminarSchedule::with(['group.period', 'group.members.student'])->find($scheduleId)
+            ?? Schedule::with(['group.period', 'group.members.student'])->findOrFail($scheduleId);
         $group = $schedule->group;
 
         // Determine evaluation types based on schedule type
-        $evaluationTypes = match ($schedule->type) {
+        $scheduleType = $schedule instanceof TaDefenseSchedule ? 'TA_DEFENSE' : $schedule->type;
+        $evaluationTypes = match ($scheduleType) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
+            'SEMPRO' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
+            'EXPO' => ['EXPO', 'MILESTONE'],
             default => [],
         };
 
         $summary = [];
 
-        foreach ($group->members as $member) {
-            $student = $member->student;
+        $members = $group->members;
+        if ($schedule instanceof TaDefenseSchedule) {
+            $members = collect([$schedule->student])->filter();
+        }
+
+        foreach ($members as $member) {
+            $student = $schedule instanceof TaDefenseSchedule ? $member : $member->student;
             $studentScores = [];
 
             foreach ($evaluationTypes as $evalType) {
-                $scores = AssessmentScore::with(['component', 'evaluator'])
+                if ($evalType === 'SEMPRO') {
+                    // Primary: AssessmentScore records (per-component with proper weights)
+                    $assessmentScores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', 'SEMPRO')
+                        ->get();
+
+                    $byEvaluator = collect();
+
+                    if ($assessmentScores->isNotEmpty()) {
+                        $byEvaluator = $assessmentScores->groupBy('evaluator_id')->map(function ($scores) use ($group) {
+                            $evaluator = $scores->first()->evaluator;
+                            $componentScores = $scores->map(fn($s) => [
+                                'component' => $s->periodComponent?->template?->name ?? $s->component?->name ?? 'Unknown',
+                                'score' => $s->score,
+                                'weight' => $s->periodComponent?->template?->weight ?? $s->component?->weight ?? 0,
+                            ]);
+
+                            $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
+                            $totalWeight = $componentScores->sum('weight');
+                            $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                            return [
+                                'evaluator' => [
+                                    'id' => $evaluator->id,
+                                    'name' => $evaluator->name,
+                                    'role' => $this->getEvaluatorRole($evaluator->id, $group->id),
+                                ],
+                                'weighted_average' => $weightedAvg,
+                                'scores' => $componentScores,
+                            ];
+                        })->values();
+                    }
+
+                    // Fallback: SeminarEvaluation for examiners without AssessmentScore records
+                    $seminarEvals = \App\Models\SeminarEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
+
+                    $existingIds = $byEvaluator->pluck('evaluator.id');
+                    $usesPeriodComponents = $this->usesPeriodAssessmentComponents();
+
+                    foreach ($seminarEvals as $se) {
+                        if ($existingIds->contains($se->examiner_id)) {
+                            continue;
+                        }
+
+                        // Parse rubric_json for per-component scores
+                        $rubric = $se->rubric_json ?? [];
+                        $rubricScores = $rubric['scores'] ?? [];
+                        $componentScores = [];
+                        $totalWeighted = 0;
+                        $totalWeight = 0;
+                        $studentKey = "_{$student->id}";
+
+                        foreach ($rubricScores as $key => $score) {
+                            if (!str_ends_with((string) $key, $studentKey)) {
+                                continue;
+                            }
+                            $componentId = (int) substr($key, 0, -strlen($studentKey));
+
+                            $componentName = "Component #{$componentId}";
+                            $componentWeight = 0;
+
+                            if ($usesPeriodComponents) {
+                                $pComp = \App\Models\PeriodAssessmentComponent::with('template')
+                                    ->find($componentId);
+                                if ($pComp) {
+                                    $componentName = $pComp->template?->name ?? $pComp->name ?? $componentName;
+                                    $componentWeight = $pComp->template?->weight ?? $pComp->weight ?? 0;
+                                }
+                            } else {
+                                $aComp = \App\Models\AssessmentComponent::find($componentId);
+                                if ($aComp) {
+                                    $componentName = $aComp->name ?? $componentName;
+                                    $componentWeight = $aComp->weight ?? 0;
+                                }
+                            }
+
+                            $componentScores[] = [
+                                'component' => $componentName,
+                                'score' => $score,
+                                'weight' => $componentWeight,
+                            ];
+                            $totalWeighted += $score * $componentWeight;
+                            $totalWeight += $componentWeight;
+                        }
+
+                        if (empty($componentScores)) {
+                            $componentScores = [[
+                                'component' => 'SEMPRO Exam',
+                                'score' => (float) $se->score,
+                                'weight' => 1,
+                            ]];
+                            $totalWeighted = (float) $se->score;
+                            $totalWeight = 1;
+                        }
+
+                        $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                        $byEvaluator->push([
+                            'evaluator' => [
+                                'id' => $se->examiner->id,
+                                'name' => $se->examiner->name,
+                                'role' => $this->getEvaluatorRole($se->examiner_id, $group->id),
+                            ],
+                            'weighted_average' => $weightedAvg,
+                            'scores' => $componentScores,
+                        ]);
+                    }
+
+                    if ($byEvaluator->isNotEmpty()) {
+                        $studentScores[$evalType] = $byEvaluator->values();
+                    }
+                    continue;
+                }
+
+                if ($evalType === 'SIDANG_TA') {
+                    $assessmentScores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', 'SIDANG_TA')
+                        ->get();
+
+                    $byEvaluator = collect();
+
+                    if ($assessmentScores->isNotEmpty()) {
+                        $byEvaluator = $assessmentScores->groupBy('evaluator_id')->map(function ($scores) use ($group) {
+                            $evaluator = $scores->first()->evaluator;
+                            $componentScores = $scores->map(fn($s) => [
+                                'component' => $s->periodComponent?->template?->name ?? $s->component?->name ?? 'Unknown',
+                                'score' => $s->score,
+                                'weight' => $s->periodComponent?->template?->weight ?? $s->component?->weight ?? 0,
+                            ]);
+
+                            $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
+                            $totalWeight = $componentScores->sum('weight');
+                            $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                            return [
+                                'evaluator' => [
+                                    'id' => $evaluator->id,
+                                    'name' => $evaluator->name,
+                                    'role' => $this->getEvaluatorRole($evaluator->id, $group->id),
+                                ],
+                                'weighted_average' => $weightedAvg,
+                                'scores' => $componentScores,
+                            ];
+                        })->values();
+                    }
+
+                    $taDefenseEvals = \App\Models\TaDefenseEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
+
+                    $existingIds = $byEvaluator->pluck('evaluator.id');
+                    $usesPeriodComponents = $this->usesPeriodAssessmentComponents();
+
+                    foreach ($taDefenseEvals as $te) {
+                        if ($existingIds->contains($te->examiner_id)) {
+                            continue;
+                        }
+
+                        $rubric = $te->rubric_json ?? [];
+                        $rubricScores = $rubric['scores'] ?? [];
+                        $componentScores = [];
+                        $totalWeighted = 0;
+                        $totalWeight = 0;
+                        $studentKey = "_{$student->id}";
+
+                        foreach ($rubricScores as $key => $score) {
+                            if (!str_ends_with((string) $key, $studentKey)) {
+                                continue;
+                            }
+                            $componentId = (int) substr($key, 0, -strlen($studentKey));
+
+                            $componentName = "Component #{$componentId}";
+                            $componentWeight = 0;
+
+                            if ($usesPeriodComponents) {
+                                $pComp = \App\Models\PeriodAssessmentComponent::with('template')
+                                    ->find($componentId);
+                                if ($pComp) {
+                                    $componentName = $pComp->template?->name ?? $pComp->name ?? $componentName;
+                                    $componentWeight = $pComp->template?->weight ?? $pComp->weight ?? 0;
+                                }
+                            } else {
+                                $aComp = \App\Models\AssessmentComponent::find($componentId);
+                                if ($aComp) {
+                                    $componentName = $aComp->name ?? $componentName;
+                                    $componentWeight = $aComp->weight ?? 0;
+                                }
+                            }
+
+                            $componentScores[] = [
+                                'component' => $componentName,
+                                'score' => $score,
+                                'weight' => $componentWeight,
+                            ];
+                            $totalWeighted += $score * $componentWeight;
+                            $totalWeight += $componentWeight;
+                        }
+
+                        if (empty($componentScores)) {
+                            $componentScores = [[
+                                'component' => 'Sidang TA',
+                                'score' => (float) $te->score,
+                                'weight' => 1,
+                            ]];
+                            $totalWeighted = (float) $te->score;
+                            $totalWeight = 1;
+                        }
+
+                        $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                        $byEvaluator->push([
+                            'evaluator' => [
+                                'id' => $te->examiner->id,
+                                'name' => $te->examiner->name,
+                                'role' => $this->getEvaluatorRole($te->examiner_id, $group->id),
+                            ],
+                            'weighted_average' => $weightedAvg,
+                            'scores' => $componentScores,
+                        ]);
+                    }
+
+                    if ($byEvaluator->isNotEmpty()) {
+                        $studentScores[$evalType] = $byEvaluator->values();
+                    }
+                    continue;
+                }
+
+                $scores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
                     ->where('group_id', $group->id)
                     ->where('student_id', $student->id)
                     ->where('evaluation_type', $evalType)
@@ -902,9 +1146,9 @@ class SupervisorEvaluationController extends Controller
                 $byEvaluator = $scores->groupBy('evaluator_id')->map(function ($evaluatorScores) use ($group) {
                     $evaluator = $evaluatorScores->first()->evaluator;
                     $componentScores = $evaluatorScores->map(fn($s) => [
-                        'component' => $s->component?->name ?? 'Unknown',
+                        'component' => $s->periodComponent?->template?->name ?? $s->component?->name ?? 'Unknown',
                         'score' => $s->score,
-                        'weight' => $s->component?->weight ?? 0,
+                        'weight' => $s->periodComponent?->template?->weight ?? $s->component?->weight ?? 0,
                     ]);
 
                     $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
@@ -938,7 +1182,7 @@ class SupervisorEvaluationController extends Controller
         return response()->json([
             'schedule' => [
                 'id' => $schedule->id,
-                'type' => $schedule->type,
+                'type' => $scheduleType,
                 'date' => $schedule->date,
                 'room' => $schedule->room,
             ],
@@ -990,25 +1234,240 @@ class SupervisorEvaluationController extends Controller
      */
     public function exportScheduleSummary(Request $request, int $scheduleId): StreamedResponse
     {
-        $schedule = Schedule::with(['group.period', 'group.members.student', 'group.title'])->findOrFail($scheduleId);
+        $schedule = TaDefenseSchedule::with(['group.period', 'group.members.student', 'group.title'])->find($scheduleId)
+            ?? SeminarSchedule::with(['group.period', 'group.members.student', 'group.title'])->find($scheduleId)
+            ?? Schedule::with(['group.period', 'group.members.student', 'group.title'])->findOrFail($scheduleId);
         $group = $schedule->group;
 
         // Determine evaluation types based on schedule type
-        $evaluationTypes = match ($schedule->type) {
+        $scheduleType = $schedule instanceof TaDefenseSchedule ? 'TA_DEFENSE' : $schedule->type;
+        $evaluationTypes = match ($scheduleType) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
+            'SEMPRO' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
+            'EXPO' => ['EXPO', 'MILESTONE'],
             default => [],
         };
 
         $csvData = [];
         $headers = ['Student', 'NIM', 'Evaluation Type', 'Evaluator', 'Role', 'Component', 'Weight', 'Score', 'Weighted Average'];
 
-        foreach ($group->members as $member) {
-            $student = $member->student;
+        $members = $group->members;
+        if ($schedule instanceof TaDefenseSchedule) {
+            $members = collect([$schedule->student])->filter();
+        }
+
+        foreach ($members as $member) {
+            $student = $schedule instanceof TaDefenseSchedule ? $member : $member->student;
 
             foreach ($evaluationTypes as $evalType) {
-                $scores = AssessmentScore::with(['component', 'evaluator'])
+                if ($evalType === 'SEMPRO') {
+                    // Primary: AssessmentScore records (per-component with proper weights)
+                    $assessmentScores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', 'SEMPRO')
+                        ->get();
+
+                    $exportedIds = [];
+
+                    foreach ($assessmentScores as $as) {
+                        $componentName = $as->periodComponent?->template?->name ?? $as->component?->name ?? 'Unknown';
+                        $componentWeight = $as->periodComponent?->template?->weight ?? $as->component?->weight ?? 0;
+                        $role = $this->getEvaluatorRole($as->evaluator_id, $group->id);
+                        $csvData[] = [
+                            $student->name,
+                            $student->nim,
+                            'SEMPRO',
+                            $as->evaluator->name,
+                            $role,
+                            $componentName,
+                            $componentWeight . '%',
+                            $as->score,
+                            $as->score,
+                        ];
+                        $exportedIds[] = $as->evaluator_id;
+                    }
+
+                    // Fallback: SeminarEvaluation for examiners without AssessmentScore records
+                    $seminarEvals = \App\Models\SeminarEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
+
+                    $usesPeriodComponents = $this->usesPeriodAssessmentComponents();
+
+                    foreach ($seminarEvals as $se) {
+                        if (in_array($se->examiner_id, $exportedIds)) {
+                            continue;
+                        }
+
+                        $rubric = $se->rubric_json ?? [];
+                        $rubricScores = $rubric['scores'] ?? [];
+                        $studentKey = "_{$student->id}";
+                        $hasRubric = false;
+
+                        foreach ($rubricScores as $key => $score) {
+                            if (!str_ends_with((string) $key, $studentKey)) {
+                                continue;
+                            }
+                            $componentId = (int) substr($key, 0, -strlen($studentKey));
+
+                            $componentName = "Component #{$componentId}";
+                            $componentWeight = 0;
+
+                            if ($usesPeriodComponents) {
+                                $pComp = \App\Models\PeriodAssessmentComponent::with('template')
+                                    ->find($componentId);
+                                if ($pComp) {
+                                    $componentName = $pComp->template?->name ?? $pComp->name ?? $componentName;
+                                    $componentWeight = $pComp->template?->weight ?? $pComp->weight ?? 0;
+                                }
+                            } else {
+                                $aComp = \App\Models\AssessmentComponent::find($componentId);
+                                if ($aComp) {
+                                    $componentName = $aComp->name ?? $componentName;
+                                    $componentWeight = $aComp->weight ?? 0;
+                                }
+                            }
+
+                            $role = $this->getEvaluatorRole($se->examiner_id, $group->id);
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                'SEMPRO',
+                                $se->examiner->name,
+                                $role,
+                                $componentName,
+                                $componentWeight . '%',
+                                $score,
+                                round((float) $se->score, 2),
+                            ];
+                            $hasRubric = true;
+                        }
+
+                        if (!$hasRubric) {
+                            $role = $this->getEvaluatorRole($se->examiner_id, $group->id);
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                'SEMPRO',
+                                $se->examiner->name,
+                                $role,
+                                'SEMPRO Exam',
+                                '100%',
+                                (float) $se->score,
+                                round((float) $se->score, 2),
+                            ];
+                        }
+                    }
+
+                    continue;
+                }
+
+                if ($evalType === 'SIDANG_TA') {
+                    $assessmentScores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', 'SIDANG_TA')
+                        ->get();
+
+                    $exportedIds = [];
+
+                    foreach ($assessmentScores as $as) {
+                        $componentName = $as->periodComponent?->template?->name ?? $as->component?->name ?? 'Unknown';
+                        $componentWeight = $as->periodComponent?->template?->weight ?? $as->component?->weight ?? 0;
+                        $role = $this->getEvaluatorRole($as->evaluator_id, $group->id);
+                        $csvData[] = [
+                            $student->name,
+                            $student->nim,
+                            'SIDANG_TA',
+                            $as->evaluator->name,
+                            $role,
+                            $componentName,
+                            $componentWeight . '%',
+                            $as->score,
+                            $as->score,
+                        ];
+                        $exportedIds[] = $as->evaluator_id;
+                    }
+
+                    $taDefenseEvals = \App\Models\TaDefenseEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
+
+                    $usesPeriodComponents = $this->usesPeriodAssessmentComponents();
+
+                    foreach ($taDefenseEvals as $te) {
+                        if (in_array($te->examiner_id, $exportedIds)) {
+                            continue;
+                        }
+
+                        $rubric = $te->rubric_json ?? [];
+                        $rubricScores = $rubric['scores'] ?? [];
+                        $studentKey = "_{$student->id}";
+                        $hasRubric = false;
+
+                        foreach ($rubricScores as $key => $score) {
+                            if (!str_ends_with((string) $key, $studentKey)) {
+                                continue;
+                            }
+                            $componentId = (int) substr($key, 0, -strlen($studentKey));
+
+                            $componentName = "Component #{$componentId}";
+                            $componentWeight = 0;
+
+                            if ($usesPeriodComponents) {
+                                $pComp = \App\Models\PeriodAssessmentComponent::with('template')
+                                    ->find($componentId);
+                                if ($pComp) {
+                                    $componentName = $pComp->template?->name ?? $pComp->name ?? $componentName;
+                                    $componentWeight = $pComp->template?->weight ?? $pComp->weight ?? 0;
+                                }
+                            } else {
+                                $aComp = \App\Models\AssessmentComponent::find($componentId);
+                                if ($aComp) {
+                                    $componentName = $aComp->name ?? $componentName;
+                                    $componentWeight = $aComp->weight ?? 0;
+                                }
+                            }
+
+                            $role = $this->getEvaluatorRole($te->examiner_id, $group->id);
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                'SIDANG_TA',
+                                $te->examiner->name,
+                                $role,
+                                $componentName,
+                                $componentWeight . '%',
+                                $score,
+                                round((float) $te->score, 2),
+                            ];
+                            $hasRubric = true;
+                        }
+
+                        if (!$hasRubric) {
+                            $role = $this->getEvaluatorRole($te->examiner_id, $group->id);
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                'SIDANG_TA',
+                                $te->examiner->name,
+                                $role,
+                                'Sidang TA',
+                                '100%',
+                                (float) $te->score,
+                                round((float) $te->score, 2),
+                            ];
+                        }
+                    }
+
+                    continue;
+                }
+
+                $scores = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator'])
                     ->where('group_id', $group->id)
                     ->where('student_id', $student->id)
                     ->where('evaluation_type', $evalType)
@@ -1026,8 +1485,8 @@ class SupervisorEvaluationController extends Controller
                     $role = $this->getEvaluatorRole($evaluatorId, $group->id);
 
                     $componentScores = $evaluatorScores->map(fn($s) => [
-                        'component' => $s->component?->name ?? 'Unknown',
-                        'weight' => $s->component?->weight ?? 0,
+                        'component' => $s->periodComponent?->template?->name ?? $s->component?->name ?? 'Unknown',
+                        'weight' => $s->periodComponent?->template?->weight ?? $s->component?->weight ?? 0,
                         'score' => $s->score,
                     ]);
 

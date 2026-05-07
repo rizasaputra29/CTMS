@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\SeminarEvaluation;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Log;
 
 class ExpoController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
     protected SchedulingService $schedulingService;
     protected ExpoEligibilityService $eligibilityService;
@@ -34,7 +37,7 @@ class ExpoController extends Controller
      */
     public function index(Request $request)
     {
-        $query = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
+        $query = SeminarSchedule::with(['group.title', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'EXPO')
             ->orderByDesc('date');
 
@@ -63,7 +66,9 @@ class ExpoController extends Controller
             'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
-        $group = Group::findOrFail($request->group_id);
+        $group = Group::with('period')->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if ($group->status !== 'PDC2_READY_FOR_EXPO') {
             return response()->json(['message' => 'Group must be in PDC2_READY_FOR_EXPO status.'], 400);
@@ -181,7 +186,10 @@ class ExpoController extends Controller
         }
 
         // Get schedule for deadline tracking
-        $schedule = SeminarSchedule::find($scheduleId);
+        $schedule = SeminarSchedule::with('group.period')->find($scheduleId);
+        if ($schedule) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
         $deadlinePassed = $schedule && $schedule->evaluation_deadline && now() > $schedule->evaluation_deadline;
 
         try {
@@ -240,10 +248,13 @@ class ExpoController extends Controller
             'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
-        $schedule = SeminarSchedule::where('id', $id)
+        $schedule = SeminarSchedule::with('group.period')
+            ->where('id', $id)
             ->where('type', 'EXPO')
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
+
+        $this->ensurePeriodIsActive($schedule->group);
 
         $group = Group::findOrFail($schedule->group_id);
 
@@ -321,10 +332,13 @@ class ExpoController extends Controller
     {
         $request->validate(['rejection_reason' => 'required|string|max:1000']);
 
-        $schedule = SeminarSchedule::where('id', $id)
+        $schedule = SeminarSchedule::with('group.period')
+            ->where('id', $id)
             ->where('type', 'EXPO')
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
+
+        $this->ensurePeriodIsActive($schedule->group);
 
         $schedule->update([
             'status' => 'CANCELLED',

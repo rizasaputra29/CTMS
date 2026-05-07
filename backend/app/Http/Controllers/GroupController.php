@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\GroupSupervisorProposal;
@@ -20,6 +21,8 @@ use Illuminate\Support\Facades\Log;
 
 class GroupController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
     protected \App\Services\GroupService $groupService;
     protected NotificationService $notificationService;
@@ -306,6 +309,8 @@ class GroupController extends Controller
 
         $group = Group::find($membership->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         $memberCount = GroupMember::where('group_id', $group->id)->count();
         if ($memberCount > 1) {
             return response()->json(['message' => 'Tidak dapat membubarkan kelompok dengan anggota lain. Keluarankan anggota terlebih dahulu.'], 400);
@@ -364,6 +369,8 @@ class GroupController extends Controller
         }
 
         $group = Group::with('period')->find($leaderMembership->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // LOCKED: After READY_FOR_FINALIZATION, cannot send invitations
         if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
@@ -453,6 +460,8 @@ class GroupController extends Controller
         }
 
         $group = Group::with('period')->find($invitation->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if (!$group || $group->status === 'CLOSED') {
             return response()->json(['message' => 'Kelompok tidak tersedia lagi.'], 400);
@@ -597,6 +606,8 @@ class GroupController extends Controller
 
         $group = Group::with('period')->find($leaderMembership->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         // LOCKED: After READY_FOR_FINALIZATION, cannot modify members (admin can bypass)
         if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION') && !$user->hasRole('admin')) {
             return response()->json([
@@ -663,38 +674,8 @@ class GroupController extends Controller
 
         $group = Group::with('period')->find($membership->group_id);
 
-        // LOCKED: After READY_FOR_FINALIZATION, cannot leave group
-        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
-            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.'], 400);
-        }
+        $this->ensurePeriodIsActive($group);
 
-        DB::beginTransaction();
-        try {
-            $this->groupService->handleLeaveGroup($user);
-
-            DB::commit();
-            return response()->json(['message' => 'You have left the group.']);
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => 'Failed to leave group: ' . $e->getMessage()], 500);
-        }
-    }
-
-    /**
-     * Leave the group completely - removes membership without creating solo group.
-     * This allows the student to have no group association (like being deleted from the system).
-     */
-    public function leaveGroupCompletely(Request $request)
-    {
-        $user = $request->user();
-
-        $membership = GroupMember::where('student_id', $user->id)->first();
-        if (!$membership) {
-            return response()->json(['message' => 'Anda belum memiliki kelompok.'], 400);
-        }
-
-        // Only allow if group is in FORMING or FORMING_SOLO status
-        $group = Group::with('period')->find($membership->group_id);
         if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
             return response()->json([
                 'message' => 'Hanya dapat keluar sepenuhnya dari grup dengan status FORMING.',
@@ -748,6 +729,8 @@ class GroupController extends Controller
         }
 
         $group = Group::with('period')->find($leaderMembership->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if ($group->status !== 'READY_FOR_BIDDING') {
             return response()->json(['message' => 'Supervisors can only be proposed when group is READY_FOR_BIDDING.'], 400);
@@ -848,6 +831,8 @@ class GroupController extends Controller
      */
     public function assignSupervisor2(Request $request, Group $group)
     {
+        $this->ensurePeriodIsActive($group);
+
         $request->validate([
             'supervisor_2_id' => 'required|exists:users,id',
         ]);
