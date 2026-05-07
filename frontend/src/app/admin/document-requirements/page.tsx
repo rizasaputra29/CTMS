@@ -19,12 +19,13 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 import Link from 'next/link';
+import { usePeriodSelection } from '@/context/PeriodSelectionContext';
 
 interface Period {
     id: number;
     name: string;
     is_active: boolean;
-    is_finalized: boolean;
+    is_finalized?: boolean;
 }
 
 interface PhaseRequirement {
@@ -46,7 +47,30 @@ const DEFAULT_DOCUMENTS: Record<string, string[]> = {
     SIDANG: ['Buku TA Final', 'CD Program'],
 };
 
+const normalizePeriodList = (payload: unknown): Period[] => {
+    if (Array.isArray(payload)) return payload as Period[];
+    if (payload && typeof payload === 'object') {
+        const data = (payload as { data?: unknown }).data;
+        if (Array.isArray(data)) return data as Period[];
+        if (data && typeof data === 'object') {
+            const nested = (data as { data?: unknown }).data;
+            if (Array.isArray(nested)) return nested as Period[];
+        }
+    }
+    return [];
+};
+
+const normalizePeriodDetail = (payload: unknown): Period | null => {
+    if (payload && typeof payload === 'object') {
+        const data = (payload as { data?: unknown }).data;
+        if (data && typeof data === 'object' && !Array.isArray(data)) return data as Period;
+        if ('id' in (payload as Record<string, unknown>)) return payload as Period;
+    }
+    return null;
+};
+
 export default function AdminDocumentRequirementsPage() {
+    const { setPeriodSelection } = usePeriodSelection();
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
     const [selectedPhase, setSelectedPhase] = useState<string>(PHASES[0]);
@@ -62,10 +86,21 @@ export default function AdminDocumentRequirementsPage() {
 
     const isPeriodFinalized = selectedPeriod?.is_finalized ?? false;
 
+    const hydrateSelectedPeriodFinalized = useCallback(async (periodId: string) => {
+        try {
+            const res = await api.get(`/admin/periods/${periodId}`);
+            const detail = normalizePeriodDetail(res.data);
+            if (!detail) return;
+            setPeriods((prev) => prev.map((p) => (p.id === detail.id ? { ...p, is_finalized: detail.is_finalized } : p)));
+        } catch {
+            // ignore detail fetch errors
+        }
+    }, []);
+
     const fetchPeriods = useCallback(async () => {
         try {
             const res = await api.get('/periods-list');
-            const periodsData = res.data?.data || [];
+            const periodsData = normalizePeriodList(res.data);
             setPeriods(periodsData);
             if (periodsData.length > 0) {
                 const active = periodsData.find((p: Period) => p.is_active);
@@ -105,11 +140,20 @@ export default function AdminDocumentRequirementsPage() {
         }
     }, [selectedPeriodId, fetchRequirements]);
 
+    useEffect(() => {
+        const p = periods.find(p => p.id.toString() === selectedPeriodId);
+        if (p && typeof p.is_finalized === 'undefined') {
+            hydrateSelectedPeriodFinalized(p.id.toString());
+        }
+        setPeriodSelection(p?.is_finalized ?? false);
+    }, [selectedPeriodId, periods, setPeriodSelection, hydrateSelectedPeriodFinalized]);
+
     const currentPhaseRequirements = useMemo(() => {
         return requirements.filter(r => r.phase === selectedPhase);
     }, [requirements, selectedPhase]);
 
     const handleAddDocument = () => {
+        if (isPeriodFinalized) return;
         if (!newDocName.trim()) {
             toast.error('Document name is required');
             return;
@@ -137,10 +181,12 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleRemoveDocument = (name: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.filter(r => !(r.phase === selectedPhase && r.name === name)));
     };
 
     const handleToggleRequired = (name: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.map(r => {
             if (r.phase === selectedPhase && r.name === name) {
                 return { ...r, is_required: !r.is_required };
@@ -150,6 +196,7 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleUpdateDescription = (name: string, description: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.map(r => {
             if (r.phase === selectedPhase && r.name === name) {
                 return { ...r, description };
@@ -159,7 +206,8 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleSave = async () => {
-        if (!selectedPeriodId) {
+        if (isPeriodFinalized || !selectedPeriodId) {
+            if (isPeriodFinalized) return;
             toast.error('Please select a period');
             return;
         }
@@ -193,6 +241,7 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleLoadDefaults = () => {
+        if (isPeriodFinalized) return;
         const defaults: PhaseRequirement[] = [];
         
         Object.entries(DEFAULT_DOCUMENTS).forEach(([phase, docs]) => {

@@ -1,58 +1,57 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AuthController;
-use App\Http\Controllers\ProfileController;
-use App\Http\Controllers\TitleController;
-use App\Http\Controllers\UserController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\DocumentController;
-use App\Http\Controllers\GroupController;
-use App\Http\Controllers\ScheduleController;
-use App\Http\Controllers\EvaluationController;
-use App\Http\Controllers\PeriodController;
-use App\Http\Controllers\StudentProposalController;
-use App\Http\Controllers\TitleApprovalController;
-use App\Http\Controllers\BidController;
-use App\Http\Controllers\FinalizationController;
-use App\Http\Controllers\SemproController;
-use App\Http\Controllers\ExpoController;
-use App\Http\Controllers\TaSubmissionController;
-use App\Http\Controllers\TaDefenseController;
-use App\Http\Controllers\TaDefenseScheduleController;
-use App\Http\Controllers\SeminarDashboardController;
-use App\Http\Controllers\ScheduleRequestController;
-use App\Http\Controllers\ExpoEventController;
-use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
+use App\Http\Controllers\Admin\StakeholderController;
 use App\Http\Controllers\AssessmentComponentController;
 use App\Http\Controllers\AssessmentComponentTemplateController;
 use App\Http\Controllers\AssessmentScoreController;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\BidController;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DigitalSignatureController;
+use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentTypeController;
+use App\Http\Controllers\EvaluationController;
+use App\Http\Controllers\ExpoController;
+use App\Http\Controllers\ExpoEventController;
+use App\Http\Controllers\FinalizationController;
+use App\Http\Controllers\GradeCheckController;
+use App\Http\Controllers\GradeConfigurationController;
+use App\Http\Controllers\GradeConsistencyController;
+use App\Http\Controllers\GroupController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PeerReviewController;
 use App\Http\Controllers\PeerReviewIndicatorTemplateController;
 use App\Http\Controllers\PeriodAssessmentConfigController;
+use App\Http\Controllers\PeriodController;
 use App\Http\Controllers\PeriodPeerReviewConfigController;
-use App\Http\Controllers\SupervisorEvaluationController;
-use App\Http\Controllers\GradeConsistencyController;
-use App\Http\Controllers\GradeCheckController;
-use App\Http\Controllers\StudentStateController;
-use App\Http\Controllers\GradeConfigurationController;
-use App\Http\Controllers\DocumentTypeController;
-use App\Http\Controllers\DigitalSignatureController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RegistrationController;
+use App\Http\Controllers\ReportDetailController;
 use App\Http\Controllers\ReportExportController;
 use App\Http\Controllers\ReportSummaryController;
-use App\Http\Controllers\ReportDetailController;
 use App\Http\Controllers\RoleController;
-use App\Http\Controllers\RegistrationController;
-use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
-use App\Http\Controllers\Admin\StakeholderController;
+use App\Http\Controllers\ScheduleController;
+use App\Http\Controllers\SeminarDashboardController;
+use App\Http\Controllers\SemproController;
+use App\Http\Controllers\StudentProposalController;
+use App\Http\Controllers\StudentStateController;
+use App\Http\Controllers\SupervisorEvaluationController;
+use App\Http\Controllers\TaDefenseController;
+use App\Http\Controllers\TaDefenseScheduleController;
+use App\Http\Controllers\TaSubmissionController;
+use App\Http\Controllers\TitleApprovalController;
+use App\Http\Controllers\TitleController;
+use App\Http\Controllers\UserController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
 Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/user', function (Request $request) {
-        $user = $request->user()->load('roles');
+        $user = $request->user()->load('roles:id,name,slug');
         $activeRole = null;
 
         if ($request->hasSession()) {
@@ -60,14 +59,20 @@ Route::middleware(['auth:sanctum'])->group(function () {
         }
 
         $roles = $user->roleSlugs();
-        if (!$activeRole) {
+        if (! $activeRole) {
             $activeRole = count($roles) > 0 ? $roles[0] : null;
         }
-        
-        return response()->json(array_merge($user->toArray(), [
+
+        return response()->json([
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'nip' => $user->nip,
+            'nim' => $user->nim,
+            'is_active' => $user->is_active,
             'roles' => $roles,
-            'active_role' => $activeRole
-        ]));
+            'active_role' => $activeRole,
+        ]);
     });
 
     Route::get('/user/roles', [RoleController::class, 'index']);
@@ -271,7 +276,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::middleware(['role:dosen'])->prefix('dosen')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dosen']);
         Route::apiResource('titles', TitleController::class);
-        
+
         // Title Approval Withdrawal & History
         Route::post('/titles/{title}/withdraw-approval', [TitleController::class, 'withdrawApproval']);
         Route::get('/titles/{title}/approval-history', [TitleController::class, 'getApprovalHistory']);
@@ -347,6 +352,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ────────────────────────────────
     Route::middleware(['role:mahasiswa'])->prefix('mahasiswa')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'mahasiswa']);
+        Route::get('/dashboard/workflow', [DashboardController::class, 'workflow']);
         Route::get('/my-period', [RegistrationController::class, 'myPeriod']);
         Route::get('/titles', [TitleController::class, 'index']);
         Route::get('/titles/{title}', [TitleController::class, 'show']);
@@ -361,11 +367,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/group/leave', [GroupController::class, 'leaveGroup']);
         Route::post('/group/leave-completely', [GroupController::class, 'leaveGroupCompletely']);
         Route::post('/group/add-member', [GroupController::class, 'addMember']);
-         Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
-         Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
-         Route::post('/group/mark-ready-for-finalization', [GroupController::class, 'markReadyForFinalization']);
-         Route::post('/group/cancel-ready-for-finalization', [GroupController::class, 'cancelReadyForFinalization']);
-         Route::post('/group-invitations/{id}/accept', [GroupController::class, 'acceptInvite']);
+        Route::delete('/group/members/{memberId}', [GroupController::class, 'removeMember']);
+        Route::post('/group/propose-supervisors', [GroupController::class, 'proposeSupervisors']);
+        Route::post('/group/mark-ready-for-finalization', [GroupController::class, 'markReadyForFinalization']);
+        Route::post('/group/cancel-ready-for-finalization', [GroupController::class, 'cancelReadyForFinalization']);
+        Route::post('/group-invitations/{id}/accept', [GroupController::class, 'acceptInvite']);
         Route::post('/group-invitations/{id}/reject', [GroupController::class, 'rejectInvite']);
 
         // Bidding
@@ -434,15 +440,15 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/ta-submission/upload', [TaSubmissionController::class, 'upload']);
         Route::put('/ta-submission/revise', [TaSubmissionController::class, 'revise']);
         Route::post('/ta-submission/register', [TaSubmissionController::class, 'register']);
-        
+
         // TA Document Management
         Route::get('/ta-documents', [TaSubmissionController::class, 'getTaDocuments']);
         Route::post('/ta-documents/upload', [TaSubmissionController::class, 'uploadTaDocument']);
         Route::post('/ta-documents/{id}/review', [TaSubmissionController::class, 'reviewTaDocument']);
 
         // Period Registration
-        Route::get('/periods/{periodId}/check-registration', [\App\Http\Controllers\RegistrationController::class, 'check']);
-        Route::post('/periods/register', [\App\Http\Controllers\RegistrationController::class, 'register']);
+        Route::get('/periods/{periodId}/check-registration', [RegistrationController::class, 'check']);
+        Route::post('/periods/register', [RegistrationController::class, 'register']);
     });
 
     // ────────────────────────────────

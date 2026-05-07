@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\Notification;
@@ -12,6 +13,8 @@ use App\Services\GroupStateMachine;
 
 class TitleApprovalController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -107,7 +110,9 @@ class TitleApprovalController extends Controller
             return response()->json(['message' => 'Proposal already approved.'], 409);
         }
 
-        $group = Group::find($title->proposed_by_group_id);
+        $group = Group::with('period')->find($title->proposed_by_group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if (!$group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
@@ -204,7 +209,9 @@ class TitleApprovalController extends Controller
             return response()->json(['message' => 'Proposal not found or already processed.'], 404);
         }
 
-        $group = Group::find($title->proposed_by_group_id);
+        $group = Group::with('period')->find($title->proposed_by_group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if (!$group) {
             return response()->json(['message' => 'Associated group not found.'], 404);

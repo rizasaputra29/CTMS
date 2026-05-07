@@ -29,8 +29,9 @@ return new class extends Migration
         // Step 4: Update period_peer_review_indicators to reference new templates
         $this->updatePeriodIndicators();
 
-        // Step 5: Drop old foreign key and column
+        // Step 5: Drop old unique index, foreign key and column
         Schema::table('period_peer_review_indicators', function (Blueprint $table) {
+            $table->dropUnique(['period_id', 'template_id']);
             $table->dropForeign(['template_id']);
             $table->dropColumn('template_id');
         });
@@ -43,6 +44,7 @@ return new class extends Migration
         // Step 7: Make template_id not nullable and add foreign key constraint
         Schema::table('period_peer_review_indicators', function (Blueprint $table) {
             $table->foreign('template_id')->references('id')->on('assessment_component_templates')->onDelete('cascade');
+            $table->unique(['period_id', 'template_id']);
         });
     }
 

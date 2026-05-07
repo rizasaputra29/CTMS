@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\SeminarSchedule;
@@ -15,6 +16,8 @@ use Illuminate\Http\Request;
 
 class ScheduleRequestController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected SchedulingService $schedulingService;
 
     public function __construct(SchedulingService $schedulingService)
@@ -87,6 +90,8 @@ class ScheduleRequestController extends Controller
         if (!$group) {
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
+
+        $this->ensurePeriodIsActive($group);
 
         // Eligibility: group status check
         if ($group->status !== $requiredStatus) {
@@ -165,7 +170,9 @@ class ScheduleRequestController extends Controller
             return response()->json(['message' => 'Must have a TA submission in TA_REGISTERED status.'], 400);
         }
 
-        $group = Group::findOrFail($taSubmission->group_id);
+        $group = Group::with('period')->findOrFail($taSubmission->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Eligibility: group status
         if (!in_array($group->status, ['PDC2_COMPLETE', 'EXPO_DONE'])) {
@@ -224,6 +231,6 @@ class ScheduleRequestController extends Controller
     private function getStudentGroup(int $studentId): ?Group
     {
         $membership = GroupMember::where('student_id', $studentId)->first();
-        return $membership ? Group::find($membership->group_id) : null;
+        return $membership ? Group::with('period')->find($membership->group_id) : null;
     }
 }

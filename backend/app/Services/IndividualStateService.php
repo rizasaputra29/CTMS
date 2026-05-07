@@ -5,10 +5,12 @@ namespace App\Services;
 use App\Models\Group;
 use App\Models\StudentPeerReviewStatus;
 use App\Models\User;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\Log;
 
 class IndividualStateService
 {
+    use RequiresActivePeriod;
     /**
      * Transition student to TA phase after peer review completion.
      * This is the main method called when a student completes peer review.
@@ -17,7 +19,9 @@ class IndividualStateService
     {
         try {
             $group = Group::findOrFail($groupId);
-            
+
+            $this->ensurePeriodIsActive($group);
+
             // Verify student has completed peer review
             $peerReviewService = new PeerReviewService();
             $hasCompleted = $peerReviewService->checkCompletion($studentId, $groupId);
@@ -135,6 +139,9 @@ class IndividualStateService
     public function markTADone(int $studentId, int $groupId): bool
     {
         try {
+            $group = Group::findOrFail($groupId);
+            $this->ensurePeriodIsActive($group);
+
             $status = StudentPeerReviewStatus::where('student_id', $studentId)
                 ->where('group_id', $groupId)
                 ->first();
@@ -168,6 +175,7 @@ class IndividualStateService
     {
         try {
             $group = Group::findOrFail($groupId);
+            $this->ensurePeriodIsActive($group);
             
             $status = StudentPeerReviewStatus::firstOrNew([
                 'student_id' => $studentId,

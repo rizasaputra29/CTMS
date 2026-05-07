@@ -7,11 +7,14 @@ use App\Models\ExpoRegistration;
 use App\Models\Group;
 use App\Models\SeminarSchedule;
 use App\Models\AuditLog;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class ExpoService
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -42,6 +45,8 @@ class ExpoService
 
             // Guard: group must exist and be in correct state
             $group = Group::findOrFail($groupId);
+
+            $this->ensurePeriodIsActive($group);
 
             // ⚠ Validate state machine transition BEFORE attempting
             if (!$this->stateMachine->canTransition($group->status, 'EXPO_REGISTERED')) {

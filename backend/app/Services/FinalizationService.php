@@ -8,11 +8,14 @@ use App\Models\Group;
 use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\User;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class FinalizationService
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -94,6 +97,8 @@ class FinalizationService
         return DB::transaction(function () use ($periodId, $adminId, $isSimulation) {
             // Lock the period row to prevent concurrent finalization
             $period = \App\Models\Period::lockForUpdate()->findOrFail($periodId);
+
+            $this->ensurePeriodActiveById($periodId);
 
             // V5: Mandatory Readiness Check before any batch finalization
             $this->validatePeriodReadiness($periodId);
@@ -287,6 +292,8 @@ class FinalizationService
      */
     public function executeAutoFix(int $periodId, string $mode, int $adminId): array
     {
+        $this->ensurePeriodActiveById($periodId);
+
         return DB::transaction(function () use ($periodId, $mode, $adminId) {
             $applied = [];
             
@@ -340,6 +347,8 @@ class FinalizationService
      */
     public function finalizePeriodChunked(int $periodId, int $adminId, int $chunkSize = 50): array
     {
+        $this->ensurePeriodActiveById($periodId);
+
         $period = \App\Models\Period::findOrFail($periodId);
 
         // V5: Mandatory Readiness Check before any batch finalization
@@ -520,7 +529,7 @@ class FinalizationService
         if (($period->require_all_students_grouped ?? true) === true) {
             $unassignedIds = $registeredStudentIds->diff($assignedStudentIds)->values();
             if ($unassignedIds->isNotEmpty()) {
-                $blockers['unassigned_students'] = \App\Models\User::whereIn('id', $unassignedIds)
+                $blockers['unassigned_students'] = User::whereIn('id', $unassignedIds)
                     ->get(['id', 'name', 'email'])
                     ->map(fn($u) => ['id' => $u->id, 'name' => $u->name, 'email' => $u->email])
                     ->values()
@@ -544,7 +553,7 @@ class FinalizationService
                 ];
             }
 
-            $hasTitle = $group->title_id || \App\Models\Bid::where('group_id', $group->id)
+            $hasTitle = $group->title_id || Bid::where('group_id', $group->id)
                 ->where('lecturer_recommendation', 'ACCEPT')
                 ->exists();
 
@@ -553,13 +562,13 @@ class FinalizationService
                 $blockers['groups_without_title'][] = $group->id;
             }
 
-            $winningBid = \App\Models\Bid::where('group_id', $group->id)
+            $winningBid = Bid::where('group_id', $group->id)
                 ->where('lecturer_recommendation', 'ACCEPT')
                 ->first();
 
             $titleLecturerId = null;
             if ($winningBid) {
-                $titleLecturerId = \App\Models\Title::where('id', $winningBid->title_id)->value('lecturer_id');
+                $titleLecturerId = Title::where('id', $winningBid->title_id)->value('lecturer_id');
             }
 
             $hasSup1 = $group->supervisor_1_id
@@ -616,7 +625,7 @@ class FinalizationService
             ->unique();
 
         $unassignedIds = $registeredStudentIds->diff($assignedStudentIds);
-        $unassignedStudents = \App\Models\User::whereIn('id', $unassignedIds)->get(['id', 'name', 'email']);
+        $unassignedStudents = User::whereIn('id', $unassignedIds)->get(['id', 'name', 'email']);
 
         // 2. Group Readiness Stats (Snapshot-Powered for Performance)
         $groups = Group::where('period_id', $periodId)

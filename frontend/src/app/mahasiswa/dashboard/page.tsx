@@ -7,13 +7,114 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     ArrowRight, Calendar, CheckCircle, BookOpen,
-    Clock, Upload, Check, XCircle, Lock, GraduationCap, Zap
+    Clock, Upload, Check, XCircle, Lock, GraduationCap, Zap,
+    AlertCircle, FileText, Circle, ChevronUp, ChevronDown,
+    AlertTriangle
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+
+interface Schedule {
+    id: string | number;
+    type: 'BIMBINGAN' | 'SEMPRO' | 'EXPO' | 'TA_DEFENSE';
+    date: string;
+    room: string;
+    mode: 'ONLINE' | 'OFFLINE' | null;
+    notes: string | null;
+    time_until: string;
+}
+
+interface WorkflowPhase {
+    phase: string;
+    status: 'locked' | 'unlocked' | 'submitted' | 'draft' | 'revision' | 'completed';
+    documents: Array<{
+        type: string;
+        status: 'missing' | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+        latest_document: any;
+    }>;
+    required_types: string[];
+    document_count: number;
+}
+
+interface WorkflowData {
+    phases: WorkflowPhase[];
+    current_phase: string | null;
+    is_graduated: boolean;
+}
+
+interface NextPhaseRequirements {
+    current_phase: string;
+    next_phase: string;
+    documents: {
+        completed: boolean;
+        total_required: number;
+        approved_count: number;
+        pending_types: string[];
+    };
+    supervisor_evaluation?: any;
+    supervisor_evaluations?: any[];
+    seminar_schedule?: {
+        exists: boolean;
+        date?: string;
+        room?: string;
+        start_time?: string;
+        end_time?: string;
+        examiners?: Array<{id: number; name: string}>;
+        status?: string;
+        examiner_evaluations?: any;
+        supervisor_bimbingan?: any;
+        is_ready_for_pdc2?: boolean;
+        message?: string;
+    };
+}
+
+interface FinalReadyStatus {
+    ready: boolean;
+    expo_documents: {
+        completed: boolean;
+        pending_types: string[];
+        total_required: number;
+        approved_count: number;
+    };
+    nilai_dosen: {
+        required: boolean;
+        configured: boolean;
+        completed: boolean;
+        component_count: number;
+        supervisors: Array<{
+            id: number;
+            name: string;
+            status: string;
+            submitted_components: number;
+            total_components: number;
+        }>;
+    };
+    milestone: {
+        required: boolean;
+        configured: boolean;
+        completed: boolean;
+        component_count: number;
+        supervisors: any[];
+    };
+    expo_evaluation: {
+        required: boolean;
+        configured: boolean;
+        completed: boolean;
+        component_count: number;
+        supervisors: any[];
+    };
+    peer_review: {
+        required: boolean;
+        configured: boolean;
+        completed: boolean;
+        indicator_count: number;
+        total_members: number;
+        completed_members: number;
+    };
+}
 
 interface MahasiswaStats {
     has_group: boolean;
@@ -23,6 +124,10 @@ interface MahasiswaStats {
     active_periods: { id: number; name: string }[];
     steps: Record<string, boolean>;
     is_graduated: boolean;
+    upcoming_schedules?: Schedule[];
+    workflow?: WorkflowData;
+    next_phase_requirements?: NextPhaseRequirements | null;
+    final_ready_for_ta_individual?: FinalReadyStatus;
 }
 
 const WORKFLOW_STEPS = [
@@ -35,10 +140,85 @@ const WORKFLOW_STEPS = [
     { key: 'SIDANG', label: 'Sidang' },
 ];
 
+const getScheduleTypeColor = (type: string) => {
+    switch (type) {
+        case 'BIMBINGAN':
+            return 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800';
+        case 'SEMPRO':
+            return 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800';
+        case 'EXPO':
+            return 'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800';
+        case 'TA_DEFENSE':
+            return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800';
+        default:
+            return 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800';
+    }
+};
+
+const getScheduleTypeLabel = (type: string) => {
+    switch (type) {
+        case 'BIMBINGAN':
+            return 'Bimbingan';
+        case 'SEMPRO':
+            return 'Sempro';
+        case 'EXPO':
+            return 'Expo';
+        case 'TA_DEFENSE':
+            return 'TA Defense';
+        default:
+            return type;
+    }
+};
+
+const PHASE_LABELS: Record<string, string> = {
+    'PDC1': 'PDC 1',
+    'SEMPRO': 'Seminar Proposal',
+    'PDC2': 'PDC 2',
+    'TA_DRAFT': 'TA Draft (Group)',
+    'EXPO': 'Expo',
+    'TA_INDIVIDUAL_READY': 'Ready for TA Individual',
+};
+
+const getPhaseStatusColor = (status: string) => {
+    switch (status) {
+        case 'completed':
+            return 'border-green-500 bg-green-500 text-white';
+        case 'submitted':
+            return 'border-blue-500 bg-blue-500 text-white';
+        case 'revision':
+            return 'border-yellow-500 bg-yellow-500 text-white';
+        case 'locked':
+            return 'border-muted-foreground/30 bg-muted text-muted-foreground';
+        case 'draft':
+            return 'border-orange-400 bg-orange-400 text-white';
+        default:
+            return 'border-primary bg-background text-primary';
+    }
+};
+
+const getPhaseStatusIcon = (status: string) => {
+    switch (status) {
+        case 'completed':
+            return <Check className="h-5 w-5" />;
+        case 'submitted':
+            return <Clock className="h-5 w-5" />;
+        case 'revision':
+            return <AlertTriangle className="h-5 w-5" />;
+        case 'locked':
+            return <Lock className="h-4 w-4" />;
+        case 'draft':
+            return <FileText className="h-5 w-5" />;
+        default:
+            return <Circle className="h-5 w-5" />;
+    }
+};
+
 export default function MahasiswaDashboard() {
     const { user } = useAuth();
     const [stats, setStats] = useState<MahasiswaStats | null>(null);
     const [loading, setLoading] = useState(true);
+    const [workflowLoading, setWorkflowLoading] = useState(false);
+    const [showRequirements, setShowRequirements] = useState(false);
 
     useEffect(() => {
         const checkRegistration = async () => {
@@ -81,6 +261,29 @@ export default function MahasiswaDashboard() {
         };
         checkRegistration();
     }, []);
+
+    // Lazy load workflow data when user has group and it's approved
+    useEffect(() => {
+        const groupApproved = stats?.group_status && ![
+            'FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'REJECTED'
+        ].includes(stats.group_status);
+        
+        if (stats?.has_group && groupApproved) {
+            loadWorkflowData();
+        }
+    }, [stats?.has_group, stats?.group_status]);
+
+    const loadWorkflowData = async () => {
+        setWorkflowLoading(true);
+        try {
+            const response = await api.get('/mahasiswa/dashboard/workflow');
+            setStats(prev => prev ? { ...prev, ...response.data } : null);
+        } catch (error) {
+            console.error('Failed to load workflow data', error);
+        } finally {
+            setWorkflowLoading(false);
+        }
+    };
 
     if (loading) {
         return <div className="p-4 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
@@ -139,38 +342,102 @@ export default function MahasiswaDashboard() {
                 </div>
             </div>
 
-            {/* Workflow Stepper */}
-            <div className="relative pt-2 shrink-0">
-                <div className="hidden md:block absolute top-[28px] left-[calc(100%/14)] right-[calc(100%/14)] h-0.5 bg-zinc-200 dark:bg-zinc-800 z-0" />
-                <div className="grid grid-cols-1 md:grid-cols-7 gap-y-6 gap-x-2 relative z-10">
-                    {WORKFLOW_STEPS.map((step) => {
-                        const status = getStepStatus(step.key);
-                        return (
-                            <div key={step.key} className="flex flex-col items-center text-center">
-                                <div className={cn(
-                                    "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2",
-                                    status === 'completed' && "border-green-500 bg-green-500 text-white",
-                                    status === 'current' && "border-primary bg-background text-primary ring-4 ring-primary/20",
-                                    status === 'error' && "border-destructive bg-destructive text-white",
-                                    status === 'upcoming' && "border-muted-foreground/30 bg-muted text-muted-foreground"
-                                )}>
-                                    {status === 'completed' ? <Check className="h-5 w-5" /> :
-                                        status === 'error' ? <XCircle className="h-5 w-5" /> :
-                                            status === 'current' ? <Clock className="h-5 w-5" /> :
-                                                <Lock className="h-4 w-4" />}
+            {/* Workflow Stepper - Matches Documents Page Style */}
+            {stats?.workflow?.phases && stats.workflow.phases.length > 0 && (
+                <div className="space-y-4">
+                    {stats.workflow.is_graduated && (
+                        <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30 text-center">
+                            <h2 className="text-xl font-bold text-green-600">🎓 Congratulations! All phases completed.</h2>
+                        </div>
+                    )}
+
+                    {/* Horizontal stepper */}
+                    <div className="relative">
+                        {(() => {
+                            const stepCount = stats.workflow!.phases.length + (stats.final_ready_for_ta_individual ? 1 : 0);
+                            return stepCount > 1 && (
+                                <div
+                                    className="hidden md:block absolute top-6 h-0.5 bg-muted z-0"
+                                    style={{
+                                        left: `${50 / stepCount}%`,
+                                        right: `${50 / stepCount}%`,
+                                    }}
+                                />
+                            );
+                        })()}
+                        <div
+                            className={cn(
+                                'grid grid-cols-1 gap-4 relative z-10',
+                                (() => {
+                                    const stepCount = stats.workflow!.phases.length + (stats.final_ready_for_ta_individual ? 1 : 0);
+                                    const gridCols: Record<number, string> = {
+                                        1: 'md:grid-cols-1',
+                                        2: 'md:grid-cols-2',
+                                        3: 'md:grid-cols-3',
+                                        4: 'md:grid-cols-4',
+                                        5: 'md:grid-cols-5',
+                                        6: 'md:grid-cols-6',
+                                    };
+                                    return gridCols[stepCount] || 'md:grid-cols-6';
+                                })()
+                            )}
+                        >
+                            {stats.workflow.phases.map((phaseInfo) => (
+                                <div key={phaseInfo.phase} className="flex flex-col items-center text-center">
+                                    <div className={cn(
+                                        "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2",
+                                        getPhaseStatusColor(phaseInfo.status),
+                                        phaseInfo.status === 'unlocked' && "ring-4 ring-primary/20"
+                                    )}>
+                                        {getPhaseStatusIcon(phaseInfo.status)}
+                                    </div>
+                                    <h3 className={cn(
+                                        "font-medium text-sm",
+                                        phaseInfo.status === 'locked' && "text-muted-foreground"
+                                    )}>
+                                        {PHASE_LABELS[phaseInfo.phase] || phaseInfo.phase}
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground capitalize mt-0.5">{phaseInfo.status}</p>
                                 </div>
-                                <h3 className={cn(
-                                    "font-medium text-[10px] md:text-xs uppercase tracking-tight",
-                                    status === 'upcoming' && "text-muted-foreground"
-                                )}>{step.label}</h3>
-                            </div>
-                        );
-                    })}
+                            ))}
+                            
+                            {/* Final TA Individual Ready Step */}
+                            {stats.final_ready_for_ta_individual && (
+                                <div className="flex flex-col items-center text-center">
+                                    <div className={cn(
+                                        "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2",
+                                        stats.final_ready_for_ta_individual.ready
+                                            ? 'border-green-500 bg-green-500 text-white'
+                                            : 'border-muted-foreground/30 bg-muted text-muted-foreground'
+                                    )}>
+                                        {stats.final_ready_for_ta_individual.ready
+                                            ? <Check className="h-5 w-5" />
+                                            : <Lock className="h-5 w-5" />
+                                        }
+                                    </div>
+                                    <h3 className={cn(
+                                        "font-medium text-sm",
+                                        !stats.final_ready_for_ta_individual.ready && "text-muted-foreground"
+                                    )}>
+                                        {PHASE_LABELS['TA_INDIVIDUAL_READY']}
+                                    </h3>
+                                    <p className="text-xs text-muted-foreground capitalize mt-0.5">
+                                        {stats.final_ready_for_ta_individual.ready ? 'completed' : 'locked'}
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
+            {workflowLoading && !stats?.workflow?.phases && (
+                <div className="flex justify-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                </div>
+            )}
 
             {/* Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
 
                 {/* Progress Overview — spans 2 columns */}
                 <Card className="col-span-1 md:col-span-2 flex flex-row items-center justify-between">
@@ -313,7 +580,277 @@ export default function MahasiswaDashboard() {
                     </CardContent>
                 </Card>
 
+                {/* Upcoming Schedules */}
+                <Card className="col-span-1 flex flex-col">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                            <Calendar className="h-4 w-4" /> Upcoming Schedules
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3 flex-1">
+                        {stats.upcoming_schedules && stats.upcoming_schedules.length > 0 ? (
+                            <div className="flex flex-col gap-3">
+                                {stats.upcoming_schedules.map((schedule, index) => (
+                                    <div key={schedule.id} className={cn(
+                                        "p-3 rounded-lg border",
+                                        index === 0 ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-muted"
+                                    )}>
+                                        <div className="flex items-start justify-between gap-2 mb-2">
+                                            <Badge 
+                                                variant="outline" 
+                                                className={cn("text-[10px] uppercase tracking-wider font-semibold", getScheduleTypeColor(schedule.type))}
+                                            >
+                                                {getScheduleTypeLabel(schedule.type)}
+                                            </Badge>
+                                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                {schedule.time_until}
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="space-y-1">
+                                            <div className="text-sm font-medium">
+                                                {new Date(schedule.date).toLocaleDateString('id-ID', { 
+                                                    weekday: 'short', 
+                                                    year: 'numeric', 
+                                                    month: 'short', 
+                                                    day: 'numeric',
+                                                    hour: '2-digit',
+                                                    minute: '2-digit'
+                                                })}
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <span className="truncate">{schedule.room}</span>
+                                                {schedule.mode && (
+                                                    <span className="shrink-0">• {schedule.mode}</span>
+                                                )}
+                                            </div>
+                                            
+                                            {schedule.notes && (
+                                                <div className="text-xs text-muted-foreground line-clamp-1 mt-1">
+                                                    {schedule.notes}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                                
+                                <Button size="sm" className="w-full justify-between mt-2" variant="outline" asChild>
+                                    <Link href="/mahasiswa/schedule">
+                                        View Full Schedule <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                </Button>
+                            </div>
+                        ) : (
+                            <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                                <Calendar className="h-8 w-8 text-muted-foreground/40 mb-2" />
+                                <div className="text-sm text-muted-foreground">No upcoming schedules</div>
+                                <div className="text-xs text-muted-foreground/70 mt-1">Check back later for updates</div>
+                                <Button size="sm" className="w-full justify-between mt-4" variant="outline" asChild>
+                                    <Link href="/mahasiswa/schedule">
+                                        View Schedule <ArrowRight className="h-4 w-4" />
+                                    </Link>
+                                </Button>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
             </div>
+
+            {/* Next Phase Requirements - Collapsible */}
+            {stats?.next_phase_requirements && (
+                <Card>
+                    <CardHeader 
+                        className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => setShowRequirements(!showRequirements)}
+                    >
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm font-medium flex items-center gap-2">
+                                <AlertCircle className="h-4 w-4" /> 
+                                Next Phase Requirements: {PHASE_LABELS[stats.next_phase_requirements.next_phase] || stats.next_phase_requirements.next_phase}
+                            </CardTitle>
+                            {showRequirements ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                    </CardHeader>
+                    {showRequirements && (
+                        <CardContent>
+                            {workflowLoading ? (
+                                <div className="flex justify-center py-4">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {/* Documents Status */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-sm font-medium">Documents</span>
+                                            <Badge variant={stats.next_phase_requirements.documents.completed ? 'default' : 'secondary'}>
+                                                {stats.next_phase_requirements.documents.approved_count}/{stats.next_phase_requirements.documents.total_required}
+                                            </Badge>
+                                        </div>
+                                        {!stats.next_phase_requirements.documents.completed && (
+                                            <div className="text-xs text-muted-foreground">
+                                                Pending: {stats.next_phase_requirements.documents.pending_types.join(', ')}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* SEMPRO Specific Requirements */}
+                                    {stats.next_phase_requirements.seminar_schedule && (
+                                        <div className="space-y-2 border-t pt-3">
+                                            {!stats.next_phase_requirements.seminar_schedule.exists ? (
+                                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
+                                                    <div className="font-medium">SEMPRO Not Scheduled</div>
+                                                    <div className="text-yellow-700">Contact admin to schedule your SEMPRO</div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    <div className="flex items-center gap-2 text-sm">
+                                                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                                                        <span>
+                                                            {new Date(stats.next_phase_requirements.seminar_schedule.date!).toLocaleDateString('id-ID', {
+                                                                weekday: 'long',
+                                                                year: 'numeric',
+                                                                month: 'long',
+                                                                day: 'numeric'
+                                                            })}
+                                                        </span>
+                                                    </div>
+                                                    
+                                                    {/* Examiner Evaluations */}
+                                                    {stats.next_phase_requirements.seminar_schedule.examiner_evaluations && (
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs font-medium">Examiner Evaluations</div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                {stats.next_phase_requirements.seminar_schedule.examiner_evaluations.submitted}/
+                                                                {stats.next_phase_requirements.seminar_schedule.examiner_evaluations.total} submitted
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Supervisor Bimbingan */}
+                                                    {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan && (
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs font-medium">Supervisor Bimbingan</div>
+                                                            <div className="flex gap-2 flex-wrap">
+                                                                {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan.supervisors.map((sup: any) => (
+                                                                    <Badge 
+                                                                        key={sup.id} 
+                                                                        variant={sup.status === 'completed' ? 'default' : 'outline'}
+                                                                        className="text-xs"
+                                                                    >
+                                                                        {sup.name}: {sup.submitted_components}/{sup.total_components}
+                                                                    </Badge>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Supervisor Evaluations for PDC2 */}
+                                    {stats.next_phase_requirements.supervisor_evaluations && stats.next_phase_requirements.supervisor_evaluations.length > 0 && (
+                                        <div className="space-y-2 border-t pt-3">
+                                            <div className="text-sm font-medium">Supervisor Evaluations</div>
+                                            {stats.next_phase_requirements.supervisor_evaluations.map((evalStatus: any) => (
+                                                <div key={evalStatus.evaluation_type} className="space-y-1">
+                                                    <div className="text-xs font-medium">{evalStatus.evaluation_type}</div>
+                                                    <div className="flex gap-2 flex-wrap">
+                                                        {evalStatus.supervisors.map((sup: any) => (
+                                                            <Badge 
+                                                                key={sup.id} 
+                                                                variant={sup.status === 'completed' ? 'default' : 'outline'}
+                                                                className="text-xs"
+                                                            >
+                                                                {sup.name}: {sup.submitted_components}/{sup.total_components}
+                                                            </Badge>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                    )}
+                </Card>
+            )}
+
+            {/* Final TA Readiness Gate */}
+            {stats?.final_ready_for_ta_individual && (
+                <Card className={cn(
+                    stats.final_ready_for_ta_individual.ready && "border-green-500 bg-green-50 dark:bg-green-900/10"
+                )}>
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium flex items-center gap-2">
+                            {stats.final_ready_for_ta_individual.ready ? (
+                                <CheckCircle className="h-4 w-4 text-green-600" />
+                            ) : (
+                                <Lock className="h-4 w-4" />
+                            )}
+                            Ready for TA Individual
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="space-y-3">
+                            {/* Expo Documents */}
+                            <div className="flex items-center justify-between text-sm">
+                                <span>Expo Documents</span>
+                                {stats.final_ready_for_ta_individual.expo_documents.completed ? (
+                                    <Check className="h-4 w-4 text-green-600" />
+                                ) : (
+                                    <span className="text-xs text-muted-foreground">
+                                        {stats.final_ready_for_ta_individual.expo_documents.approved_count}/
+                                        {stats.final_ready_for_ta_individual.expo_documents.total_required}
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Evaluations */}
+                            {[
+                                { key: 'nilai_dosen', label: 'Nilai Dosen' },
+                                { key: 'milestone', label: 'Milestone' },
+                                { key: 'expo_evaluation', label: 'Expo Evaluation' }
+                            ].map(({ key, label }) => {
+                                const status = (stats.final_ready_for_ta_individual as any)[key];
+                                if (!status?.configured) return null;
+                                return (
+                                    <div key={key} className="flex items-center justify-between text-sm">
+                                        <span>{label}</span>
+                                        {status.completed ? (
+                                            <Check className="h-4 w-4 text-green-600" />
+                                        ) : (
+                                            <span className="text-xs text-muted-foreground">
+                                                {status.supervisors?.filter((s: any) => s.status === 'completed').length || 0}/
+                                                {status.supervisors?.length || 0}
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+
+                            {/* Peer Review */}
+                            {stats.final_ready_for_ta_individual.peer_review.configured && (
+                                <div className="flex items-center justify-between text-sm">
+                                    <span>Peer Review</span>
+                                    {stats.final_ready_for_ta_individual.peer_review.completed ? (
+                                        <Check className="h-4 w-4 text-green-600" />
+                                    ) : (
+                                        <span className="text-xs text-muted-foreground">
+                                            {stats.final_ready_for_ta_individual.peer_review.completed_members}/
+                                            {stats.final_ready_for_ta_individual.peer_review.total_members} members
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 }

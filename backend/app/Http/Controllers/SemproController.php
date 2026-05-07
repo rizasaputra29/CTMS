@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AssessmentScore;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\SeminarEvaluation;
@@ -28,7 +29,7 @@ class SemproController extends Controller
      */
     public function index(Request $request)
     {
-        $query = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
+        $query = SeminarSchedule::with(['group.title', 'group.supervisor1', 'group.supervisor2', 'group.members.student', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'SEMPRO')
             ->orderByDesc('date');
 
@@ -38,7 +39,71 @@ class SemproController extends Controller
             });
         }
 
-        return response()->json(['data' => $query->get()]);
+        $schedules = $query->get();
+
+        $groupIds = $schedules->pluck('group_id')->unique()->filter()->values();
+
+        $bimbinganScores = AssessmentScore::with('evaluator')
+            ->whereIn('group_id', $groupIds)
+            ->where('evaluation_type', 'BIMBINGAN_SEMPRO')
+            ->get()
+            ->groupBy('student_id');
+
+        foreach ($schedules as $schedule) {
+            $members = $schedule->group->members ?? collect();
+            $bimbinganByStudent = [];
+
+            foreach ($members as $member) {
+                $studentId = $member->student_id;
+                $evalRecords = $bimbinganScores->get($studentId, collect());
+
+                if ($evalRecords->isNotEmpty()) {
+                    $avg = round($evalRecords->avg('score'), 2);
+                    $bimbinganByStudent[] = [
+                        'student' => $member->student,
+                        'average_score' => $avg,
+                    ];
+                }
+            }
+
+            $schedule->bimbingan_evaluations = array_values($bimbinganByStudent);
+
+            // Examiner evaluations: per-student average across all examiners
+            $studentExamScores = [];
+            foreach ($schedule->evaluations as $evaluation) {
+                if ($evaluation->status !== 'SUBMITTED') {
+                    continue;
+                }
+                $rubric = $evaluation->rubric_json ?? [];
+                $scores = $rubric['scores'] ?? [];
+                foreach ($scores as $key => $score) {
+                    // key format: "componentId_studentId"
+                    $parts = explode('_', (string) $key);
+                    $studentId = (int) ($parts[1] ?? 0);
+                    if ($studentId <= 0) {
+                        continue;
+                    }
+                    if (!isset($studentExamScores[$studentId])) {
+                        $studentExamScores[$studentId] = [];
+                    }
+                    $studentExamScores[$studentId][] = (float) $score;
+                }
+            }
+
+            $examinerAverages = [];
+            foreach ($members as $member) {
+                $sid = $member->student_id;
+                if (isset($studentExamScores[$sid]) && count($studentExamScores[$sid]) > 0) {
+                    $examinerAverages[] = [
+                        'student' => $member->student,
+                        'average_score' => round(array_sum($studentExamScores[$sid]) / count($studentExamScores[$sid]), 2),
+                    ];
+                }
+            }
+            $schedule->examiner_student_averages = array_values($examinerAverages);
+        }
+
+        return response()->json(['data' => $schedules]);
     }
 
     /**

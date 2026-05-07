@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -8,14 +8,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Save, CheckCircle, ArrowLeft } from 'lucide-react';
+import { Loader2, Save, CheckCircle, ArrowLeft, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
+import { usePeriodSelection } from '@/context/PeriodSelectionContext';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import Link from 'next/link';
 
 interface Period {
   id: number;
   name: string;
   is_active: boolean;
+  is_finalized?: boolean;
 }
 
 interface Template {
@@ -47,8 +51,31 @@ const EVALUATION_TYPES = [
   { value: 'MILESTONE', label: 'MILESTONE', description: 'Penilaian Milestone' },
 ];
 
+const normalizePeriodList = (payload: unknown): Period[] => {
+  if (Array.isArray(payload)) return payload as Period[];
+  if (payload && typeof payload === 'object') {
+    const data = (payload as { data?: unknown }).data;
+    if (Array.isArray(data)) return data as Period[];
+    if (data && typeof data === 'object') {
+      const nested = (data as { data?: unknown }).data;
+      if (Array.isArray(nested)) return nested as Period[];
+    }
+  }
+  return [];
+};
+
+const normalizePeriodDetail = (payload: unknown): Period | null => {
+  if (payload && typeof payload === 'object') {
+    const data = (payload as { data?: unknown }).data;
+    if (data && typeof data === 'object' && !Array.isArray(data)) return data as Period;
+    if ('id' in (payload as Record<string, unknown>)) return payload as Period;
+  }
+  return null;
+};
+
 export default function PeriodAssessmentConfigPage() {
   const router = useRouter();
+  const { setPeriodSelection } = usePeriodSelection();
   const [periods, setPeriods] = useState<Period[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
   const [selectedType, setSelectedType] = useState<string>('SEMPRO');
@@ -57,10 +84,26 @@ export default function PeriodAssessmentConfigPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const isPeriodFinalized = useMemo(() => {
+    const p = periods.find((p) => p.id.toString() === selectedPeriod);
+    return p?.is_finalized ?? false;
+  }, [periods, selectedPeriod]);
+
+  const hydrateSelectedPeriodFinalized = useCallback(async (periodId: string) => {
+    try {
+      const res = await api.get(`/admin/periods/${periodId}`);
+      const detail = normalizePeriodDetail(res.data);
+      if (!detail) return;
+      setPeriods((prev) => prev.map((p) => (p.id === detail.id ? { ...p, is_finalized: detail.is_finalized } : p)));
+    } catch {
+      // ignore detail fetch errors
+    }
+  }, []);
+
   const fetchPeriods = useCallback(async () => {
     try {
       const res = await api.get('/admin/periods');
-      const periodsData = res.data?.data || [];
+      const periodsData = normalizePeriodList(res.data);
       setPeriods(periodsData);
       const active = periodsData.find((p: Period) => p.is_active);
       if (active) setSelectedPeriod(active.id.toString());
@@ -104,11 +147,20 @@ export default function PeriodAssessmentConfigPage() {
     }
   }, [fetchConfig, selectedPeriod, selectedType]);
 
+  useEffect(() => {
+    const p = periods.find(p => p.id.toString() === selectedPeriod);
+    if (p && typeof p.is_finalized === 'undefined') {
+      hydrateSelectedPeriodFinalized(p.id.toString());
+    }
+    setPeriodSelection(p?.is_finalized ?? false);
+  }, [selectedPeriod, periods, setPeriodSelection, hydrateSelectedPeriodFinalized]);
+
   const isTemplateSelected = (templateId: number) => {
     return selectedComponents.some((c) => c.template_id === templateId);
   };
 
   const handleToggleTemplate = (template: Template) => {
+    if (isPeriodFinalized) return;
     if (isTemplateSelected(template.id)) {
       setSelectedComponents((prev) => prev.filter((c) => c.template_id !== template.id));
     } else {
@@ -126,7 +178,7 @@ export default function PeriodAssessmentConfigPage() {
   };
 
   const handleSave = async () => {
-    if (!selectedPeriod || !selectedType) return;
+    if (isPeriodFinalized || !selectedPeriod || !selectedType) return;
     
     setSaving(true);
     try {
@@ -145,7 +197,7 @@ export default function PeriodAssessmentConfigPage() {
   };
 
   const handleCopyFromPeriod = async (sourcePeriodId: string) => {
-    if (!selectedPeriod) return;
+    if (isPeriodFinalized || !selectedPeriod) return;
     
     try {
       await api.post(`/admin/periods/${selectedPeriod}/assessment-config/copy`, {
@@ -174,6 +226,18 @@ export default function PeriodAssessmentConfigPage() {
         </p>
       </div>
 
+      {isPeriodFinalized && (
+        <Alert variant="destructive" className="border-amber-500 bg-amber-50 mb-6">
+          <Lock className="h-4 w-4 text-amber-600" />
+          <AlertTitle>Period Finalized</AlertTitle>
+          <AlertDescription>
+            This period is finalized. Reopen it on the
+            <Link href="/admin/finalization" className="font-semibold underline hover:text-amber-900"> Finalization page</Link>
+            {' '}to make changes.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Configuration Panel */}
         <div className="lg:col-span-1 space-y-6">
@@ -192,7 +256,7 @@ export default function PeriodAssessmentConfigPage() {
                   <SelectContent>
                     {periods.map((p) => (
                       <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name} {p.is_active && '(Active)'}
+                        {p.name} {p.is_active && '(Active)'} {p.is_finalized && '(Finalized)'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -201,8 +265,8 @@ export default function PeriodAssessmentConfigPage() {
 
               <div className="space-y-2">
                 <Label>Evaluation Type</Label>
-                <Select value={selectedType} onValueChange={setSelectedType}>
-                  <SelectTrigger>
+                <Select value={selectedType} onValueChange={setSelectedType} disabled={isPeriodFinalized}>
+                  <SelectTrigger disabled={isPeriodFinalized}>
                     <SelectValue placeholder="Select type" />
                   </SelectTrigger>
                   <SelectContent>
@@ -220,8 +284,8 @@ export default function PeriodAssessmentConfigPage() {
 
               <div className="pt-4 border-t">
                 <Label className="mb-2 block">Copy from Period</Label>
-                <Select onValueChange={handleCopyFromPeriod}>
-                  <SelectTrigger>
+                <Select onValueChange={handleCopyFromPeriod} disabled={isPeriodFinalized}>
+                  <SelectTrigger disabled={isPeriodFinalized}>
                     <SelectValue placeholder="Select source period" />
                   </SelectTrigger>
                   <SelectContent>
@@ -264,7 +328,7 @@ export default function PeriodAssessmentConfigPage() {
               <Button 
                 className="w-full" 
                 onClick={handleSave} 
-                disabled={saving || !selectedPeriod || !selectedType}
+                disabled={saving || !selectedPeriod || !selectedType || isPeriodFinalized}
               >
                 {saving ? (
                   <>
@@ -317,6 +381,7 @@ export default function PeriodAssessmentConfigPage() {
                           id={`template-${template.id}`}
                           checked={isTemplateSelected(template.id)}
                           onCheckedChange={() => handleToggleTemplate(template)}
+                          disabled={isPeriodFinalized}
                         />
                         <div className="flex-1 space-y-1">
                           <div className="flex items-center gap-2">

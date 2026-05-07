@@ -7,6 +7,7 @@ use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\Title;
+use App\Concerns\RequiresActivePeriod;
 use App\Services\BiddingService;
 use App\Services\FinalizationService;
 use App\Services\AutoMatchmakerService;
@@ -19,6 +20,8 @@ class FinalizationController extends Controller
     protected FinalizationService $finalizationService;
     protected BiddingService $biddingService;
     protected AutoMatchmakerService $autoMatchmakerService;
+
+    use RequiresActivePeriod;
 
     public function __construct(
         FinalizationService $finalizationService, 
@@ -278,6 +281,8 @@ class FinalizationController extends Controller
 
         $group = Group::with('period')->findOrFail($request->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
             return response()->json([
                 'message' => 'Only groups in FORMING, FORMING_SOLO or WAITING_SUPERVISOR_APPROVAL status can be force-promoted.',
@@ -404,15 +409,15 @@ class FinalizationController extends Controller
         $period = $this->resolvePeriod($request);
 
         // Get pagination parameters
-        $tab = $request->get('tab', 'ready'); // 'ready', 'final', 'others'
-        $perPage = (int) $request->get('per_page', 20);
-        $search = $request->get('search', '');
+        $tab = $request->input('tab', 'ready'); // 'ready', 'final', 'others'
+        $perPage = (int) $request->input('per_page', 20);
+        $search = $request->input('search', '');
 
         $response = [
             'period' => $period,
             'tab' => $tab,
             'stats' => $this->getDashboardStats($period),
-            'flow' => $this->buildAdminFinalizationFlowPayload($period, $tab, $request->get('sub_tab', 'no_group')),
+            'flow' => $this->buildAdminFinalizationFlowPayload($period, $tab, $request->input('sub_tab', 'no_group')),
         ];
 
         switch ($tab) {
@@ -492,7 +497,7 @@ class FinalizationController extends Controller
      */
     private function getStudentsWithoutGroupsCount($period): int
     {
-        $studentsWithGroups = \App\Models\GroupMember::whereHas('group', function ($q) use ($period) {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
             $q->where('period_id', $period->id);
         })->pluck('student_id');
 
@@ -586,7 +591,7 @@ class FinalizationController extends Controller
      */
     private function getStudentsWithoutGroups($period, $perPage, $search)
     {
-        $studentsWithGroups = \App\Models\GroupMember::whereHas('group', function ($q) use ($period) {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
             $q->where('period_id', $period->id);
         })->pluck('student_id');
 
@@ -773,6 +778,8 @@ class FinalizationController extends Controller
         $user = $request->user();
         $group = Group::with('period')->findOrFail($request->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         // Only admin can set supervisors
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menetapkan supervisor.'], 403);
@@ -958,6 +965,7 @@ class FinalizationController extends Controller
             $auditLogs = [];
             $now = now();
 
+            /** @var \App\Models\Group $group */
             foreach ($groups as $group) {
                 $group->update([
                     'status' => 'PDC1_ACTIVE',
@@ -1013,6 +1021,9 @@ class FinalizationController extends Controller
                 \App\Models\FinalizationAudit::insert($auditLogs);
             }
 
+            // Mark period as finalized
+            $period->update(['is_finalized' => true]);
+
             DB::commit();
 
             // Notify all groups and lecturers
@@ -1043,6 +1054,8 @@ class FinalizationController extends Controller
         $user = $request->user();
         $period = Period::findOrFail($request->period_id);
 
+        $this->ensurePeriodActiveById($period->id);
+
         // Only admin
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan rollback.'], 403);
@@ -1067,6 +1080,7 @@ class FinalizationController extends Controller
             $notifications = [];
             $now = now();
 
+            /** @var \App\Models\Group $group */
             foreach ($groups as $group) {
                 $oldStatus = $group->status;
                 $newStatus = $oldStatus === 'PDC1_ACTIVE' ? 'KELOMPOK_FINAL' : 'READY_FOR_FINALIZATION';
@@ -1141,6 +1155,8 @@ class FinalizationController extends Controller
 
         $user = $request->user();
         $period = Period::findOrFail($request->period_id);
+
+        $this->ensurePeriodActiveById($period->id);
 
         // Only admin
         if (!$user->hasRole('admin')) {
@@ -1232,7 +1248,7 @@ class FinalizationController extends Controller
             ->whereIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
             ->get();
 
-        if ($request->format === 'excel') {
+        if ($request->input('format') === 'excel') {
             return $this->exportExcel($groups, $period);
         } else {
             return $this->exportPdf($groups, $period);
@@ -1366,6 +1382,8 @@ class FinalizationController extends Controller
             $request->supervisor_1_id === $request->supervisor_2_id) {
             return response()->json(['message' => 'Supervisor 1 dan 2 tidak boleh sama.'], 400);
         }
+
+        $this->ensurePeriodActiveById($request->period_id);
 
         $loadService = app(\App\Services\SupervisorLoadService::class);
         $results = [
@@ -1562,6 +1580,9 @@ class FinalizationController extends Controller
         ]);
 
         $period = Period::findOrFail($request->period_id);
+
+        $this->ensurePeriodActiveById($period->id);
+
         $user = $request->user();
         $option = $request->option;
 
@@ -1706,6 +1727,8 @@ class FinalizationController extends Controller
 
         $user = $request->user();
         $group = Group::with(['members', 'period'])->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Only admin
         if (!$user->hasRole('admin')) {
@@ -1873,6 +1896,8 @@ class FinalizationController extends Controller
         $group = Group::with('period')->findOrFail($request->group_id);
         $title = Title::findOrFail($request->title_id);
 
+        $this->ensurePeriodIsActive($group);
+
         // Only admin
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menetapkan judul.'], 403);
@@ -1954,6 +1979,8 @@ class FinalizationController extends Controller
 
         $user = $request->user();
         $group = Group::with(['members', 'period', 'title'])->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Only admin
         if (!$user->hasRole('admin')) {
