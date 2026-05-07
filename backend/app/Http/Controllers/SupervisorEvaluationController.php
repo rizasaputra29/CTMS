@@ -939,7 +939,7 @@ class SupervisorEvaluationController extends Controller
                     $evaluations = TaDefenseEvaluation::with('examiner')
                         ->where('schedule_id', $scheduleId)
                         ->where('student_id', $student->id)
-                        ->where('status', 'SUBMITTED')
+                        ->whereIn('status', ['SUBMITTED', 'COMPLETED'])
                         ->get();
 
                     if ($evaluations->isEmpty()) {
