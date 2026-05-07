@@ -312,6 +312,7 @@ class SchedulingService
             TaDefenseEvaluation::create([
                 'schedule_id' => $schedule->id,
                 'examiner_id' => $examiner->examiner_id,
+                'student_id' => $schedule->student_id,
                 'status' => 'PENDING',
             ]);
         }
@@ -436,21 +437,21 @@ class SchedulingService
         return DB::transaction(function () use ($evaluationId, $rubricJson, $score, $result, $userId) {
             $evaluation = TaDefenseEvaluation::lockForUpdate()->findOrFail($evaluationId);
 
-            if ($evaluation->status === 'SUBMITTED') {
+            if ($evaluation->status === 'COMPLETED') {
                 throw new \InvalidArgumentException('Evaluation already submitted.');
             }
 
             $evaluation->update([
                 'rubric_json' => $rubricJson,
                 'score' => $score,
-                'status' => 'SUBMITTED',
+                'status' => 'COMPLETED',
             ]);
 
-            // Check if ALL evaluations for this TA defense are submitted
+            // Check if ALL evaluations for this TA defense are completed
             $schedule = TaDefenseSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
             $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
-                ->where('status', 'SUBMITTED')
+                ->where('status', 'COMPLETED')
                 ->count();
 
             $allSubmitted = $submittedEvals >= $totalEvals;
@@ -513,6 +514,7 @@ class SchedulingService
         TaDefenseEvaluation::firstOrCreate([
             'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_1_id,
+            'student_id' => $schedule->student_id,
         ], [
             'status' => 'PENDING',
         ]);
@@ -529,6 +531,7 @@ class SchedulingService
         TaDefenseEvaluation::firstOrCreate([
             'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_2_id,
+            'student_id' => $schedule->student_id,
         ], [
             'status' => 'PENDING',
         ]);

@@ -466,9 +466,9 @@ export function AppSidebar() {
                                             {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
                                         </span>
                                     )}
-                                    {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
+                                    {subItem.title === 'Evaluate Students' && examinerEvalCount > 0 && (
                                         <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                            {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
+                                            {examinerEvalCount > 99 ? '99+' : examinerEvalCount}
                                         </span>
                                     )}
                                 </Link>
@@ -687,9 +687,9 @@ export function AppSidebar() {
                                                                                     {supervisorEvalCount > 99 ? '99+' : supervisorEvalCount}
                                                                                 </span>
                                                                             )}
-                                                                            {subItem.title === 'Evaluate Students' && (examinerEvalCount + supervisorEvalCount) > 0 && (
+                                                                            {subItem.title === 'Evaluate Students' && examinerEvalCount > 0 && (
                                                                                 <span className="ml-2 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-primary px-1.5 text-primary-foreground text-xs font-bold">
-                                                                                    {(examinerEvalCount + supervisorEvalCount) > 99 ? '99+' : (examinerEvalCount + supervisorEvalCount)}
+                                                                                    {examinerEvalCount > 99 ? '99+' : examinerEvalCount}
                                                                                 </span>
                                                                             )}
                                                                         </Link>

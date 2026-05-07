@@ -330,12 +330,70 @@ class SeminarDashboardController extends Controller
                 'type' => 'SEMINAR'
             ]);
         } else {
+            // Try to find existing evaluation by ID
             $evaluation = TaDefenseEvaluation::where('id', $id)
                 ->where('examiner_id', $user->id)
-                ->firstOrFail();
-            $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
-                ->findOrFail($evaluation->schedule_id);
+                ->first();
             
+            // If not found by ID, check if this is a valid evaluation ID that belongs to the user
+            // or auto-create the evaluation if the user is assigned as examiner
+            if (!$evaluation) {
+                // First, try to find the evaluation by ID alone to see if it exists
+                $existingEval = TaDefenseEvaluation::find($id);
+                
+                if ($existingEval) {
+                    // Evaluation exists but doesn't belong to this user
+                    return response()->json([
+                        'message' => 'Anda tidak memiliki akses ke penilaian ini'
+                    ], 403);
+                }
+                
+                // The ID might be a schedule ID - check if user is examiner for this schedule
+                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                    ->find($id);
+                
+                if (!$schedule) {
+                    return response()->json([
+                        'message' => 'Jadwal tidak ditemukan'
+                    ], 404);
+                }
+                
+                // Check if user is an examiner for this schedule
+                $isExaminer = TaDefenseExaminer::where('schedule_id', $schedule->id)
+                    ->where('examiner_id', $user->id)
+                    ->exists();
+                
+                if (!$isExaminer) {
+                    return response()->json([
+                        'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini'
+                    ], 403);
+                }
+                
+                // Check if evaluation already exists for this schedule/examiner (race condition)
+                $existingEvaluation = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+                    ->where('examiner_id', $user->id)
+                    ->first();
+                
+                if ($existingEvaluation) {
+                    $evaluation = $existingEvaluation;
+                } else {
+                    // Auto-create evaluation record using firstOrCreate to handle race conditions
+                    $evaluation = TaDefenseEvaluation::firstOrCreate([
+                        'schedule_id' => $schedule->id,
+                        'examiner_id' => $user->id,
+                    ], [
+                        'student_id' => $schedule->student_id,
+                        'status' => 'PENDING',
+                        'score' => 0,
+                        'rubric_json' => null,
+                    ]);
+                }
+            } else {
+                // Evaluation found, load the schedule
+                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                    ->findOrFail($evaluation->schedule_id);
+            }
+
             $components = $this->resolveEvaluationComponents($schedule->group->period_id, 'SIDANG_TA');
 
             $existingScores = $this->resolveExistingScores(
@@ -348,6 +406,11 @@ class SeminarDashboardController extends Controller
                 'evaluation' => $evaluation,
                 'schedule' => $schedule,
                 'group' => $schedule->group,
+                'student' => $schedule->student ? [
+                    'id' => $schedule->student->id,
+                    'name' => $schedule->student->name,
+                    'nim' => $schedule->student->nim ?? '',
+                ] : null,
                 'components' => $components,
                 'existing_scores' => $existingScores,
                 'type' => 'TA_DEFENSE'

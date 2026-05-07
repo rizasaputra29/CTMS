@@ -10,6 +10,8 @@ use App\Models\PeriodAssessmentComponent;
 use App\Models\Schedule;
 use App\Models\SeminarSchedule;
 use App\Models\TaDefenseSchedule;
+use App\Models\TaDefenseEvaluation;
+use App\Models\TaDefenseExaminer;
 use App\Models\Supervision;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
@@ -230,6 +232,7 @@ class SupervisorEvaluationController extends Controller
         
         // TA_DEFENSE → BIMBINGAN_TA (only if student has TA_READY_FOR_SIDANG or higher status)
         $taSchedules = TaDefenseSchedule::where('group_id', $group->id)
+            ->where('status', '!=', 'CANCELLED')
             ->get();
 
         foreach ($taSchedules as $ta) {
@@ -297,7 +300,10 @@ class SupervisorEvaluationController extends Controller
      */
     private function formatTaDefenseScheduleForSupervisor($taDefenseSchedule, string $scheduleType, string $evalType, $group, $supervision, int $supervisorId): array
     {
-        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType);
+        // Get the specific student for this TA defense schedule
+        $student = $taDefenseSchedule->student;
+        
+        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType, $student?->id);
         
         // Calculate deadline (date + 2 days if not set)
         $deadline = null;
@@ -319,12 +325,12 @@ class SupervisorEvaluationController extends Controller
                 'name' => $group->name,
                 'code' => $group->code,
             ],
-            'students' => $group->members->map(fn($m) => [
-                'id' => $m->student->id,
-                'name' => $m->student->name,
-                'nim' => $m->student->nim,
-                'is_leader' => $m->is_leader,
-            ])->values(),
+            'student' => $student ? [
+                'id' => $student->id,
+                'name' => $student->name,
+                'nim' => $student->nim,
+                'is_leader' => $group->members->firstWhere('student_id', $student->id)?->is_leader ?? false,
+            ] : null,
             'status' => $status,
             'supervisor_role' => $supervision->role,
             'period' => [
@@ -484,33 +490,36 @@ class SupervisorEvaluationController extends Controller
             ->get()
             ->keyBy(fn($s) => $s->{$existingScoresKeyField} . '_' . ($s->student_id ?? 'group'));
 
-        // Build form structure
-        $students = $group->members->map(function ($member) use ($components, $existingScores) {
-            $student = $member->student;
-            $scores = [];
+        // Build form structure - filter by student if specified (for per-student evaluations like BIMBINGAN_TA)
+        $studentId = $request->input('student_id');
+        $students = $group->members
+            ->when($studentId, fn($q) => $q->where('student_id', $studentId))
+            ->map(function ($member) use ($components, $existingScores) {
+                $student = $member->student;
+                $scores = [];
 
-            foreach ($components as $component) {
-                $key = $component['id'] . '_' . $student->id;
-                $existing = $existingScores->get($key);
+                foreach ($components as $component) {
+                    $key = $component['id'] . '_' . $student->id;
+                    $existing = $existingScores->get($key);
 
-                $scores[] = [
-                    'period_component_id' => $component['id'],
-                    'code' => $component['code'],
-                    'name' => $component['name'],
-                    'weight' => $component['weight'],
-                    'score' => $existing ? $existing->score : null,
-                    'notes' => $existing ? $existing->notes : null,
+                    $scores[] = [
+                        'period_component_id' => $component['id'],
+                        'code' => $component['code'],
+                        'name' => $component['name'],
+                        'weight' => $component['weight'],
+                        'score' => $existing ? $existing->score : null,
+                        'notes' => $existing ? $existing->notes : null,
+                    ];
+                }
+
+                return [
+                    'id' => $student->id,
+                    'name' => $student->name,
+                    'nim' => $student->nim,
+                    'is_leader' => $member->is_leader,
+                    'scores' => $scores,
                 ];
-            }
-
-            return [
-                'id' => $student->id,
-                'name' => $student->name,
-                'nim' => $student->nim,
-                'is_leader' => $member->is_leader,
-                'scores' => $scores,
-            ];
-        });
+            });
 
         // Get schedule info
         $scheduleInfo = $this->getScheduleForType($groupId, $evaluationType);
@@ -754,7 +763,7 @@ class SupervisorEvaluationController extends Controller
     /**
      * Get evaluation status for a group
      */
-    private function getEvaluationStatus(int $groupId, int $supervisorId, string $evaluationType): string
+    private function getEvaluationStatus(int $groupId, int $supervisorId, string $evaluationType, ?int $studentId = null): string
     {
         $group = Group::find($groupId);
         if (!$group) {
@@ -777,13 +786,25 @@ class SupervisorEvaluationController extends Controller
             return 'not_configured';
         }
 
-        $studentCount = GroupMember::where('group_id', $groupId)->count();
-        $expectedScores = $componentCount * $studentCount;
+        // For per-student evaluations (BIMBINGAN_TA), only check for the specific student
+        if ($studentId !== null) {
+            $expectedScores = $componentCount;
+            
+            $actualScores = AssessmentScore::where('group_id', $groupId)
+                ->where('evaluator_id', $supervisorId)
+                ->where('evaluation_type', $evaluationType)
+                ->where('student_id', $studentId)
+                ->count();
+        } else {
+            // For group-level evaluations, check all students
+            $studentCount = GroupMember::where('group_id', $groupId)->count();
+            $expectedScores = $componentCount * $studentCount;
 
-        $actualScores = AssessmentScore::where('group_id', $groupId)
-            ->where('evaluator_id', $supervisorId)
-            ->where('evaluation_type', $evaluationType)
-            ->count();
+            $actualScores = AssessmentScore::where('group_id', $groupId)
+                ->where('evaluator_id', $supervisorId)
+                ->where('evaluation_type', $evaluationType)
+                ->count();
+        }
 
         if ($actualScores === 0) {
             return 'PENDING';
@@ -870,59 +891,127 @@ class SupervisorEvaluationController extends Controller
      */
     public function adminScheduleSummary(Request $request, int $scheduleId): JsonResponse
     {
-        $schedule = Schedule::with(['group.period', 'group.members.student'])->findOrFail($scheduleId);
-        $group = $schedule->group;
+        // Try Schedule table first, then TaDefenseSchedule for TA_DEFENSE
+        $schedule = Schedule::with(['group.period', 'group.members.student'])->find($scheduleId);
+        $isTaDefense = false;
+        $taSchedule = null;
+
+        if (!$schedule) {
+            // Try TaDefenseSchedule for TA defense schedules
+            $taSchedule = TaDefenseSchedule::with(['group.period', 'group.members.student', 'student'])->find($scheduleId);
+            if (!$taSchedule) {
+                return response()->json(['error' => 'Schedule not found'], 404);
+            }
+            $isTaDefense = true;
+            $schedule = (object)[
+                'id' => $taSchedule->id,
+                'type' => 'TA_DEFENSE',
+                'date' => $taSchedule->date,
+                'room' => $taSchedule->room,
+            ];
+        }
+
+        $group = $isTaDefense ? $taSchedule->group : $schedule->group;
 
         // Determine evaluation types based on schedule type
         $evaluationTypes = match ($schedule->type) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
+            'EXPO' => ['EXPO', 'MILESTONE'],
             default => [],
         };
 
         $summary = [];
 
-        foreach ($group->members as $member) {
-            $student = $member->student;
+        // For TA_DEFENSE, only show the specific student (not all group members)
+        if ($isTaDefense) {
+            $students = collect([$taSchedule->student]);
+        } else {
+            $students = $group->members->map(fn($m) => $m->student);
+        }
+
+        foreach ($students as $student) {
             $studentScores = [];
 
             foreach ($evaluationTypes as $evalType) {
-                $scores = AssessmentScore::with(['component', 'evaluator'])
-                    ->where('group_id', $group->id)
-                    ->where('student_id', $student->id)
-                    ->where('evaluation_type', $evalType)
-                    ->get();
+                if ($evalType === 'SIDANG_TA') {
+                    // SIDANG_TA examiner evaluations are in ta_defense_evaluations table
+                    $evaluations = TaDefenseEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('student_id', $student->id)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
 
-                if ($scores->isEmpty()) {
-                    continue;
+                    if ($evaluations->isEmpty()) {
+                        continue;
+                    }
+
+                    $byEvaluator = $evaluations->map(function ($eval) use ($scheduleId) {
+                        // Parse rubric_json for component scores
+                        $rubric = $eval->rubric_json ?? [];
+                        $componentScores = collect($rubric)->map(function ($r) {
+                            return [
+                                'component' => $r['component'] ?? $r['name'] ?? 'Unknown',
+                                'score' => $r['score'] ?? 0,
+                                'weight' => $r['weight'] ?? 0,
+                            ];
+                        });
+
+                        // Get examiner role
+                        $examinerRecord = TaDefenseExaminer::where('schedule_id', $scheduleId)
+                            ->where('examiner_id', $eval->examiner_id)
+                            ->first();
+
+                        return [
+                            'evaluator' => [
+                                'id' => $eval->examiner->id,
+                                'name' => $eval->examiner->name,
+                                'role' => $examinerRecord?->role ?? 'Examiner',
+                            ],
+                            'weighted_average' => $eval->score,
+                            'scores' => $componentScores,
+                        ];
+                    })->values();
+
+                    $studentScores[$evalType] = $byEvaluator;
+                } else {
+                    // BIMBINGAN_TA and other evaluations are in assessment_scores table
+                    $scores = AssessmentScore::with(['component', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', $evalType)
+                        ->get();
+
+                    if ($scores->isEmpty()) {
+                        continue;
+                    }
+
+                    // Group by evaluator
+                    $byEvaluator = $scores->groupBy('evaluator_id')->map(function ($evaluatorScores) use ($group) {
+                        $evaluator = $evaluatorScores->first()->evaluator;
+                        $componentScores = $evaluatorScores->map(fn($s) => [
+                            'component' => $s->component?->name ?? 'Unknown',
+                            'score' => $s->score,
+                            'weight' => $s->component?->weight ?? 0,
+                        ]);
+
+                        $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
+                        $totalWeight = $componentScores->sum('weight');
+                        $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                        return [
+                            'evaluator' => [
+                                'id' => $evaluator->id,
+                                'name' => $evaluator->name,
+                                'role' => $this->getEvaluatorRole($evaluator->id, $group->id),
+                            ],
+                            'weighted_average' => $weightedAvg,
+                            'scores' => $componentScores,
+                        ];
+                    })->values();
+
+                    $studentScores[$evalType] = $byEvaluator;
                 }
-
-                // Group by evaluator
-                $byEvaluator = $scores->groupBy('evaluator_id')->map(function ($evaluatorScores) use ($group) {
-                    $evaluator = $evaluatorScores->first()->evaluator;
-                    $componentScores = $evaluatorScores->map(fn($s) => [
-                        'component' => $s->component?->name ?? 'Unknown',
-                        'score' => $s->score,
-                        'weight' => $s->component?->weight ?? 0,
-                    ]);
-
-                    $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
-                    $totalWeight = $componentScores->sum('weight');
-                    $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
-
-                    return [
-                        'evaluator' => [
-                            'id' => $evaluator->id,
-                            'name' => $evaluator->name,
-                            'role' => $this->getEvaluatorRole($evaluator->id, $group->id),
-                        ],
-                        'weighted_average' => $weightedAvg,
-                        'scores' => $componentScores,
-                    ];
-                })->values();
-
-                $studentScores[$evalType] = $byEvaluator;
             }
 
             $summary[] = [
@@ -990,63 +1079,133 @@ class SupervisorEvaluationController extends Controller
      */
     public function exportScheduleSummary(Request $request, int $scheduleId): StreamedResponse
     {
-        $schedule = Schedule::with(['group.period', 'group.members.student', 'group.title'])->findOrFail($scheduleId);
-        $group = $schedule->group;
+        // Try Schedule table first, then TaDefenseSchedule for TA_DEFENSE
+        $schedule = Schedule::with(['group.period', 'group.members.student', 'group.title'])->find($scheduleId);
+        $isTaDefense = false;
+        $taSchedule = null;
+
+        if (!$schedule) {
+            // Try TaDefenseSchedule for TA defense schedules
+            $taSchedule = TaDefenseSchedule::with(['group.period', 'group.members.student', 'student'])->find($scheduleId);
+            if (!$taSchedule) {
+                abort(404, 'Schedule not found');
+            }
+            $isTaDefense = true;
+            $schedule = (object)[
+                'id' => $taSchedule->id,
+                'type' => 'TA_DEFENSE',
+                'date' => $taSchedule->date,
+                'room' => $taSchedule->room,
+            ];
+        }
+
+        $group = $isTaDefense ? $taSchedule->group : $schedule->group;
 
         // Determine evaluation types based on schedule type
         $evaluationTypes = match ($schedule->type) {
             'SEMINAR' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
             'TA_DEFENSE' => ['SIDANG_TA', 'BIMBINGAN_TA'],
-            'EXPO' => ['EXPO', 'MILESTONE'], // BIMBINGAN_EXPO removed - EXPO is supervisor evaluation only
+            'EXPO' => ['EXPO', 'MILESTONE'],
             default => [],
         };
 
         $csvData = [];
         $headers = ['Student', 'NIM', 'Evaluation Type', 'Evaluator', 'Role', 'Component', 'Weight', 'Score', 'Weighted Average'];
 
-        foreach ($group->members as $member) {
-            $student = $member->student;
+        // For TA_DEFENSE, only export the specific student
+        if ($isTaDefense) {
+            $students = collect([$taSchedule->student]);
+        } else {
+            $students = $group->members->map(fn($m) => $m->student);
+        }
 
+        foreach ($students as $student) {
             foreach ($evaluationTypes as $evalType) {
-                $scores = AssessmentScore::with(['component', 'evaluator'])
-                    ->where('group_id', $group->id)
-                    ->where('student_id', $student->id)
-                    ->where('evaluation_type', $evalType)
-                    ->get();
+                if ($evalType === 'SIDANG_TA') {
+                    // SIDANG_TA examiner evaluations are in ta_defense_evaluations table
+                    $evaluations = TaDefenseEvaluation::with('examiner')
+                        ->where('schedule_id', $scheduleId)
+                        ->where('student_id', $student->id)
+                        ->where('status', 'SUBMITTED')
+                        ->get();
 
-                if ($scores->isEmpty()) {
-                    continue;
-                }
+                    if ($evaluations->isEmpty()) {
+                        continue;
+                    }
 
-                // Group by evaluator
-                $byEvaluator = $scores->groupBy('evaluator_id');
+                    foreach ($evaluations as $eval) {
+                        $rubric = $eval->rubric_json ?? [];
+                        $componentScores = collect($rubric)->map(function ($r) {
+                            return [
+                                'component' => $r['component'] ?? $r['name'] ?? 'Unknown',
+                                'score' => $r['score'] ?? 0,
+                                'weight' => $r['weight'] ?? 0,
+                            ];
+                        });
 
-                foreach ($byEvaluator as $evaluatorId => $evaluatorScores) {
-                    $evaluator = $evaluatorScores->first()->evaluator;
-                    $role = $this->getEvaluatorRole($evaluatorId, $group->id);
+                        $examinerRecord = TaDefenseExaminer::where('schedule_id', $scheduleId)
+                            ->where('examiner_id', $eval->examiner_id)
+                            ->first();
 
-                    $componentScores = $evaluatorScores->map(fn($s) => [
-                        'component' => $s->component?->name ?? 'Unknown',
-                        'weight' => $s->component?->weight ?? 0,
-                        'score' => $s->score,
-                    ]);
+                        $role = $examinerRecord?->role ?? 'Examiner';
+                        $weightedAvg = $eval->score;
 
-                    $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
-                    $totalWeight = $componentScores->sum('weight');
-                    $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+                        foreach ($componentScores as $cs) {
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                $evalType,
+                                $eval->examiner->name,
+                                $role,
+                                $cs['component'],
+                                $cs['weight'] . '%',
+                                $cs['score'],
+                                $weightedAvg,
+                            ];
+                        }
+                    }
+                } else {
+                    // BIMBINGAN_TA and other evaluations are in assessment_scores table
+                    $scores = AssessmentScore::with(['component', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
+                        ->where('evaluation_type', $evalType)
+                        ->get();
 
-                    foreach ($componentScores as $cs) {
-                        $csvData[] = [
-                            $student->name,
-                            $student->nim,
-                            $evalType,
-                            $evaluator->name,
-                            $role,
-                            $cs['component'],
-                            $cs['weight'] . '%',
-                            $cs['score'],
-                            $weightedAvg,
-                        ];
+                    if ($scores->isEmpty()) {
+                        continue;
+                    }
+
+                    // Group by evaluator
+                    $byEvaluator = $scores->groupBy('evaluator_id');
+
+                    foreach ($byEvaluator as $evaluatorId => $evaluatorScores) {
+                        $evaluator = $evaluatorScores->first()->evaluator;
+                        $role = $this->getEvaluatorRole($evaluatorId, $group->id);
+
+                        $componentScores = $evaluatorScores->map(fn($s) => [
+                            'component' => $s->component?->name ?? 'Unknown',
+                            'weight' => $s->component?->weight ?? 0,
+                            'score' => $s->score,
+                        ]);
+
+                        $totalWeighted = $componentScores->sum(fn($s) => $s['score'] * $s['weight']);
+                        $totalWeight = $componentScores->sum('weight');
+                        $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
+
+                        foreach ($componentScores as $cs) {
+                            $csvData[] = [
+                                $student->name,
+                                $student->nim,
+                                $evalType,
+                                $evaluator->name,
+                                $role,
+                                $cs['component'],
+                                $cs['weight'] . '%',
+                                $cs['score'],
+                                $weightedAvg,
+                            ];
+                        }
                     }
                 }
             }
@@ -1063,6 +1222,71 @@ class SupervisorEvaluationController extends Controller
             fclose($handle);
         }, $filename, [
             'Content-Type' => 'text/csv',
+        ]);
+    }
+
+    /**
+     * Admin: Get grades for a schedule
+     */
+    public function getGradesForSchedule(Request $request, int $scheduleId): JsonResponse
+    {
+        // Try Schedule table first, then TaDefenseSchedule for TA_DEFENSE
+        $schedule = Schedule::with(['group'])->find($scheduleId);
+        $isTaDefense = false;
+
+        if (!$schedule) {
+            $taSchedule = TaDefenseSchedule::with(['group'])->find($scheduleId);
+            if (!$taSchedule) {
+                return response()->json(['error' => 'Schedule not found'], 404);
+            }
+            $isTaDefense = true;
+            $group = $taSchedule->group;
+        } else {
+            $group = $schedule->group;
+        }
+
+        $grades = [];
+        $gradeService = app(\App\Services\GradeCalculationService::class);
+
+        // For TA_DEFENSE, only get grades for the specific student
+        if ($isTaDefense) {
+            $students = collect([$taSchedule->student]);
+        } else {
+            $students = $group->members->map(fn($m) => $m->student);
+        }
+
+        foreach ($students as $student) {
+            try {
+                $finalGradeData = $gradeService->calculateFinalGradeForStudent($student->id, $group->id);
+                $pdc1Data = $gradeService->calculatePDC1ForStudent($student->id, $group->id);
+                $pdc2Data = $gradeService->calculatePDC2ForStudent($student->id, $group->id);
+
+                $grades[$student->id] = [
+                    'student' => [
+                        'id' => $student->id,
+                        'name' => $student->name,
+                        'nim' => $student->nim,
+                    ],
+                    'pdc1_score' => $pdc1Data['grade'] ?? null,
+                    'pdc2_score' => $pdc2Data['grade'] ?? null,
+                    'final_grade' => $finalGradeData['final_grade'] ?? null,
+                    'letter_grade' => $finalGradeData['letter_grade'] ?? null,
+                ];
+            } catch (\Exception $e) {
+                $grades[$student->id] = [
+                    'student' => [
+                        'id' => $student->id,
+                        'name' => $student->name,
+                        'nim' => $student->nim,
+                    ],
+                    'error' => 'Failed to calculate grades: ' . $e->getMessage(),
+                ];
+            }
+        }
+
+        return response()->json([
+            'schedule_id' => $scheduleId,
+            'grades' => $grades,
         ]);
     }
 }

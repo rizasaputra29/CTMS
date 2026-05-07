@@ -9,6 +9,7 @@ class TaDefenseEvaluation extends Model
 {
     protected $fillable = [
         'schedule_id',
+        'student_id',
         'examiner_id',
         'rubric_json',
         'score',
@@ -28,5 +29,10 @@ class TaDefenseEvaluation extends Model
     public function examiner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'examiner_id');
+    }
+
+    public function student(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'student_id');
     }
 }
