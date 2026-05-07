@@ -1289,7 +1289,7 @@ class SupervisorEvaluationController extends Controller
                         'name' => $student->name,
                         'nim' => $student->nim,
                     ],
-                    'error' => 'Failed to calculate grades',
+                    'error' => 'Failed to calculate grades. Please contact administrator if the issue persists.',
                 ];
             }
         }

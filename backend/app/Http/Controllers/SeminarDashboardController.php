@@ -362,21 +362,18 @@ class SeminarDashboardController extends Controller
                     'rubric_json' => null,
                 ]);
             } else {
-                $evaluation = TaDefenseEvaluation::where('id', $id)
-                    ->where('examiner_id', $user->id)
-                    ->first();
+                $evaluation = TaDefenseEvaluation::find($id);
 
                 if (!$evaluation) {
-                    $existingEval = TaDefenseEvaluation::find($id);
-                    if ($existingEval) {
-                        return response()->json([
-                            'message' => 'Anda tidak memiliki akses ke penilaian ini'
-                        ], 403);
-                    }
-
                     return response()->json([
                         'message' => 'Penilaian tidak ditemukan'
                     ], 404);
+                }
+
+                if ((int) $evaluation->examiner_id !== (int) $user->id) {
+                    return response()->json([
+                        'message' => 'Anda tidak memiliki akses ke penilaian ini'
+                    ], 403);
                 }
 
                 $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])

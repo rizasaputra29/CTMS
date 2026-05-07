@@ -93,9 +93,10 @@ export default function EvaluationDetailPage() {
         
         try {
             setLoading(true)
-            const contextId = type === 'TA_DEFENSE' && scheduleId ? scheduleId : id
+            const isTaDefenseWithSchedule = type === 'TA_DEFENSE' && Boolean(scheduleId)
+            const contextId = isTaDefenseWithSchedule ? scheduleId : id
             const response = await axios.get(`/dosen/evaluation-context/${type}/${contextId}`, {
-                params: type === 'TA_DEFENSE' && scheduleId ? { schedule_id: scheduleId } : undefined,
+                params: isTaDefenseWithSchedule ? { schedule_id: scheduleId } : undefined,
             })
             const data = response.data as EvaluationContext
             setContext(data)

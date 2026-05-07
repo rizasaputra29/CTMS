@@ -85,8 +85,6 @@ const getStatusBadge = (status: string) => {
     switch (status) {
         case 'COMPLETED':
         case 'SUBMITTED':
-        case 'completed':
-        case 'submitted':
             return (
                 <Badge className="bg-green-100 text-green-800 hover:bg-green-100">
                     <FileCheck className="w-3 h-3 mr-1" />
@@ -94,7 +92,6 @@ const getStatusBadge = (status: string) => {
                 </Badge>
             );
         case 'PENDING':
-        case 'pending':
             return (
                 <Badge className="bg-red-100 text-red-800 hover:bg-red-100">
                     <AlertCircle className="w-3 h-3 mr-1" />
@@ -107,7 +104,7 @@ const getStatusBadge = (status: string) => {
 };
 
 const isCompletedStatus = (status: string) =>
-    status === 'COMPLETED' || status === 'SUBMITTED' || status === 'completed' || status === 'submitted';
+    status === 'COMPLETED' || status === 'SUBMITTED';
 
 const normalizeEvaluationStatus = (status?: string): Evaluation['status'] => {
     const normalized = (status ?? 'PENDING').toUpperCase();
@@ -315,7 +312,7 @@ export default function DosenExaminerPage() {
                 taDefenses.forEach((t) => {
                     const myEval = t.evaluations?.[0];
                     mapped.push({
-                        id: myEval?.id ?? 0,
+                        id: myEval?.id ?? t.id,
                         type: 'TA_DEFENSE',
                         schedule_type: 'SIDANG_TA',
                         schedule_id: t.id,
