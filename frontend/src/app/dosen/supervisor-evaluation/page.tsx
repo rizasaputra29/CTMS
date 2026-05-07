@@ -56,7 +56,8 @@ interface Schedule {
     name: string;
     code: string;
   };
-  students: GroupMember[];
+  students?: GroupMember[];
+  student: GroupMember | null; // For per-student evaluations like BIMBINGAN_TA
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'NOT_CONFIGURED';
   supervisor_role: 'SUPERVISOR_1' | 'SUPERVISOR_2';
   period: {
@@ -217,7 +218,9 @@ export default function SupervisorEvaluationPage() {
   };
 
   const handleEvaluateFromSchedule = (schedule: Schedule) => {
-    router.push(`/dosen/supervisor-evaluation/${schedule.group.id}?type=${schedule.evaluation_type}`);
+    // For per-student evaluations like BIMBINGAN_TA, include student_id
+    const studentParam = schedule.student ? `&student_id=${schedule.student.id}` : '';
+    router.push(`/dosen/supervisor-evaluation/${schedule.group.id}?type=${schedule.evaluation_type}${studentParam}`);
   };
 
   const isDeadlineUrgent = (deadline: string | null) => {
@@ -615,11 +618,19 @@ function ScheduleCard({ schedule, onEvaluate, isUrgent, isOverdue }: ScheduleCar
         <div className="pt-2 border-t">
           <p className="text-sm font-medium mb-2">Mahasiswa:</p>
           <div className="flex flex-wrap gap-1">
-            {schedule.students.map((student) => (
-              <Badge key={student.id} variant="secondary" className="text-xs">
-                {student.name}
+            {/* For per-student evaluations (BIMBINGAN_TA), show only the specific student */}
+            {schedule.student ? (
+              <Badge key={schedule.student.id} variant="secondary" className="text-xs">
+                {schedule.student.name}
               </Badge>
-            ))}
+            ) : (
+              /* For group evaluations, show all students */
+              schedule.students?.map((student) => (
+                <Badge key={student.id} variant="secondary" className="text-xs">
+                  {student.name}
+                </Badge>
+              ))
+            )}
           </div>
         </div>
 

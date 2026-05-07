@@ -200,6 +200,14 @@ export default function EvaluationSummaryAnalyticsPage() {
   // Selection for bulk actions
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Grades state - fetched separately from new API
+  const [grades, setGrades] = useState<Record<number, {
+    pdc1_score?: number;
+    pdc2_score?: number;
+    final_grade?: number;
+    letter_grade?: string;
+  }>>({});
 
   // Fetch periods
   const fetchPeriods = useCallback(async () => {
@@ -443,10 +451,33 @@ export default function EvaluationSummaryAnalyticsPage() {
       };
 
       setSelectedSchedule(transformedDetail);
+
+      // Fetch grades separately from new API endpoint
+      try {
+        const gradesRes = await api.get(`/admin/supervisor-evaluation/schedules/${scheduleId}/grades`);
+        const gradesData = gradesRes.data?.grades || {};
+        
+        // Transform grades data to map by student_id
+        const gradesMap: Record<number, { pdc1_score?: number; pdc2_score?: number; final_grade?: number; letter_grade?: string }> = {};
+        Object.entries(gradesData).forEach(([studentId, gradeData]: [string, any]) => {
+          gradesMap[parseInt(studentId)] = {
+            pdc1_score: gradeData.pdc1_score,
+            pdc2_score: gradeData.pdc2_score,
+            final_grade: gradeData.final_grade,
+            letter_grade: gradeData.letter_grade,
+          };
+        });
+        setGrades(gradesMap);
+      } catch (gradeError) {
+        console.error('Error fetching grades:', gradeError);
+        // Don't fail the whole operation if grades fail to load
+        setGrades({});
+      }
     } catch (error) {
       console.error('Error fetching detail:', error);
       toast.error('Gagal memuat detail evaluasi');
       setSelectedSchedule(null);
+      setGrades({});
     } finally {
       setLoadingDetail(false);
     }
@@ -1068,45 +1099,50 @@ export default function EvaluationSummaryAnalyticsPage() {
                           </div>
 
                           {/* Grade Summary Cards */}
-                          <div className="grid grid-cols-3 gap-3">
-                            <Card className="bg-blue-50 border-blue-200">
-                              <CardHeader className="pb-1 pt-3 px-3">
-                                <CardTitle className="text-xs text-blue-600">PDC 1</CardTitle>
-                              </CardHeader>
-                              <CardContent className="pt-0 pb-3 px-3">
-                                <div className="text-lg font-bold text-blue-700">
-                                  {(studentData as {pdc1_score?: number}).pdc1_score !== undefined ? Number((studentData as {pdc1_score?: number}).pdc1_score).toFixed(1) : '-'}
-                                </div>
-                              </CardContent>
-                            </Card>
-                            <Card className="bg-purple-50 border-purple-200">
-                              <CardHeader className="pb-1 pt-3 px-3">
-                                <CardTitle className="text-xs text-purple-600">PDC 2</CardTitle>
-                              </CardHeader>
-                              <CardContent className="pt-0 pb-3 px-3">
-                                <div className="text-lg font-bold text-purple-700">
-                                  {(studentData as {pdc2_score?: number}).pdc2_score !== undefined ? Number((studentData as {pdc2_score?: number}).pdc2_score).toFixed(1) : '-'}
-                                </div>
-                              </CardContent>
-                            </Card>
-                            <Card className="bg-emerald-50 border-emerald-200">
-                              <CardHeader className="pb-1 pt-3 px-3">
-                                <CardTitle className="text-xs text-emerald-600">Final</CardTitle>
-                              </CardHeader>
-                              <CardContent className="pt-0 pb-3 px-3">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-lg font-bold text-emerald-700">
-                                    {(studentData as {final_grade?: number}).final_grade !== undefined ? Number((studentData as {final_grade?: number}).final_grade).toFixed(1) : '-'}
-                                  </span>
-                                  {(studentData as {letter_grade?: string}).letter_grade && (
-                                    <Badge className="bg-emerald-100 text-emerald-800">
-                                      {(studentData as {letter_grade?: string}).letter_grade}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </CardContent>
-                            </Card>
-                          </div>
+                          {(() => {
+                            const studentGrade = grades[studentData.student.id];
+                            return (
+                              <div className="grid grid-cols-3 gap-3">
+                                <Card className="bg-blue-50 border-blue-200">
+                                  <CardHeader className="pb-1 pt-3 px-3">
+                                    <CardTitle className="text-xs text-blue-600">PDC 1</CardTitle>
+                                  </CardHeader>
+                                  <CardContent className="pt-0 pb-3 px-3">
+                                    <div className="text-lg font-bold text-blue-700">
+                                      {studentGrade?.pdc1_score !== undefined ? Number(studentGrade.pdc1_score).toFixed(1) : '-'}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                                <Card className="bg-purple-50 border-purple-200">
+                                  <CardHeader className="pb-1 pt-3 px-3">
+                                    <CardTitle className="text-xs text-purple-600">PDC 2</CardTitle>
+                                  </CardHeader>
+                                  <CardContent className="pt-0 pb-3 px-3">
+                                    <div className="text-lg font-bold text-purple-700">
+                                      {studentGrade?.pdc2_score !== undefined ? Number(studentGrade.pdc2_score).toFixed(1) : '-'}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                                <Card className="bg-emerald-50 border-emerald-200">
+                                  <CardHeader className="pb-1 pt-3 px-3">
+                                    <CardTitle className="text-xs text-emerald-600">Final</CardTitle>
+                                  </CardHeader>
+                                  <CardContent className="pt-0 pb-3 px-3">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-lg font-bold text-emerald-700">
+                                        {studentGrade?.final_grade !== undefined ? Number(studentGrade.final_grade).toFixed(1) : '-'}
+                                      </span>
+                                      {studentGrade?.letter_grade && (
+                                        <Badge className="bg-emerald-100 text-emerald-800">
+                                          {studentGrade.letter_grade}
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              </div>
+                            );
+                          })()}
 
                           <Separator />
 

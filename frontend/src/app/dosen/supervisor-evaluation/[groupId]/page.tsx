@@ -71,6 +71,7 @@ export default function SupervisorEvaluationDetailPage() {
   const router = useRouter();
   const groupId = params.groupId as string;
   const evaluationType = searchParams.get('type') || 'BIMBINGAN_SEMPRO';
+  const studentId = searchParams.get('student_id');
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -85,7 +86,8 @@ export default function SupervisorEvaluationDetailPage() {
   const fetchEvaluationForm = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get(`/dosen/supervisor-evaluation/form/${groupId}?type=${evaluationType}`);
+      const studentParam = studentId ? `&student_id=${studentId}` : '';
+      const response = await api.get(`/dosen/supervisor-evaluation/form/${groupId}?type=${evaluationType}${studentParam}`);
       const data = response.data;
       
       setGroup(data.group);
@@ -122,7 +124,7 @@ export default function SupervisorEvaluationDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [groupId, evaluationType, router]);
+  }, [groupId, evaluationType, studentId, router]);
 
   useEffect(() => {
     if (groupId && evaluationType) {

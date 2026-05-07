@@ -330,12 +330,56 @@ class SeminarDashboardController extends Controller
                 'type' => 'SEMINAR'
             ]);
         } else {
-            $evaluation = TaDefenseEvaluation::where('id', $id)
-                ->where('examiner_id', $user->id)
-                ->firstOrFail();
-            $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
-                ->findOrFail($evaluation->schedule_id);
-            
+            $scheduleId = $request->query('schedule_id');
+
+            if ($scheduleId) {
+                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                    ->find($scheduleId);
+
+                if (!$schedule) {
+                    return response()->json([
+                        'message' => 'Jadwal tidak ditemukan'
+                    ], 404);
+                }
+
+                $isExaminer = TaDefenseExaminer::where('schedule_id', $schedule->id)
+                    ->where('examiner_id', $user->id)
+                    ->exists();
+
+                if (!$isExaminer) {
+                    return response()->json([
+                        'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini'
+                    ], 403);
+                }
+
+                $evaluation = TaDefenseEvaluation::firstOrCreate([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $user->id,
+                ], [
+                    'student_id' => $schedule->student_id,
+                    'status' => 'PENDING',
+                    'score' => 0,
+                    'rubric_json' => null,
+                ]);
+            } else {
+                $evaluation = TaDefenseEvaluation::find($id);
+
+                if (!$evaluation) {
+                    return response()->json([
+                        'message' => 'Penilaian tidak ditemukan'
+                    ], 404);
+                }
+
+                if ((int) $evaluation->examiner_id !== (int) $user->id) {
+                    return response()->json([
+                        'message' => 'Anda tidak memiliki akses ke penilaian ini'
+                    ], 403);
+                }
+
+                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                    ->findOrFail($evaluation->schedule_id);
+            }
+
             $components = $this->resolveEvaluationComponents($schedule->group->period_id, 'SIDANG_TA');
 
             $existingScores = $this->resolveExistingScores(
@@ -348,6 +392,11 @@ class SeminarDashboardController extends Controller
                 'evaluation' => $evaluation,
                 'schedule' => $schedule,
                 'group' => $schedule->group,
+                'student' => $schedule->student ? [
+                    'id' => $schedule->student->id,
+                    'name' => $schedule->student->name,
+                    'nim' => $schedule->student->nim ?? '',
+                ] : null,
                 'components' => $components,
                 'existing_scores' => $existingScores,
                 'type' => 'TA_DEFENSE'

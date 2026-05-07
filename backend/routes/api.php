@@ -180,6 +180,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Supervisor Evaluation Summary (admin view)
         Route::get('/supervisor-evaluation/schedules/{scheduleId}/summary', [SupervisorEvaluationController::class, 'adminScheduleSummary']);
         Route::get('/supervisor-evaluation/schedules/{scheduleId}/export', [SupervisorEvaluationController::class, 'exportScheduleSummary']);
+        Route::get('/supervisor-evaluation/schedules/{scheduleId}/grades', [SupervisorEvaluationController::class, 'getGradesForSchedule']);
 
         // Peer Review Indicator Templates - DEPRECATED
         // Use /assessment-templates instead. Peer review now uses Assessment Bank.

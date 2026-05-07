@@ -140,6 +140,8 @@ class AssessmentScoreController extends Controller
 
             if ($usePeriodComponents && $hasPeriodComponentColumn) {
                 $data['period_component_id'] = $scoreData['period_component_id'];
+                // Also add component_id for the unique constraint (set to null when using period_component_id)
+                $data['component_id'] = null;
             } else {
                 $data['component_id'] = $scoreData['period_component_id'];
             }
@@ -148,11 +150,8 @@ class AssessmentScoreController extends Controller
         }
 
         // Determine unique keys and update columns based on schema
-        if ($usePeriodComponents && $hasPeriodComponentColumn) {
-            $uniqueKeys = ['evaluator_id', 'student_id', 'period_component_id'];
-        } else {
-            $uniqueKeys = ['evaluator_id', 'student_id', 'component_id'];
-        }
+        // Note: Database unique constraint is on component_id, not period_component_id
+        $uniqueKeys = ['evaluator_id', 'student_id', 'component_id'];
 
         $updateColumns = ['group_id', 'score', 'notes', 'evaluation_type', 'updated_at'];
 
