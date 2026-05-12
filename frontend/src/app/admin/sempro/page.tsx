@@ -58,7 +58,7 @@ export default function AdminSemproPage() {
     const [groups, setGroups] = useState<GroupItem[]>([]);
     const [dosens, setDosens] = useState<Dosen[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -88,19 +88,10 @@ export default function AdminSemproPage() {
     const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
 
     const fetchSchedules = useCallback(async (periodId?: string) => {
-        const currentPeriod = periodId || selectedPeriod;
-        if (!currentPeriod) {
-            const perRes = await api.get('/admin/periods');
-            const perData = perRes.data?.data || [];
-            setPeriods(perData);
-            const active = perData.find((p: Period) => p.is_active);
-            if (active) setSelectedPeriod(active.id.toString());
-            return;
-        }
-
+        const currentPeriod = periodId !== undefined ? periodId : selectedPeriod;
         setLoading(true);
         try {
-            const query = `?period_id=${currentPeriod}`;
+            const query = currentPeriod !== 'all' && currentPeriod ? `?period_id=${currentPeriod}` : '';
             const [semproRes, groupsRes] = await Promise.all([
                 api.get(`/admin/sempro/schedules${query}`),
                 api.get(`/admin/groups${query}`),
@@ -130,7 +121,7 @@ export default function AdminSemproPage() {
             const perData = res.data?.data || [];
             setPeriods(perData);
             const active = perData.find((p: Period) => p.is_active);
-            if (active && !selectedPeriod) setSelectedPeriod(active.id.toString());
+            if (active && selectedPeriod !== 'all') setSelectedPeriod(active.id.toString());
         } catch (err) {
             console.error(err);
         }
@@ -344,6 +335,7 @@ export default function AdminSemproPage() {
                             <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="all">Semua Periode</SelectItem>
                             {periods.map(p => (
                                 <SelectItem key={p.id} value={p.id.toString()}>
                                     {p.name}

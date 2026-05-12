@@ -25,8 +25,13 @@ class AssessmentComponent extends Model
         return $this->belongsTo(Period::class);
     }
 
+    /**
+     * Get scores for this component across all split tables.
+     * Note: Returns a collection, not a relationship.
+     */
     public function scores()
     {
-        return $this->hasMany(AssessmentScore::class, 'component_id');
+        // Since scores are split across tables, we return from repository
+        return \App\Repositories\AssessmentScoreRepository::getByComponentId($this->id, 'component_id');
     }
 }

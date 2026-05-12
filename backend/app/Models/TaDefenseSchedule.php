@@ -4,12 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TaDefenseSchedule extends Model
 {
     protected $fillable = [
-        'student_id',
+        'student_id', // Kept for backward compatibility
         'group_id',
         'period_id',
         'examiner_1_id',
@@ -33,6 +34,19 @@ class TaDefenseSchedule extends Model
     public function student(): BelongsTo
     {
         return $this->belongsTo(User::class, 'student_id');
+    }
+
+    /**
+     * Get all students in this defense schedule (multi-student support)
+     */
+    public function students(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            User::class,
+            'ta_defense_schedule_student',
+            'schedule_id',
+            'student_id'
+        )->withTimestamps();
     }
 
     public function group(): BelongsTo

@@ -3,11 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\AssessmentComponent;
-use App\Models\AssessmentScore;
 use App\Models\Group;
+use App\Repositories\AssessmentScoreRepository;
 use App\Models\GroupMember;
 use App\Models\PeriodAssessmentComponent;
 use App\Models\Schedule;
+use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaDefenseEvaluation;
@@ -103,24 +104,33 @@ class SupervisorEvaluationController extends Controller
         $pendingCount = 0;
 
         foreach ($supervisions as $supervision) {
-            $group = $supervision->group;
+            try {
+                $group = $supervision->group;
 
-            if (!$group) {
+                if (!$group) {
+                    continue;
+                }
+
+                $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
+                $pendingTypes = [];
+
+                foreach ($groupSchedules as $schedule) {
+                    $evalType = (string) $schedule['evaluation_type'];
+                    $status = strtoupper((string) $schedule['status']);
+                    if (in_array($status, ['PENDING', 'PARTIAL'], true) && !in_array($evalType, $pendingTypes, true)) {
+                        $pendingTypes[] = $evalType;
+                    }
+                }
+
+                $pendingCount += count($pendingTypes);
+            } catch (\Exception $e) {
+                Log::error('Error in pendingCount for supervision', [
+                    'supervision_id' => $supervision->id,
+                    'group_id' => $supervision->group_id,
+                    'error' => $e->getMessage(),
+                ]);
                 continue;
             }
-
-            $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
-            $pendingTypes = [];
-
-            foreach ($groupSchedules as $schedule) {
-                $evalType = (string) $schedule['evaluation_type'];
-                $status = strtoupper((string) $schedule['status']);
-                if (in_array($status, ['PENDING', 'PARTIAL'], true) && !in_array($evalType, $pendingTypes, true)) {
-                    $pendingTypes[] = $evalType;
-                }
-            }
-
-            $pendingCount += count($pendingTypes);
         }
 
         return response()->json([
@@ -484,9 +494,9 @@ class SupervisorEvaluationController extends Controller
         }
 
         // Get existing scores
-        $existingScores = AssessmentScore::where('group_id', $groupId)
+        $existingScores = AssessmentScoreRepository::forType($evaluationType)
+            ->where('group_id', $groupId)
             ->where('evaluator_id', $user->id)
-            ->where('evaluation_type', $evaluationType)
             ->get()
             ->keyBy(fn($s) => $s->{$existingScoresKeyField} . '_' . ($s->student_id ?? 'group'));
 
@@ -643,9 +653,10 @@ class SupervisorEvaluationController extends Controller
                     $updateColumns[] = 'period_component_id';
                 }
 
-                AssessmentScore::upsert(
+                AssessmentScoreRepository::upsert(
+                    $evaluationType,
                     $upsertData,
-                    [$componentIdField, 'evaluator_id', 'group_id', 'student_id', 'evaluation_type'],
+                    [$componentIdField, 'evaluator_id', 'group_id', 'student_id'],
                     $updateColumns
                 );
             }
@@ -738,11 +749,11 @@ class SupervisorEvaluationController extends Controller
 
         // Check if all supervisors have submitted scores for this evaluation type
         foreach ($supervisorIds as $supervisorId) {
-            $hasScore = AssessmentScore::where([
-                'group_id' => $groupId,
-                'evaluator_id' => $supervisorId,
-                'evaluation_type' => $evaluationType,
-            ])->exists();
+            $hasScore = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                $groupId,
+                $supervisorId,
+                $evaluationType
+            );
 
             if (!$hasScore) {
                 return false; // This supervisor hasn't submitted yet
@@ -790,9 +801,9 @@ class SupervisorEvaluationController extends Controller
         if ($studentId !== null) {
             $expectedScores = $componentCount;
             
-            $actualScores = AssessmentScore::where('group_id', $groupId)
+            $actualScores = AssessmentScoreRepository::forType($evaluationType)
+                ->where('group_id', $groupId)
                 ->where('evaluator_id', $supervisorId)
-                ->where('evaluation_type', $evaluationType)
                 ->where('student_id', $studentId)
                 ->count();
         } else {
@@ -800,9 +811,9 @@ class SupervisorEvaluationController extends Controller
             $studentCount = GroupMember::where('group_id', $groupId)->count();
             $expectedScores = $componentCount * $studentCount;
 
-            $actualScores = AssessmentScore::where('group_id', $groupId)
+            $actualScores = AssessmentScoreRepository::forType($evaluationType)
+                ->where('group_id', $groupId)
                 ->where('evaluator_id', $supervisorId)
-                ->where('evaluation_type', $evaluationType)
                 ->count();
         }
 
@@ -891,27 +902,48 @@ class SupervisorEvaluationController extends Controller
      */
     public function adminScheduleSummary(Request $request, int $scheduleId): JsonResponse
     {
-        // Try Schedule table first, then TaDefenseSchedule for TA_DEFENSE
+        // Try Schedule table first, then TaDefenseSchedule for TA_DEFENSE, then SeminarSchedule for SEMPRO
         $schedule = Schedule::with(['group.period', 'group.members.student'])->find($scheduleId);
         $isTaDefense = false;
+        $isSeminar = false;
         $taSchedule = null;
+        $seminarSchedule = null;
 
         if (!$schedule) {
             // Try TaDefenseSchedule for TA defense schedules
             $taSchedule = TaDefenseSchedule::with(['group.period', 'group.members.student', 'student'])->find($scheduleId);
-            if (!$taSchedule) {
-                return response()->json(['error' => 'Schedule not found'], 404);
+            if ($taSchedule) {
+                $isTaDefense = true;
+                $schedule = (object)[
+                    'id' => $taSchedule->id,
+                    'type' => 'TA_DEFENSE',
+                    'date' => $taSchedule->date,
+                    'room' => $taSchedule->room,
+                ];
+            } else {
+                // Try SeminarSchedule for SEMPRO schedules
+                $seminarSchedule = SeminarSchedule::with(['group.period', 'group.members.student'])->find($scheduleId);
+                if ($seminarSchedule) {
+                    $isSeminar = true;
+                    $schedule = (object)[
+                        'id' => $seminarSchedule->id,
+                        'type' => 'SEMINAR',
+                        'date' => $seminarSchedule->date,
+                        'room' => $seminarSchedule->room,
+                    ];
+                } else {
+                    return response()->json(['error' => 'Schedule not found'], 404);
+                }
             }
-            $isTaDefense = true;
-            $schedule = (object)[
-                'id' => $taSchedule->id,
-                'type' => 'TA_DEFENSE',
-                'date' => $taSchedule->date,
-                'room' => $taSchedule->room,
-            ];
         }
 
-        $group = $isTaDefense ? $taSchedule->group : $schedule->group;
+        if ($isTaDefense) {
+            $group = $taSchedule->group;
+        } elseif ($isSeminar) {
+            $group = $seminarSchedule->group;
+        } else {
+            $group = $schedule->group;
+        }
 
         // Determine evaluation types based on schedule type
         $evaluationTypes = match ($schedule->type) {
@@ -947,11 +979,11 @@ class SupervisorEvaluationController extends Controller
                     }
 
                     $byEvaluator = $evaluations->map(function ($eval) use ($scheduleId, $group, $student) {
-                        $componentScores = AssessmentScore::with('component')
+                        $componentScores = AssessmentScoreRepository::forType('SIDANG_TA')
+                            ->with('component')
                             ->where('group_id', $group->id)
                             ->where('student_id', $student->id)
-                            ->where('evaluation_type', 'SIDANG_TA')
-                            ->where('evaluator_id', $eval->examiner_id)
+                            ->where('examiner_id', $eval->examiner_id)
                             ->get()
                             ->map(fn($score) => [
                                 'component' => $score->component?->name ?? 'Unknown',
@@ -976,12 +1008,55 @@ class SupervisorEvaluationController extends Controller
                     })->values();
 
                     $studentScores[$evalType] = $byEvaluator;
-                } else {
-                    // BIMBINGAN_TA and other evaluations are in assessment_scores table
-                    $scores = AssessmentScore::with(['component', 'evaluator'])
+                } elseif ($evalType === 'SEMPRO') {
+                    // Get examiner role mapping from schedule
+                    $seminarSchedule = SeminarSchedule::find($scheduleId);
+                    $examinerRoles = [];
+                    if ($seminarSchedule) {
+                        if ($seminarSchedule->examiner_1_id) {
+                            $examinerRoles[$seminarSchedule->examiner_1_id] = 'Examiner 1';
+                        }
+                        if ($seminarSchedule->examiner_2_id) {
+                            $examinerRoles[$seminarSchedule->examiner_2_id] = 'Examiner 2';
+                        }
+                    }
+
+                    // Read from sempro_scores via repository
+                    $scores = AssessmentScoreRepository::forType('SEMPRO')
+                        ->with(['component', 'examiner'])
                         ->where('group_id', $group->id)
                         ->where('student_id', $student->id)
-                        ->where('evaluation_type', $evalType)
+                        ->get();
+
+                    if ($scores->isEmpty()) {
+                        continue;
+                    }
+
+                    $byEvaluator = $scores->groupBy('examiner_id')->map(function ($examinerScores, $examinerId) use ($examinerRoles) {
+                        $examiner = $examinerScores->first()->examiner;
+
+                        return [
+                            'evaluator' => [
+                                'id' => $examiner->id,
+                                'name' => $examiner->name,
+                                'role' => $examinerRoles[$examinerId] ?? 'Examiner',
+                            ],
+                            'weighted_average' => $examinerScores->avg('score'),
+                            'scores' => $examinerScores->map(fn($s) => [
+                                'component' => $s->component?->name ?? 'Unknown',
+                                'score' => $s->score,
+                                'weight' => $s->component?->weight ?? 0,
+                            ])->values(),
+                        ];
+                    })->values();
+
+                    $studentScores[$evalType] = $byEvaluator;
+                } else {
+                    // BIMBINGAN_SEMPRO, BIMBINGAN_TA, EXPO, MILESTONE are in split score tables
+                    $scores = AssessmentScoreRepository::forType($evalType)
+                        ->with(['component', 'evaluator'])
+                        ->where('group_id', $group->id)
+                        ->where('student_id', $student->id)
                         ->get();
 
                     if ($scores->isEmpty()) {
@@ -1136,11 +1211,11 @@ class SupervisorEvaluationController extends Controller
                     }
 
                     foreach ($evaluations as $eval) {
-                        $componentScores = AssessmentScore::with('component')
+                        $componentScores = AssessmentScoreRepository::forType('SIDANG_TA')
+                            ->with('component')
                             ->where('group_id', $group->id)
                             ->where('student_id', $student->id)
-                            ->where('evaluation_type', 'SIDANG_TA')
-                            ->where('evaluator_id', $eval->examiner_id)
+                            ->where('examiner_id', $eval->examiner_id)
                             ->get()
                             ->map(fn($score) => [
                                 'component' => $score->component?->name ?? 'Unknown',
@@ -1170,11 +1245,11 @@ class SupervisorEvaluationController extends Controller
                         }
                     }
                 } else {
-                    // BIMBINGAN_TA and other evaluations are in assessment_scores table
-                    $scores = AssessmentScore::with(['component', 'evaluator'])
+                    // BIMBINGAN_TA and other evaluations are in split score tables
+                    $scores = AssessmentScoreRepository::forType($evalType)
+                        ->with(['component', 'evaluator'])
                         ->where('group_id', $group->id)
                         ->where('student_id', $student->id)
-                        ->where('evaluation_type', $evalType)
                         ->get();
 
                     if ($scores->isEmpty()) {

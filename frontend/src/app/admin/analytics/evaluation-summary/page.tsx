@@ -215,14 +215,15 @@ export default function EvaluationSummaryAnalyticsPage() {
       const res = await api.get('/admin/periods');
       const periodsData = res.data?.data || [];
       setPeriods(periodsData);
+      // Auto-select active period if none selected
       const active = periodsData.find((p: Period) => p.is_active);
-      if (active) {
+      if (active && !filters.period_id) {
         setFilters(prev => ({ ...prev, period_id: active.id.toString() }));
       }
     } catch {
       toast.error('Gagal memuat periode');
     }
-  }, []);
+  }, [filters.period_id]);
 
   // Fetch schedules with filters
   const fetchSchedules = useCallback(async () => {
@@ -233,7 +234,7 @@ export default function EvaluationSummaryAnalyticsPage() {
         per_page: itemsPerPage,
       };
       
-      if (filters.period_id && filters.period_id !== 'all') {
+      if (filters.period_id) {
         params.period_id = filters.period_id;
       }
       if (filters.type && filters.type !== 'all') {
@@ -661,8 +662,9 @@ export default function EvaluationSummaryAnalyticsPage() {
 
   // Clear all filters
   const clearFilters = () => {
+    const active = periods.find(p => p.is_active);
     setFilters({
-      period_id: periods.find(p => p.is_active)?.id.toString() || '',
+      period_id: active ? active.id.toString() : '',
       type: 'all',
       status: 'all',
       search: '',

@@ -70,7 +70,7 @@ export default function DosenTitlesPage() {
     const [sortKey, setSortKey] = useState<SortKey>('title');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [availableGroups, setAvailableGroups] = useState<GroupSummary[]>([]);
 
     const [formData, setFormData] = useState({
@@ -93,22 +93,21 @@ export default function DosenTitlesPage() {
     const fetchTitles = useCallback(async (periodId?: string) => {
         setTitlesLoading(true);
         try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
+            const currentPeriodId = periodId || selectedPeriod;
+            
+            // Fetch periods if not already loaded
+            if (!periods.length) {
                 const perRes = await api.get('/periods-list');
                 const periodsData = perRes.data?.data || [];
                 setPeriods(periodsData);
-                const active = periodsData.find((p: { is_active: boolean }) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
             }
 
-            if (!currentPeriodId) {
-                setTitlesLoading(false);
-                return;
-            }
-
-            const response = await api.get(`/dosen/titles?period_id=${currentPeriodId}`);
+            // When 'all' is selected, fetch without period_id filter
+            const query = currentPeriodId && currentPeriodId !== 'all' 
+                ? `?period_id=${currentPeriodId}` 
+                : '';
+            
+            const response = await api.get(`/dosen/titles${query}`);
             setTitles(response.data);
         } catch (error) {
             console.error('Failed to fetch titles', error);
@@ -116,11 +115,11 @@ export default function DosenTitlesPage() {
         } finally {
             setTitlesLoading(false);
         }
-    }, [selectedPeriod]);
+    }, [selectedPeriod, periods.length]);
 
     useEffect(() => {
-        if (!selectedPeriod) fetchTitles();
-    }, [fetchTitles, selectedPeriod]);
+        fetchTitles();
+    }, [fetchTitles]);
 
     // Fetch available groups for pre-assignment
     const fetchAvailableGroups = async () => {
@@ -292,8 +291,9 @@ export default function DosenTitlesPage() {
                          <SelectTrigger className="w-[180px]">
                              <SelectValue placeholder="Select period" />
                          </SelectTrigger>
-                         <SelectContent>
-                             {periods.filter(p => p.is_active).map(p => (
+                    <SelectContent>
+                        <SelectItem value="all">Semua Periode</SelectItem>
+                        {periods.map(p => (
                                  <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                              ))}
                          </SelectContent>

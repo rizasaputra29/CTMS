@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\SeminarEvaluation;
@@ -10,6 +9,7 @@ use App\Models\SeminarSchedule;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use App\Services\SchedulingService;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -43,9 +43,9 @@ class SemproController extends Controller
 
         $groupIds = $schedules->pluck('group_id')->unique()->filter()->values();
 
-        $bimbinganScores = AssessmentScore::with('evaluator')
+        $bimbinganScores = AssessmentScoreRepository::forType('BIMBINGAN_SEMPRO')
+            ->with('evaluator')
             ->whereIn('group_id', $groupIds)
-            ->where('evaluation_type', 'BIMBINGAN_SEMPRO')
             ->get()
             ->groupBy('student_id');
 

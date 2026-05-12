@@ -2,11 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
 use App\Models\Period;
 use App\Models\PeerReview;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseSchedule;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\DB;
@@ -65,7 +65,7 @@ class GradeCheckController extends Controller
 
         // Get all assessment scores for the student with optimized eager loading
         // Filter by student_id FIRST, then by group (much faster)
-        $assessmentScores = AssessmentScore::with([
+        $assessmentScores = AssessmentScoreRepository::getAllWith([
             'evaluator:id,name',
             'student:id,name,nim',
             'group:id,status,title_id',
@@ -73,10 +73,12 @@ class GradeCheckController extends Controller
             'component:id,name',
             'periodComponent:id,template_id',
             'periodComponent.template:id,code,name,weight'
-        ])
-        ->where('student_id', $studentId)
-        ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-        ->get();
+        ], function ($query, $type) use ($studentId, $periodGroupIds) {
+            $query->where('student_id', $studentId);
+            if ($periodGroupIds && $periodGroupIds->isNotEmpty()) {
+                $query->whereIn('group_id', $periodGroupIds);
+            }
+        });
 
         // Preload schedules to avoid N+1 queries
         $scoreGroupIds = $assessmentScores->pluck('group_id')->unique()->filter()->values();
@@ -262,21 +264,75 @@ class GradeCheckController extends Controller
             }
         }
 
-        $query = AssessmentScore::with([
-            'evaluator:id,name',
-            'student:id,name,nim',
-            'group:id,status,title_id',
-            'group.title:id,title',
-            'component:id,name',
-            'periodComponent:id,template_id',
-            'periodComponent.template:id,code,name,weight'
-        ])
-        ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-        ->when($evaluationType, fn($q) => $q->where('evaluation_type', $evaluationType))
-        ->when($request->group_id, fn($q) => $q->where('group_id', $request->group_id))
-        ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id));
-
-        $scores = $query->paginate($perPage);
+        if ($evaluationType && AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            // Single evaluation type - use specific repository query
+            $query = AssessmentScoreRepository::forType($evaluationType)
+                ->with([
+                    'evaluator:id,name',
+                    'student:id,name,nim',
+                    'group:id,status,title_id',
+                    'group.title:id,title',
+                    'component:id,name',
+                    'periodComponent:id,template_id',
+                    'periodComponent.template:id,code,name,weight'
+                ])
+                ->whereHas('group', function ($q) use ($periodId) {
+                    $q->where('period_id', $periodId);
+                });
+            
+            if ($request->group_id) {
+                $query->where('group_id', $request->group_id);
+            }
+            if ($request->student_id) {
+                $query->where('student_id', $request->student_id);
+            }
+            
+            $scores = $query->paginate($perPage);
+        } else {
+            // Multiple evaluation types - aggregate from all supported types
+            // Note: For paginated results across multiple tables, we collect all and paginate manually
+            $allScores = collect();
+            
+            foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
+                if ($evaluationType && $type !== $evaluationType) {
+                    continue;
+                }
+                
+                $typeScores = AssessmentScoreRepository::forType($type)
+                    ->with([
+                        'evaluator:id,name',
+                        'student:id,name,nim',
+                        'group:id,status,title_id',
+                        'group.title:id,title',
+                        'component:id,name',
+                        'periodComponent:id,template_id',
+                        'periodComponent.template:id,code,name,weight'
+                    ])
+                    ->whereHas('group', function ($q) use ($periodId) {
+                        $q->where('period_id', $periodId);
+                    })
+                    ->when($request->group_id, fn($q) => $q->where('group_id', $request->group_id))
+                    ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id))
+                    ->get();
+                
+                $allScores = $allScores->merge($typeScores);
+            }
+            
+            // Manual pagination
+            $total = $allScores->count();
+            $page = $request->input('page', 1);
+            $offset = ($page - 1) * $perPage;
+            $scores = $allScores->slice($offset, $perPage)->values();
+            
+            // Create a simple paginator-like object
+            $scores = new \Illuminate\Pagination\LengthAwarePaginator(
+                $scores,
+                $total,
+                $perPage,
+                $page,
+                ['path' => $request->url()]
+            );
+        }
         
         // Preload schedules to avoid N+1 queries for SEMPRO and SIDANG_TA types
         $scoreGroupIds = $scores->pluck('group_id')->unique()->filter()->values();
@@ -437,8 +493,8 @@ class GradeCheckController extends Controller
      */
     private function getEvaluatorRole($score, $schedules = null): string
     {
-        $evaluationType = $score->evaluation_type;
-        $evaluatorId = $score->evaluator_id;
+        $evaluationType = $score->evaluation_type ?? '';
+        $evaluatorId = $score->examiner_id ?? $score->evaluator_id ?? null;
         $group = $score->group;
 
         if (!$group) {
@@ -599,13 +655,16 @@ class GradeCheckController extends Controller
 
                 // Get all scores for this student using cursor (memory efficient)
                 if ($groupIds && $groupIds->isNotEmpty()) {
-                    AssessmentScore::where('student_id', $studentId)
-                        ->whereIn('group_id', $groupIds)
-                        ->select('evaluation_type', 'score')
-                        ->cursor()
-                        ->each(function ($score) use (&$scores) {
-                            $scores[] = ['type' => $score->evaluation_type, 'score' => $score->score];
-                        });
+                    foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
+                        AssessmentScoreRepository::forType($type)
+                            ->where('student_id', $studentId)
+                            ->whereIn('group_id', $groupIds)
+                            ->select('score')
+                            ->cursor()
+                            ->each(function ($score) use (&$scores, $type) {
+                                $scores[] = ['type' => $type, 'score' => $score->score];
+                            });
+                    }
 
                     PeerReview::where('reviewee_id', $studentId)
                         ->whereIn('group_id', $groupIds)

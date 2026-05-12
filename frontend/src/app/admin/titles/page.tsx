@@ -38,15 +38,7 @@ export default function AdminTitlesPage() {
     const fetchData = useCallback(async (periodId?: string) => {
         setLoading(true);
         try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
-                const perRes = await api.get('/admin/periods');
-                const periodsData = perRes.data?.data || [];
-                setPeriods(periodsData);
-                const active = periodsData.find((p: Period) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
-            }
+            const currentPeriodId = periodId || selectedPeriod;
 
             if (!currentPeriodId) {
                 setLoading(false);
@@ -63,7 +55,7 @@ export default function AdminTitlesPage() {
     }, [selectedPeriod]);
 
     useEffect(() => {
-        if (!selectedPeriod) fetchData();
+        fetchData();
     }, [fetchData, selectedPeriod]);
 
     const handlePeriodChange = (val: string) => {

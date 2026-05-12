@@ -7,8 +7,8 @@ use App\Models\GroupMember;
 use App\Models\Document;
 use App\Models\SeminarSchedule;
 use App\Models\PeriodAssessmentComponent;
-use App\Models\AssessmentScore;
 use App\Models\PhaseDocumentRequirement;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
@@ -425,9 +425,9 @@ class WorkflowService
 
         foreach ($supervisorIds as $supervisorId) {
             $supervisor = \App\Models\User::find($supervisorId);
-            $submittedScores = AssessmentScore::where('group_id', $group->id)
+            $submittedScores = AssessmentScoreRepository::forType('BIMBINGAN_SEMPRO')
+                ->where('group_id', $group->id)
                 ->where('evaluator_id', $supervisorId)
-                ->where('evaluation_type', 'BIMBINGAN_SEMPRO')
                 ->count();
             $isComplete = $expectedScores > 0 && $submittedScores >= $expectedScores;
             if (!$isComplete) {
@@ -484,9 +484,9 @@ class WorkflowService
 
         if ($group->supervisor_1_id) {
             $sup1 = \App\Models\User::find($group->supervisor_1_id);
-            $scores1 = AssessmentScore::where('group_id', $group->id)
+            $scores1 = AssessmentScoreRepository::forType($evalType)
+                ->where('group_id', $group->id)
                 ->where('evaluator_id', $group->supervisor_1_id)
-                ->where('evaluation_type', $evalType)
                 ->count();
             $isComplete1 = $expectedScores > 0 ? $scores1 >= $expectedScores : true;
             $supervisors[] = [
@@ -502,9 +502,9 @@ class WorkflowService
 
         if ($group->supervisor_2_id) {
             $sup2 = \App\Models\User::find($group->supervisor_2_id);
-            $scores2 = AssessmentScore::where('group_id', $group->id)
+            $scores2 = AssessmentScoreRepository::forType($evalType)
+                ->where('group_id', $group->id)
                 ->where('evaluator_id', $group->supervisor_2_id)
-                ->where('evaluation_type', $evalType)
                 ->count();
             $isComplete2 = $expectedScores > 0 ? $scores2 >= $expectedScores : true;
             $supervisors[] = [

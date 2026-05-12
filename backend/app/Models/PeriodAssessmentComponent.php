@@ -23,9 +23,34 @@ class PeriodAssessmentComponent extends Model
         return $this->belongsTo(AssessmentComponentTemplate::class, 'template_id');
     }
 
+    /**
+     * Get scores for this component across all split tables.
+     * Note: Returns a collection, not a relationship.
+     */
     public function scores()
     {
-        return $this->hasMany(AssessmentScore::class, 'period_component_id');
+        // Since scores are split across tables, we return from repository
+        return \App\Repositories\AssessmentScoreRepository::getByComponentId($this->id, 'period_component_id');
+    }
+
+    public function getNameAttribute()
+    {
+        return $this->template?->name;
+    }
+
+    public function getCodeAttribute()
+    {
+        return $this->template?->code;
+    }
+
+    public function getWeightAttribute()
+    {
+        return $this->template?->weight;
+    }
+
+    public function getDescriptionAttribute()
+    {
+        return $this->template?->description;
     }
 
     /**
@@ -35,10 +60,10 @@ class PeriodAssessmentComponent extends Model
     {
         return [
             'id' => $this->id,
-            'code' => $this->template->code,
-            'name' => $this->template->name,
-            'description' => $this->template->description,
-            'weight' => $this->template->weight,
+            'code' => $this->code,
+            'name' => $this->name,
+            'description' => $this->description,
+            'weight' => $this->weight,
             'type' => $this->type,
             'sort_order' => $this->sort_order,
             'template_id' => $this->template_id,

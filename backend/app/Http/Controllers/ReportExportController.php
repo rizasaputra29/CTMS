@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
+use App\Repositories\AssessmentScoreRepository;
 use App\Models\PeerReview;
 use App\Models\GradeConsistencyCheck;
 use App\Models\Group;
@@ -37,14 +37,21 @@ class ReportExportController extends Controller
 
     private function exportAssessments($periodId, $evalType = null): StreamedResponse
     {
-        $query = AssessmentScore::with(['component', 'evaluator', 'student', 'group.title'])
-            ->whereHas('group', fn($q) => $q->where('period_id', $periodId));
-
-        if ($evalType) {
-            $query->where('evaluation_type', $evalType);
+        // Aggregate scores from all supported types
+        $allScores = collect();
+        
+        $types = $evalType ? [$evalType] : AssessmentScoreRepository::getSupportedTypes();
+        
+        foreach ($types as $type) {
+            if (AssessmentScoreRepository::isSupportedType($type)) {
+                $with = ['component', 'evaluator', 'examiner', 'student', 'group.title'];
+                $scores = AssessmentScoreRepository::forType($type)
+                    ->with($with)
+                    ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
+                    ->get();
+                $allScores = $allScores->concat($scores);
+            }
         }
-
-        $scores = $query->get();
 
         return $this->streamCsv('assessments.csv', [
             'Group',
@@ -57,16 +64,16 @@ class ReportExportController extends Controller
             'Score',
             'Type',
             'Notes'
-        ], $scores->map(fn($s) => [
+        ], $allScores->map(fn($s) => [
                 $s->group->id ?? '',
                 $s->group->title->title ?? '',
                 $s->student->name ?? 'Group-level',
-                $s->evaluator->name ?? '',
+                $s->examiner->name ?? $s->evaluator->name ?? '',
                 $s->component->code ?? '',
                 $s->component->name ?? '',
                 $s->component->weight ?? '',
                 $s->score,
-                $s->evaluation_type,
+                $type,
                 $s->notes ?? '',
             ])->toArray());
     }

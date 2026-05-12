@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -23,7 +24,7 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import {
     Loader2, Plus, Search, GraduationCap, AlertCircle,
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText,
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock,
 } from 'lucide-react';
 
 interface Period { id: number; name: string; is_active: boolean; }
@@ -33,6 +34,7 @@ interface Student { id: number; name: string; nim: string; }
 interface TaDefenseSchedule {
     id: number;
     student: Student;
+    students?: Student[];
     group: { id: number; name: string; code: string };
     period: Period;
     date: string;
@@ -46,11 +48,21 @@ interface TaDefenseSchedule {
     notes: string | null;
 }
 
-interface EligibleStudentData {
-    group: { id: number; name: string; code: string };
+interface EligibleMember {
     student: Student;
+    is_leader: boolean;
+    is_ready_for_sidang: boolean;
+    is_already_selected: boolean;
+    status_text: string;
+    has_active_defense: boolean;
+}
+
+interface EligibleStudentData {
+    id: number;
+    name: string;
+    code: string;
+    members: EligibleMember[];
     supervisors: { id: number; pivot?: { role: string } }[];
-    submission?: { id: number };
 }
 
 type SortKey = 'name' | 'date' | 'status';
@@ -61,13 +73,15 @@ export default function AdminTaDefensePage() {
     const [schedules, setSchedules] = useState<TaDefenseSchedule[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
     const [dosens, setDosens] = useState<Dosen[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
     const [createOpen, setCreateOpen] = useState(false);
+    const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
+    const [formPeriodId, setFormPeriodId] = useState('');
     const [selectedGroupId, setSelectedGroupId] = useState('');
-    const [selectedStudentId, setSelectedStudentId] = useState('');
+    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
     const [formDate, setFormDate] = useState('');
     const [formStartTime, setFormStartTime] = useState('');
     const [formEndTime, setFormEndTime] = useState('');
@@ -87,22 +101,14 @@ export default function AdminTaDefensePage() {
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
 
-    const [eligibleGroups, setEligibleGroups] = useState<Array<{
-        id: number; name: string; code: string;
-        members: { student: Student; is_leader: boolean }[];
-        supervisors: { id: number; pivot?: { role: string } }[];
-    }>>([]);
+    const [eligibleGroups, setEligibleGroups] = useState<EligibleStudentData[]>([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const currentPeriod = selectedPeriod;
-            const [periodsRes, dosensRes, eligibleRes] = await Promise.all([
+            const [periodsRes, dosensRes] = await Promise.all([
                 api.get('/admin/periods'),
                 api.get('/admin/users?role=dosen'),
-                api.get('/admin/ta-defense-schedules/eligible-students', {
-                    params: currentPeriod ? { period_id: currentPeriod } : {}
-                }),
             ]);
 
             const perData: Period[] = periodsRes.data.data || [];
@@ -110,36 +116,21 @@ export default function AdminTaDefensePage() {
             const dosensData = dosensRes.data?.data || dosensRes.data || [];
             setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
 
-            const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
-            const groupsMap = new Map<number, typeof eligibleGroups[0]>();
-
-            eligibleData.forEach((item) => {
-                const group = item.group;
-                if (!groupsMap.has(group.id)) {
-                    groupsMap.set(group.id, {
-                        id: group.id,
-                        name: group.name,
-                        code: group.code,
-                        members: [],
-                        supervisors: item.supervisors?.map(s => ({
-                            id: s.id,
-                            pivot: s.pivot,
-                        })) || [],
-                    });
-                }
-                groupsMap.get(group.id)!.members.push({
-                    student: item.student,
-                    is_leader: false,
+            // Only fetch eligible students if a specific period is selected
+            // For "All Periods", we don't need eligible students until dialog opens
+            if (selectedPeriod && selectedPeriod !== 'all') {
+                const eligibleRes = await api.get('/admin/ta-defense-schedules/eligible-students', {
+                    params: { period_id: selectedPeriod }
                 });
-            });
 
-            setEligibleGroups(Array.from(groupsMap.values()));
-
-            const activePeriod = perData.find((p: Period) => p.is_active);
-            if (activePeriod && !selectedPeriod) {
-                setSelectedPeriod(activePeriod.id.toString());
+                const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
+                setEligibleGroups(eligibleData);
+            } else {
+                // Clear eligible groups when "All Periods" is selected
+                setEligibleGroups([]);
             }
-        } catch {
+        } catch (error) {
+            console.error('Fetch data error:', error);
             toast.error('Failed to load data');
         } finally {
             setLoading(false);
@@ -147,13 +138,17 @@ export default function AdminTaDefensePage() {
     }, [selectedPeriod]);
 
     const fetchSchedules = useCallback(async () => {
-        if (!selectedPeriod) return;
         try {
-            const res = await api.get('/admin/ta-defense-schedules', {
-                params: { period_id: selectedPeriod }
-            });
+            // Build params - when "all", send period_id: 'all' to get all schedules
+            const params: Record<string, string> = {};
+            if (selectedPeriod) {
+                params.period_id = selectedPeriod;
+            }
+            
+            const res = await api.get('/admin/ta-defense-schedules', { params });
             setSchedules(res.data.data || []);
-        } catch {
+        } catch (error) {
+            console.error('Fetch schedules error:', error);
             toast.error('Failed to load schedules');
         }
     }, [selectedPeriod]);
@@ -162,13 +157,9 @@ export default function AdminTaDefensePage() {
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
 
-    const getAvailableStudents = () => {
+    const getAvailableStudents = (): EligibleMember[] => {
         const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
-        if (!group) return [];
-        const activeScheduledStudentIds = schedules
-            .filter(s => s.status === 'SCHEDULED' || s.status === 'DONE')
-            .map(s => s.student.id);
-        return group.members.filter(m => !activeScheduledStudentIds.includes(m.student.id));
+        return group?.members || [];
     };
 
     const getSupervisorIds = () => {
@@ -195,14 +186,40 @@ export default function AdminTaDefensePage() {
         return true;
     };
 
+    const fetchEligibleGroups = useCallback(async (periodId: string) => {
+        if (!periodId) return;
+        try {
+            const res = await api.get('/admin/ta-defense-schedules/eligible-students', {
+                params: { period_id: periodId }
+            });
+            // API returns array of groups directly with members already populated
+            const groupsData: EligibleStudentData[] = res.data.data || [];
+            setEligibleGroups(groupsData);
+        } catch {
+            toast.error('Failed to load eligible groups');
+        }
+    }, []);
+
     const handleCreate = async () => {
         if (!validateExaminers()) return;
+        if (!formPeriodId) {
+            toast.error('Please select a period');
+            return;
+        }
+        if (!selectedGroupId) {
+            toast.error('Please select a group');
+            return;
+        }
+        if (selectedStudentIds.length === 0) {
+            toast.error('Please select at least one student');
+            return;
+        }
         try {
             setSubmitting(true);
             await api.post('/admin/ta-defense-schedules', {
-                student_id: parseInt(selectedStudentId),
+                student_ids: selectedStudentIds.map(id => parseInt(id)),
                 group_id: parseInt(selectedGroupId),
-                period_id: parseInt(selectedPeriod),
+                period_id: parseInt(formPeriodId),
                 examiner_1_id: parseInt(formExaminer1),
                 examiner_2_id: parseInt(formExaminer2),
                 date: formDate,
@@ -240,8 +257,9 @@ export default function AdminTaDefensePage() {
     };
 
     const resetForm = () => {
+        setFormPeriodId('');
         setSelectedGroupId('');
-        setSelectedStudentId('');
+        setSelectedStudentIds([]);
         setFormDate('');
         setFormStartTime('');
         setFormEndTime('');
@@ -250,15 +268,21 @@ export default function AdminTaDefensePage() {
         setFormExaminer2('');
         setFormNotes('');
         setExaminerError('');
+        setEligibleGroups([]);
     };
 
     const filteredAndSorted = useMemo(() => {
         const result = schedules.filter(s => {
             const q = searchQuery.toLowerCase();
+            // Handle multi-student structure - check all students in the schedule
+            const studentMatch = s.students?.some((st: Student) =>
+                st.name?.toLowerCase().includes(q) ||
+                st.nim?.toLowerCase().includes(q)
+            ) || s.student?.name?.toLowerCase().includes(q);
+            
             return (
-                s.student.name.toLowerCase().includes(q) ||
-                s.student.nim.toLowerCase().includes(q) ||
-                s.group.id.toString().includes(q) ||
+                studentMatch ||
+                s.group?.id?.toString().includes(q) ||
                 (s.room?.toLowerCase() || '').includes(q)
             );
         });
@@ -266,7 +290,10 @@ export default function AdminTaDefensePage() {
         result.sort((a, b) => {
             let cmp = 0;
             if (sortKey === 'name') {
-                cmp = a.student.name.localeCompare(b.student.name);
+                // Sort by first student's name
+                const aName = a.students?.[0]?.name || a.student?.name || '';
+                const bName = b.students?.[0]?.name || b.student?.name || '';
+                cmp = aName.localeCompare(bName);
             } else if (sortKey === 'date') {
                 cmp = (a.date || '').localeCompare(b.date || '');
             } else if (sortKey === 'status') {
@@ -388,12 +415,15 @@ export default function AdminTaDefensePage() {
                                             </TableCell>
                                             <TableCell>
                                                 <span className={`font-semibold ${isCancelled ? 'text-muted-foreground/60' : ''}`}>
-                                                    {s.student.name}
+                                                    {(s.students && s.students.length > 0) ? s.students[0].name : (s.student?.name || 'N/A')}
+                                                    {(s.students && s.students.length > 1) && (
+                                                        <span className="text-xs text-muted-foreground ml-1">+{s.students.length - 1} more</span>
+                                                    )}
                                                 </span>
                                             </TableCell>
                                             <TableCell>
                                                 <span className={`text-sm font-mono tabular-nums ${isCancelled ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
-                                                    {s.student.nim}
+                                                    {(s.students && s.students.length > 0) ? s.students[0].nim : (s.student?.nim || '-')}
                                                 </span>
                                             </TableCell>
                                             <TableCell>
@@ -503,18 +533,27 @@ export default function AdminTaDefensePage() {
                                                                 Student Info
                                                             </h4>
                                                             <div className="space-y-1.5">
-                                                                <div className="flex items-center justify-between">
-                                                                    <span className="text-muted-foreground/70 text-[12px]">Name</span>
-                                                                    <span className="text-[12px] font-medium text-foreground/80">{s.student.name}</span>
-                                                                </div>
-                                                                <div className="flex items-center justify-between">
-                                                                    <span className="text-muted-foreground/70 text-[12px]">NIM</span>
-                                                                    <span className="text-[12px] text-muted-foreground font-mono tabular-nums">{s.student.nim}</span>
-                                                                </div>
+                                                                {/* Handle multi-student or single student */}
+                                                                {(s.students || [s.student])?.map((student: Student | undefined, idx: number) => (
+                                                                    student ? (
+                                                                        <div key={student?.id || idx} className="border-b border-border/50 last:border-0 pb-1.5 last:pb-0">
+                                                                            <div className="flex items-center justify-between">
+                                                                                <span className="text-muted-foreground/70 text-[12px]">Name {idx > 0 && `#${idx + 1}`}</span>
+                                                                                <span className="text-[12px] font-medium text-foreground/80">{student?.name || 'N/A'}</span>
+                                                                            </div>
+                                                                            {student?.nim && (
+                                                                                <div className="flex items-center justify-between">
+                                                                                    <span className="text-muted-foreground/70 text-[12px]">NIM</span>
+                                                                                    <span className="text-[12px] text-muted-foreground font-mono tabular-nums">{student.nim}</span>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    ) : null
+                                                                ))}
                                                                 <div className="flex items-center justify-between">
                                                                     <span className="text-muted-foreground/70 text-[12px]">Group</span>
                                                                     <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
-                                                                        #{s.group.id}
+                                                                        #{s.group?.id || '—'}
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between">
@@ -604,7 +643,18 @@ export default function AdminTaDefensePage() {
                         Manage individual TA defense schedules for students.
                     </p>
                 </div>
-                <Button onClick={() => setCreateOpen(true)} disabled={!selectedPeriod}>
+                <Button onClick={() => {
+                    const activePeriod = periods.find(p => p.is_active);
+                    const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
+                    setFormPeriodId(defaultPeriodId);
+                    setDialogMode('create');
+                    // Fetch eligible groups for the period
+                    const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
+                    if (periodToFetch) {
+                        fetchEligibleGroups(periodToFetch);
+                    }
+                    setCreateOpen(true);
+                }} disabled={!selectedPeriod}>
                     <Plus className="mr-2 h-4 w-4" />
                     Schedule TA Defense
                 </Button>
@@ -618,6 +668,7 @@ export default function AdminTaDefensePage() {
                             <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                         <SelectContent>
+                            <SelectItem value="all">All Periods</SelectItem>
                             {periods.map(p => (
                                 <SelectItem key={p.id} value={p.id.toString()}>
                                     {p.name}
@@ -693,7 +744,7 @@ export default function AdminTaDefensePage() {
                     <DialogHeader>
                         <DialogTitle>Schedule TA Defense</DialogTitle>
                         <DialogDescription>
-                            Create a new TA defense schedule for an individual student.
+                            Create a new TA defense schedule for selected students.
                             Examiners cannot be supervisors of the group.
                         </DialogDescription>
                     </DialogHeader>
@@ -706,45 +757,120 @@ export default function AdminTaDefensePage() {
                     )}
 
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 gap-4">
+                        {/* Period Selector - only in CREATE mode */}
+                        {dialogMode === 'create' && (
                             <div className="space-y-2">
-                                <Label>Group</Label>
-                                <Select value={selectedGroupId} onValueChange={(val) => {
-                                    setSelectedGroupId(val);
-                                    setSelectedStudentId('');
-                                }}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select group" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {eligibleGroups.map(g => (
-                                            <SelectItem key={g.id} value={g.id.toString()}>
-                                                Group {g.id}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Student</Label>
-                                <Select
-                                    value={selectedStudentId}
-                                    onValueChange={setSelectedStudentId}
-                                    disabled={!selectedGroupId}
+                                <Label>Period</Label>
+                                <Select 
+                                    value={formPeriodId} 
+                                    onValueChange={(val) => {
+                                        setFormPeriodId(val);
+                                        setSelectedGroupId('');
+                                        setSelectedStudentIds([]);
+                                        setEligibleGroups([]);
+                                        fetchEligibleGroups(val);
+                                    }}
                                 >
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select student" />
+                                        <SelectValue placeholder="Select period" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {getAvailableStudents().map(m => (
-                                            <SelectItem key={m.student.id} value={m.student.id.toString()}>
-                                                {m.student.name} {m.is_leader && '(Leader)'}
+                                        {periods.map(p => (
+                                            <SelectItem key={p.id} value={p.id.toString()}>
+                                                {p.name}
+                                                {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
                                 </Select>
                             </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <Label>Group</Label>
+                            <Select 
+                                value={selectedGroupId} 
+                                onValueChange={(val) => {
+                                    setSelectedGroupId(val);
+                                    setSelectedStudentIds([]);
+                                }}
+                                disabled={!formPeriodId}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder={formPeriodId ? "Select group" : "Select period first"} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {eligibleGroups.map(g => (
+                                        <SelectItem key={g.id} value={g.id.toString()}>
+                                            Group {g.id} {g.code && `(${g.code})`}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
+
+                        {/* Multi-Student Checkbox Selection */}
+                        {selectedGroupId && (
+                            <div className="space-y-2">
+                                <Label>Students <span className="text-muted-foreground text-xs">(select at least one)</span></Label>
+                                <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
+                                    {getAvailableStudents().length === 0 ? (
+                                        <p className="text-sm text-muted-foreground">No students in this group.</p>
+                                    ) : (
+                                        getAvailableStudents().map((m: EligibleMember) => {
+                                            const isAlreadySelected = m.is_already_selected;
+                                            const isReadyForSidang = m.is_ready_for_sidang;
+                                            const isChecked = selectedStudentIds.includes(m.student.id.toString());
+
+                                            return (
+                                                <div key={m.student.id} className="flex items-center space-x-3">
+                                                    <Checkbox
+                                                        id={`student-${m.student.id}`}
+                                                        checked={isChecked || isAlreadySelected}
+                                                        disabled={isAlreadySelected || !isReadyForSidang}
+                                                        onCheckedChange={(checked) => {
+                                                            if (isAlreadySelected) {
+                                                                toast.error('Already selected students cannot be removed');
+                                                                return;
+                                                            }
+                                                            if (checked) {
+                                                                setSelectedStudentIds(prev => [...prev, m.student.id.toString()]);
+                                                            } else {
+                                                                setSelectedStudentIds(prev => prev.filter(id => id !== m.student.id.toString()));
+                                                            }
+                                                        }}
+                                                    />
+                                                    <label
+                                                        htmlFor={`student-${m.student.id}`}
+                                                        className={`text-sm flex items-center gap-2 cursor-pointer ${!isReadyForSidang && !isAlreadySelected ? 'text-muted-foreground' : ''}`}
+                                                    >
+                                                        <span>{m.student.name}</span>
+                                                        <span className="text-xs text-muted-foreground font-mono">{m.student.nim}</span>
+                                                        {m.is_leader && (
+                                                            <Badge variant="secondary" className="text-[10px] h-4">Leader</Badge>
+                                                        )}
+                                                        {isAlreadySelected && (
+                                                            <Badge variant="default" className="text-[10px] h-4">Selected</Badge>
+                                                        )}
+                                                        {!isReadyForSidang && !isAlreadySelected && (
+                                                            <>
+                                                                <Lock className="h-3 w-3 text-muted-foreground" />
+                                                                <Badge variant="outline" className="text-[10px] h-4 text-muted-foreground" title="Not ready for sidang TA">Locked</Badge>
+                                                            </>
+                                                        )}
+                                                    </label>
+                                                </div>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                                {selectedStudentIds.length > 0 && (
+                                    <p className="text-xs text-muted-foreground">
+                                        {selectedStudentIds.length} student{selectedStudentIds.length > 1 ? 's' : ''} selected
+                                    </p>
+                                )}
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -809,7 +935,7 @@ export default function AdminTaDefensePage() {
                         </Button>
                         <Button
                             onClick={handleCreate}
-                            disabled={submitting || !selectedStudentId || !formDate || !formStartTime || !formEndTime || !formExaminer1 || !formExaminer2}
+                            disabled={submitting || selectedStudentIds.length === 0 || !formDate || !formStartTime || !formEndTime || !formExaminer1 || !formExaminer2}
                         >
                             {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                             Create Schedule

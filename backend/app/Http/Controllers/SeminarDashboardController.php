@@ -2,10 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
-use App\Models\AssessmentComponent;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\AssessmentComponent;
 use App\Models\PeriodAssessmentComponent;
 use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
@@ -14,6 +13,7 @@ use App\Models\Supervision;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
@@ -47,17 +47,18 @@ class SeminarDashboardController extends Controller
                     $supervisor = $supervisorId === $group->supervisor_1_id ? $group->supervisor1 : $group->supervisor2;
 
                     // Check if this supervisor has submitted BIMBINGAN evaluation
-                    $evaluationSubmitted = AssessmentScore::where('group_id', $group->id)
-                        ->where('evaluator_id', $supervisorId)
-                        ->where('evaluation_type', $evaluationType)
-                        ->exists();
+                    $evaluationSubmitted = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                        $group->id,
+                        $supervisorId,
+                        $evaluationType
+                    );
 
                     // Get average score if submitted
                     $averageScore = null;
                     if ($evaluationSubmitted) {
-                        $averageScore = AssessmentScore::where('group_id', $group->id)
+                        $averageScore = AssessmentScoreRepository::forType($evaluationType)
+                            ->where('group_id', $group->id)
                             ->where('evaluator_id', $supervisorId)
-                            ->where('evaluation_type', $evaluationType)
                             ->avg('score');
                     }
 
@@ -199,15 +200,17 @@ class SeminarDashboardController extends Controller
             ->get()
             ->map(function ($schedule) use ($user) {
                 // Check evaluation status
-                $bimbinganExpoCompleted = AssessmentScore::where('group_id', $schedule->group_id)
-                    ->where('evaluator_id', $user->id)
-                    ->where('evaluation_type', 'BIMBINGAN_EXPO')
-                    ->exists();
+                $bimbinganExpoCompleted = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                    $schedule->group_id,
+                    $user->id,
+                    'BIMBINGAN_EXPO'
+                );
                 
-                $milestoneCompleted = AssessmentScore::where('group_id', $schedule->group_id)
-                    ->where('evaluator_id', $user->id)
-                    ->where('evaluation_type', 'MILESTONE')
-                    ->exists();
+                $milestoneCompleted = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                    $schedule->group_id,
+                    $user->id,
+                    'MILESTONE'
+                );
 
                 return [
                     'id' => $schedule->id,
@@ -450,9 +453,13 @@ class SeminarDashboardController extends Controller
 
     private function resolveExistingScores(int $evaluatorId, int $groupId, string $evaluationType)
     {
-        $scores = AssessmentScore::where('evaluator_id', $evaluatorId)
+        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            return collect();
+        }
+
+        $scores = AssessmentScoreRepository::forType($evaluationType)
+            ->where('evaluator_id', $evaluatorId)
             ->where('group_id', $groupId)
-            ->where('evaluation_type', $evaluationType)
             ->get();
 
         $hasPeriodComponentColumn = Schema::hasTable('assessment_scores')

@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\Period;
-use App\Models\AssessmentScore;
 use App\Models\PeriodAssessmentComponent;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -121,9 +121,12 @@ class GradeConfigurationController extends Controller
         $totalWeight = 0;
 
         foreach ($weights as $type => $weight) {
-            $scores = AssessmentScore::where('group_id', $groupId)
-                ->where('evaluation_type', $type)
-                ->get();
+            // Check if type is supported by repository
+            if (AssessmentScoreRepository::isSupportedType($type)) {
+                $scores = AssessmentScoreRepository::getByGroupAndType($groupId, $type);
+            } else {
+                $scores = collect();
+            }
 
             if ($scores->isEmpty()) {
                 $grades[$type] = [
@@ -175,9 +178,13 @@ class GradeConfigurationController extends Controller
         $totalWeight = 0;
 
         foreach ($weights as $type => $weight) {
-            $scores = AssessmentScore::where('group_id', $groupId)
-                ->where('evaluation_type', $type)
-                ->get();
+            // Check if type is supported by repository
+            if (AssessmentScoreRepository::isSupportedType($type)) {
+                $scores = AssessmentScoreRepository::getByGroupAndType($groupId, $type);
+            } else {
+                // PEER_REVIEW and other types not in split tables
+                $scores = collect();
+            }
 
             if ($scores->isEmpty()) {
                 $grades[$type] = [

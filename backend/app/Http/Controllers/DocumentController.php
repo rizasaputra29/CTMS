@@ -9,6 +9,7 @@ use App\Models\GroupMember;
 use App\Models\TaSubmission;
 use App\Services\GroupStateMachine;
 use App\Services\WorkflowService;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -426,10 +427,11 @@ class DocumentController extends Controller
         $expectedScores = $componentCount * $studentCount;
 
         foreach ($supervisorIds as $supervisorId) {
-            $actualScores = \App\Models\AssessmentScore::where('group_id', $group->id)
-                ->where('evaluator_id', $supervisorId)
-                ->where('evaluation_type', 'NILAI_DOSEN')
-                ->count();
+            $actualScores = AssessmentScoreRepository::countForGroupAndEvaluator(
+                $group->id,
+                $supervisorId,
+                'NILAI_DOSEN'
+            );
 
             if ($actualScores < $expectedScores) {
                 return false; // This supervisor hasn't completed all evaluations
@@ -477,9 +479,9 @@ class DocumentController extends Controller
         $expectedScores = $componentCount * $studentCount;
 
         foreach ($supervisorIds as $supervisorId) {
-            $actualScores = \App\Models\AssessmentScore::where('group_id', $group->id)
+            $actualScores = AssessmentScoreRepository::forType('MILESTONE')
+                ->where('group_id', $group->id)
                 ->where('evaluator_id', $supervisorId)
-                ->where('evaluation_type', 'MILESTONE')
                 ->count();
 
             if ($actualScores < $expectedScores) {

@@ -14,7 +14,7 @@ use App\Models\PeriodAssessmentConfig;
 use App\Models\PeriodAssessmentIndicator;
 use App\Models\PeriodPeerReviewIndicator;
 use App\Models\StudentPeerReviewStatus;
-use App\Models\AssessmentScore;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GroupStateMachine;
 use App\Exceptions\ConflictRuleException;
 use App\Exceptions\DomainRuleException;
@@ -371,9 +371,9 @@ class TaSubmissionController extends Controller
 
         // Check if all supervisors have submitted scores
         foreach ($supervisorIds as $supervisorId) {
-            $scoreCount = AssessmentScore::where('group_id', $group->id)
-                ->where('supervisor_id', $supervisorId)
-                ->where('evaluation_type', $evaluationType)
+            $scoreCount = AssessmentScoreRepository::forType($evaluationType)
+                ->where('group_id', $group->id)
+                ->where('evaluator_id', $supervisorId)
                 ->count();
 
             // Get expected component count

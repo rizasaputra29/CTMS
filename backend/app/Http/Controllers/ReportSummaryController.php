@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
+use App\Repositories\AssessmentScoreRepository;
 use App\Models\PeerReview;
 use App\Models\Group;
 use App\Services\GradeCalculationService;
@@ -38,40 +38,45 @@ class ReportSummaryController extends Controller
      */
     private function getAssessmentSummary(int $periodId): array
     {
-        // Get total counts
-        $totalScores = AssessmentScore::whereHas('group', function ($q) use ($periodId) {
-            $q->where('period_id', $periodId);
-        })->count();
+        // Aggregate scores from all supported tables
+        $totalScores = 0;
+        $totalScoreSum = 0;
+        $allScores = collect();
+        
+        foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
+            $scores = AssessmentScoreRepository::forType($type)
+                ->whereHas('group', function ($q) use ($periodId) {
+                    $q->where('period_id', $periodId);
+                })
+                ->get();
+            $totalScores += $scores->count();
+            $totalScoreSum += $scores->sum('score');
+            $allScores = $allScores->concat($scores);
+        }
 
         $totalGroups = Group::where('period_id', $periodId)->count();
 
-        $totalStudents = DB::table('assessment_scores')
-            ->join('groups', 'assessment_scores.group_id', '=', 'groups.id')
-            ->where('groups.period_id', $periodId)
-            ->whereNotNull('assessment_scores.student_id')
-            ->distinct('assessment_scores.student_id')
-            ->count('assessment_scores.student_id');
+        // Get unique students count
+        $totalStudents = $allScores->pluck('student_id')->unique()->count();
 
         // Get average score
-        $averageScore = AssessmentScore::whereHas('group', function ($q) use ($periodId) {
-            $q->where('period_id', $periodId);
-        })->avg('score') ?? 0;
+        $averageScore = $totalScores > 0 ? ($totalScoreSum / $totalScores) : 0;
 
         // Get top 5 groups by average score
-        $topGroups = DB::table('assessment_scores')
-            ->join('groups', 'assessment_scores.group_id', '=', 'groups.id')
-            ->leftJoin('titles', 'groups.title_id', '=', 'titles.id')
-            ->where('groups.period_id', $periodId)
-            ->select(
-                'groups.id as group_id',
-                DB::raw("COALESCE(titles.title, 'Group ' || groups.id) as group_name"),
-                DB::raw('COUNT(DISTINCT assessment_scores.student_id) as student_count'),
-                DB::raw('ROUND(AVG(assessment_scores.score), 2) as average_score')
-            )
-            ->groupBy('groups.id', 'titles.title')
-            ->orderByDesc('average_score')
-            ->limit(5)
-            ->get();
+        $topGroups = $allScores
+            ->groupBy('group_id')
+            ->map(function ($groupScores) {
+                $group = $groupScores->first()->group;
+                return (object) [
+                    'group_id' => $group->id,
+                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'student_count' => $groupScores->pluck('student_id')->unique()->count(),
+                    'average_score' => round($groupScores->avg('score'), 2),
+                ];
+            })
+            ->sortByDesc('average_score')
+            ->take(5)
+            ->values();
 
         // Cast average_score to float for each group (DB returns it as string)
         $topGroups = $topGroups->map(function ($group) {

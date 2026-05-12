@@ -156,9 +156,9 @@ export default function GradeCheckPage() {
         const periodsData = res.data?.data || [];
         setPeriods(periodsData);
         
-        // Select active period by default
+        // Auto-select active period if none selected
         const active = periodsData.find((p: Period) => p.is_active);
-        if (active) {
+        if (active && !selectedPeriod) {
           setSelectedPeriod(active.id.toString());
         }
       } catch {
@@ -166,7 +166,7 @@ export default function GradeCheckPage() {
       }
     };
     fetchPeriods();
-  }, []);
+  }, [selectedPeriod]);
 
   // Fetch groups when period changes
   useEffect(() => {

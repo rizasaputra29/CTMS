@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
 use App\Models\AssessmentComponent;
 use App\Models\PeriodAssessmentComponent;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
@@ -62,16 +62,16 @@ class AssessmentScoreController extends Controller
                 ]);
         }
 
-        $hasPeriodComponentColumn = Schema::hasTable('assessment_scores')
-            && Schema::hasColumn('assessment_scores', 'period_component_id');
+        $hasPeriodComponentColumn = Schema::hasTable('bimbingan_sempro_scores')
+            || Schema::hasTable('bimbingan_ta_scores');
 
-        $existingScores = AssessmentScore::where('evaluator_id', $user->id)
+        $existingScores = AssessmentScoreRepository::forType($request->type)
+            ->where('evaluator_id', $user->id)
             ->where('group_id', $group->id)
-            ->where('evaluation_type', $request->type)
             ->get()
             ->keyBy(function ($score) use ($hasPeriodComponentColumn) {
-                $componentId = $hasPeriodComponentColumn
-                    ? ($score->period_component_id ?? $score->component_id)
+                $componentId = $hasPeriodComponentColumn && $score->period_component_id
+                    ? $score->period_component_id
                     : $score->component_id;
 
                 return $componentId . '_' . $score->student_id;
@@ -103,8 +103,8 @@ class AssessmentScoreController extends Controller
         $saved = [];
 
         $usePeriodComponents = $this->usesPeriodAssessmentComponents();
-        $hasPeriodComponentColumn = Schema::hasTable('assessment_scores')
-            && Schema::hasColumn('assessment_scores', 'period_component_id');
+        $hasPeriodComponentColumn = Schema::hasTable('bimbingan_sempro_scores')
+            || Schema::hasTable('bimbingan_ta_scores');
 
         $componentIds = collect($request->scores)->pluck('period_component_id')->map(fn ($v) => (int) $v)->unique()->values();
 
@@ -150,13 +150,15 @@ class AssessmentScoreController extends Controller
         }
 
         // Determine unique keys and update columns based on schema
-        // Note: Database unique constraint is on component_id, not period_component_id
-        $uniqueKeys = ['evaluator_id', 'student_id', 'component_id'];
+        // Use correct unique keys based on whether using period_assessment_components or legacy schema
+        $uniqueKeys = $hasPeriodComponentColumn
+            ? ['evaluator_id', 'student_id', 'period_component_id', 'group_id']
+            : ['evaluator_id', 'student_id', 'component_id', 'group_id'];
 
-        $updateColumns = ['group_id', 'score', 'notes', 'evaluation_type', 'updated_at'];
+        $updateColumns = ['group_id', 'score', 'notes', 'updated_at'];
 
-        // Single query for all upserts - much more efficient than N updateOrCreate calls
-        AssessmentScore::upsert($scoresData, $uniqueKeys, $updateColumns);
+        // Use repository to upsert - dispatches to correct table
+        AssessmentScoreRepository::upsert($request->evaluation_type, $scoresData, $uniqueKeys, $updateColumns);
 
         return response()->json(['message' => 'Scores submitted', 'count' => count($scoresData)], 201);
     }
@@ -171,9 +173,9 @@ class AssessmentScoreController extends Controller
             'type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
         ]);
 
-        $scores = AssessmentScore::with(['periodComponent.template', 'evaluator', 'student', 'group'])
+        $scores = AssessmentScoreRepository::forType($request->type)
+            ->with(['periodComponent.template', 'evaluator', 'student', 'group'])
             ->whereHas('group', fn($q) => $q->where('period_id', $request->period_id))
-            ->where('evaluation_type', $request->type)
             ->get();
 
         // Group by group_id, then by student_id

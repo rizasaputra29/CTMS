@@ -65,27 +65,6 @@ export default function GradeConfigurationPage() {
     fetchPeriods();
   }, []);
 
-  useEffect(() => {
-    if (selectedPeriod) {
-      fetchConfig();
-    }
-  }, [selectedPeriod, fetchConfig]);
-
-  const fetchPeriods = async () => {
-    try {
-      const res = await api.get('/admin/periods');
-      setPeriods(res.data);
-      const active = res.data.find((p: Period) => p.is_active);
-      if (active) {
-        setSelectedPeriod(active.id.toString());
-      } else if (res.data.length > 0) {
-        setSelectedPeriod(res.data[0].id.toString());
-      }
-    } catch {
-      toast.error('Failed to load periods');
-    }
-  };
-
   const fetchConfig = useCallback(async () => {
     if (!selectedPeriod) return;
     try {
@@ -100,6 +79,27 @@ export default function GradeConfigurationPage() {
       setLoading(false);
     }
   }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (selectedPeriod) {
+      fetchConfig();
+    }
+  }, [selectedPeriod, fetchConfig]);
+
+  const fetchPeriods = async () => {
+    try {
+      const res = await api.get('/admin/periods');
+      const periodsData = res.data;
+      setPeriods(periodsData);
+      // Auto-select active period if none selected
+      const active = periodsData.find((p: Period) => p.is_active);
+      if (active && !selectedPeriod) {
+        setSelectedPeriod(active.id.toString());
+      }
+    } catch {
+      toast.error('Failed to load periods');
+    }
+  };
 
   const handleSave = async () => {
     if (!selectedPeriod) return;

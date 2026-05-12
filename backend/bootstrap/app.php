@@ -34,4 +34,14 @@ return Application::configure(basePath: dirname(__DIR__))
                 'code' => 'DOMAIN_ERROR'
             ], 422);
         });
+
+        // Handle authentication errors for API routes
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Unauthenticated.',
+                    'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
+                ], 401);
+            }
+        });
     })->create();

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
 use App\Models\PeerReview;
 use App\Models\Group;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,10 +29,23 @@ class ReportDetailController extends Controller
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
 
-        $query = AssessmentScore::with(['component', 'periodComponent.template', 'evaluator', 'student', 'group.title'])
-            ->whereHas('group', function ($q) use ($periodId) {
-                $q->where('period_id', $periodId);
-            });
+        // Build query using repository for each supported type
+        $query = null;
+        $first = true;
+        foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
+            $typeQuery = AssessmentScoreRepository::forType($type)
+                ->with(['component', 'periodComponent.template', 'evaluator', 'student', 'group.title'])
+                ->whereHas('group', function ($q) use ($periodId) {
+                    $q->where('period_id', $periodId);
+                });
+            
+            if ($first) {
+                $query = $typeQuery;
+                $first = false;
+            } else {
+                $query->union($typeQuery);
+            }
+        }
 
         // Apply filters
         if ($request->filled('evaluation_type')) {

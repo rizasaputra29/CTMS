@@ -42,7 +42,7 @@ export default function AdminGradeConsistencyPage() {
             const periodsData = res.data?.data || [];
             setPeriods(periodsData);
             const active = periodsData.find((p: Period) => p.is_active);
-            if (active) setSelectedPeriod(active.id.toString());
+            if (active && !selectedPeriod) setSelectedPeriod(active.id.toString());
         } catch { /* ignore */ }
     }, []);
 

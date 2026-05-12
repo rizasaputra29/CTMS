@@ -127,7 +127,7 @@ export default function AdminReportsPage() {
             const periodsData = res.data?.data || [];
             setPeriods(periodsData);
             const active = periodsData.find((p: Period) => p.is_active);
-            if (active) setSelectedPeriod(active.id.toString());
+            if (active && !selectedPeriod) setSelectedPeriod(active.id.toString());
         } catch { /* ignore */ }
     }, []);
 
@@ -319,7 +319,7 @@ export default function AdminReportsPage() {
                                     )}
                                     Export Filtered
                                 </Button>
-                                <Link href={`/admin/reports/assessments?period_id=${selectedPeriod}`} className="flex-1">
+                                <Link href={`/admin/reports/assessments${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
                                     <Button variant="default" size="sm" className="w-full">
                                         <Eye className="mr-2 h-4 w-4" />
                                         View Details
@@ -416,7 +416,7 @@ export default function AdminReportsPage() {
                                     )}
                                     Export Filtered
                                 </Button>
-                                <Link href={`/admin/reports/peer-reviews?period_id=${selectedPeriod}`} className="flex-1">
+                                <Link href={`/admin/reports/peer-reviews${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
                                     <Button variant="default" size="sm" className="w-full">
                                         <Eye className="mr-2 h-4 w-4" />
                                         View Details
@@ -522,7 +522,7 @@ export default function AdminReportsPage() {
                                     )}
                                     Export Filtered
                                 </Button>
-                                <Link href={`/admin/reports/final-grades?period_id=${selectedPeriod}`} className="flex-1">
+                                <Link href={`/admin/reports/final-grades${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
                                     <Button variant="default" size="sm" className="w-full">
                                         <Eye className="mr-2 h-4 w-4" />
                                         View Details
@@ -638,7 +638,7 @@ export default function AdminReportsPage() {
                                     )}
                                     Export Filtered
                                 </Button>
-                                <Link href={`/admin/reports/grade-consistency?period_id=${selectedPeriod}`} className="flex-1">
+                                <Link href={`/admin/reports/grade-consistency${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
                                     <Button variant="default" size="sm" className="w-full">
                                         <Eye className="mr-2 h-4 w-4" />
                                         View Details
@@ -714,7 +714,7 @@ export default function AdminReportsPage() {
                                 )}
                                 Export All
                             </Button>
-                            <Link href={`/admin/reports/groups?period_id=${selectedPeriod}`}>
+                            <Link href={`/admin/reports/groups${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`}>
                                 <Button variant="default" size="sm">
                                     <Eye className="mr-2 h-4 w-4" />
                                     View Details

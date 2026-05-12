@@ -2,11 +2,11 @@
 
 namespace App\Services;
 
-use App\Models\AssessmentScore;
 use App\Models\Group;
 use App\Models\Period;
 use App\Models\PeriodAssessmentComponent;
 use App\Models\PeerReview;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Support\Facades\Log;
 
 class GradeCalculationService
@@ -30,12 +30,17 @@ class GradeCalculationService
         $groupIds = Group::where('period_id', $periodId)->pluck('id')->toArray();
         $this->batchCache['group_ids'] = $groupIds;
 
-        // 2. Batch load ALL assessment scores with relationships
-        $scores = AssessmentScore::with(['evaluator:id,name', 'periodComponent.template'])
-            ->whereIn('group_id', $groupIds)
-            ->get();
+        // 2. Batch load ALL assessment scores with relationships from all supported types
+        $allScores = collect();
+        foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
+            $typeScores = AssessmentScoreRepository::forType($type)
+                ->with(['evaluator:id,name', 'periodComponent.template'])
+                ->whereIn('group_id', $groupIds)
+                ->get();
+            $allScores = $allScores->merge($typeScores);
+        }
 
-        foreach ($scores as $score) {
+        foreach ($allScores as $score) {
             $key = "{$score->student_id}:{$score->group_id}:{$score->evaluation_type}";
             if (!isset($this->batchCache['assessment_scores'][$key])) {
                 $this->batchCache['assessment_scores'][$key] = [];
@@ -569,9 +574,13 @@ class GradeCalculationService
      */
     private function getStudentEvaluationScore(int $studentId, int $groupId, string $evaluationType): ?float
     {
-        $scores = AssessmentScore::where('student_id', $studentId)
+        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            return null;
+        }
+
+        $scores = AssessmentScoreRepository::forType($evaluationType)
+            ->where('student_id', $studentId)
             ->where('group_id', $groupId)
-            ->where('evaluation_type', $evaluationType)
             ->get();
 
         if ($scores->isEmpty()) {
@@ -586,10 +595,14 @@ class GradeCalculationService
      */
     private function getEvaluatorsForStudent(int $studentId, int $groupId, string $evaluationType): array
     {
-        $scores = AssessmentScore::with('evaluator')
+        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            return [];
+        }
+
+        $scores = AssessmentScoreRepository::forType($evaluationType)
+            ->with('evaluator')
             ->where('student_id', $studentId)
             ->where('group_id', $groupId)
-            ->where('evaluation_type', $evaluationType)
             ->get();
 
         $evaluators = [];
@@ -793,8 +806,12 @@ class GradeCalculationService
      */
     private function getAverageEvaluationScore(int $groupId, string $evaluationType): ?float
     {
-        $scores = AssessmentScore::where('group_id', $groupId)
-            ->where('evaluation_type', $evaluationType)
+        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            return null;
+        }
+
+        $scores = AssessmentScoreRepository::forType($evaluationType)
+            ->where('group_id', $groupId)
             ->get();
 
         if ($scores->isEmpty()) {

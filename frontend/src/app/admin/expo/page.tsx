@@ -48,7 +48,7 @@ export default function AdminExpoPage() {
     const [events, setEvents] = useState<ExpoEvent[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
     const [loading, setLoading] = useState(true);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
 
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -74,7 +74,7 @@ export default function AdminExpoPage() {
         setLoading(true);
         try {
             const [evtRes, perRes] = await Promise.all([
-                api.get('/admin/expo-events', { params: selectedPeriod ? { period_id: selectedPeriod } : {} }),
+                api.get('/admin/expo-events', { params: selectedPeriod && selectedPeriod !== 'all' ? { period_id: selectedPeriod } : {} }),
                 api.get('/admin/periods'),
             ]);
             const eventsData = evtRes.data?.data ?? (Array.isArray(evtRes.data) ? evtRes.data : []);
@@ -82,10 +82,7 @@ export default function AdminExpoPage() {
             const allPeriods = perRes.data?.data || [];
             setPeriods(allPeriods);
 
-            if (!selectedPeriod) {
-                const active = allPeriods.find((p: Period) => p.is_active);
-                if (active) setSelectedPeriod(active.id.toString());
-            }
+            // No auto-select - keep 'all' as default
         } catch (err) {
             console.error('Failed to fetch expo events', err);
         } finally {

@@ -776,7 +776,7 @@ class FinalizationController extends Controller
         ]);
 
         $user = $request->user();
-        $group = Group::with('period')->findOrFail($request->group_id);
+        $group = Group::with(['period', 'members'])->findOrFail($request->group_id);
 
         $this->ensurePeriodIsActive($group);
 
@@ -958,6 +958,7 @@ class FinalizationController extends Controller
         try {
             $groups = Group::where('period_id', $period->id)
                 ->where('status', 'KELOMPOK_FINAL')
+                ->with('members')
                 ->get();
 
             $finalizedCount = 0;
@@ -1494,6 +1495,9 @@ class FinalizationController extends Controller
      */
     private function notifyFinalizationCompletion($period, $groups, $user)
     {
+        // Ensure members are loaded for all groups
+        $groups->loadMissing('members');
+
         // Get all unique lecturers
         $lecturerIds = $groups->pluck('supervisor_1_id')
             ->merge($groups->pluck('supervisor_2_id'))
