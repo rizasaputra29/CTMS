@@ -18,7 +18,7 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        if (!Auth::attempt($request->only('email', 'password'))) {
+        if (!Auth::guard('web')->attempt($request->only('email', 'password'))) {
             throw ValidationException::withMessages([
                 'email' => ['Invalid credentials.'],
             ]);

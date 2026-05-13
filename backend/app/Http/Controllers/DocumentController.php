@@ -2,36 +2,54 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\TaSubmission;
 use App\Services\GroupStateMachine;
+use App\Services\WorkflowService;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use App\Models\PhaseDocumentRequirement;
 
 class DocumentController extends Controller
 {
-    protected GroupStateMachine $stateMachine;
+    use RequiresActivePeriod;
 
-    public function __construct(GroupStateMachine $stateMachine)
+    protected GroupStateMachine $stateMachine;
+    protected WorkflowService $workflowService;
+
+    public function __construct(GroupStateMachine $stateMachine, WorkflowService $workflowService)
     {
         $this->stateMachine = $stateMachine;
+        $this->workflowService = $workflowService;
     }
 
-    // Workflow phase order
-    const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'EXPO', 'SIDANG'];
+    // Workflow phase order - referenced from WorkflowService
+    const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA_DRAFT', 'EXPO'];
 
     // Unlock rules: phase => prerequisite phase that must be APPROVED
     const UNLOCK_RULES = [
-        'PDC1' => null,          // Always unlocked if group is APPROVED
-        'SEMPRO' => 'PDC1',        // PDC1 approved → unlock Sempro
-        'PDC2' => 'SEMPRO',      // Sempro approved → unlock PDC2
-        'EXPO' => 'PDC2',          // PDC2 approved -> unlock EXPO
-        'TA' => 'PDC2',        // PDC2 approved → unlock TA
-        'SIDANG' => 'EXPO',          // EXPO approved → unlock Sidang
+        'PDC1' => null,
+        'SEMPRO' => 'PDC1',
+        'PDC2' => 'SEMPRO',
+        'TA_DRAFT' => 'PDC2',
+        'EXPO' => 'PDC2',
+    ];
+
+    /**
+     * Status gates for phases that require specific group status beyond document approval.
+     */
+    const STATUS_GATES = [
+        'PDC2' => 'SEMPRO_DONE',
+        'TA_DRAFT' => 'PDC2_ACTIVE',
+        'EXPO' => 'PDC2_READY_FOR_EXPO',
     ];
 
     /**
@@ -49,131 +67,27 @@ class DocumentController extends Controller
         $periodId = $groupMember->group->period_id;
         $allRequirements = PhaseDocumentRequirement::where('period_id', $periodId)->get();
         $documents = Document::where('group_id', $groupMember->group_id)->get();
-        $phases = [];
-
-        foreach (self::PHASES as $phase) {
-            $phaseDocs = $documents->where('phase', $phase);
-
-            // Get required document types for this phase
-            $reqs = $allRequirements->where('phase', $phase)->where('is_required', true);
-            $requiredTypes = $reqs->pluck('name')->toArray();
-            if (empty($requiredTypes)) {
-                $requiredTypes = ['GENERAL']; // Fallback if no specific requirements
-            }
-
-            $typesStatus = [];
-            $allApproved = true;
-            $anyRejected = false;
-            $anySubmitted = false;
-            $uploadedCount = 0;
-
-            foreach ($requiredTypes as $type) {
-                // Find latest document for this specific type
-                $latestForType = $phaseDocs->where('document_type', $type)->sortByDesc('version')->first();
-                // If it's the fallback 'GENERAL', we might just look at the first doc without a specific type
-                if ($type === 'GENERAL' && empty($allRequirements->where('phase', $phase)->toArray())) {
-                    $latestForType = $phaseDocs->sortByDesc('version')->first();
-                }
-
-                $status = 'missing';
-                if ($latestForType) {
-                    $status = $latestForType->status;
-                    $uploadedCount++;
-                    if ($status === 'REJECTED')
-                        $anyRejected = true;
-                    if ($status === 'SUBMITTED')
-                        $anySubmitted = true;
-                    if ($status !== 'APPROVED')
-                        $allApproved = false;
-                } else {
-                    $allApproved = false;
-                }
-
-                $typesStatus[] = [
-                    'type' => $type,
-                    'status' => $status,
-                    'latest_document' => $latestForType
-                ];
-            }
-
-
-            $phaseStatus = 'locked';
-            $prereq = self::UNLOCK_RULES[$phase];
-
-            // Check if unlocked based on prereq
-            if ($prereq === null) {
-                $phaseStatus = 'unlocked';
-            } else {
-                // Prerequisite must be fully approved based on its own requirements
-                $prereqReqs = $allRequirements->where('phase', $prereq)->where('is_required', true)->pluck('name')->toArray();
-                if (empty($prereqReqs))
-                    $prereqReqs = ['GENERAL'];
-
-                $prereqAllApproved = true;
-                foreach ($prereqReqs as $pType) {
-                    $pDoc = $documents->where('phase', $prereq)->where('document_type', $pType)->where('status', 'APPROVED')->first();
-                    if ($pType === 'GENERAL' && empty($allRequirements->where('phase', $prereq)->toArray())) {
-                        $pDoc = $documents->where('phase', $prereq)->where('status', 'APPROVED')->first();
-                    }
-                    if (!$pDoc) {
-                        $prereqAllApproved = false;
-                        break;
-                    }
-                }
-
-                if ($prereqAllApproved) {
-                    $phaseStatus = 'unlocked';
-                }
-            }
-
-            // Determine overall phase status if unlocked
-            if ($phaseStatus === 'unlocked') {
-                if ($phase === 'EXPO') {
-                    // Custom rule for EXPO: requires at least 1 TA draft submitted by any member
-                    $hasTaDraft = \App\Models\TaSubmission::where('group_id', $groupMember->group_id)->exists();
-                    if (!$hasTaDraft) {
-                        $phaseStatus = 'locked';
-                    }
-                }
-
-                if ($phaseStatus === 'unlocked') {
-                    if ($allApproved) {
-                        $phaseStatus = 'completed';
-                    } elseif ($anyRejected) {
-                        $phaseStatus = 'revision';
-                    } elseif ($anySubmitted) {
-                        $phaseStatus = 'submitted';
-                    } elseif ($uploadedCount > 0) {
-                        $phaseStatus = 'draft';
-                    }
-                }
-            }
-
-            $phases[] = [
-                'phase' => $phase,
-                'status' => $phaseStatus,
-                'documents' => $typesStatus,
-                'required_types' => $requiredTypes,
-                'document_count' => $phaseDocs->count(),
-            ];
-        }
-
-        // Determine current phase
-        $currentPhase = null;
-        foreach ($phases as $p) {
-            if ($p['status'] !== 'completed') {
-                $currentPhase = $p['phase'];
-                break;
-            }
-        }
-
-        // Check if all done = GRADUATED
-        $allCompleted = collect($phases)->every(fn($p) => $p['status'] === 'completed');
+        
+        // Use WorkflowService for workflow data
+        $workflowData = $this->workflowService->getWorkflowData($groupMember->group, $documents, $allRequirements);
+        $nextPhaseRequirements = $this->workflowService->getNextPhaseRequirements(
+            $groupMember->group,
+            $workflowData['phases'],
+            $allRequirements,
+            $documents
+        );
+        $finalReadyForTaIndividual = $this->workflowService->getFinalReadyForTaIndividual(
+            $groupMember->group,
+            $allRequirements,
+            $documents
+        );
 
         return response()->json([
-            'phases' => $phases,
-            'current_phase' => $currentPhase,
-            'is_graduated' => $allCompleted,
+            'phases' => $workflowData['phases'],
+            'current_phase' => $workflowData['current_phase'],
+            'is_graduated' => $workflowData['is_graduated'],
+            'next_phase_requirements' => $nextPhaseRequirements,
+            'final_ready_for_ta_individual' => $finalReadyForTaIndividual,
         ]);
     }
 
@@ -235,11 +149,13 @@ class DocumentController extends Controller
         ];
 
         $user = Auth::user();
-        $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
+        $groupMember = GroupMember::with('group.period')->where('student_id', $user->id)->first();
 
         if (!$groupMember) {
             return response()->json(['message' => 'You are not in any group.'], 400);
         }
+
+        $this->ensurePeriodIsActive($groupMember->group);
 
         // Add document_type validation if phase has dynamic sub-types from DB
         if ($request->phase) {
@@ -268,6 +184,43 @@ class DocumentController extends Controller
             if (!$prereqApproved) {
                 return response()->json([
                     'message' => "You must have an approved {$prereq} document before uploading {$request->phase}."
+                ], 400);
+            }
+        }
+
+        // Check SEMPRO schedule exists before allowing SEMPRO document upload
+        if ($request->phase === 'SEMPRO') {
+            $schedule = \App\Models\SeminarSchedule::where('group_id', $groupMember->group_id)
+                ->where('type', 'SEMPRO')
+                ->whereIn('status', ['SCHEDULED', 'ONGOING', 'COMPLETED'])
+                ->first();
+
+            if (!$schedule) {
+                return response()->json([
+                    'message' => 'SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.'
+                ], 400);
+            }
+        }
+
+        // Check status gates for phases that require specific group status
+        if (isset(self::STATUS_GATES[$request->phase])) {
+            $group = $groupMember->group;
+            $minStatus = self::STATUS_GATES[$request->phase];
+            if ($minStatus && !$this->stateMachine->isAtLeast($group, $minStatus)) {
+                $phaseName = match($request->phase) {
+                    'PDC2' => 'PDC2',
+                    'TA_DRAFT' => 'TA Draft',
+                    'EXPO' => 'EXPO',
+                    default => $request->phase,
+                };
+                $message = match($request->phase) {
+                    'PDC2' => 'Both SEMPRO examiners must submit their evaluations first.',
+                    'TA_DRAFT' => 'Group must be in PDC2 Active status.',
+                    'EXPO' => 'TA Draft must be approved first.',
+                    default => 'Prerequisites not met.',
+                };
+                return response()->json([
+                    'message' => "{$phaseName} documents are locked. {$message}"
                 ], 400);
             }
         }
@@ -334,6 +287,10 @@ class DocumentController extends Controller
         ]);
 
         $document = Document::findOrFail($id);
+        $group = Group::with('period')->findOrFail($document->group_id);
+
+        $this->ensurePeriodIsActive($group);
+
         $document->update([
             'status' => $request->status,
             'feedback' => $request->feedback,
@@ -347,7 +304,7 @@ class DocumentController extends Controller
             ->where('is_required', true)
             ->exists();
 
-        if ($request->status === 'APPROVED' && $hasRequirements) {
+        if ($request->status === 'APPROVED') {
             $this->checkPhaseCompletion($document->group_id, $document->phase);
         }
 
@@ -378,30 +335,161 @@ class DocumentController extends Controller
             ->where('is_required', true)
             ->pluck('name')->toArray();
 
-        if (empty($requiredTypes))
-            return;
-
-        foreach ($requiredTypes as $type) {
-            $hasApproved = Document::where('group_id', $groupId)
+        // If no requirements configured, check if ANY document in this phase is approved
+        if (empty($requiredTypes)) {
+            $hasAnyApproved = Document::where('group_id', $groupId)
                 ->where('phase', $phase)
-                ->where('document_type', $type)
                 ->where('status', 'APPROVED')
                 ->exists();
+            
+            if (!$hasAnyApproved) {
+                return; // No approved documents yet
+            }
+        } else {
+            // Check all required types are approved
+            foreach ($requiredTypes as $type) {
+                $hasApproved = Document::where('group_id', $groupId)
+                    ->where('phase', $phase)
+                    ->where('document_type', $type)
+                    ->where('status', 'APPROVED')
+                    ->exists();
 
-            if (!$hasApproved)
-                return; // Not all types approved yet
+                if (!$hasApproved)
+                    return; // Not all types approved yet
+            }
         }
 
-        // All required types approved — trigger transition
+        // All required types approved (or at least one if no requirements) — check additional requirements
+        // PDC1: No supervisor evaluation required, transition immediately when documents approved
+        
+        if ($phase === 'TA_DRAFT' && $group->status === 'PDC2_ACTIVE') {
+            // Check if both supervisors have submitted NILAI_DOSEN and MILESTONE evaluations
+            if (!$this->areAllNilaiDosenComplete($group)) {
+                return; // Wait for both supervisors to submit evaluations
+            }
+            if (!$this->areAllMilestoneComplete($group)) {
+                return; // Wait for both supervisors to submit milestone evaluations
+            }
+        }
+
+        // All requirements met — trigger transition
         try {
             if ($phase === 'PDC1' && $group->status === 'PDC1_ACTIVE') {
                 $this->stateMachine->transition($group, 'READY_FOR_SEMPRO');
-            } elseif ($phase === 'PDC2' && $group->status === 'PDC2_ACTIVE') {
+            } elseif ($phase === 'TA_DRAFT' && $group->status === 'PDC2_ACTIVE') {
+                // TA_DRAFT approved + both supervisors evaluated → transition to PDC2_READY_FOR_EXPO
                 $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
             }
         } catch (\InvalidArgumentException $e) {
             // Transition not valid from current state — ignore
         }
+    }
+
+    /**
+     * Check if all NILAI_DOSEN evaluations are complete from both supervisors.
+     * Only applies to groups in PDC2_ACTIVE status.
+     */
+    private function areAllNilaiDosenComplete(Group $group): bool
+    {
+        // Only check for PDC2_ACTIVE groups
+        if ($group->status !== 'PDC2_ACTIVE') {
+            return false;
+        }
+
+        // Get both supervisors
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (empty($supervisorIds)) {
+            return false;
+        }
+
+        // Get expected component count
+        $periodId = $group->period_id;
+        if (Schema::hasTable('period_assessment_components')) {
+            $componentCount = \App\Models\PeriodAssessmentComponent::where('period_id', $periodId)
+                ->where('type', 'NILAI_DOSEN')
+                ->count();
+        } else {
+            $componentCount = \App\Models\AssessmentComponent::where('period_id', $periodId)
+                ->where('type', 'NILAI_DOSEN')
+                ->count();
+        }
+
+        if ($componentCount === 0) {
+            return true; // No components configured, allow transition
+        }
+
+        // Check if all supervisors have submitted scores
+        $studentCount = \App\Models\GroupMember::where('group_id', $group->id)->count();
+        $expectedScores = $componentCount * $studentCount;
+
+        foreach ($supervisorIds as $supervisorId) {
+            $actualScores = AssessmentScoreRepository::countForGroupAndEvaluator(
+                $group->id,
+                $supervisorId,
+                'NILAI_DOSEN'
+            );
+
+            if ($actualScores < $expectedScores) {
+                return false; // This supervisor hasn't completed all evaluations
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Check if all MILESTONE evaluations are complete from both supervisors.
+     * Only applies to groups in PDC2_ACTIVE status.
+     */
+    private function areAllMilestoneComplete(Group $group): bool
+    {
+        if ($group->status !== 'PDC2_ACTIVE') {
+            return false;
+        }
+
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (empty($supervisorIds)) {
+            return false;
+        }
+
+        $periodId = $group->period_id;
+        if (Schema::hasTable('period_assessment_components')) {
+            $componentCount = \App\Models\PeriodAssessmentComponent::where('period_id', $periodId)
+                ->where('type', 'MILESTONE')
+                ->count();
+        } else {
+            $componentCount = \App\Models\AssessmentComponent::where('period_id', $periodId)
+                ->where('type', 'MILESTONE')
+                ->count();
+        }
+
+        if ($componentCount === 0) {
+            return true;
+        }
+
+        $studentCount = \App\Models\GroupMember::where('group_id', $group->id)->count();
+        $expectedScores = $componentCount * $studentCount;
+
+        foreach ($supervisorIds as $supervisorId) {
+            $actualScores = AssessmentScoreRepository::forType('MILESTONE')
+                ->where('group_id', $group->id)
+                ->where('evaluator_id', $supervisorId)
+                ->count();
+
+            if ($actualScores < $expectedScores) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**

@@ -74,6 +74,13 @@ interface Group {
     period?: { max_group_size: number };
 }
 
+interface BursaFlow {
+    can_request_join: boolean;
+    can_accept_join_requests: boolean;
+    can_reject_join_requests: boolean;
+    reason: string | null;
+}
+
 interface RegisteredPeriod {
     id: number;
     name: string;
@@ -99,6 +106,7 @@ export default function TitlesMarketplacePage() {
     const [, setBiddingId] = useState<number | null>(null);
     const [canRequestJoin, setCanRequestJoin] = useState(false);
     const [myPendingRequests, setMyPendingRequests] = useState<number[]>([]);
+    const [bursaFlow, setBursaFlow] = useState<BursaFlow | null>(null);
     const [requestDialogOpen, setRequestDialogOpen] = useState(false);
     const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
     const [joinMessage, setJoinMessage] = useState('');
@@ -145,6 +153,7 @@ export default function TitlesMarketplacePage() {
                 api.get(`/mahasiswa/titles?period_id=${periodId}`),
                 api.get('/mahasiswa/group'),
             ]);
+            const bursaRes = await api.get(`/mahasiswa/bursa-ide?period_id=${periodId}`);
             
             // Single endpoint returns both lecturer and student titles
             const allTitles = titlesRes.data || [];
@@ -166,11 +175,12 @@ export default function TitlesMarketplacePage() {
             // Determine if user can request to join
             const soloStatuses = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL'];
             const isLeader = userGroup?.members?.some((m: { is_leader: boolean; student_id: number }) => m.is_leader && m.student_id === user?.id);
-            const canJoin = !userGroup || (soloStatuses.includes(userGroup?.status) && isLeader);
+            const canJoin = bursaRes.data?.flow?.can_request_join ?? (!userGroup || (soloStatuses.includes(userGroup?.status) && isLeader));
             setCanRequestJoin(canJoin);
             
             // Get pending requests from group data if available
-            setMyPendingRequests(userGroup?.pending_join_requests || []);
+            setMyPendingRequests(bursaRes.data?.my_pending_requests || userGroup?.pending_join_requests || []);
+            setBursaFlow(bursaRes.data?.flow || null);
         } catch (error) {
             if (axios.isAxiosError(error) && error.response?.status === 401) {
                 toast.error('Sesi Anda sudah habis. Silakan masuk kembali.');
@@ -313,6 +323,13 @@ export default function TitlesMarketplacePage() {
     const memberCount = group?.members?.length || 0;
     const hasMultipleMembers = memberCount > 1;
     const canBidOnLecturer = !!group && !group.title_id && memberCount >= 3;
+
+    const bursaReasonMap: Record<string, string> = {
+        NO_GROUP: 'Anda belum memiliki kelompok.',
+        PERIOD_FINALIZED: 'Periode sudah ditutup, fitur join tidak tersedia.',
+        GROUP_LOCKED: 'Kelompok sudah terkunci (siap finalisasi).',
+        LEADER_SOLO_ONLY: 'Hanya ghost student atau ketua kelompok seeker yang dapat request join.',
+    };
 
     if (loading) {
         return (
@@ -474,6 +491,16 @@ export default function TitlesMarketplacePage() {
 
                 {/* Student Ideas Tab (Bursa Ide) */}
                 <TabsContent value="student" className="space-y-4">
+                    {!canRequestJoin && bursaFlow?.reason && (
+                        <Alert>
+                            <Lock className="h-4 w-4" />
+                            <AlertTitle>Bursa Ide View Only</AlertTitle>
+                            <AlertDescription>
+                                {bursaReasonMap[bursaFlow.reason] || 'Fitur join tidak tersedia untuk kondisi saat ini.'}
+                            </AlertDescription>
+                        </Alert>
+                    )}
+
                     {!canRequestJoin && !loading && (
                         <Alert className="mb-4">
                             <Info className="h-4 w-4" />

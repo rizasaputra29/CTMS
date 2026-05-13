@@ -66,6 +66,13 @@ interface ProposalItem {
     proposed_supervisor?: Lecturer | null;
 }
 
+interface BiddingFlow {
+    can_submit_bid: boolean;
+    can_reorder_bid: boolean;
+    can_delete_bid: boolean;
+    reason: string | null;
+}
+
 export default function BiddingPage() {
     const { user } = useAuth();
     const [bids, setBids] = useState<Bid[]>([]);
@@ -81,6 +88,7 @@ export default function BiddingPage() {
     const [proposals, setProposals] = useState<ProposalItem[]>([]);
     const [reorderedBids, setReorderedBids] = useState<Bid[]>([]);
     const [hasChanges, setHasChanges] = useState(false);
+    const [biddingFlow, setBiddingFlow] = useState<BiddingFlow | null>(null);
 
     const fetchGroup = useCallback(async () => {
         try {
@@ -97,6 +105,7 @@ export default function BiddingPage() {
             const fetchedBids = res.data.data || [];
             setBids(fetchedBids);
             setReorderedBids(fetchedBids);
+            setBiddingFlow(res.data.flow || null);
         } catch (err) {
             console.error('Failed to fetch bids', err);
         } finally {
@@ -149,6 +158,23 @@ export default function BiddingPage() {
     const totalUsed = bids.length + proposals.length;
     const slotsRemaining = MAX_TITLES - totalUsed;
     const hasActiveProposal = proposals.length > 0;
+    const localCanSubmit = isLeader && slotsRemaining > 0 && !hasActiveProposal;
+    const canSubmitBid = biddingFlow?.can_submit_bid ?? localCanSubmit;
+    const canReorderBid = biddingFlow?.can_reorder_bid ?? isLeader;
+    const canDeleteBid = biddingFlow?.can_delete_bid ?? isLeader;
+
+    const flowReasonMap: Record<string, string> = {
+        NO_GROUP: 'Anda harus memiliki kelompok terlebih dahulu.',
+        LEADER_ONLY: 'Hanya ketua kelompok yang dapat mengelola bidding.',
+        SOLO_GROUP_CANNOT_BID: 'Kelompok solo tidak dapat bidding judul dosen.',
+        INSUFFICIENT_MEMBERS: 'Jumlah anggota kelompok belum memenuhi minimal untuk bidding.',
+        INVALID_GROUP_STATUS: 'Status kelompok saat ini tidak memungkinkan bidding.',
+        ACTIVE_PROPOSAL_EXISTS: 'Kelompok Anda memiliki proposal aktif. Bidding dinonaktifkan.',
+        PERIOD_FINALIZED: 'Periode sudah ditutup oleh admin.',
+        BIDDING_LOCKED: 'Bidding sudah dikunci.',
+        BIDDING_WINDOW_CLOSED: 'Jendela waktu bidding belum dibuka atau sudah berakhir.',
+        TITLE_LIMIT_REACHED: 'Maksimal 3 slot judul (bidding + proposal) sudah tercapai.',
+    };
 
     // Priority reorder functions
     const movePriority = (bidId: number, direction: 'up' | 'down') => {
@@ -321,13 +347,30 @@ export default function BiddingPage() {
                     <Badge variant={slotsRemaining > 0 ? 'outline' : 'destructive'} className="text-sm px-3 py-1">
                         {totalUsed}/{MAX_TITLES} slots used
                     </Badge>
+                    <Button
+                        onClick={() => setAddOpen(true)}
+                        disabled={!canSubmitBid || availableTitles.length === 0}
+                        variant={canSubmitBid ? 'default' : 'outline'}
+                    >
+                        Submit Bid
+                    </Button>
                     {hasChanges && (
-                        <Button onClick={savePriorityOrder}>
+                        <Button onClick={savePriorityOrder} disabled={!canReorderBid}>
                             <Save className="mr-2 h-4 w-4" /> Simpan Urutan
                         </Button>
                     )}
                 </div>
             </div>
+
+            {!canSubmitBid && biddingFlow?.reason && (
+                <Alert>
+                    <Lock className="h-4 w-4" />
+                    <AlertTitle>Bidding Terkunci</AlertTitle>
+                    <AlertDescription>
+                        {flowReasonMap[biddingFlow.reason] || 'Bidding tidak tersedia untuk kondisi kelompok saat ini.'}
+                    </AlertDescription>
+                </Alert>
+            )}
 
             {slotsRemaining <= 0 && (
                 <Alert>
@@ -412,7 +455,7 @@ export default function BiddingPage() {
                                                             size="sm"
                                                             className="h-6 w-6 p-0"
                                                             onClick={() => movePriority(bid.id, 'up')}
-                                                            disabled={index === 0}
+                                                            disabled={index === 0 || !canReorderBid}
                                                         >
                                                             <ArrowUp className="h-3 w-3" />
                                                         </Button>
@@ -421,7 +464,7 @@ export default function BiddingPage() {
                                                             size="sm"
                                                             className="h-6 w-6 p-0"
                                                             onClick={() => movePriority(bid.id, 'down')}
-                                                            disabled={index === reorderedBids.length - 1}
+                                                            disabled={index === reorderedBids.length - 1 || !canReorderBid}
                                                         >
                                                             <ArrowDown className="h-3 w-3" />
                                                         </Button>
@@ -459,7 +502,7 @@ export default function BiddingPage() {
                                         <CardFooter className="border-t pt-3">
                                             <div className="flex justify-between w-full items-center">
                                                 <span className="text-sm text-muted-foreground">Priority #{bid.priority}</span>
-                                                {bid.status === 'PENDING' && (
+                                                {bid.status === 'PENDING' && canDeleteBid && (
                                                     <Button variant="ghost" size="sm" className="text-destructive" onClick={() => handleDeleteBid(bid.id)}>
                                                         <Trash2 className="mr-1 h-4 w-4" /> Delete
                                                     </Button>

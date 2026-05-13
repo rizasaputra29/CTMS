@@ -2,17 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Services\ExpoEligibilityService;
 use App\Services\GroupStateMachine;
+use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class ExpoController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
     protected SchedulingService $schedulingService;
     protected ExpoEligibilityService $eligibilityService;
@@ -32,7 +37,7 @@ class ExpoController extends Controller
      */
     public function index(Request $request)
     {
-        $query = SeminarSchedule::with(['group.title', 'examiner1', 'examiner2', 'evaluations.examiner'])
+        $query = SeminarSchedule::with(['group.title', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'EXPO')
             ->orderByDesc('date');
 
@@ -56,11 +61,14 @@ class ExpoController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+            // Examiners are now optional for EXPO (only supervisors evaluate EXPO)
+            'examiner_1_id' => 'nullable|exists:users,id',
+            'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
-        $group = Group::findOrFail($request->group_id);
+        $group = Group::with('period')->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if ($group->status !== 'PDC2_READY_FOR_EXPO') {
             return response()->json(['message' => 'Group must be in PDC2_READY_FOR_EXPO status.'], 400);
@@ -69,6 +77,15 @@ class ExpoController extends Controller
         // Check TA eligibility
         if (!$this->eligibilityService->isEligible($group)) {
             return response()->json(['message' => 'Group does not meet Expo TA eligibility requirements.'], 400);
+        }
+
+        // Validate examiners cannot be supervisors (only if examiners are provided)
+        $supervisorIds = $group->supervisors()->pluck('supervisor_id')->toArray();
+        if ($request->examiner_1_id && in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+        if ($request->examiner_2_id && in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
         }
 
         // Check existing EXPO schedule
@@ -80,9 +97,10 @@ class ExpoController extends Controller
             return response()->json(['message' => 'Group already has an EXPO schedule.'], 400);
         }
 
-        // Double-booking & room conflict check
+        // Double-booking & room conflict check (only check examiners if provided)
+        $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
         $conflicts = $this->schedulingService->validateScheduleConflicts(
-            [$request->examiner_1_id, $request->examiner_2_id],
+            $examinerIds,
             $request->date,
             $request->start_time,
             $request->end_time,
@@ -126,14 +144,19 @@ class ExpoController extends Controller
             'seminar_schedules',
             $schedule->id
         );
-        $notificationService->sendToMany(
-            [$schedule->examiner_1_id, $schedule->examiner_2_id],
-            'SCHEDULE_APPROVED',
-            'You are assigned as an examiner',
-            "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
-            'seminar_schedules',
-            $schedule->id
-        );
+        
+        // Only notify examiners if they are assigned (EXPO no longer requires examiners)
+        $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
+        if (!empty($examinerIds)) {
+            $notificationService->sendToMany(
+                $examinerIds,
+                'SCHEDULE_APPROVED',
+                'You are assigned as an examiner',
+                "You have been assigned as an examiner for an EXPO on {$schedule->date} at {$schedule->start_time}.",
+                'seminar_schedules',
+                $schedule->id
+            );
+        }
 
         return response()->json([
             'message' => 'EXPO scheduled.',
@@ -162,6 +185,13 @@ class ExpoController extends Controller
             return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
         }
 
+        // Get schedule for deadline tracking
+        $schedule = SeminarSchedule::with('group.period')->find($scheduleId);
+        if ($schedule) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
+        $deadlinePassed = $schedule && $schedule->evaluation_deadline && now() > $schedule->evaluation_deadline;
+
         try {
             $result = $this->schedulingService->submitSeminarEvaluation(
                 $evaluation->id,
@@ -170,6 +200,27 @@ class ExpoController extends Controller
                 $request->result,
                 $user->id
             );
+
+            // Send notification if deadline has passed
+            if ($deadlinePassed) {
+                try {
+                    $notificationService = app(NotificationService::class);
+                    $group = Group::find($schedule->group_id);
+                    $groupName = $group ? $group->name : "Group {$schedule->group_id}";
+                    $deadlineFormatted = $schedule->evaluation_deadline ? date('d M Y H:i', strtotime($schedule->evaluation_deadline)) : 'Unknown';
+
+                    $notificationService->send(
+                        $user->id,
+                        'EVALUATION_DEADLINE_PASSED',
+                        'Evaluation Submitted After Deadline',
+                        "Your evaluation for {$groupName} - EXPO was submitted after the deadline (due: {$deadlineFormatted}).",
+                        'SeminarSchedule',
+                        $scheduleId
+                    );
+                } catch (\Exception $e) {
+                    Log::error("Failed to send deadline notification: " . $e->getMessage());
+                }
+            }
 
             return response()->json([
                 'message' => $result['all_submitted']
@@ -192,25 +243,31 @@ class ExpoController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+            // Examiners are now optional for EXPO (only supervisors evaluate EXPO)
+            'examiner_1_id' => 'nullable|exists:users,id',
+            'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
         ]);
 
-        $schedule = SeminarSchedule::where('id', $id)
+        $schedule = SeminarSchedule::with('group.period')
+            ->where('id', $id)
             ->where('type', 'EXPO')
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
 
+        $this->ensurePeriodIsActive($schedule->group);
+
         $group = Group::findOrFail($schedule->group_id);
 
-        // Double guard: examiner constraints
-        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
-        $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
-        if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+        // Double guard: examiner constraints (only if examiners provided)
+        $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
+        if (!empty($examinerIds)) {
+            $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
+            if ($constraintError) {
+                return response()->json(['message' => $constraintError], 400);
+            }
         }
 
-        // Conflict check (authoritative)
+        // Conflict check (authoritative) - only check examiners if provided
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
             $request->date,
@@ -275,10 +332,13 @@ class ExpoController extends Controller
     {
         $request->validate(['rejection_reason' => 'required|string|max:1000']);
 
-        $schedule = SeminarSchedule::where('id', $id)
+        $schedule = SeminarSchedule::with('group.period')
+            ->where('id', $id)
             ->where('type', 'EXPO')
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
+
+        $this->ensurePeriodIsActive($schedule->group);
 
         $schedule->update([
             'status' => 'CANCELLED',

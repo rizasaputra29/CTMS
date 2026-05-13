@@ -109,7 +109,7 @@ export default function GroupDetailPage() {
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Group Details</h1>
                         <p className="text-muted-foreground text-sm">
-                            Group #{group.id} • {group.period.name}
+                            Group {group.id} • {group.period.name}
                         </p>
                     </div>
                 </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type {
@@ -8,6 +9,7 @@ import type {
   OthersSubTab,
   DashboardResponse,
   DashboardStats,
+  FinalizationFlow,
   Period,
   FilterState,
 } from '@/types/finalization';
@@ -18,6 +20,7 @@ interface UseFinalizationDashboardReturn {
   periods: Period[];
   stats: DashboardStats | null;
   data: DashboardResponse['data'] | null;
+  flow: FinalizationFlow | null;
 
   // State
   activeTab: DashboardTab;
@@ -33,6 +36,7 @@ interface UseFinalizationDashboardReturn {
   setSearch: (search: string) => void;
   setPerPage: (perPage: number) => void;
   setPage: (page: number) => void;
+  setFilters: (filters: Partial<FilterState>) => void;
   refresh: () => void;
   selectPeriod: (periodId: number) => void;
   setShowPeriodSelector: (show: boolean) => void;
@@ -42,22 +46,78 @@ interface UseFinalizationDashboardReturn {
 export function useFinalizationDashboard(
   initialPeriodId?: number
 ): UseFinalizationDashboardReturn {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Parse URL params
+  const parseUrlParams = useCallback(() => {
+    return {
+      tab: (searchParams.get('tab') as DashboardTab) || 'ready',
+      subTab: (searchParams.get('sub_tab') as OthersSubTab) || 'no_group',
+      search: searchParams.get('search') || '',
+      page: parseInt(searchParams.get('page') || '1', 10),
+      perPage: parseInt(searchParams.get('per_page') || '20', 10),
+      supervisorStatus: (searchParams.get('supervisor_status') as FilterState['supervisorStatus']) || 'all',
+      memberCount: (searchParams.get('member_count') as FilterState['memberCount']) || 'all',
+      periodId: searchParams.get('period_id')
+        ? parseInt(searchParams.get('period_id')!, 10)
+        : initialPeriodId,
+    };
+  }, [searchParams, initialPeriodId]);
+
+  const urlParams = parseUrlParams();
+
   // State
   const [period, setPeriod] = useState<Period | null>(null);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [data, setData] = useState<DashboardResponse['data'] | null>(null);
-  const [activeTab, setActiveTab] = useState<DashboardTab>('ready');
-  const [activeSubTab, setActiveSubTab] = useState<OthersSubTab>('no_group');
+  const [flow, setFlow] = useState<FinalizationFlow | null>(null);
+  const [activeTab, setActiveTab] = useState<DashboardTab>(urlParams.tab);
+  const [activeSubTab, setActiveSubTab] = useState<OthersSubTab>(urlParams.subTab);
   const [filters, setFilters] = useState<FilterState>({
-    search: '',
-    perPage: 20,
-    page: 1,
+    search: urlParams.search,
+    perPage: urlParams.perPage,
+    page: urlParams.page,
+    supervisorStatus: urlParams.supervisorStatus,
+    memberCount: urlParams.memberCount,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showPeriodSelector, setShowPeriodSelector] = useState(false);
-  const [selectedPeriodId, setSelectedPeriodId] = useState<number | undefined>(initialPeriodId);
+  const [selectedPeriodId, setSelectedPeriodId] = useState<number | undefined>(urlParams.periodId);
+
+  // Update URL params when state changes
+  const updateUrlParams = useCallback(() => {
+    const params = new URLSearchParams();
+
+    if (selectedPeriodId) {
+      params.set('period_id', selectedPeriodId.toString());
+    }
+    params.set('tab', activeTab);
+    if (activeTab === 'others') {
+      params.set('sub_tab', activeSubTab);
+    }
+    if (filters.search) {
+      params.set('search', filters.search);
+    }
+    if (filters.page > 1) {
+      params.set('page', filters.page.toString());
+    }
+    if (filters.perPage !== 20) {
+      params.set('per_page', filters.perPage.toString());
+    }
+    if (filters.supervisorStatus && filters.supervisorStatus !== 'all') {
+      params.set('supervisor_status', filters.supervisorStatus);
+    }
+    if (filters.memberCount && filters.memberCount !== 'all') {
+      params.set('member_count', filters.memberCount);
+    }
+
+    const queryString = params.toString();
+    const newUrl = queryString ? `?${queryString}` : '';
+    router.replace(newUrl, { scroll: false });
+  }, [router, selectedPeriodId, activeTab, activeSubTab, filters]);
 
   // Removed LocalStorage on mount to enforce period selection when clicking menu
   useEffect(() => {
@@ -101,6 +161,14 @@ export function useFinalizationDashboard(
         params.sub_tab = activeSubTab;
       }
 
+      // Add advanced filters
+      if (filters.supervisorStatus && filters.supervisorStatus !== 'all') {
+        params.supervisor_status = filters.supervisorStatus;
+      }
+    if (filters.memberCount && filters.memberCount !== 'all') {
+      params.member_count = filters.memberCount;
+    }
+
       const response = await api.get<DashboardResponse>('/admin/finalization/dashboard', {
         params,
       });
@@ -108,6 +176,7 @@ export function useFinalizationDashboard(
       setPeriod(response.data.period);
       setStats(response.data.stats);
       setData(response.data.data);
+      setFlow(response.data.flow || null);
       setShowPeriodSelector(false);
     } catch (err) {
       const message = api.isAxiosError(err)
@@ -156,6 +225,13 @@ export function useFinalizationDashboard(
     return () => clearTimeout(timeout);
   }, [filters.search, selectedPeriodId, fetchData]);
 
+  // Update URL params when state changes (excluding search which has debounce)
+  useEffect(() => {
+    if (selectedPeriodId) {
+      updateUrlParams();
+    }
+  }, [selectedPeriodId, activeTab, activeSubTab, filters.perPage, filters.page, filters.supervisorStatus, filters.memberCount, updateUrlParams]);
+
   // Actions
   const handleSetActiveTab = useCallback((tab: DashboardTab) => {
     setActiveTab(tab);
@@ -177,9 +253,12 @@ export function useFinalizationDashboard(
     setFilters((prev) => ({ ...prev, page }));
   }, []);
 
+  const handleSetFilters = useCallback((newFilters: Partial<FilterState>) => {
+    setFilters((prev) => ({ ...prev, ...newFilters, page: 1 }));
+  }, []);
+
   const handleRefresh = useCallback(() => {
     fetchData();
-    toast.success('Data refreshed');
   }, [fetchData]);
 
   const handleSelectPeriod = useCallback((periodId: number) => {
@@ -193,6 +272,7 @@ export function useFinalizationDashboard(
       setPeriod(null);
       setStats(null);
       setData(null);
+      setFlow(null);
       setSelectedPeriodId(undefined);
       fetchActivePeriods();
     }
@@ -203,6 +283,7 @@ export function useFinalizationDashboard(
     periods,
     stats,
     data,
+    flow,
     activeTab,
     activeSubTab,
     filters,
@@ -214,6 +295,7 @@ export function useFinalizationDashboard(
     setSearch: handleSetSearch,
     setPerPage: handleSetPerPage,
     setPage: handleSetPage,
+    setFilters: handleSetFilters,
     refresh: handleRefresh,
     selectPeriod: handleSelectPeriod,
     setShowPeriodSelector: handleSetShowPeriodSelector,

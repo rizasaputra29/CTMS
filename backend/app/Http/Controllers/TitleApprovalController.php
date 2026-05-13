@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\Notification;
@@ -12,6 +13,8 @@ use App\Services\GroupStateMachine;
 
 class TitleApprovalController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -27,10 +30,15 @@ class TitleApprovalController extends Controller
         $user = $request->user();
         $periodId = $request->query('period_id');
 
+        $selectedPeriod = null;
+        if ($periodId) {
+            $selectedPeriod = \App\Models\Period::find($periodId);
+        }
+
         $query = Title::where('proposed_supervisor_id', $user->id)
             ->where('title_source', 'STUDENT')
             ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
-            ->with(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']);
+            ->with(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders', 'period']);
 
         if ($periodId) {
             $query->where('period_id', $periodId);
@@ -44,7 +52,15 @@ class TitleApprovalController extends Controller
         $proposals = $query->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json(['data' => $proposals]);
+        $proposals = $proposals->map(function (Title $proposal) {
+            $proposal->setAttribute('allowed_actions', $this->resolveLecturerProposalActions($proposal));
+            return $proposal;
+        });
+
+        return response()->json([
+            'data' => $proposals,
+            'flow' => $this->buildLecturerProposalFlowPayload($selectedPeriod),
+        ]);
     }
 
     /**
@@ -94,7 +110,9 @@ class TitleApprovalController extends Controller
             return response()->json(['message' => 'Proposal already approved.'], 409);
         }
 
-        $group = Group::find($title->proposed_by_group_id);
+        $group = Group::with('period')->find($title->proposed_by_group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if (!$group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
@@ -134,19 +152,28 @@ class TitleApprovalController extends Controller
 
             // Notify all group members
             $verb = $newStatus === 'APPROVED' ? 'Approved' : 'Under Review';
-            $msgPart = $newStatus === 'APPROVED' 
-                ? "await admin finalization." 
+            $msgPart = $newStatus === 'APPROVED'
+                ? "await admin finalization."
                 : "complete your team members first.";
 
+            // Batch insert notifications for better performance
+            $notifications = [];
+            $now = now();
             foreach ($group->members()->with('student')->get() as $member) {
-                Notification::create([
+                $notifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'PROPOSAL_APPROVED',
                     'title' => "Title Proposal {$verb}",
                     'message' => "Your title proposal \"{$title->title}\" has been {$verb} by the supervisor! Please {$msgPart}",
                     'related_type' => 'Title',
                     'related_id' => $title->id,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if (!empty($notifications)) {
+                Notification::insert($notifications);
             }
 
             DB::commit();
@@ -182,7 +209,9 @@ class TitleApprovalController extends Controller
             return response()->json(['message' => 'Proposal not found or already processed.'], 404);
         }
 
-        $group = Group::find($title->proposed_by_group_id);
+        $group = Group::with('period')->find($title->proposed_by_group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         if (!$group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
@@ -203,15 +232,23 @@ class TitleApprovalController extends Controller
             $group->save();
 
             // Notify all group members
+            $notifications = [];
+            $now = now();
             foreach ($group->members()->with('student')->get() as $member) {
-                Notification::create([
+                $notifications[] = [
                     'user_id' => $member->student_id,
                     'type' => 'PROPOSAL_REJECTED',
                     'title' => 'Title Proposal Rejected',
                     'message' => "Your title proposal \"{$title->title}\" was rejected. Reason: {$validated['rejection_reason']}",
                     'related_type' => 'Title',
                     'related_id' => $title->id,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+
+            if (!empty($notifications)) {
+                Notification::insert($notifications);
             }
 
             DB::commit();
@@ -224,5 +261,47 @@ class TitleApprovalController extends Controller
             DB::rollBack();
             return response()->json(['message' => 'Failed to reject: ' . $e->getMessage()], 500);
         }
+    }
+
+    private function buildLecturerProposalFlowPayload($period): array
+    {
+        if ($period && $period->is_finalized) {
+            return [
+                'can_approve_proposal' => false,
+                'can_reject_proposal' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        return [
+            'can_approve_proposal' => true,
+            'can_reject_proposal' => true,
+            'reason' => null,
+        ];
+    }
+
+    private function resolveLecturerProposalActions(Title $proposal): array
+    {
+        if (!in_array($proposal->supervisor_approval_status, ['PENDING', 'UNDER_REVIEW'], true)) {
+            return [
+                'can_approve' => false,
+                'can_reject' => false,
+                'reason' => 'PROPOSAL_ALREADY_PROCESSED',
+            ];
+        }
+
+        if ($proposal->period && $proposal->period->is_finalized) {
+            return [
+                'can_approve' => false,
+                'can_reject' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        return [
+            'can_approve' => true,
+            'can_reject' => true,
+            'reason' => null,
+        ];
     }
 }

@@ -135,7 +135,7 @@ export function FinalizationExecuteDialog({
                   {groups.map((group) => (
                     <div key={group.id} className="flex items-center justify-between p-3">
                       <div>
-                        <p className="font-medium text-sm">{group.name}</p>
+                        <p className="font-medium text-sm">Group {group.id}</p>
                         <p className="text-xs text-muted-foreground">
                           {group.supervisor1?.name || 'Belum ada supervisor'}
                         </p>

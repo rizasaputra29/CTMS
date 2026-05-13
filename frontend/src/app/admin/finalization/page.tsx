@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Search,
   RefreshCw,
@@ -61,13 +62,19 @@ import {
   ArrowRight,
   FileText,
   Settings,
+  RotateCcw,
+  XCircle,
+  Info,
 } from 'lucide-react';
 import { useFinalizationDashboard } from '@/hooks/use-finalization-dashboard';
 import { useSupervisorLoad } from '@/hooks/use-supervisor-load';
 import { useFinalizationActions } from '@/hooks/use-finalization-actions';
 import { useManualGrouping } from '@/hooks/use-manual-grouping';
+import { useKeyboardShortcuts, focusSearchInput } from '@/hooks/use-keyboard-shortcuts';
 import { FinalizationExecuteDialog } from '@/components/finalization/finalization-execute-dialog';
 import { ManualGroupingDialog } from '@/components/finalization/manual-grouping-dialog';
+import { BulkActionBar } from '@/components/finalization/bulk-action-bar';
+import { FilterPanel } from '@/components/finalization/filter-panel';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { toast } from 'sonner';
@@ -86,6 +93,7 @@ export default function FinalizationPage() {
     periods,
     stats,
     data,
+    flow,
     activeTab,
     activeSubTab,
     filters,
@@ -95,6 +103,7 @@ export default function FinalizationPage() {
     setActiveSubTab,
     setSearch,
     setPage,
+    setFilters,
     refresh,
     selectPeriod,
   } = useFinalizationDashboard(periodId);
@@ -103,6 +112,8 @@ export default function FinalizationPage() {
   const {
     executeFinalization,
     executingFinalization,
+    cancelKelompokFinal,
+    cancelingKelompokFinal,
     exporting,
     exportReport,
   } = useFinalizationActions();
@@ -113,7 +124,6 @@ export default function FinalizationPage() {
     lecturers: manualGroupingLecturers,
     creatingGroup,
     addingMembers,
-    promotingToReady,
     fetchAvailableGroups,
     fetchAvailableTitles,
     fetchLecturers,
@@ -129,16 +139,50 @@ export default function FinalizationPage() {
   const [showAssignTitleDialog, setShowAssignTitleDialog] = useState(false);
   const [selectedGroupForAction, setSelectedGroupForAction] = useState<Group | null>(null);
   const [settingRow, setSettingRow] = useState<number | null>(null);
+  const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [showBulkMarkFinalDialog, setShowBulkMarkFinalDialog] = useState(false);
+  const [showBulkCancelFinalDialog, setShowBulkCancelFinalDialog] = useState(false);
+
+  // Row selection state for bulk actions
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+
+  // Refs for keyboard shortcuts
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const [reopeningPeriod, setReopeningPeriod] = useState(false);
+  const isPeriodFinalized = !!period?.is_finalized;
+  const canModifyByFlow = flow?.can_modify ?? !isPeriodFinalized;
+  const canExecuteByFlow = flow?.can_execute_finalization ?? !!stats?.can_finalize;
+  const canReopenFinalization = !!stats?.can_reopen_finalization;
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts({
+    onSearchFocus: () => focusSearchInput(searchInputRef),
+    onRefresh: () => refresh(),
+    onTabChange: (index) => {
+      const tabs: DashboardTab[] = ['ready', 'final', 'others'];
+      if (tabs[index]) {
+        setActiveTab(tabs[index]);
+      }
+    },
+    onExport: () => handleExport('excel'),
+    onHelp: () => setShowKeyboardHelp(true),
+  });
 
   // Fetch available groups when dialog opens
   const handleOpenGroupingDialog = useCallback(async (open: boolean) => {
     setShowGroupingDialog(open);
     if (open && period) {
-      await Promise.all([
-        fetchAvailableGroups(period.id),
-        fetchAvailableTitles(period.id),
-        fetchLecturers(period.id),
-      ]);
+      console.log('Opening dialog, fetching data for period:', period.id);
+      try {
+        await Promise.all([
+          fetchAvailableGroups(period.id),
+          fetchAvailableTitles(period.id),
+          fetchLecturers(period.id),
+        ]);
+        console.log('Data fetching completed');
+      } catch (err) {
+        console.error('Error fetching dialog data:', err);
+      }
     }
   }, [period, fetchAvailableGroups, fetchAvailableTitles, fetchLecturers]);
 
@@ -154,7 +198,7 @@ export default function FinalizationPage() {
     titleId?: number;
     newTitle?: { title: string; description?: string; specializations: string[]; lecturerId: number };
   }) => {
-    if (!period) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow) return;
     
     const success = await createManualGroup({
       studentIds,
@@ -167,9 +211,10 @@ export default function FinalizationPage() {
     if (success) {
       refresh();
     }
-  }, [period, createManualGroup, refresh]);
+  }, [period, createManualGroup, refresh, isPeriodFinalized, canModifyByFlow]);
 
   const handleAddToExistingGroup = useCallback(async (studentIds: number[], groupId: number) => {
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await addToExistingGroup({
       groupId,
       studentIds,
@@ -178,28 +223,41 @@ export default function FinalizationPage() {
     if (success) {
       refresh();
     }
-  }, [addToExistingGroup, refresh]);
+  }, [addToExistingGroup, refresh, isPeriodFinalized, canModifyByFlow]);
 
   // Handler for assigning title to READY_FOR_BIDDING group
   const handleAssignTitleToGroup = useCallback(async (groupId: number, titleId: number) => {
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await assignTitle({ groupId, titleId });
     if (success) {
       refresh();
     }
-  }, [assignTitle, refresh]);
+  }, [assignTitle, refresh, isPeriodFinalized, canModifyByFlow]);
 
   const handleAddMemberToGroup = useCallback((group: Group) => {
+    if (isPeriodFinalized || !canModifyByFlow) return;
     setSelectedGroupForAction(group);
     // Open manual grouping dialog with pre-selected group
-    setShowGroupingDialog(true);
-  }, []);
+    handleOpenGroupingDialog(true);
+  }, [handleOpenGroupingDialog, isPeriodFinalized, canModifyByFlow]);
+
+  const handleOpenAssignTitleDialog = useCallback(async (group: Group) => {
+    if (isPeriodFinalized || !canModifyByFlow) return;
+    setSelectedGroupForAction(group);
+    setShowAssignTitleDialog(true);
+
+    if (period) {
+      await fetchAvailableTitles(period.id);
+    }
+  }, [period, fetchAvailableTitles, isPeriodFinalized, canModifyByFlow]);
 
   const handleFinalizeGroup = useCallback(async (group: Group) => {
+    if (isPeriodFinalized || !canModifyByFlow) return;
     const success = await promoteToReadyForFinalization({ groupId: group.id });
     if (success) {
       refresh();
     }
-  }, [promoteToReadyForFinalization, refresh]);
+  }, [promoteToReadyForFinalization, refresh, isPeriodFinalized, canModifyByFlow]);
 
   // Derived data
   const isPaginatedData = data && 'data' in data;
@@ -221,6 +279,7 @@ export default function FinalizationPage() {
   // Per-row supervisor set handler
   const handleSetSupervisorForGroup = useCallback(
     async (groupId: number, supervisorId: number, role: 'supervisor_1_id' | 'supervisor_2_id') => {
+      if (isPeriodFinalized || !canModifyByFlow) return;
       setSettingRow(groupId);
       try {
         const payload: Record<string, number | boolean | undefined> = {
@@ -249,12 +308,13 @@ export default function FinalizationPage() {
         setSettingRow(null);
       }
     },
-    [tableData, refresh]
+    [tableData, refresh, isPeriodFinalized, canModifyByFlow]
   );
 
   // Mark group as Kelompok Final
   const handleMarkKelompokFinal = useCallback(
     async (groupId: number) => {
+      if (isPeriodFinalized || !canModifyByFlow) return;
       setSettingRow(groupId);
       try {
         const group = (tableData as Group[]).find((g) => g.id === groupId);
@@ -287,11 +347,62 @@ export default function FinalizationPage() {
         setSettingRow(null);
       }
     },
-    [tableData, refresh]
+    [tableData, refresh, isPeriodFinalized, canModifyByFlow]
   );
 
+  // Cancel/Revert Kelompok Final
+  const handleCancelKelompokFinal = useCallback(
+    async (group: Group) => {
+      if (isPeriodFinalized || !canModifyByFlow) {
+        toast.error('Periode sudah difinalisasi. Reopen period terlebih dahulu.');
+        return;
+      }
+      
+      const reason = prompt('Alasan cancel Kelompok Final (opsional):');
+      if (reason === null) return; // User cancelled
+      
+      const success = await cancelKelompokFinal({
+        period_id: group.period_id,
+        group_id: group.id,
+        reason: reason || undefined,
+      });
+      
+      if (success) {
+        refresh();
+      }
+    },
+    [isPeriodFinalized, cancelKelompokFinal, refresh, canModifyByFlow]
+  );
+
+  // Row selection handlers for bulk actions
+  const toggleRowSelection = useCallback((groupId: number) => {
+    setSelectedRows((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupId)) {
+        newSet.delete(groupId);
+      } else {
+        newSet.add(groupId);
+      }
+      return newSet;
+    });
+  }, []);
+
+  const selectAllRows = useCallback(() => {
+    const allIds = (tableData as Group[]).map((g) => g.id);
+    setSelectedRows(new Set(allIds));
+  }, [tableData]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedRows(new Set());
+  }, []);
+
+  // Reset selection when tab or data changes
+  useEffect(() => {
+    setSelectedRows(new Set());
+  }, [activeTab, activeSubTab, data]);
+
   const handleExecuteFinalization = async () => {
-    if (!period) return;
+    if (!period || isPeriodFinalized || !canModifyByFlow) return;
 
     const success = await executeFinalization({
       period_id: period.id,
@@ -309,26 +420,237 @@ export default function FinalizationPage() {
     await exportReport({ period_id: period.id, format });
   };
 
-  // Status badge helper
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> =
-      {
-        READY_FOR_FINALIZATION: { variant: 'secondary', label: 'Siap Finalisasi' },
-        KELOMPOK_FINAL: { variant: 'default', label: 'Kelompok Final' },
-        PDC1_ACTIVE: { variant: 'default', label: 'PDC1' },
-        PDC2_ACTIVE: { variant: 'default', label: 'PDC2' },
-        FORMING: { variant: 'outline', label: 'Forming' },
-        FORMING_SOLO: { variant: 'outline', label: 'Solo Seeker' },
-        READY_FOR_BIDDING: { variant: 'outline', label: 'Ready Bidding' },
-        TITLE_APPROVED: { variant: 'secondary', label: 'Title Approved' },
-        WAITING_SUPERVISOR_APPROVAL: { variant: 'outline', label: 'Waiting Approval' },
-        CLOSED: { variant: 'destructive', label: 'Ditutup' },
-        DISSOLVED: { variant: 'destructive', label: 'Dibubarkan' },
-      };
+  const handleExportSelected = useCallback(() => {
+    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    if (selectedGroups.length === 0) {
+      toast.error('Tidak ada grup yang dipilih');
+      return;
+    }
 
-    const config = variants[status] || { variant: 'outline' as const, label: status };
-    return <Badge variant={config.variant}>{config.label}</Badge>;
+    // Create CSV content
+    const headers = ['ID', 'Nama Grup', 'Status', 'Judul', 'Supervisor 1', 'Supervisor 2', 'Jumlah Anggota'];
+    const rows = selectedGroups.map((group) => [
+      group.id,
+      `Group ${group.id}`,
+      group.status,
+      group.title?.title || '-',
+      group.supervisor1?.name || '-',
+      group.supervisor2?.name || '-',
+      group.members?.length || 0,
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `selected_groups_${period?.name}_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast.success(`${selectedGroups.length} grup berhasil diexport`);
+  }, [tableData, selectedRows, period]);
+
+  const handleReopenPeriod = useCallback(async () => {
+    if (!period || !canReopenFinalization) return;
+
+    setReopeningPeriod(true);
+    try {
+      const response = await api.post<{ message: string; reverted_count?: number }>(
+        '/admin/finalization/reopen',
+        { period_id: period.id }
+      );
+
+      const revertedCount = response.data?.reverted_count ?? 0;
+      toast.success(`Periode berhasil dibuka kembali. ${revertedCount} grup dikembalikan ke KELOMPOK_FINAL.`);
+      refresh();
+    } catch (err) {
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Gagal membuka kembali periode'
+        : 'Terjadi kesalahan';
+      toast.error(message);
+    } finally {
+      setReopeningPeriod(false);
+    }
+  }, [period, canReopenFinalization, refresh]);
+
+  // Bulk mark final handler with validation
+  const handleBulkMarkFinal = useCallback(async () => {
+    if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
+
+    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    const valid: Group[] = [];
+    const invalid: { group: Group; reason: string }[] = [];
+
+    selectedGroups.forEach((group) => {
+      if (group.status !== 'READY_FOR_FINALIZATION') {
+        invalid.push({ group, reason: 'Status bukan Siap Finalisasi' });
+        return;
+      }
+      if (!group.supervisor_1_id && !group.title?.lecturer?.id) {
+        invalid.push({ group, reason: 'Belum ada Supervisor 1' });
+        return;
+      }
+      if (!group.supervisor_2_id) {
+        invalid.push({ group, reason: 'Belum ada Supervisor 2' });
+        return;
+      }
+      valid.push(group);
+    });
+
+    if (invalid.length > 0) {
+      // Show validation errors
+      toast.error(`${invalid.length} grup tidak valid untuk di-mark final`);
+      invalid.forEach(({ group, reason }) => {
+        toast.error(`Group ${group.id}: ${reason}`);
+      });
+    }
+
+    if (valid.length === 0) {
+      toast.error('Tidak ada grup yang valid untuk di-mark final');
+      return;
+    }
+
+    // Process valid groups
+    setSettingRow(-1); // Indicate bulk operation
+    try {
+      await Promise.all(
+        valid.map((group) =>
+          api.post('/admin/finalization/set-supervisor', {
+            group_id: group.id,
+            supervisor_1_id: group.supervisor_1_id || group.title?.lecturer?.id,
+            supervisor_2_id: group.supervisor_2_id,
+            mark_final: true,
+          })
+        )
+      );
+      toast.success(`${valid.length} grup berhasil ditandai sebagai Kelompok Final`);
+      clearSelection();
+      setShowBulkMarkFinalDialog(false);
+      refresh();
+    } catch (err) {
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Gagal mark final bulk'
+        : 'Terjadi kesalahan';
+      toast.error(message);
+    } finally {
+      setSettingRow(null);
+    }
+  }, [period, isPeriodFinalized, canModifyByFlow, selectedRows, tableData, clearSelection, refresh]);
+
+  // Bulk cancel final handler
+  const handleBulkCancelFinal = useCallback(async (reason?: string) => {
+    if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
+
+    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    
+    try {
+      await Promise.all(
+        selectedGroups.map((group) =>
+          cancelKelompokFinal({
+            period_id: period.id,
+            group_id: group.id,
+            reason: reason || undefined,
+          })
+        )
+      );
+      toast.success(`${selectedGroups.length} grup berhasil di-cancel dari Kelompok Final`);
+      clearSelection();
+      setShowBulkCancelFinalDialog(false);
+      refresh();
+    } catch {
+      // Error already handled by cancelKelompokFinal
+    }
+  }, [period, isPeriodFinalized, canModifyByFlow, selectedRows, tableData, cancelKelompokFinal, clearSelection, refresh]);
+
+  // Status badge helper with enhanced colors
+  const getStatusBadge = (status: string, statusLabel?: string) => {
+    const variants: Record<string, { label: string; className: string }> = {
+      // 🟡 Perlu Judul (Warning - Amber)
+      READY_FOR_BIDDING: {
+        label: 'Perlu Judul',
+        className: 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200',
+      },
+
+      // 🔵 Judul OK (Info - Blue)
+      TITLE_APPROVED: {
+        label: 'Judul OK',
+        className: 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200',
+      },
+
+      // ⚪ Siap Final (Secondary - Slate)
+      READY_FOR_FINALIZATION: {
+        label: 'Siap Final',
+        className: 'bg-slate-100 text-slate-800 border-slate-300',
+      },
+
+      // 🟢 Kelompok Final (Success - Emerald)
+      KELOMPOK_FINAL: {
+        label: 'Kelompok Final',
+        className: 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200',
+      },
+
+      // 🟣 PDC1/PDC2 Active (Purple)
+      PDC1_ACTIVE: {
+        label: 'PDC1 Active',
+        className: 'bg-purple-100 text-purple-800 border-purple-300',
+      },
+      PDC2_ACTIVE: {
+        label: 'PDC2 Active',
+        className: 'bg-purple-100 text-purple-800 border-purple-300',
+      },
+
+      // ⚪ Forming states (Gray)
+      FORMING: {
+        label: 'Forming',
+        className: 'bg-gray-100 text-gray-800 border-gray-300',
+      },
+      FORMING_SOLO: {
+        label: 'Solo Seeker',
+        className: 'bg-gray-100 text-gray-800 border-gray-300',
+      },
+
+      // 🟡 Waiting Approval (Yellow)
+      WAITING_SUPERVISOR_APPROVAL: {
+        label: 'Menunggu Approval',
+        className: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+      },
+
+      // 🔴 Closed/Dissolved (Destructive - Red)
+      CLOSED: {
+        label: 'Ditutup',
+        className: 'bg-red-100 text-red-800 border-red-300',
+      },
+      DISSOLVED: {
+        label: 'Dibubarkan',
+        className: 'bg-red-100 text-red-800 border-red-300',
+      },
+    };
+
+    const config = variants[status] || { label: statusLabel || status, className: 'bg-gray-100 text-gray-800' };
+    return (
+      <Badge variant="outline" className={config.className}>
+        {statusLabel || config.label}
+      </Badge>
+    );
   };
+
+  const flowReasonMap: Record<string, string> = {
+    PERIOD_FINALIZED: 'Periode sudah difinalisasi. Dashboard berada dalam mode read-only.',
+  };
+
+  const actionReasonMap: Record<string, string> = {
+    PERIOD_FINALIZED: 'Periode sudah difinalisasi.',
+    SUPERVISOR_1_REQUIRED: 'Supervisor 1 wajib ditentukan terlebih dahulu.',
+    SUPERVISOR_2_REQUIRED: 'Supervisor 2 wajib ditentukan terlebih dahulu.',
+  };
+
+  const globalFlowMessage = flow?.reason
+    ? flowReasonMap[flow.reason] || 'Aksi finalisasi saat ini tidak tersedia.'
+    : null;
 
   // ══════════════════════════════════════════
   // PERIOD SELECTOR (shown first, before anything)
@@ -463,24 +785,62 @@ export default function FinalizationPage() {
             <p className="text-muted-foreground mr-2">
               Kelola finalisasi grup dan penentuan supervisor
             </p>
-            <Select 
-              value={period?.id.toString()} 
-              onValueChange={(val) => selectPeriod(parseInt(val))}
-            >
-              <SelectTrigger className="w-[200px] h-8 text-xs font-semibold">
-                <SelectValue placeholder="Pilih Periode..." />
-              </SelectTrigger>
-              <SelectContent>
-                {periods.map(p => (
-                  <SelectItem key={p.id} value={p.id.toString()}>
-                    {p.name} {p.is_active ? '(Aktif)' : ''}
-                  </SelectItem>
+            {/* Quick Period Switcher */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-8 gap-2 px-3">
+                  <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-semibold">{period?.name}</span>
+                  {period?.is_finalized && (
+                    <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0">
+                      Finalized
+                    </Badge>
+                  )}
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                  Pilih Periode
+                </div>
+                {periods.map((p) => (
+                  <DropdownMenuItem
+                    key={p.id}
+                    onClick={() => selectPeriod(p.id)}
+                    className="flex items-center justify-between"
+                  >
+                    <span className={p.id === period?.id ? 'font-semibold' : ''}>
+                      {p.name}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {p.is_finalized && (
+                        <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0">
+                          Finalized
+                        </Badge>
+                      )}
+                      {p.is_active && !p.is_finalized && (
+                        <Badge variant="default" className="bg-green-600 text-[10px] px-1.5 py-0">
+                          Aktif
+                        </Badge>
+                      )}
+                    </div>
+                  </DropdownMenuItem>
                 ))}
-              </SelectContent>
-            </Select>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         <div className="flex gap-2">
+          {canReopenFinalization && (
+            <Button
+              variant="default"
+              onClick={handleReopenPeriod}
+              disabled={reopeningPeriod}
+            >
+              <RotateCcw className={`mr-2 h-4 w-4 ${reopeningPeriod ? 'animate-spin' : ''}`} />
+              Reopen Finalization
+            </Button>
+          )}
           <Button variant="outline" onClick={refresh} disabled={loading}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
@@ -502,8 +862,48 @@ export default function FinalizationPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowKeyboardHelp(true)}
+            title="Keyboard Shortcuts (?)"
+          >
+            <span className="text-sm font-semibold">?</span>
+          </Button>
         </div>
       </div>
+
+      {isPeriodFinalized && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-800">Periode Sudah Difinalisasi</CardTitle>
+            <CardDescription className="text-amber-700">
+              Halaman ini dalam mode read-only. Anda tetap dapat melihat data dan export report, tetapi aksi perubahan dinonaktifkan.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {!isPeriodFinalized && (stats?.total_pdc1_active ?? 0) > 0 && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-800">Legacy Finalization Terdeteksi</CardTitle>
+            <CardDescription className="text-amber-700">
+              Ditemukan {(stats?.total_pdc1_active ?? 0)} grup berstatus PDC1_ACTIVE walau periode belum ditandai finalized.
+              Gunakan tombol Reopen Finalization untuk mengembalikan grup ke KELOMPOK_FINAL.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {globalFlowMessage && (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-amber-800">Status Aksi Finalisasi</CardTitle>
+            <CardDescription className="text-amber-700">{globalFlowMessage}</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Stats Cards */}
       {stats && (
@@ -642,24 +1042,77 @@ export default function FinalizationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              {/* Search */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Cari grup, mahasiswa, atau judul..."
-                    value={filters.search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
+              {/* Info Banner */}
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-4 flex items-start gap-2">
+                <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-blue-800">
+                  <strong>Siap Finalisasi:</strong> Grup dengan status READY_FOR_FINALIZATION yang menunggu penentuan supervisor.
+                  Set Supervisor 1 & 2, lalu tandai sebagai <strong>Kelompok Final</strong>.
+                </p>
               </div>
 
+              {/* Search and Filters */}
+              <div className="flex flex-col gap-4 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 max-w-sm">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      ref={searchInputRef}
+                      placeholder="Cari grup, mahasiswa, atau judul... (Ctrl+F)"
+                      value={filters.search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+
+                {/* Filter Panel */}
+                <FilterPanel
+                  filters={{
+                    supervisorStatus: filters.supervisorStatus || 'all',
+                    memberCount: filters.memberCount || 'all',
+                  }}
+                  onFilterChange={(newFilters) => setFilters(newFilters)}
+                  minGroupSize={period?.min_group_size || 3}
+                  maxGroupSize={period?.max_group_size || 4}
+                  showSupervisor={true}
+                  showMemberCount={false}
+                />
+              </div>
+
+              {/* Bulk Action Bar */}
+              {!isPeriodFinalized && canModifyByFlow && (
+                <BulkActionBar
+                  selectedCount={selectedRows.size}
+                  totalCount={tableData.length}
+                  onSelectAll={selectAllRows}
+                  onSelectNone={clearSelection}
+                  onMarkFinal={() => setShowBulkMarkFinalDialog(true)}
+                  onExport={handleExportSelected}
+                  showMarkFinal={true}
+                  showCancelFinal={false}
+                  loading={settingRow !== null}
+                />
+              )}
+
               {/* Table with inline supervisor dropdowns */}
-              <div className="rounded-md border">
+              <div className="rounded-md border mt-4">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <Checkbox
+                          checked={selectedRows.size === tableData.length && tableData.length > 0}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              selectAllRows();
+                            } else {
+                              clearSelection();
+                            }
+                          }}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
                       <TableHead>Nama Kelompok</TableHead>
                       <TableHead>Judul</TableHead>
                       <TableHead>Anggota</TableHead>
@@ -671,20 +1124,32 @@ export default function FinalizationPage() {
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={7} className="text-center py-8">
                           <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                         </TableCell>
                       </TableRow>
                     ) : tableData.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                           Tidak ada grup dengan status READY_FOR_FINALIZATION
                         </TableCell>
                       </TableRow>
                     ) : (
-                      (tableData as Group[]).map((group) => (
+                      (tableData as Group[]).map((group) => {
+                        const actionReason = group.allowed_actions?.reason
+                          ? actionReasonMap[group.allowed_actions.reason] || 'Aksi belum tersedia untuk grup ini.'
+                          : null;
+
+                        return (
                         <TableRow key={group.id}>
-                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedRows.has(group.id)}
+                              onCheckedChange={() => toggleRowSelection(group.id)}
+                              aria-label={`Select Group ${group.id}`}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">Group {group.id}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -712,7 +1177,7 @@ export default function FinalizationPage() {
                             <Select
                               value={group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString() ?? undefined}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_1_id')}
-                              disabled={settingRow === group.id}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
                               <SelectTrigger className="w-[160px] h-8 text-xs">
                                 <SelectValue placeholder="Pilih SV1" />
@@ -740,7 +1205,7 @@ export default function FinalizationPage() {
                             <Select
                               value={group.supervisor_2_id?.toString() ?? undefined}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_2_id')}
-                              disabled={settingRow === group.id}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
                               <SelectTrigger className="w-[160px] h-8 text-xs">
                                 <SelectValue placeholder="Pilih SV2" />
@@ -768,9 +1233,10 @@ export default function FinalizationPage() {
                             <Button
                               size="sm"
                               variant="default"
-                              disabled={!group.supervisor_1_id || settingRow === group.id}
+                              disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_mark_kelompok_final ?? !!group.supervisor_1_id)}
                               onClick={() => handleMarkKelompokFinal(group.id)}
                               className="text-xs h-8"
+                              title={actionReason || undefined}
                             >
                               {settingRow === group.id ? (
                                 <RefreshCw className="h-3 w-3 animate-spin" />
@@ -783,7 +1249,7 @@ export default function FinalizationPage() {
                             </Button>
                           </TableCell>
                         </TableRow>
-                      ))
+                      );})
                     )}
                   </TableBody>
                 </Table>
@@ -805,7 +1271,7 @@ export default function FinalizationPage() {
                     Grup yang sudah di-set supervisor dan ditandai KELOMPOK_FINAL. Siap untuk eksekusi finalisasi.
                   </CardDescription>
                 </div>
-                {stats?.can_finalize && (
+                {canExecuteByFlow && !isPeriodFinalized && canModifyByFlow && (
                   <Button onClick={() => setShowExecuteDialog(true)} variant="default">
                     <Shield className="mr-2 h-4 w-4" />
                     Eksekusi Finalisasi
@@ -814,6 +1280,15 @@ export default function FinalizationPage() {
               </div>
             </CardHeader>
             <CardContent>
+              {/* Info Banner */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 mb-4 flex items-start gap-2">
+                <Info className="h-4 w-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-emerald-800">
+                  <strong>Kelompok Final:</strong> Grup dengan supervisor lengkap yang siap untuk <strong>Eksekusi Finalisasi</strong>.
+                  Gunakan dropdown Aksi untuk Cancel jika perlu revisi.
+                </p>
+              </div>
+
               {/* Search */}
               <div className="flex items-center gap-2 mb-4">
                 <div className="relative flex-1 max-w-sm">
@@ -827,36 +1302,72 @@ export default function FinalizationPage() {
                 </div>
               </div>
 
+              {/* Bulk Action Bar */}
+              {!isPeriodFinalized && canModifyByFlow && (
+                <BulkActionBar
+                  selectedCount={selectedRows.size}
+                  totalCount={tableData.length}
+                  onSelectAll={selectAllRows}
+                  onSelectNone={clearSelection}
+                  onCancelFinal={() => setShowBulkCancelFinalDialog(true)}
+                  onExport={handleExportSelected}
+                  showMarkFinal={false}
+                  showCancelFinal={true}
+                  loading={cancelingKelompokFinal}
+                />
+              )}
+
               {/* Table */}
-              <div className="rounded-md border">
+              <div className="rounded-md border mt-4">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-[40px]">
+                        <Checkbox
+                          checked={selectedRows.size === tableData.length && tableData.length > 0}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              selectAllRows();
+                            } else {
+                              clearSelection();
+                            }
+                          }}
+                          aria-label="Select all"
+                        />
+                      </TableHead>
                       <TableHead>Nama Kelompok</TableHead>
                       <TableHead>Judul</TableHead>
                       <TableHead>Anggota</TableHead>
                       <TableHead>Supervisor 1</TableHead>
                       <TableHead>Supervisor 2</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead className="w-[100px]">Aksi</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8">
+                        <TableCell colSpan={8} className="text-center py-8">
                           <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
                         </TableCell>
                       </TableRow>
                     ) : tableData.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                           Belum ada kelompok final. Set supervisor di tab &quot;Siap Finalisasi&quot; terlebih dahulu.
                         </TableCell>
                       </TableRow>
                     ) : (
                       (tableData as Group[]).map((group) => (
                         <TableRow key={group.id}>
-                          <TableCell className="font-medium">{group.name}</TableCell>
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedRows.has(group.id)}
+                              onCheckedChange={() => toggleRowSelection(group.id)}
+                              aria-label={`Select Group ${group.id}`}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">Group {group.id}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -893,7 +1404,22 @@ export default function FinalizationPage() {
                               <span className="text-muted-foreground text-sm">-</span>
                             )}
                           </TableCell>
-                          <TableCell>{getStatusBadge(group.status)}</TableCell>
+                          <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
+                          <TableCell>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isPeriodFinalized || !canModifyByFlow || cancelingKelompokFinal}>
+                                  <Settings className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleCancelKelompokFinal(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_cancel_kelompok_final ?? true)}>
+                                  <XCircle className="mr-2 h-4 w-4" />
+                                  Cancel Kelompok Final
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
@@ -944,6 +1470,15 @@ export default function FinalizationPage() {
 
                 {/* Sub Tab: No Group */}
                 <TabsContent value="no_group" className="space-y-4">
+                  {/* Info Banner */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2">
+                    <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-amber-800">
+                      <strong>Tanpa Kelompok:</strong> Mahasiswa yang sudah terdaftar di periode tapi belum memiliki grup.
+                      Gunakan <strong>Grouping Manual</strong> untuk membuat grup baru atau menambahkan ke grup existing.
+                    </p>
+                  </div>
+
                   <div className="flex justify-between items-center">
                     <div className="relative flex-1 max-w-sm">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -954,7 +1489,7 @@ export default function FinalizationPage() {
                         className="pl-9"
                       />
                     </div>
-                    <Button onClick={() => setShowGroupingDialog(true)}>
+                    <Button onClick={() => handleOpenGroupingDialog(true)} disabled={isPeriodFinalized}>
                       <UserPlus className="mr-2 h-4 w-4" />
                       Grouping Manual
                     </Button>
@@ -998,13 +1533,35 @@ export default function FinalizationPage() {
 
                 {/* Sub Tab: No Title */}
                 <TabsContent value="no_title" className="space-y-4">
-                  <div className="relative flex-1 max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Cari grup..."
-                      value={filters.search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      className="pl-9"
+                  {/* Info Banner */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-md p-3 flex items-start gap-2">
+                    <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-amber-800">
+                      <strong>Tanpa Judul:</strong> Grup dengan status READY_FOR_BIDDING yang perlu di-assign judul.
+                      Pindah ke tab <strong>Belum Siap</strong> untuk melihat grup TITLE_APPROVED yang menunggu supervisor.
+                    </p>
+                  </div>
+
+                  <div className="flex justify-between items-center">
+                    <div className="relative flex-1 max-w-sm">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        placeholder="Cari grup..."
+                        value={filters.search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9"
+                      />
+                    </div>
+                    <FilterPanel
+                      filters={{
+                        supervisorStatus: filters.supervisorStatus || 'all',
+                        memberCount: filters.memberCount || 'all',
+                      }}
+                      onFilterChange={(newFilters) => setFilters(newFilters)}
+                      minGroupSize={period?.min_group_size || 3}
+                      maxGroupSize={period?.max_group_size || 4}
+                      showSupervisor={false}
+                      showMemberCount={true}
                     />
                   </div>
 
@@ -1033,7 +1590,7 @@ export default function FinalizationPage() {
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell className="font-medium">Group {group.id}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1046,7 +1603,7 @@ export default function FinalizationPage() {
                                   )}
                                 </div>
                               </TableCell>
-                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                              <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                             </TableRow>
                           ))
                         )}
@@ -1055,8 +1612,17 @@ export default function FinalizationPage() {
                   </div>
                 </TabsContent>
 
-                {/* Sub Tab: Not Ready (FORMING, FORMING_SOLO, READY_FOR_BIDDING, TITLE_APPROVED, etc.) */}
+                {/* Sub Tab: Not Ready (TITLE_APPROVED only) */}
                 <TabsContent value="not_ready" className="space-y-4">
+                  {/* Info Banner */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 flex items-start gap-2">
+                    <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-blue-800">
+                      <strong>Belum Siap:</strong> Grup dengan status TITLE_APPROVED yang menunggu penentuan supervisor.
+                      Set Supervisor 1 & 2 di tab <strong>Siap Finalisasi</strong> untuk melanjutkan ke Kelompok Final.
+                    </p>
+                  </div>
+
                   <div className="relative flex-1 max-w-sm">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
@@ -1078,23 +1644,23 @@ export default function FinalizationPage() {
                             <TableHead className="w-[120px]">Aksi</TableHead>
                           </TableRow>
                         </TableHeader>
-                      <TableBody>
-                        {loading ? (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center py-8">
-                              <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
-                            </TableCell>
-                          </TableRow>
+                  <TableBody>
+                    {loading ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8">
+                          <RefreshCw className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                        </TableCell>
+                      </TableRow>
                         ) : tableData.length === 0 ? (
                           <TableRow>
                             <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                              Semua grup sudah siap atau sudah difinalisasi
+                              Tidak ada grup TITLE_APPROVED
                             </TableCell>
                           </TableRow>
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">{group.name}</TableCell>
+                              <TableCell className="font-medium">Group {group.id}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1114,34 +1680,37 @@ export default function FinalizationPage() {
                                   <span className="text-muted-foreground">-</span>
                                 )}
                               </TableCell>
-                              <TableCell>{getStatusBadge(group.status)}</TableCell>
+                              <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                               <TableCell>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
-                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0" disabled={isPeriodFinalized || !canModifyByFlow}>
                                       <Settings className="h-4 w-4" />
                                     </Button>
                                   </DropdownMenuTrigger>
                                   <DropdownMenuContent align="end">
                                     {group.status === 'FORMING' && (
-                                      <DropdownMenuItem onClick={() => handleAddMemberToGroup(group)}>
+                                      <DropdownMenuItem onClick={() => handleAddMemberToGroup(group)} disabled={isPeriodFinalized}>
                                         <UserPlus className="mr-2 h-4 w-4" />
                                         Tambah Anggota
                                       </DropdownMenuItem>
                                     )}
                                     {group.status === 'READY_FOR_BIDDING' && (
-                                      <DropdownMenuItem onClick={() => {
-                                        setSelectedGroupForAction(group);
-                                        setShowAssignTitleDialog(true);
-                                      }}>
+                                      <DropdownMenuItem onClick={() => handleOpenAssignTitleDialog(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_assign_title ?? true)}>
                                         <FileText className="mr-2 h-4 w-4" />
                                         Assign Judul
                                       </DropdownMenuItem>
                                     )}
                                     {group.status === 'TITLE_APPROVED' && (
-                                      <DropdownMenuItem onClick={() => handleFinalizeGroup(group)}>
+                                      <DropdownMenuItem onClick={() => handleFinalizeGroup(group)} disabled={isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_promote_to_ready_for_finalization ?? true)}>
                                         <CheckCircle className="mr-2 h-4 w-4" />
                                         Finalisasi
+                                      </DropdownMenuItem>
+                                    )}
+                                    {group.allowed_actions?.reason && (
+                                      <DropdownMenuItem disabled>
+                                        <Info className="mr-2 h-4 w-4" />
+                                        {actionReasonMap[group.allowed_actions.reason] || 'Aksi tidak tersedia'}
                                       </DropdownMenuItem>
                                     )}
                                   </DropdownMenuContent>
@@ -1199,6 +1768,7 @@ export default function FinalizationPage() {
             <div className="space-y-2">
               <Label>Pilih Judul</Label>
               <Select
+                disabled={availableTitles.length === 0 || isPeriodFinalized}
                 onValueChange={(value) => {
                   if (selectedGroupForAction) {
                     handleAssignTitleToGroup(selectedGroupForAction.id, parseInt(value));
@@ -1222,11 +1792,211 @@ export default function FinalizationPage() {
                   ))}
                 </SelectContent>
               </Select>
+              {availableTitles.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Belum ada judul marketplace yang tersedia untuk periode ini.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAssignTitleDialog(false)}>
               Batal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Keyboard Shortcuts Help Dialog */}
+      <Dialog open={showKeyboardHelp} onOpenChange={setShowKeyboardHelp}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Keyboard Shortcuts</DialogTitle>
+            <DialogDescription>
+              Gunakan shortcut berikut untuk navigasi cepat
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Focus Search</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + F</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Refresh Data</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + R</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Tab 1: Siap Finalisasi</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + 1</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Tab 2: Kelompok Final</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + 2</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Tab 3: Perlu Perhatian</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + 3</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Export Data</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">Ctrl + E</kbd>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Show Help</span>
+                <kbd className="px-2 py-1 bg-muted rounded text-xs font-mono">?</kbd>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setShowKeyboardHelp(false)}>Tutup</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Mark Final Validation Dialog */}
+      <Dialog open={showBulkMarkFinalDialog} onOpenChange={setShowBulkMarkFinalDialog}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Bulk Mark Kelompok Final</DialogTitle>
+            <DialogDescription>
+              Validasi grup yang akan ditandai sebagai Kelompok Final
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
+            {(() => {
+              const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+              const valid: Group[] = [];
+              const invalid: { group: Group; reason: string }[] = [];
+
+              selectedGroups.forEach((group) => {
+                if (group.status !== 'READY_FOR_FINALIZATION') {
+                  invalid.push({ group, reason: 'Status bukan Siap Finalisasi' });
+                  return;
+                }
+                if (!group.supervisor_1_id && !group.title?.lecturer?.id) {
+                  invalid.push({ group, reason: 'Belum ada Supervisor 1' });
+                  return;
+                }
+                if (!group.supervisor_2_id) {
+                  invalid.push({ group, reason: 'Belum ada Supervisor 2' });
+                  return;
+                }
+                valid.push(group);
+              });
+
+              return (
+                <>
+                  {/* Valid Groups */}
+                  {valid.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium text-emerald-700 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4" />
+                        Valid ({valid.length} grup)
+                      </h4>
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 space-y-1">
+                            {valid.map((group) => (
+                          <div key={group.id} className="text-sm text-emerald-800">
+                            Group {group.id}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Invalid Groups */}
+                  {invalid.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-medium text-red-700 flex items-center gap-2">
+                        <XCircle className="h-4 w-4" />
+                        Tidak Valid ({invalid.length} grup)
+                      </h4>
+                      <div className="bg-red-50 border border-red-200 rounded-md p-3 space-y-1">
+                        {invalid.map(({ group, reason }) => (
+                          <div key={group.id} className="text-sm text-red-800 flex justify-between">
+                            <span>Group {group.id}</span>
+                            <span className="text-red-600">{reason}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowBulkMarkFinalDialog(false)}>
+              Batal
+            </Button>
+            <Button 
+              onClick={handleBulkMarkFinal}
+              disabled={settingRow === -1}
+            >
+              {settingRow === -1 ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Mark Final
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Cancel Final Dialog */}
+      <Dialog open={showBulkCancelFinalDialog} onOpenChange={setShowBulkCancelFinalDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Bulk Cancel Kelompok Final</DialogTitle>
+            <DialogDescription>
+              Cancel {selectedRows.size} grup dari status Kelompok Final
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-md p-3">
+              <p className="text-sm text-amber-800">
+                <strong>Perhatian:</strong> Grup yang di-cancel akan kembali ke status <strong>READY_FOR_FINALIZATION</strong>.
+                Pastikan untuk mengecek kembali supervisor assignment sebelum melanjutkan.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cancel-reason">Alasan Cancel (opsional)</Label>
+              <textarea
+                id="cancel-reason"
+                className="w-full min-h-[80px] px-3 py-2 border rounded-md text-sm"
+                placeholder="Masukkan alasan cancel..."
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowBulkCancelFinalDialog(false)}>
+              Batal
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                const reason = (document.getElementById('cancel-reason') as HTMLTextAreaElement)?.value;
+                handleBulkCancelFinal(reason);
+              }}
+              disabled={cancelingKelompokFinal}
+            >
+              {cancelingKelompokFinal ? (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <XCircle className="mr-2 h-4 w-4" />
+                  Cancel Final
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

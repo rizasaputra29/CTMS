@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\Supervision;
@@ -16,6 +17,8 @@ use Illuminate\Http\Request;
 
 class TaDefenseController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
     protected SchedulingService $schedulingService;
 
@@ -72,7 +75,8 @@ class TaDefenseController extends Controller
             return response()->json(['message' => 'Student must have a TA submission in TA_REGISTERED status.'], 400);
         }
 
-        $group = Group::findOrFail($taSubmission->group_id);
+        $group = Group::with('period')->findOrFail($taSubmission->group_id);
+        $this->ensurePeriodIsActive($group);
 
         // Validate examiners are dosen
         foreach (['examiner_1_id', 'examiner_2_id'] as $field) {
@@ -82,10 +86,21 @@ class TaDefenseController extends Controller
             }
         }
 
-        // Validate no duplicate (examiner same as supervisor would be caught by UNIQUE constraint)
         // Get supervisors
         $supervisor1 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_1')->first();
         $supervisor2 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_2')->first();
+
+        // Validate examiners cannot be supervisors
+        $supervisorIds = array_filter([
+            $supervisor1?->supervisor_id,
+            $supervisor2?->supervisor_id,
+        ]);
+        if (in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+        if (in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+        }
 
         // Collect ALL examiner IDs for double-booking check
         $allExaminerIds = array_filter([
@@ -219,6 +234,16 @@ class TaDefenseController extends Controller
             return response()->json(['message' => 'You are not assigned as examiner for this defense.'], 403);
         }
 
+        $schedule = TaDefenseSchedule::with('group.period')->find($scheduleId);
+        if ($schedule) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
+
+        $schedule = TaDefenseSchedule::with('group.period')->find($scheduleId);
+        if ($schedule?->group) {
+            $this->ensurePeriodIsActive($schedule->group);
+        }
+
         try {
             $result = $this->schedulingService->submitTaDefenseEvaluation(
                 $evaluation->id,
@@ -268,11 +293,12 @@ class TaDefenseController extends Controller
             'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
         ]);
 
-        $schedule = TaDefenseSchedule::where('id', $id)
+        $schedule = TaDefenseSchedule::with('group.period')->where('id', $id)
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
 
         $group = Group::findOrFail($schedule->group_id);
+        $this->ensurePeriodIsActive($group);
 
         // Get supervisors for this group
         $supervisor1 = Supervision::where('group_id', $group->id)->where('role', 'SUPERVISOR_1')->first();
@@ -385,9 +411,12 @@ class TaDefenseController extends Controller
     {
         $request->validate(['rejection_reason' => 'required|string|max:1000']);
 
-        $schedule = TaDefenseSchedule::where('id', $id)
+        $schedule = TaDefenseSchedule::with('group.period')
+            ->where('id', $id)
             ->where('status', 'PENDING_APPROVAL')
             ->firstOrFail();
+
+        $this->ensurePeriodIsActive($schedule->group);
 
         $schedule->update([
             'status' => 'CANCELLED',

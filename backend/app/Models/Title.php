@@ -4,6 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * @property int $id
+ * @property string $supervisor_approval_status
+ * @property int|null $proposed_supervisor_id
+ */
 class Title extends Model
 {
     protected $fillable = [
@@ -70,5 +75,10 @@ class Title extends Model
     public function approvalAudits()
     {
         return $this->hasMany(TitleApprovalAudit::class, 'title_id');
+    }
+
+    public function deletionAudits()
+    {
+        return $this->hasMany(TitleDeletionAudit::class, 'title_id');
     }
 }

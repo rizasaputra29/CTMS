@@ -10,13 +10,20 @@ import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export interface ScheduleEvent {
-    id: number;
+    id: number | string;
     group_id: number;
-    type: 'SEMPRO' | 'SIDANG' | 'EXPO' | 'BIMBINGAN';
+    student_id?: number;
+    type: 'SEMPRO' | 'SIDANG' | 'EXPO' | 'BIMBINGAN' | 'TA_DEFENSE';
     date: string;
     room: string;
     mode?: string | null;
     notes?: string | null;
+    status?: string;
+    period_name?: string;
+    student_name?: string;
+    examiner1?: { name: string } | null;
+    examiner2?: { name: string } | null;
+    examiners?: { name: string; role?: string }[];
     group: {
         title: {
             title: string;
@@ -33,7 +40,9 @@ interface ScheduleCalendarProps {
     canEdit?: boolean;
     onAdd?: (date: Date) => void;
     onEdit?: (schedule: ScheduleEvent) => void;
-    onDelete?: (id: number) => void;
+    onDelete?: (id: number | string) => void;
+    onApprove?: (id: number | string, type: string) => void;
+    onReject?: (id: number | string, type: string) => void;
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
@@ -61,6 +70,12 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: strin
         bgColor: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-900',
         dotColor: 'bg-emerald-500',
     },
+    TA_DEFENSE: {
+        label: 'TA Defense',
+        color: 'text-rose-700 dark:text-rose-400',
+        bgColor: 'bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:border-rose-900',
+        dotColor: 'bg-rose-500',
+    },
 };
 
 export default function ScheduleCalendar({
@@ -69,6 +84,8 @@ export default function ScheduleCalendar({
     onAdd,
     onEdit,
     onDelete,
+    onApprove,
+    onReject,
 }: ScheduleCalendarProps) {
     const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
@@ -77,7 +94,12 @@ export default function ScheduleCalendar({
     const eventsByDate = useMemo(() => {
         const map = new Map<string, ScheduleEvent[]>();
         for (const s of schedules) {
-            const key = format(new Date(s.date), 'yyyy-MM-dd');
+            const dateObj = new Date(s.date);
+            if (isNaN(dateObj.getTime())) {
+                console.warn('Invalid date in schedule:', s);
+                continue;
+            }
+            const key = format(dateObj, 'yyyy-MM-dd');
             if (!map.has(key)) map.set(key, []);
             map.get(key)!.push(s);
         }
@@ -87,9 +109,12 @@ export default function ScheduleCalendar({
     // Events for the selected day
     const selectedDayEvents = useMemo(() => {
         const key = format(selectedDate, 'yyyy-MM-dd');
-        return (eventsByDate.get(key) || []).sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
+        return (eventsByDate.get(key) || []).sort((a, b) => {
+            const dateA = new Date(a.date);
+            const dateB = new Date(b.date);
+            if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) return 0;
+            return dateA.getTime() - dateB.getTime();
+        });
     }, [selectedDate, eventsByDate]);
 
     // Get unique event types for a given date (for dot colors)
@@ -193,17 +218,39 @@ export default function ScheduleCalendar({
                         <div className="space-y-3">
                             {selectedDayEvents.map((event) => {
                                 const cfg = TYPE_CONFIG[event.type] || TYPE_CONFIG.BIMBINGAN;
+                                const isPending = event.status === 'PENDING_APPROVAL';
+                                const statusLabel = event.status
+                                    ? event.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                                    : '';
+                                const statusVariant: 'default' | 'secondary' | 'destructive' | 'outline' = event.status === 'COMPLETED' || event.status === 'DONE' ? 'default'
+                                    : event.status === 'CANCELLED' ? 'destructive'
+                                    : event.status === 'PENDING_APPROVAL' ? 'secondary'
+                                    : 'secondary';
+
                                 return (
                                     <div
                                         key={event.id}
-                                        className="rounded-lg border border-muted-foreground/20 bg-white dark:bg-zinc-950 p-4 transition-colors"
+                                        className={cn(
+                                            "rounded-lg border border-muted-foreground/20 bg-white dark:bg-zinc-950 p-4 transition-colors",
+                                            isPending && "border-amber-300 dark:border-amber-700"
+                                        )}
                                     >
                                         <div className="flex items-start justify-between gap-2 mb-2">
-                                            <div className="flex flex-col gap-1">
-                                                <div className="flex items-center gap-2">
+                                            <div className="flex flex-col gap-1 min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap">
                                                     <Badge variant="outline" className="text-xs font-semibold text-black dark:text-white">
                                                         {cfg.label}
                                                     </Badge>
+                                                    {event.status && (
+                                                        <Badge variant={statusVariant} className="text-xs">
+                                                            {statusLabel}
+                                                        </Badge>
+                                                    )}
+                                                    {event.period_name && (
+                                                        <Badge variant="outline" className="text-xs text-muted-foreground">
+                                                            {event.period_name}
+                                                        </Badge>
+                                                    )}
                                                     {event.mode && (
                                                         <Badge variant="outline" className="text-xs gap-1 text-black dark:text-white">
                                                             {event.mode === 'online' ? (
@@ -215,34 +262,65 @@ export default function ScheduleCalendar({
                                                         </Badge>
                                                     )}
                                                 </div>
-                                                <h4 className="font-semibold text-sm leading-snug text-black dark:text-white">
+                                                <h4 className="font-semibold text-sm leading-snug text-black dark:text-white truncate">
                                                     {event.group?.title?.title || 'Untitled Project'}
                                                 </h4>
+                                                {event.type === 'TA_DEFENSE' && event.student_name && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Student: {event.student_name}
+                                                    </p>
+                                                )}
+                                                {(event.examiner1 || event.examiner2) && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Examiners: {[event.examiner1?.name, event.examiner2?.name].filter(Boolean).join(', ')}
+                                                    </p>
+                                                )}
+                                                {event.examiners && event.examiners.length > 0 && (
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Examiners: {event.examiners.map(e => e.name).join(', ')}
+                                                    </p>
+                                                )}
                                             </div>
-                                            {canEdit && (
-                                                <div className="flex gap-1 shrink-0">
-                                                    {onEdit && (
-                                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(event)}>
-                                                            <Edit className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    )}
-                                                    {onDelete && (
-                                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(event.id)}>
-                                                            <Trash2 className="h-3.5 w-3.5" />
-                                                        </Button>
-                                                    )}
-                                                </div>
-                                            )}
+                                            <div className="flex gap-1 shrink-0">
+                                                {canEdit && event.type === 'BIMBINGAN' && (
+                                                    <>
+                                                        {onEdit && (
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(event)}>
+                                                                <Edit className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        )}
+                                                        {onDelete && (
+                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(event.id)}>
+                                                                <Trash2 className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                        )}
+                                                    </>
+                                                )}
+                                                {isPending && onApprove && (
+                                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
+                                                        onClick={() => onApprove(event.id, event.type)}>
+                                                        Approve
+                                                    </Button>
+                                                )}
+                                                {isPending && onReject && (
+                                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
+                                                        onClick={() => onReject(event.id, event.type)}>
+                                                        Reject
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
                                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                             <span className="flex items-center gap-1">
                                                 <Clock className="h-3 w-3" />
                                                 {format(new Date(event.date), 'HH:mm')}
                                             </span>
-                                            <span className="flex items-center gap-1">
-                                                <MapPin className="h-3 w-3" />
-                                                {event.room}
-                                            </span>
+                                            {event.room && (
+                                                <span className="flex items-center gap-1">
+                                                    <MapPin className="h-3 w-3" />
+                                                    {event.room}
+                                                </span>
+                                            )}
                                             {event.group?.title?.lecturer && (
                                                 <span className="text-xs">
                                                     Dosen: {event.group.title.lecturer.name}

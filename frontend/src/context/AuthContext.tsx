@@ -43,9 +43,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                     if (storedRole && userData.roles?.includes(storedRole)) {
                         setActiveRole(storedRole);
                     } else if (userData.roles && userData.roles.length > 0) {
-                        const defaultRole = userData.roles[0];
-                        setActiveRole(defaultRole);
-                        localStorage.setItem('activeRole', defaultRole);
+                        // For multi-role (admin+dosen), don't set a single activeRole
+                        const isCombined = userData.roles.includes('admin') && userData.roles.includes('dosen');
+                        if (isCombined) {
+                            setActiveRole('admin'); // Default to admin for compatibility
+                        } else {
+                            const defaultRole = userData.roles[0];
+                            setActiveRole(defaultRole);
+                            localStorage.setItem('activeRole', defaultRole);
+                        }
                     }
                 }
             } catch (error) {
@@ -72,11 +78,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const userWithRoles = { ...userData, roles };
         setUser(userWithRoles);
 
-        // For all users (single or multi-role), set activeRole and redirect to dashboard
-        const targetRole = roles[0] || userData.role || 'mahasiswa';
-        setActiveRole(targetRole);
-        localStorage.setItem('activeRole', targetRole);
-        router.push(`/${targetRole}/dashboard`);
+        // Multi-role (admin + dosen) → go to combined dashboard
+        if (roles.includes('admin') && roles.includes('dosen')) {
+            setActiveRole('admin');
+            localStorage.setItem('activeRole', 'admin');
+            router.push('/');
+        } else {
+            const targetRole = roles[0] || userData.role || 'mahasiswa';
+            setActiveRole(targetRole);
+            localStorage.setItem('activeRole', targetRole);
+            router.push(`/${targetRole}/dashboard`);
+        }
     };
 
     const switchRole = async (role: string) => {
@@ -98,6 +110,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         } finally {
             localStorage.removeItem('token');
             localStorage.removeItem('activeRole');
+            localStorage.removeItem('sidebar_sections');
             delete api.defaults.headers.common['Authorization'];
             setUser(null);
             setActiveRole(null);

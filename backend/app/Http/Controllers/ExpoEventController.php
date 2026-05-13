@@ -2,12 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\ExpoEvent;
 use App\Services\ExpoService;
 use Illuminate\Http\Request;
 
 class ExpoEventController extends Controller
 {
+    use ApiResponseTrait, RequiresActivePeriod;
+
     protected ExpoService $expoService;
 
     public function __construct(ExpoService $expoService)
@@ -28,7 +31,8 @@ class ExpoEventController extends Controller
             $query->where('period_id', $request->period_id);
         }
 
-        return response()->json($query->orderBy('date', 'desc')->get());
+        $events = $query->orderBy('date', 'desc')->get();
+        return $this->successResponse($events, 'Expo events retrieved successfully');
     }
 
     public function store(Request $request)
@@ -46,6 +50,8 @@ class ExpoEventController extends Controller
 
         $validated['created_by'] = $request->user()->id;
 
+        $this->ensurePeriodActiveById($request->period_id);
+
         $event = ExpoEvent::create($validated);
 
         return response()->json($event->load(['period', 'creator']), 201);
@@ -60,6 +66,8 @@ class ExpoEventController extends Controller
 
     public function update(Request $request, ExpoEvent $expoEvent)
     {
+        $this->ensurePeriodActiveById($expoEvent->period_id);
+
         $validated = $request->validate([
             'name' => 'sometimes|string|max:255',
             'date' => 'sometimes|date',
@@ -76,6 +84,8 @@ class ExpoEventController extends Controller
 
     public function destroy(ExpoEvent $expoEvent)
     {
+        $this->ensurePeriodActiveById($expoEvent->period_id);
+
         if ($expoEvent->registrations()->exists()) {
             return response()->json(['message' => 'Cannot delete event with active registrations.'], 400);
         }
@@ -89,6 +99,8 @@ class ExpoEventController extends Controller
      */
     public function publish(ExpoEvent $expoEvent)
     {
+        $this->ensurePeriodActiveById($expoEvent->period_id);
+
         $expoEvent->update(['is_published' => !$expoEvent->is_published]);
 
         return response()->json([

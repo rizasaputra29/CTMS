@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\GradeConsistencyCheck;
-use App\Models\AssessmentScore;
 use App\Models\Group;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 
 class GradeConsistencyController extends Controller
@@ -36,7 +36,18 @@ class GradeConsistencyController extends Controller
         ]);
 
         $groups = Group::where('period_id', $request->period_id)
-            ->where('status', 'APPROVED')
+            ->whereIn('status', [
+                'PDC1_ACTIVE',
+                'PDC2_ACTIVE',
+                'READY_FOR_TA_INDIVIDUAL',
+                'SEMPRO_DONE',
+                'EXPO_DONE',
+                'TITLE_APPROVED',
+                'KELOMPOK_FINAL',
+                'READY_FOR_SEMPRO',
+                'PDC2_READY_FOR_EXPO',
+                'EXPO_REGISTERED'
+            ])
             ->with('members')
             ->get();
 
@@ -45,15 +56,15 @@ class GradeConsistencyController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 // Get PDC1 (SEMPRO) average score
-                $pdc1 = AssessmentScore::where('group_id', $group->id)
+                $pdc1 = AssessmentScoreRepository::forType('SEMPRO')
+                    ->where('group_id', $group->id)
                     ->where('student_id', $member->student_id)
-                    ->where('evaluation_type', 'SEMPRO')
                     ->avg('score');
 
                 // Get PDC2 (SIDANG_TA) average score
-                $pdc2 = AssessmentScore::where('group_id', $group->id)
+                $pdc2 = AssessmentScoreRepository::forType('SIDANG_TA')
+                    ->where('group_id', $group->id)
                     ->where('student_id', $member->student_id)
-                    ->where('evaluation_type', 'SIDANG_TA')
                     ->avg('score');
 
                 if ($pdc1 !== null || $pdc2 !== null) {

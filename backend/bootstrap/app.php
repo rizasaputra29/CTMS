@@ -13,6 +13,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+        $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
         ]);
@@ -21,7 +22,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\App\Exceptions\ConflictRuleException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
-                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
                 'code' => 'CONFLICT'
             ], 409);
         });
@@ -29,8 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\App\Exceptions\DomainRuleException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
-                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
                 'code' => 'DOMAIN_ERROR'
             ], 422);
+        });
+
+        // Handle authentication errors for API routes
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'message' => 'Unauthenticated.',
+                ], 401);
+            }
         });
     })->create();

@@ -30,7 +30,7 @@ class FreshTestDataSeeder extends Seeder
         $this->command->info('- Created 2 periods (Ganjil & Genap)');
         $this->command->info('- Created 1 admin user');
         $this->command->info('- Created 6 dosen users');
-        $this->command->info('- Created 20 mahasiswa users (unregistered to periods)');
+        $this->command->info('- Created 30 mahasiswa users (unregistered to periods)');
     }
 
     private function deleteAllData(): void
@@ -155,12 +155,13 @@ class FreshTestDataSeeder extends Seeder
             ];
         }
 
-        // Create mahasiswa users (1-20)
-        for ($i = 1; $i <= 20; $i++) {
+        // Create mahasiswa users (1-30)
+        for ($i = 1; $i <= 30; $i++) {
             $users[] = [
                 'name' => "Mahasiswa $i",
                 'email' => "mahasiswa$i@ctms.com",
                 'role' => 'mahasiswa',
+                'nim' => sprintf('2021%04d', $i), // Pattern: 20210001 - 20210030
             ];
         }
 
@@ -172,6 +173,8 @@ class FreshTestDataSeeder extends Seeder
                 'password' => $password,
                 'email_verified_at' => $now,
                 'role' => $entry['role'],
+                'nim' => $entry['nim'] ?? null,
+                'is_active' => true,
             ]);
 
             // Assign role from roles table

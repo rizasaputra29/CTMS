@@ -7,11 +7,14 @@ use App\Models\ExpoRegistration;
 use App\Models\Group;
 use App\Models\SeminarSchedule;
 use App\Models\AuditLog;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 class ExpoService
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -43,6 +46,8 @@ class ExpoService
             // Guard: group must exist and be in correct state
             $group = Group::findOrFail($groupId);
 
+            $this->ensurePeriodIsActive($group);
+
             // ⚠ Validate state machine transition BEFORE attempting
             if (!$this->stateMachine->canTransition($group->status, 'EXPO_REGISTERED')) {
                 throw new InvalidArgumentException(
@@ -56,11 +61,14 @@ class ExpoService
                 throw new InvalidArgumentException('Group does not belong to the same period as this event.');
             }
 
-            // Guard: Must have at least one TA Draft submitted
-            $taDraftsCount = \App\Models\TaSubmission::where('group_id', $group->id)->count();
-            if ($taDraftsCount < 1) {
+            // Guard: Must have at least one approved TA_DRAFT document
+            $hasTaDraft = \App\Models\Document::where('group_id', $group->id)
+                ->where('phase', 'TA_DRAFT')
+                ->where('status', 'APPROVED')
+                ->exists();
+            if (!$hasTaDraft) {
                 throw new InvalidArgumentException(
-                    "Group is not eligible for expo registration. At least 1 member must have submitted a TA draft."
+                    "Group is not eligible for expo registration. TA Draft document must be approved."
                 );
             }
 
@@ -76,7 +84,7 @@ class ExpoService
             SeminarSchedule::create([
                 'group_id' => $group->id,
                 'type' => 'EXPO',
-                'scheduled_date' => $event->date,
+                'date' => $event->date,
                 'start_time' => $event->start_time,
                 'end_time' => $event->end_time,
                 'room' => $event->room,

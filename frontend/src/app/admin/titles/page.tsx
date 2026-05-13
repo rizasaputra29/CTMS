@@ -38,15 +38,7 @@ export default function AdminTitlesPage() {
     const fetchData = useCallback(async (periodId?: string) => {
         setLoading(true);
         try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
-                const perRes = await api.get('/admin/periods');
-                const periodsData = perRes.data?.data || [];
-                setPeriods(periodsData);
-                const active = periodsData.find((p: Period) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
-            }
+            const currentPeriodId = periodId || selectedPeriod;
 
             if (!currentPeriodId) {
                 setLoading(false);
@@ -63,7 +55,7 @@ export default function AdminTitlesPage() {
     }, [selectedPeriod]);
 
     useEffect(() => {
-        if (!selectedPeriod) fetchData();
+        fetchData();
     }, [fetchData, selectedPeriod]);
 
     const handlePeriodChange = (val: string) => {
@@ -95,7 +87,7 @@ export default function AdminTitlesPage() {
         'FORMING': 0, 'FORMING_SOLO': 0, 'READY_FOR_BIDDING': 10,
         'KELOMPOK_FINAL': 20, 'PDC1_ACTIVE': 30, 'READY_FOR_SEMPRO': 40,
         'SEMPRO_DONE': 50, 'PDC2_ACTIVE': 60, 'PDC2_READY_FOR_EXPO': 70,
-        'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'PDC2_COMPLETED': 100, 'CLOSED': 100
+        'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'READY_FOR_TA_INDIVIDUAL': 100, 'CLOSED': 100
     };
 
     return (
@@ -141,7 +133,7 @@ export default function AdminTitlesPage() {
                             <Card key={group.id}>
                                 <CardHeader className="pb-3">
                                     <div className="flex justify-between items-start">
-                                        <CardTitle className="text-base font-bold">Group #{group.id}</CardTitle>
+                                        <CardTitle className="text-base font-bold">Group {group.id}</CardTitle>
                                         <Badge variant={progress === 100 ? 'default' : 'secondary'}>
                                             {group.status}
                                         </Badge>

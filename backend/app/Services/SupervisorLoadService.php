@@ -35,7 +35,7 @@ class SupervisorLoadService
         $totalLoad = max($supervisionCount, $cachedCount);
 
         $period = Period::find($periodId);
-        $maxLoad = $period->max_supervisor_load ?? 8;
+        $maxLoad = $period?->supervisorLoadLimit(8) ?? 8;
 
         return [
             'current_load' => $totalLoad,

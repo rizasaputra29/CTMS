@@ -187,7 +187,7 @@ class AutoMatchmakerService
         if ($preApprovedTitle) {
             // Check Quota before auto-approving
             $lecturerId = $preApprovedTitle->proposed_supervisor_id;
-            $maxLoad = $group->period->max_supervisor_load ?? 8;
+            $maxLoad = $group->period->supervisorLoadLimit(8);
             
             $currentLoad = \App\Models\Supervision::where('supervisor_id', $lecturerId)
                 ->whereHas('group', fn($q) => $q->where('period_id', $group->period_id))

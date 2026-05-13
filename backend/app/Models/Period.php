@@ -5,9 +5,16 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
+/**
+ * @property int $id
+ */
 class Period extends Model
 {
     use SoftDeletes;
+
+    protected $appends = [
+        'max_supervisor_load',
+    ];
     protected $fillable = [
         'name',
         'start_date',
@@ -32,14 +39,17 @@ class Period extends Model
         'min_group_size',
         'max_group_size',
         'max_supervisor_load',
+        'max_supervise_load',
         'allow_solo',
         'require_all_students_grouped',
+        'grade_configuration',
     ];
 
     protected $casts = [
         'start_date' => 'date',
         'end_date' => 'date',
         'phase_dates' => 'array',
+        'grade_configuration' => 'array',
         'is_active' => 'boolean',
         'is_finalized' => 'boolean',
         'require_all_students_grouped' => 'boolean',
@@ -58,7 +68,24 @@ class Period extends Model
         'ta_start' => 'date',
         'ta_end' => 'date',
         'ta_reminder_at' => 'datetime',
+        'max_supervisor_load' => 'integer',
+        'max_supervise_load' => 'integer',
     ];
+
+    public function getMaxSupervisorLoadAttribute($value): ?int
+    {
+        if ($value !== null) {
+            return (int) $value;
+        }
+
+        $legacy = $this->attributes['max_supervise_load'] ?? null;
+        return $legacy !== null ? (int) $legacy : null;
+    }
+
+    public function supervisorLoadLimit(int $default = 8): int
+    {
+        return $this->max_supervisor_load ?? $default;
+    }
 
     /**
      * Check if bidding is locked — bidding_end has passed.
@@ -109,5 +136,66 @@ class Period extends Model
     {
         return $this->belongsToMany(User::class, 'period_registrations')
             ->withTimestamps();
+    }
+
+    /**
+     * Assessment components configured for this period.
+     */
+    public function assessmentComponents()
+    {
+        return $this->hasMany(PeriodAssessmentComponent::class);
+    }
+
+    /**
+     * Peer review indicators configured for this period.
+     */
+    public function peerReviewIndicators()
+    {
+        return $this->hasMany(PeriodPeerReviewIndicator::class);
+    }
+
+    /**
+     * Get the currently active period with caching.
+     * Cache for 5 minutes to reduce database queries.
+     */
+    public static function getActive(?string $cacheKey = null): ?self
+    {
+        $cacheKey = $cacheKey ?? 'period:active';
+
+        return cache()->remember($cacheKey, now()->addMinutes(5), function () {
+            return self::where('is_active', true)->first();
+        });
+    }
+
+    /**
+     * Get all active periods with caching.
+     */
+    public static function getAllActive(): \Illuminate\Support\Collection
+    {
+        return cache()->remember('periods:active:all', now()->addMinutes(5), function () {
+            return self::where('is_active', true)->get();
+        });
+    }
+
+    /**
+     * Clear the active period cache.
+     * Call this when a period is created, updated, or deleted.
+     */
+    public static function clearActiveCache(): void
+    {
+        cache()->forget('period:active');
+        cache()->forget('periods:active:all');
+    }
+
+    protected static function booted(): void
+    {
+        // Clear cache when period is saved or deleted
+        static::saved(function ($period) {
+            self::clearActiveCache();
+        });
+
+        static::deleted(function ($period) {
+            self::clearActiveCache();
+        });
     }
 }

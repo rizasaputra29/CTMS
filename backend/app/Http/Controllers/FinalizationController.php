@@ -7,6 +7,7 @@ use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\Title;
+use App\Concerns\RequiresActivePeriod;
 use App\Services\BiddingService;
 use App\Services\FinalizationService;
 use App\Services\AutoMatchmakerService;
@@ -19,6 +20,8 @@ class FinalizationController extends Controller
     protected FinalizationService $finalizationService;
     protected BiddingService $biddingService;
     protected AutoMatchmakerService $autoMatchmakerService;
+
+    use RequiresActivePeriod;
 
     public function __construct(
         FinalizationService $finalizationService, 
@@ -109,10 +112,17 @@ class FinalizationController extends Controller
             })
             ->get();
 
-        $titles->each(function ($title) {
-            $title->current_allocations = Group::where('title_id', $title->id)
-                ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
-                ->count();
+        // Pre-load all allocation counts in a single query to avoid N+1
+        $titleIds = $titles->pluck('id')->toArray();
+        $allocationCounts = Group::whereIn('title_id', $titleIds)
+            ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'CLOSED'])
+            ->groupBy('title_id')
+            ->selectRaw('title_id, COUNT(*) as count')
+            ->pluck('count', 'title_id')
+            ->toArray();
+
+        $titles->each(function ($title) use ($allocationCounts) {
+            $title->current_allocations = $allocationCounts[$title->id] ?? 0;
             $title->remaining_quota = $title->quota - $title->current_allocations;
         });
 
@@ -142,7 +152,7 @@ class FinalizationController extends Controller
 
         $loadData = $this->finalizationService->getSupervisorLoad(
             $period->id,
-            $period->max_supervisor_load ?? 8
+            $period->supervisorLoadLimit(8)
         );
 
         return response()->json(['data' => $loadData]);
@@ -271,6 +281,8 @@ class FinalizationController extends Controller
 
         $group = Group::with('period')->findOrFail($request->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
             return response()->json([
                 'message' => 'Only groups in FORMING, FORMING_SOLO or WAITING_SUPERVISOR_APPROVAL status can be force-promoted.',
@@ -329,24 +341,63 @@ class FinalizationController extends Controller
             return response()->json(['message' => 'Cannot reopen an inactive period.'], 400);
         }
 
-        if (!$period->is_finalized) {
-            return response()->json(['message' => 'Period is not finalized.'], 400);
+        // Check for all groups that have been finalized (PDC1_ACTIVE and beyond)
+        $finalizedStatuses = [
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'READY_FOR_TA_INDIVIDUAL',
+        ];
+
+        $hasFinalizedGroups = Group::where('period_id', $period->id)
+            ->whereIn('status', $finalizedStatuses)
+            ->exists();
+
+        if (!$period->is_finalized && !$hasFinalizedGroups) {
+            return response()->json(['message' => 'Period is not finalized and has no executed finalization groups.'], 400);
         }
 
-        $period->update(['is_finalized' => false]);
+        DB::beginTransaction();
+        try {
+            // Re-open period registration
+            $period->update(['is_finalized' => false]);
 
-        \App\Models\AuditLog::create([
-            'user_id' => $request->user()->id,
-            'action' => 'PERIOD_REOPENED',
-            'target_type' => 'Period',
-            'target_id' => $period->id,
-            'payload' => ['reopened_at' => now()->toISOString()],
-        ]);
+            // Revert only groups that are still in PDC1_ACTIVE back to KELOMPOK_FINAL
+            // Groups that have progressed further (SEMPRO_DONE, PDC2_ACTIVE, etc.) remain in their current status
+            $revertedCount = Group::where('period_id', $period->id)
+                ->where('status', 'PDC1_ACTIVE')
+                ->update([
+                    'status' => 'KELOMPOK_FINAL',
+                    'finalized_at' => null,
+                    'finalized_by' => null,
+                ]);
 
-        return response()->json([
-            'message' => 'Period reopened for registration.',
-            'period' => $period->fresh(),
-        ]);
+            \App\Models\AuditLog::create([
+                'user_id' => $request->user()->id,
+                'action' => 'PERIOD_REOPENED',
+                'target_type' => 'Period',
+                'target_id' => $period->id,
+                'payload' => [
+                    'reopened_at' => now()->toISOString(),
+                    'reverted_count' => $revertedCount,
+                ],
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Period reopened for registration.',
+                'period' => $period->fresh(),
+                'reverted_count' => $revertedCount,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to reopen period: ' . $e->getMessage()], 500);
+        }
     }
 
     /**
@@ -358,14 +409,15 @@ class FinalizationController extends Controller
         $period = $this->resolvePeriod($request);
 
         // Get pagination parameters
-        $tab = $request->get('tab', 'ready'); // 'ready', 'final', 'others'
-        $perPage = (int) $request->get('per_page', 20);
-        $search = $request->get('search', '');
+        $tab = $request->input('tab', 'ready'); // 'ready', 'final', 'others'
+        $perPage = (int) $request->input('per_page', 20);
+        $search = $request->input('search', '');
 
         $response = [
             'period' => $period,
             'tab' => $tab,
             'stats' => $this->getDashboardStats($period),
+            'flow' => $this->buildAdminFinalizationFlowPayload($period, $tab, $request->input('sub_tab', 'no_group')),
         ];
 
         switch ($tab) {
@@ -392,14 +444,18 @@ class FinalizationController extends Controller
     {
         // Check document requirements status
         $docRequirementsStatus = $this->getDocumentRequirementsStatus($period);
+        $totalPdc1Active = Group::where('period_id', $period->id)->where('status', 'PDC1_ACTIVE')->count();
 
         return [
             'total_ready' => Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count(),
             'total_kelompok_final' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count(),
+            'total_pdc1_active' => $totalPdc1Active,
             'total_no_group' => $this->getStudentsWithoutGroupsCount($period),
             'total_no_title' => Group::where('period_id', $period->id)->whereNull('title_id')->whereNotIn('status', ['CLOSED', 'DISSOLVED'])->count(),
-            'total_not_ready' => Group::where('period_id', $period->id)->whereNotIn('status', ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])->count(),
+            // "Belum Siap" tab is intentionally limited to TITLE_APPROVED only.
+            'total_not_ready' => Group::where('period_id', $period->id)->where('status', 'TITLE_APPROVED')->count(),
             'can_finalize' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0 && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0,
+            'can_reopen_finalization' => $period->is_finalized || $totalPdc1Active > 0,
             // Document requirements integration
             'document_requirements' => $docRequirementsStatus,
         ];
@@ -441,7 +497,7 @@ class FinalizationController extends Controller
      */
     private function getStudentsWithoutGroupsCount($period): int
     {
-        $studentsWithGroups = \App\Models\GroupMember::whereHas('group', function ($q) use ($period) {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
             $q->where('period_id', $period->id);
         })->pluck('student_id');
 
@@ -475,7 +531,10 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
@@ -502,7 +561,10 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
@@ -529,7 +591,7 @@ class FinalizationController extends Controller
      */
     private function getStudentsWithoutGroups($period, $perPage, $search)
     {
-        $studentsWithGroups = \App\Models\GroupMember::whereHas('group', function ($q) use ($period) {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
             $q->where('period_id', $period->id);
         })->pluck('student_id');
 
@@ -571,21 +633,23 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
     }
 
     /**
-     * Get groups not ready - only show groups with APPROVED title status.
+     * Get groups for "Belum Siap" tab.
+     *
+     * This tab intentionally shows TITLE_APPROVED only, aligned with
+     * total_not_ready stats.
      */
     private function getGroupsNotReady($period, $perPage, $search)
     {
         $query = Group::with(['members.student', 'title'])
             ->where('period_id', $period->id)
-            ->whereNotIn('status', ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
-            ->whereHas('title', function ($tq) {
-                // Only show groups with approved titles
-                $tq->where('supervisor_approval_status', 'APPROVED');
-            });
+            ->where('status', 'TITLE_APPROVED');
 
         if ($search) {
             $query->where(function ($q) use ($search) {
@@ -599,7 +663,100 @@ class FinalizationController extends Controller
             });
         }
 
-        return $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    private function buildAdminGroupPayload(Group $group, Period $period): array
+    {
+        $groupArray = $group->toArray();
+        $groupArray['name'] = $this->resolveAdminGroupName($group);
+        $groupArray['status_label'] = $this->resolveGroupStatusLabel($group->status);
+        $groupArray['allowed_actions'] = $this->resolveAdminAllowedActions($group, $period);
+
+        return $groupArray;
+    }
+
+    private function resolveAdminGroupName(Group $group): string
+    {
+        $name = trim((string) ($group->name ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return "Kelompok #{$group->id}";
+    }
+
+    private function resolveGroupStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'FORMING' => 'Incomplete Group',
+            'FORMING_SOLO' => 'Solo Seeker',
+            'READY_FOR_BIDDING' => 'Ready for Bidding',
+            'WAITING_SUPERVISOR_APPROVAL' => 'Waiting Supervisor Approval',
+            'TITLE_APPROVED' => 'Title Approved',
+            'READY_FOR_FINALIZATION' => 'Ready for Finalization',
+            'KELOMPOK_FINAL' => 'Kelompok Final',
+            'PDC1_ACTIVE' => 'PDC1 Active',
+            'PDC2_ACTIVE' => 'PDC2 Active',
+            default => str_replace('_', ' ', $status),
+        };
+    }
+
+    private function resolveAdminAllowedActions(Group $group, Period $period): array
+    {
+        $isPeriodFinalized = (bool) $period->is_finalized;
+        $canSetSupervisor = !$isPeriodFinalized && $group->status === 'READY_FOR_FINALIZATION';
+        $canMarkKelompokFinal = $canSetSupervisor
+            && (bool) ($group->supervisor_1_id || $group->title?->lecturer?->id)
+            && (bool) $group->supervisor_2_id;
+
+        $reason = null;
+        if ($isPeriodFinalized) {
+            $reason = 'PERIOD_FINALIZED';
+        } elseif ($group->status === 'READY_FOR_FINALIZATION' && !$canMarkKelompokFinal) {
+            if (!$group->supervisor_1_id && !$group->title?->lecturer?->id) {
+                $reason = 'SUPERVISOR_1_REQUIRED';
+            } elseif (!$group->supervisor_2_id) {
+                $reason = 'SUPERVISOR_2_REQUIRED';
+            }
+        }
+
+        return [
+            'can_set_supervisor' => $canSetSupervisor,
+            'can_mark_kelompok_final' => $canMarkKelompokFinal,
+            'can_cancel_kelompok_final' => !$isPeriodFinalized && $group->status === 'KELOMPOK_FINAL',
+            'can_assign_title' => !$isPeriodFinalized && $group->status === 'READY_FOR_BIDDING' && !$group->title_id,
+            'can_promote_to_ready_for_finalization' => !$isPeriodFinalized && $group->status === 'TITLE_APPROVED',
+            'reason' => $reason,
+        ];
+    }
+
+    private function buildAdminFinalizationFlowPayload(Period $period, string $tab, string $subTab): array
+    {
+        if ($period->is_finalized) {
+            return [
+                'can_modify' => false,
+                'can_execute_finalization' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        $canExecuteFinalization = $tab === 'final'
+            ? Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0
+                && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0
+            : false;
+
+        return [
+            'can_modify' => true,
+            'can_execute_finalization' => $canExecuteFinalization,
+            'tab' => $tab,
+            'sub_tab' => $subTab,
+            'reason' => null,
+        ];
     }
 
     /**
@@ -619,7 +776,9 @@ class FinalizationController extends Controller
         ]);
 
         $user = $request->user();
-        $group = Group::with('period')->findOrFail($request->group_id);
+        $group = Group::with(['period', 'members'])->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Only admin can set supervisors
         if (!$user->hasRole('admin')) {
@@ -718,7 +877,10 @@ class FinalizationController extends Controller
 
             return response()->json([
                 'message' => $statusMsg,
-                'group' => $group->fresh(['supervisor1', 'supervisor2', 'members.student', 'title']),
+                'group' => $this->buildAdminGroupPayload(
+                    $group->fresh(['supervisor1', 'supervisor2', 'members.student', 'title.lecturer', 'period']),
+                    $group->period
+                ),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
@@ -753,9 +915,23 @@ class FinalizationController extends Controller
             return response()->json(['message' => 'Periode tidak aktif.'], 400);
         }
 
-        // Validation: ALL groups must be KELOMPOK_FINAL
+        // Validation: ALL groups must be at least KELOMPOK_FINAL or already finalized
+        $allowedStatuses = [
+            'KELOMPOK_FINAL',
+            'PDC1_ACTIVE',
+            'READY_FOR_SEMPRO',
+            'SEMPRO_DONE',
+            'PDC2_ACTIVE',
+            'PDC2_READY_FOR_EXPO',
+            'EXPO_REGISTERED',
+            'EXPO_DONE',
+            'READY_FOR_TA_INDIVIDUAL',
+            'CLOSED',
+            'DISSOLVED',
+        ];
+
         $notReadyGroups = Group::where('period_id', $period->id)
-            ->whereNotIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE', 'CLOSED', 'DISSOLVED'])
+            ->whereNotIn('status', $allowedStatuses)
             ->count();
 
         if ($notReadyGroups > 0) {
@@ -782,49 +958,77 @@ class FinalizationController extends Controller
         try {
             $groups = Group::where('period_id', $period->id)
                 ->where('status', 'KELOMPOK_FINAL')
+                ->with('members')
                 ->get();
 
             $finalizedCount = 0;
+            $supervisionData = [];
+            $auditLogs = [];
+            $now = now();
 
+            /** @var \App\Models\Group $group */
             foreach ($groups as $group) {
                 $group->update([
                     'status' => 'PDC1_ACTIVE',
-                    'finalized_at' => now(),
+                    'finalized_at' => $now,
                     'finalized_by' => $user->id,
                 ]);
 
-                // Create supervision records
+                // Collect supervision records for batch upsert
                 if ($group->supervisor_1_id) {
-                    \App\Models\Supervision::updateOrCreate(
-                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_1'],
-                        ['supervisor_id' => $group->supervisor_1_id, 'assigned_by' => $user->id]
-                    );
+                    $supervisionData[] = [
+                        'group_id' => $group->id,
+                        'role' => 'SUPERVISOR_1',
+                        'supervisor_id' => $group->supervisor_1_id,
+                        'assigned_by' => $user->id,
+                    ];
                 }
 
                 if ($group->supervisor_2_id) {
-                    \App\Models\Supervision::updateOrCreate(
-                        ['group_id' => $group->id, 'role' => 'SUPERVISOR_2'],
-                        ['supervisor_id' => $group->supervisor_2_id, 'assigned_by' => $user->id]
-                    );
+                    $supervisionData[] = [
+                        'group_id' => $group->id,
+                        'role' => 'SUPERVISOR_2',
+                        'supervisor_id' => $group->supervisor_2_id,
+                        'assigned_by' => $user->id,
+                    ];
                 }
 
-                // Audit log
-                \App\Models\FinalizationAudit::create([
+                // Collect audit logs for batch insert
+                $auditLogs[] = [
                     'period_id' => $period->id,
                     'group_id' => $group->id,
                     'user_id' => $user->id,
                     'action' => 'FINALIZATION_EXECUTED',
-                    'old_values' => ['status' => 'KELOMPOK_FINAL'],
-                    'new_values' => ['status' => 'PDC1_ACTIVE'],
-                ]);
+                    'old_values' => json_encode(['status' => 'KELOMPOK_FINAL']),
+                    'new_values' => json_encode(['status' => 'PDC1_ACTIVE']),
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
 
                 $finalizedCount++;
             }
 
-            // Notify all groups and lecturers
-            $this->notifyFinalizationCompletion($period, $groups, $user);
+            // Batch upsert supervision records
+            if (!empty($supervisionData)) {
+                \App\Models\Supervision::upsert(
+                    $supervisionData,
+                    ['group_id', 'role'],
+                    ['supervisor_id', 'assigned_by']
+                );
+            }
+
+            // Batch insert audit logs
+            if (!empty($auditLogs)) {
+                \App\Models\FinalizationAudit::insert($auditLogs);
+            }
+
+            // Mark period as finalized
+            $period->update(['is_finalized' => true]);
 
             DB::commit();
+
+            // Notify all groups and lecturers
+            $this->notifyFinalizationCompletion($period, $groups, $user);
 
             return response()->json([
                 'message' => "Finalisasi berhasil. {$finalizedCount} grup telah difinalisasi ke PDC1_ACTIVE.",
@@ -851,6 +1055,8 @@ class FinalizationController extends Controller
         $user = $request->user();
         $period = Period::findOrFail($request->period_id);
 
+        $this->ensurePeriodActiveById($period->id);
+
         // Only admin
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan rollback.'], 403);
@@ -865,12 +1071,17 @@ class FinalizationController extends Controller
                 $query->whereIn('id', $request->group_ids);
             }
 
-            $groups = $query->get();
+            $groups = $query->with('members')->get();
 
             if ($groups->isEmpty()) {
                 return response()->json(['message' => 'Tidak ada grup yang dapat di-rollback.'], 400);
             }
 
+            $auditLogs = [];
+            $notifications = [];
+            $now = now();
+
+            /** @var \App\Models\Group $group */
             foreach ($groups as $group) {
                 $oldStatus = $group->status;
                 $newStatus = $oldStatus === 'PDC1_ACTIVE' ? 'KELOMPOK_FINAL' : 'READY_FOR_FINALIZATION';
@@ -881,28 +1092,42 @@ class FinalizationController extends Controller
                     'finalized_by' => $oldStatus === 'PDC1_ACTIVE' ? null : $group->finalized_by,
                 ]);
 
-                // Audit log
-                \App\Models\FinalizationAudit::create([
+                // Collect audit logs for batch insert
+                $auditLogs[] = [
                     'period_id' => $period->id,
                     'group_id' => $group->id,
                     'user_id' => $user->id,
                     'action' => 'FINALIZATION_ROLLBACK',
-                    'old_values' => ['status' => $oldStatus],
-                    'new_values' => ['status' => $newStatus],
+                    'old_values' => json_encode(['status' => $oldStatus]),
+                    'new_values' => json_encode(['status' => $newStatus]),
                     'notes' => $request->reason,
-                ]);
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
 
-                // Notify group
+                // Collect notifications for batch insert
                 foreach ($group->members as $member) {
-                    \App\Models\Notification::create([
+                    $notifications[] = [
                         'user_id' => $member->student_id,
                         'type' => 'FINALIZATION_ROLLBACK',
                         'title' => 'Finalisasi Dibatalkan',
                         'message' => "Finalisasi kelompok Anda telah dibatalkan. Alasan: {$request->reason}",
                         'related_type' => 'Group',
                         'related_id' => $group->id,
-                    ]);
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ];
                 }
+            }
+
+            // Batch insert audit logs
+            if (!empty($auditLogs)) {
+                \App\Models\FinalizationAudit::insert($auditLogs);
+            }
+
+            // Batch insert notifications
+            if (!empty($notifications)) {
+                \App\Models\Notification::insert($notifications);
             }
 
             DB::commit();
@@ -914,6 +1139,97 @@ class FinalizationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json(['message' => 'Rollback gagal: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Cancel/Revert KELOMPOK_FINAL: Revert single group back to READY_FOR_FINALIZATION.
+     * Only works if period is not finalized.
+     */
+    public function cancelKelompokFinal(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'group_id' => 'required|exists:groups,id',
+            'reason' => 'nullable|string|max:1000',
+        ]);
+
+        $user = $request->user();
+        $period = Period::findOrFail($request->period_id);
+
+        $this->ensurePeriodActiveById($period->id);
+
+        // Only admin
+        if (!$user->hasRole('admin')) {
+            return response()->json(['message' => 'Hanya admin yang dapat melakukan cancel.'], 403);
+        }
+
+        // Period must not be finalized
+        if ($period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Reopen period terlebih dahulu.'], 400);
+        }
+
+        $group = Group::with('members')->findOrFail($request->group_id);
+
+        // Validate group is in KELOMPOK_FINAL status
+        if ($group->status !== 'KELOMPOK_FINAL') {
+            return response()->json(['message' => 'Grup harus dalam status KELOMPOK_FINAL untuk di-cancel.'], 400);
+        }
+
+        // Validate group belongs to this period
+        if ($group->period_id !== $period->id) {
+            return response()->json(['message' => 'Grup tidak termasuk dalam periode ini.'], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            $oldStatus = $group->status;
+            $newStatus = 'READY_FOR_FINALIZATION';
+
+            $group->update([
+                'status' => $newStatus,
+                'finalized_at' => null,
+                'finalized_by' => null,
+            ]);
+
+            // Audit log
+            \App\Models\FinalizationAudit::create([
+                'period_id' => $period->id,
+                'group_id' => $group->id,
+                'user_id' => $user->id,
+                'action' => 'CANCEL_KELOMPOK_FINAL',
+                'old_values' => ['status' => $oldStatus],
+                'new_values' => ['status' => $newStatus],
+                'notes' => $request->reason,
+            ]);
+
+            // Notify group members
+            $reasonText = $request->reason ? " Alasan: {$request->reason}" : '';
+            foreach ($group->members as $member) {
+                \App\Models\Notification::create([
+                    'user_id' => $member->student_id,
+                    'type' => 'CANCEL_KELOMPOK_FINAL',
+                    'title' => 'Status Kelompok Final Dibatalkan',
+                    'message' => "Status kelompok final Anda telah dibatalkan.{$reasonText} Silakan konfirmasi ulang supervisor sebelum finalisasi.",
+                    'related_type' => 'Group',
+                    'related_id' => $group->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => "Cancel Kelompok Final berhasil. Grup #{$group->id} dikembalikan ke READY_FOR_FINALIZATION.",
+                'group' => $this->buildAdminGroupPayload(
+                    $group->fresh(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period']),
+                    $period
+                ),
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Cancel Kelompok Final gagal: ' . $e->getMessage()], 500);
         }
     }
 
@@ -933,7 +1249,7 @@ class FinalizationController extends Controller
             ->whereIn('status', ['KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
             ->get();
 
-        if ($request->format === 'excel') {
+        if ($request->input('format') === 'excel') {
             return $this->exportExcel($groups, $period);
         } else {
             return $this->exportPdf($groups, $period);
@@ -1026,7 +1342,7 @@ class FinalizationController extends Controller
 
         // Get load data for each lecturer
         $loadService = app(\App\Services\SupervisorLoadService::class);
-        $maxLoad = $period->max_supervisor_load ?? 8;
+        $maxLoad = $period->supervisorLoadLimit(8);
 
         $lecturers->each(function ($lecturer) use ($period, $loadService, $maxLoad) {
             $load = $loadService->getLoad($lecturer->id, $period->id);
@@ -1067,6 +1383,8 @@ class FinalizationController extends Controller
             $request->supervisor_1_id === $request->supervisor_2_id) {
             return response()->json(['message' => 'Supervisor 1 dan 2 tidak boleh sama.'], 400);
         }
+
+        $this->ensurePeriodActiveById($request->period_id);
 
         $loadService = app(\App\Services\SupervisorLoadService::class);
         $results = [
@@ -1177,6 +1495,9 @@ class FinalizationController extends Controller
      */
     private function notifyFinalizationCompletion($period, $groups, $user)
     {
+        // Ensure members are loaded for all groups
+        $groups->loadMissing('members');
+
         // Get all unique lecturers
         $lecturerIds = $groups->pluck('supervisor_1_id')
             ->merge($groups->pluck('supervisor_2_id'))
@@ -1223,9 +1544,10 @@ class FinalizationController extends Controller
         $maxSize = $period->max_group_size ?? 4;
 
         // Get groups with available capacity
+        // Filter to only show groups with READY_FOR_BIDDING status
         $groups = Group::with(['members.student', 'title.lecturer'])
             ->where('period_id', $period->id)
-            ->whereNotIn('status', ['CLOSED', 'DISSOLVED', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
+            ->where('status', 'READY_FOR_BIDDING')  // Only show READY_FOR_BIDDING groups
             ->get()
             ->filter(function ($group) use ($maxSize) {
                 return $group->members->count() < $maxSize;
@@ -1263,6 +1585,9 @@ class FinalizationController extends Controller
         ]);
 
         $period = Period::findOrFail($request->period_id);
+
+        $this->ensurePeriodActiveById($period->id);
+
         $user = $request->user();
         $option = $request->option;
 
@@ -1408,6 +1733,8 @@ class FinalizationController extends Controller
         $user = $request->user();
         $group = Group::with(['members', 'period'])->findOrFail($request->group_id);
 
+        $this->ensurePeriodIsActive($group);
+
         // Only admin
         if (!$user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menambahkan anggota.'], 403);
@@ -1504,7 +1831,7 @@ class FinalizationController extends Controller
         $period = $this->resolvePeriod($request);
 
         // Debug logging
-        \Log::info('getAvailableTitles called', [
+        Log::info('getAvailableTitles called', [
             'period_id' => $period->id,
             'total_titles_in_period' => Title::where('period_id', $period->id)->count(),
             'approved_titles' => Title::where('period_id', $period->id)->where('supervisor_approval_status', 'APPROVED')->count(),
@@ -1513,10 +1840,9 @@ class FinalizationController extends Controller
 
         // Get titles without assigned groups
         // Include:
-        // 1. Titles created by lecturers (period_id matches)
-        // 2. Titles proposed by groups in this period (marketplace titles)
+        // 1. Titles created by lecturers (period_id matches) - can have NULL or APPROVED status
+        // 2. Titles proposed by groups in this period (marketplace titles) - must be APPROVED
         // Only check:
-        // - Status is APPROVED
         // - Has remaining quota (not full)
         $emptyTitles = Title::with('lecturer', 'proposedByGroup')
             ->where(function ($query) use ($period) {
@@ -1525,7 +1851,12 @@ class FinalizationController extends Controller
                         $gq->where('period_id', $period->id);
                     });
             })
-            ->where('supervisor_approval_status', 'APPROVED')
+            ->where(function ($query) {
+                // Include titles that are APPROVED OR have NULL supervisor_approval_status
+                // (lecturer-created titles may have NULL status)
+                $query->where('supervisor_approval_status', 'APPROVED')
+                    ->orWhereNull('supervisor_approval_status');
+            })
             ->get()
             ->filter(function ($title) {
                 // Check if title has remaining quota
@@ -1534,7 +1865,7 @@ class FinalizationController extends Controller
                     ->count();
                 $hasQuota = $currentAllocations < $title->quota;
                 
-                \Log::debug('Title quota check', [
+                Log::debug('Title quota check', [
                     'title_id' => $title->id,
                     'title' => $title->title,
                     'current_allocations' => $currentAllocations,
@@ -1546,7 +1877,7 @@ class FinalizationController extends Controller
             })
             ->values();
 
-        \Log::info('getAvailableTitles result', [
+        Log::info('getAvailableTitles result', [
             'count' => $emptyTitles->count(),
             'title_ids' => $emptyTitles->pluck('id')->toArray(),
         ]);
@@ -1569,6 +1900,8 @@ class FinalizationController extends Controller
         $user = $request->user();
         $group = Group::with('period')->findOrFail($request->group_id);
         $title = Title::findOrFail($request->title_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Only admin
         if (!$user->hasRole('admin')) {
@@ -1651,6 +1984,8 @@ class FinalizationController extends Controller
 
         $user = $request->user();
         $group = Group::with(['members', 'period', 'title'])->findOrFail($request->group_id);
+
+        $this->ensurePeriodIsActive($group);
 
         // Only admin
         if (!$user->hasRole('admin')) {

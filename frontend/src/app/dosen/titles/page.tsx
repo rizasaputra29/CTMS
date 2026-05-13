@@ -31,7 +31,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X } from 'lucide-react';
+import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X, AlertCircle, History } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
@@ -44,16 +44,19 @@ interface Title {
     scope: string | null;
     specializations: string[] | null;
     quota: number;
-    status: 'open' | 'closed';
+    status: 'open' | 'closed' | 'APPROVED' | 'PENDING';
     active_groups_count: number;
     lecturer_id: number;
     pre_assigned_group_id?: number | null;
+    title_source?: string;
+    supervisor_approval_status?: string;
 }
 
 interface GroupSummary {
     id: number;
     status: string;
-    members: Array<{ id: number }>;
+    period_id?: number;
+    members: Array<{ id: number; name?: string }>;
 }
 
 type SortKey = 'title' | 'quota' | 'status' | 'active_groups_count';
@@ -90,25 +93,42 @@ export default function DosenTitlesPage() {
         loading: boolean;
     }>({ open: false, reason: '', loading: false });
 
+    const [historyDialog, setHistoryDialog] = useState<{
+        open: boolean;
+        title?: Title;
+        loading: boolean;
+        approvalHistory: any[];
+        deletionHistory: any[];
+    }>({ open: false, loading: false, approvalHistory: [], deletionHistory: [] });
+
     const fetchTitles = useCallback(async (periodId?: string) => {
         setTitlesLoading(true);
         try {
-            let currentPeriodId = periodId || selectedPeriod;
-            if (!currentPeriodId) {
+            const currentPeriodId = periodId || selectedPeriod;
+            
+            // Fetch periods if not already loaded
+            if (!periods.length) {
                 const perRes = await api.get('/periods-list');
                 const periodsData = perRes.data?.data || [];
-                setPeriods(periodsData);
-                const active = periodsData.find((p: { is_active: boolean }) => p.is_active);
-                if (active) currentPeriodId = active.id.toString();
-                setSelectedPeriod(currentPeriodId);
+                // Filter to only active periods
+                const activePeriods = periodsData.filter((p: { is_active: boolean }) => p.is_active);
+                setPeriods(activePeriods);
+                
+                // Auto-select first active period if none selected
+                if (!selectedPeriod && activePeriods.length > 0) {
+                    setSelectedPeriod(activePeriods[0].id.toString());
+                }
             }
 
+            // When no period is selected, show empty list
             if (!currentPeriodId) {
-                setTitlesLoading(false);
+                setTitles([]);
                 return;
             }
-
-            const response = await api.get(`/dosen/titles?period_id=${currentPeriodId}`);
+            
+            const query = `?period_id=${currentPeriodId}`;
+            
+            const response = await api.get(`/dosen/titles${query}`);
             setTitles(response.data);
         } catch (error) {
             console.error('Failed to fetch titles', error);
@@ -116,21 +136,34 @@ export default function DosenTitlesPage() {
         } finally {
             setTitlesLoading(false);
         }
-    }, [selectedPeriod]);
+    }, [selectedPeriod, periods.length]);
 
     useEffect(() => {
-        if (!selectedPeriod) fetchTitles();
-    }, [fetchTitles, selectedPeriod]);
+        fetchTitles();
+    }, [fetchTitles]);
 
-    // Fetch available groups for pre-assignment
-    const fetchAvailableGroups = async () => {
+    // Fetch available groups for pre-assignment (filtered by selected period and READY_FOR_BIDDING status)
+    const fetchAvailableGroups = useCallback(async () => {
+        if (!selectedPeriod) {
+            setAvailableGroups([]);
+            return;
+        }
         try {
-            const res = await api.get('/dosen/groups');
-            setAvailableGroups(res.data.data || []);
+            const res = await api.get('/dosen/groups', {
+                params: {
+                    period_id: selectedPeriod,
+                }
+            });
+            // Filter to only show groups from selected period, but keep all statuses for display
+            // Groups will be disabled in UI if not READY_FOR_BIDDING
+            const filteredGroups = (res.data.data || []).filter((group: GroupSummary) => 
+                group.period_id?.toString() === selectedPeriod
+            );
+            setAvailableGroups(filteredGroups);
         } catch (error) {
             console.error('Failed to fetch groups', error);
         }
-    };
+    }, [selectedPeriod]);
 
     useEffect(() => {
         if (open) {
@@ -168,13 +201,18 @@ export default function DosenTitlesPage() {
                 await api.put(`/dosen/titles/${editingId}`, formData);
                 toast.success('Title updated successfully');
             } else {
+                const assignedGroupId = formData.pre_assigned_group_id || null;
                 // Include period_id in the request
                 const payload = {
                     ...formData,
                     period_id: selectedPeriod ? parseInt(selectedPeriod) : undefined,
                 };
                 await api.post('/dosen/titles', payload);
-                toast.success('Title created successfully');
+                if (assignedGroupId) {
+                    toast.success(`Title created and assigned to Group ${assignedGroupId}`);
+                } else {
+                    toast.success('Title created successfully');
+                }
             }
             setOpen(false);
             setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' });
@@ -225,20 +263,47 @@ export default function DosenTitlesPage() {
         }
     };
 
+    const handleViewHistory = async (title: Title) => {
+        setHistoryDialog({ open: true, title, loading: true, approvalHistory: [], deletionHistory: [] });
+        
+        try {
+            const [approvalRes, deletionRes] = await Promise.all([
+                api.get(`/dosen/titles/${title.id}/approval-history`),
+                api.get(`/dosen/titles/${title.id}/deletion-history`)
+            ]);
+            
+            setHistoryDialog(prev => ({
+                ...prev,
+                loading: false,
+                approvalHistory: approvalRes.data || [],
+                deletionHistory: deletionRes.data || []
+            }));
+        } catch (error) {
+            console.error('Failed to fetch history', error);
+            toast.error('Failed to fetch title history');
+            setHistoryDialog(prev => ({ ...prev, loading: false }));
+        }
+    };
+
+    const formatDate = (dateString: string) => {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
     const toggleSpecFilter = (spec: string) => {
         setFilterSpecs(prev =>
             prev.includes(spec) ? prev.filter(s => s !== spec) : [...prev, spec]
         );
     };
 
-    const toggleFormSpec = (spec: string) => {
-        setFormData(prev => ({
-            ...prev,
-            specializations: prev.specializations.includes(spec)
-                ? prev.specializations.filter(s => s !== spec)
-                : [...prev.specializations, spec],
-        }));
-    };
+
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -294,15 +359,19 @@ export default function DosenTitlesPage() {
                          <SelectTrigger className="w-[180px]">
                              <SelectValue placeholder="Select period" />
                          </SelectTrigger>
-                         <SelectContent>
-                             {periods.filter(p => p.is_active).map(p => (
+                    <SelectContent>
+                        {periods.map(p => (
                                  <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                              ))}
                          </SelectContent>
                      </Select>
                     <Dialog open={open} onOpenChange={handleOpenChange}>
                         <DialogTrigger asChild>
-                            <Button onClick={() => { setEditingId(null); setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' }); }}>
+                            <Button 
+                                onClick={() => { setEditingId(null); setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' }); }}
+                                disabled={!selectedPeriod}
+                                title={!selectedPeriod ? "Please select a period first" : undefined}
+                            >
                                 <Plus className="mr-2 h-4 w-4" /> Add Title
                             </Button>
                         </DialogTrigger>
@@ -382,18 +451,35 @@ export default function DosenTitlesPage() {
                                                 <SelectValue placeholder="Pilih kelompok..." />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {availableGroups
-                                                    .filter(g => g.members && g.members.length >= 3)
-                                                    .map(group => (
-                                                        <SelectItem key={group.id} value={group.id.toString()}>
-                                                            Kelompok #{group.id} ({group.members.length} anggota) - {group.status}
-                                                        </SelectItem>
-                                                    ))}
+                                                {availableGroups.length === 0 ? (
+                                                    <SelectItem value="no-groups-available" disabled>
+                                                        Tidak ada kelompok tersedia untuk periode ini
+                                                    </SelectItem>
+                                                ) : (
+                                                    availableGroups
+                                                        .map(group => {
+                                                            const isReady = group.status === 'READY_FOR_BIDDING';
+                                                            const memberCount = group.members?.length || 0;
+                                                            return (
+                                                                <SelectItem 
+                                                                    key={group.id} 
+                                                                    value={group.id.toString()}
+                                                                    disabled={!isReady}
+                                                                >
+                                                                    <span className={!isReady ? 'text-muted-foreground' : ''}>
+                                                                        Group {group.id} ({memberCount} anggota) - {group.status}
+                                                                        {!isReady && ' (Tidak tersedia)'}
+                                                                    </span>
+                                                                </SelectItem>
+                                                            );
+                                                        })
+                                                )}
                                             </SelectContent>
                                         </Select>
-                                        <p className="text-xs text-muted-foreground">
-                                            Jika dipilih, judul tidak akan muncul di marketplace dan otomatis ditugaskan ke kelompok tersebut.
-                                        </p>
+                                        <div className="text-xs text-muted-foreground space-y-1">
+                                            <p>Hanya kelompok dengan status "READY_FOR_BIDDING" yang dapat dipilih.</p>
+                                            <p>Jika dipilih, judul tidak akan muncul di marketplace dan otomatis ditugaskan ke kelompok tersebut.</p>
+                                        </div>
                                     </div>
                                 </div>
                                 <DialogFooter>
@@ -474,7 +560,16 @@ export default function DosenTitlesPage() {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                                            {title.status === 'open' && (
+                                            <Button 
+                                                variant="ghost" 
+                                                size="icon" 
+                                                className="h-8 w-8" 
+                                                onClick={() => handleViewHistory(title)}
+                                                title="View title history"
+                                            >
+                                                <History className="h-4 w-4" />
+                                            </Button>
+                                            {title.status === 'APPROVED' || title.supervisor_approval_status === 'APPROVED' ? (
                                                 <Button 
                                                     variant="outline" 
                                                     size="icon" 
@@ -484,7 +579,7 @@ export default function DosenTitlesPage() {
                                                 >
                                                     <X className="h-4 w-4" />
                                                 </Button>
-                                            )}
+                                            ) : null}
                                             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(title)}>
                                                 <Edit className="h-4 w-4" />
                                             </Button>
@@ -549,6 +644,132 @@ export default function DosenTitlesPage() {
                         >
                             {withdrawDialog.loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Withdraw Approval
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* History Dialog */}
+            <Dialog open={historyDialog.open} onOpenChange={(open) => 
+                setHistoryDialog(prev => ({ ...prev, open }))
+            }>
+                <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+                    <DialogHeader>
+                        <DialogTitle>Title History</DialogTitle>
+                        <DialogDescription>
+                            View approval withdrawal and deletion history for this title.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-4 py-4">
+                        {historyDialog.title && (
+                            <div className="p-3 bg-slate-50 rounded-lg">
+                                <p className="text-sm font-medium">{historyDialog.title.title}</p>
+                                <p className="text-xs text-gray-600 mt-1">Status: {historyDialog.title.status}</p>
+                            </div>
+                        )}
+
+                        {historyDialog.loading ? (
+                            <div className="flex justify-center items-center h-32">
+                                <Loader2 className="h-8 w-8 animate-spin" />
+                            </div>
+                        ) : (
+                            <>
+                                {/* Combined History Timeline */}
+                                {(historyDialog.approvalHistory.length === 0 && historyDialog.deletionHistory.length === 0) ? (
+                                    <div className="text-center py-8 text-muted-foreground">
+                                        No history found for this title.
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        {/* Approval History Section */}
+                                        {historyDialog.approvalHistory.length > 0 && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                                    <span className="w-2 h-2 bg-amber-500 rounded-full"></span>
+                                                    Approval Withdrawals ({historyDialog.approvalHistory.length})
+                                                </h4>
+                                                <div className="space-y-3">
+                                                    {historyDialog.approvalHistory.map((audit, idx) => (
+                                                        <div key={idx} className="border-l-2 border-amber-500 pl-4 py-2">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <p className="text-sm font-medium">{audit.action}</p>
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        By: {audit.lecturer?.name || 'Unknown'}
+                                                                    </p>
+                                                                    {audit.reason && (
+                                                                        <p className="text-xs text-gray-600 mt-1">
+                                                                            Reason: {audit.reason}
+                                                                        </p>
+                                                                    )}
+                                                                    {audit.affected_group && (
+                                                                        <p className="text-xs text-gray-600">
+                                                                            Group: {audit.affected_group.name}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                                    {formatDate(audit.created_at)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Deletion History Section */}
+                                        {historyDialog.deletionHistory.length > 0 && (
+                                            <div>
+                                                <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                                                    <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                                                    Deletions ({historyDialog.deletionHistory.length})
+                                                </h4>
+                                                <div className="space-y-3">
+                                                    {historyDialog.deletionHistory.map((audit, idx) => (
+                                                        <div key={idx} className="border-l-2 border-red-500 pl-4 py-2">
+                                                            <div className="flex justify-between items-start">
+                                                                <div>
+                                                                    <p className="text-sm font-medium">{audit.action}</p>
+                                                                    <p className="text-xs text-muted-foreground">
+                                                                        By: {audit.lecturer?.name || 'Unknown'}
+                                                                    </p>
+                                                                    {audit.reason && (
+                                                                        <p className="text-xs text-gray-600 mt-1">
+                                                                            Reason: {audit.reason}
+                                                                        </p>
+                                                                    )}
+                                                                    {audit.affected_groups_count > 0 && (
+                                                                        <p className="text-xs text-gray-600">
+                                                                            Affected: {audit.affected_groups_count} group(s)
+                                                                            {audit.reverted_group_ids && audit.reverted_group_ids.length > 0 && (
+                                                                                <span> (Groups: {audit.reverted_group_ids.join(', ')})</span>
+                                                                            )}
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                                    {formatDate(audit.created_at)}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    <DialogFooter>
+                        <Button 
+                            variant="outline"
+                            onClick={() => setHistoryDialog({ open: false, title: undefined, loading: false, approvalHistory: [], deletionHistory: [] })}
+                        >
+                            Close
                         </Button>
                     </DialogFooter>
                 </DialogContent>

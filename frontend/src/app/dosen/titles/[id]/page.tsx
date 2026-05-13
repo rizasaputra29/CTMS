@@ -128,7 +128,7 @@ export default function DosenTitleDetailPage() {
                             {activeGroups.map(group => (
                                 <div key={group.id} className="border rounded-lg p-4">
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="font-medium text-sm">Group #{group.id}</span>
+                                        <span className="font-medium text-sm">Group {group.id}</span>
                                         <Badge variant={group.status === 'APPROVED' ? 'default' : 'secondary'}>{group.status}</Badge>
                                     </div>
                                     <div className="flex flex-wrap gap-2">

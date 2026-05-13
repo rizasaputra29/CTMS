@@ -87,6 +87,7 @@ class BursaIdeController extends Controller
             'data' => $titles,
             'can_request_join' => $canRequestJoin,
             'my_pending_requests' => $myPendingRequests,
+            'flow' => $this->buildBursaFlowPayload($user),
         ]);
     }
 
@@ -332,6 +333,68 @@ class BursaIdeController extends Controller
         ]);
 
         return response()->json(['message' => 'Join request rejected.']);
+    }
+
+    private function buildBursaFlowPayload($user): array
+    {
+        $membership = GroupMember::where('student_id', $user->id)
+            ->whereHas('group', fn($q) => $q->whereNotIn('status', ['CLOSED']))
+            ->first();
+
+        if (!$membership) {
+            return [
+                'can_request_join' => true,
+                'can_accept_join_requests' => false,
+                'can_reject_join_requests' => false,
+                'reason' => null,
+            ];
+        }
+
+        $group = Group::with('period')->find($membership->group_id);
+        if (!$group) {
+            return [
+                'can_request_join' => false,
+                'can_accept_join_requests' => false,
+                'can_reject_join_requests' => false,
+                'reason' => 'NO_GROUP',
+            ];
+        }
+
+        $isSoloLeader = $membership->is_leader && in_array($group->status, self::SOLO_STATUSES, true);
+
+        if ($group->period?->is_finalized) {
+            return [
+                'can_request_join' => false,
+                'can_accept_join_requests' => false,
+                'can_reject_join_requests' => false,
+                'reason' => 'PERIOD_FINALIZED',
+            ];
+        }
+
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
+            return [
+                'can_request_join' => false,
+                'can_accept_join_requests' => false,
+                'can_reject_join_requests' => false,
+                'reason' => 'GROUP_LOCKED',
+            ];
+        }
+
+        if (!$isSoloLeader) {
+            return [
+                'can_request_join' => false,
+                'can_accept_join_requests' => false,
+                'can_reject_join_requests' => false,
+                'reason' => 'LEADER_SOLO_ONLY',
+            ];
+        }
+
+        return [
+            'can_request_join' => true,
+            'can_accept_join_requests' => true,
+            'can_reject_join_requests' => true,
+            'reason' => null,
+        ];
     }
 
 

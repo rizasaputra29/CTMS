@@ -3,118 +3,148 @@
 namespace App\Http\Controllers;
 
 use App\Models\AssessmentComponent;
+use App\Models\PeriodAssessmentComponent;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class AssessmentComponentController extends Controller
 {
+    private function usesPeriodAssessmentComponents(): bool
+    {
+        return Schema::hasTable('period_assessment_components');
+    }
+
     /**
      * List assessment components, filtered by period_id and type.
+     * Returns components from period_assessment_components joined with templates.
      */
     public function index(Request $request)
     {
         $request->validate([
             'period_id' => 'required|exists:periods,id',
-            'type' => 'nullable|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
+            'type' => 'nullable|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN_SEMPRO,BIMBINGAN_TA,NILAI_DOSEN,MILESTONE',
         ]);
 
-        $query = AssessmentComponent::where('period_id', $request->period_id)
-            ->orderBy('sort_order');
+        if ($this->usesPeriodAssessmentComponents()) {
+            $query = PeriodAssessmentComponent::with('template')
+                ->where('period_id', $request->period_id)
+                ->orderBy('sort_order');
 
-        if ($request->type) {
-            $query->where('type', $request->type);
-        }
+            if ($request->type) {
+                $query->where('type', $request->type);
+            }
 
-        return response()->json($query->get());
-    }
+            $components = $query->get()->map(fn ($c) => [
+                'id' => $c->id,
+                'code' => $c->template->code,
+                'name' => $c->template->name,
+                'description' => $c->template->description,
+                'weight' => $c->template->weight,
+                'type' => $c->type,
+                'sort_order' => $c->sort_order,
+                'template_id' => $c->template_id,
+                'period_id' => $c->period_id,
+            ]);
+        } else {
+            $query = AssessmentComponent::query()
+                ->where('period_id', $request->period_id)
+                ->orderBy('sort_order');
 
-    /**
-     * Create a new assessment component.
-     */
-    public function store(Request $request)
-    {
-        $data = $request->validate([
-            'period_id' => 'required|exists:periods,id',
-            'type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
-            'code' => 'required|string|max:50',
-            'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'weight' => 'required|numeric|min:0|max:100',
-            'sort_order' => 'nullable|integer',
-        ]);
+            if ($request->type) {
+                $query->where('type', $request->type);
+            }
 
-        $component = AssessmentComponent::create($data);
-
-        return response()->json($component, 201);
-    }
-
-    /**
-     * Bulk create/update assessment components for a period + type.
-     */
-    public function bulkStore(Request $request)
-    {
-        $request->validate([
-            'period_id' => 'required|exists:periods,id',
-            'type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
-            'components' => 'required|array|min:1',
-            'components.*.code' => 'required|string|max:50',
-            'components.*.name' => 'required|string|max:255',
-            'components.*.description' => 'nullable|string',
-            'components.*.weight' => 'required|numeric|min:0|max:100',
-            'components.*.sort_order' => 'nullable|integer',
-        ]);
-
-        $periodId = $request->period_id;
-        $type = $request->type;
-
-        // Delete existing components for this period+type, then re-create
-        AssessmentComponent::where('period_id', $periodId)
-            ->where('type', $type)
-            ->delete();
-
-        $created = [];
-        foreach ($request->components as $i => $comp) {
-            $created[] = AssessmentComponent::create([
-                'period_id' => $periodId,
-                'type' => $type,
-                'code' => $comp['code'],
-                'name' => $comp['name'],
-                'description' => $comp['description'] ?? null,
-                'weight' => $comp['weight'],
-                'sort_order' => $comp['sort_order'] ?? $i,
+            $components = $query->get()->map(fn ($c) => [
+                'id' => $c->id,
+                'code' => $c->code,
+                'name' => $c->name,
+                'description' => $c->description,
+                'weight' => $c->weight,
+                'type' => $c->type,
+                'sort_order' => $c->sort_order,
+                'template_id' => null,
+                'period_id' => $c->period_id,
             ]);
         }
 
-        return response()->json($created, 201);
+        return response()->json($components);
     }
 
     /**
-     * Update an assessment component.
+     * Note: Creating individual components is deprecated.
+     * Use PeriodAssessmentConfigController to configure period assessment.
+     */
+    public function store(Request $request)
+    {
+        return response()->json([
+            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.'
+        ], 400);
+    }
+
+    /**
+     * Note: Bulk store is deprecated.
+     * Use PeriodAssessmentConfigController to configure period assessment.
+     */
+    public function bulkStore(Request $request)
+    {
+        return response()->json([
+            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.'
+        ], 400);
+    }
+
+    /**
+     * Update sort_order only. Other fields come from template.
      */
     public function update(Request $request, $id)
     {
-        $component = AssessmentComponent::findOrFail($id);
+        if ($this->usesPeriodAssessmentComponents()) {
+            $component = PeriodAssessmentComponent::findOrFail($id);
+        } else {
+            $component = AssessmentComponent::findOrFail($id);
+        }
 
         $data = $request->validate([
-            'code' => 'sometimes|string|max:50',
-            'name' => 'sometimes|string|max:255',
-            'description' => 'nullable|string',
-            'weight' => 'sometimes|numeric|min:0|max:100',
             'sort_order' => 'nullable|integer',
         ]);
 
         $component->update($data);
 
-        return response()->json($component);
+        if ($this->usesPeriodAssessmentComponents()) {
+            return response()->json([
+                'id' => $component->id,
+                'code' => $component->template->code,
+                'name' => $component->template->name,
+                'description' => $component->template->description,
+                'weight' => $component->template->weight,
+                'type' => $component->type,
+                'sort_order' => $component->sort_order,
+            ]);
+        }
+
+        return response()->json([
+            'id' => $component->id,
+            'code' => $component->code,
+            'name' => $component->name,
+            'description' => $component->description,
+            'weight' => $component->weight,
+            'type' => $component->type,
+            'sort_order' => $component->sort_order,
+        ]);
     }
 
     /**
-     * Delete an assessment component.
+     * Delete an assessment component from period config.
      */
     public function destroy($id)
     {
-        $component = AssessmentComponent::findOrFail($id);
+        if ($this->usesPeriodAssessmentComponents()) {
+            $component = PeriodAssessmentComponent::findOrFail($id);
+        } else {
+            $component = AssessmentComponent::findOrFail($id);
+        }
+
         $component->delete();
 
-        return response()->json(['message' => 'Component deleted']);
+        return response()->json(['message' => 'Component removed from period configuration']);
     }
 }

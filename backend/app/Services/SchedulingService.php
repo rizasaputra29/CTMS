@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Models\TaDefenseEvaluation;
@@ -11,10 +12,15 @@ use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
 use App\Models\AuditLog;
+use App\Repositories\AssessmentScoreRepository;
+use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SchedulingService
 {
+    use RequiresActivePeriod;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -68,6 +74,76 @@ class SchedulingService
         return null;
     }
 
+    /**
+     * Check if all supervisors have completed their evaluations for a seminar.
+     * For SEMPRO: checks BIMBINGAN_SEMPRO evaluations
+     * For EXPO: checks BIMBINGAN_EXPO and MILESTONE evaluations
+     *
+     * @param SeminarSchedule $schedule
+     * @return bool
+     */
+    public function checkSupervisorEvaluationsComplete(SeminarSchedule $schedule): bool
+    {
+        $group = Group::find($schedule->group_id);
+        if (!$group) {
+            return false;
+        }
+
+        // Get supervisor IDs
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (empty($supervisorIds)) {
+            return true; // No supervisors, consider complete
+        }
+
+        // Determine evaluation type based on seminar type
+        $evaluationType = match ($schedule->type) {
+            'SEMPRO' => 'BIMBINGAN_SEMPRO',
+            'EXPO' => ['BIMBINGAN_EXPO', 'MILESTONE'],
+            default => null,
+        };
+
+        if (!$evaluationType) {
+            return true; // Unknown type, consider complete
+        }
+
+        // For EXPO, check both BIMBINGAN_EXPO and MILESTONE
+        if (is_array($evaluationType)) {
+            foreach ($evaluationType as $type) {
+                foreach ($supervisorIds as $supervisorId) {
+                    $hasSubmitted = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                        $group->id,
+                        $supervisorId,
+                        $type
+                    );
+
+                    if (!$hasSubmitted) {
+                        return false; // Supervisor hasn't submitted this evaluation type
+                    }
+                }
+            }
+            return true;
+        }
+
+        // For SEMPRO (BIMBINGAN_SEMPRO)
+        foreach ($supervisorIds as $supervisorId) {
+            $hasSubmitted = AssessmentScoreRepository::existsForGroupAndEvaluator(
+                $group->id,
+                $supervisorId,
+                $evaluationType
+            );
+
+            if (!$hasSubmitted) {
+                return false; // Supervisor hasn't submitted evaluation
+            }
+        }
+
+        return true;
+    }
+
     // ══════════════════════════════════════════
     // Double-Booking & Room Conflict Checks
     // ══════════════════════════════════════════
@@ -107,12 +183,16 @@ class SchedulingService
             ];
         }
 
-        // Check ta_defense_schedules via ta_defense_examiners
+        // Check ta_defense_schedules via direct columns and examiners pivot
         $taConflict = TaDefenseSchedule::where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
-            ->whereHas('examiners', fn($q) => $q->where('examiner_id', $examinerId))
+            ->where(function ($q) use ($examinerId) {
+                $q->where('examiner_1_id', $examinerId)
+                    ->orWhere('examiner_2_id', $examinerId)
+                    ->orWhereHas('examiners', fn($sq) => $sq->where('examiner_id', $examinerId));
+            })
             ->when($excludeTaDefenseId, fn($q) => $q->where('id', '!=', $excludeTaDefenseId))
             ->first();
 
@@ -121,6 +201,23 @@ class SchedulingService
                 'type' => 'ta_defense',
                 'schedule' => $taConflict,
                 'message' => "Examiner has a conflicting TA defense schedule on {$date} ({$taConflict->start_time}-{$taConflict->end_time})",
+            ];
+        }
+
+        // Check BIMBINGAN schedules (dosen as group supervisor)
+        $bimbinganConflict = Schedule::where('type', 'BIMBINGAN')
+            ->whereHas('group.supervisions', fn($q) => $q->where('supervisor_id', $examinerId))
+            ->whereRaw('DATE(date) = ?', [$date])
+            ->whereRaw('date < ?', [$date . ' ' . $endTime])
+            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->first();
+
+        if ($bimbinganConflict) {
+            $bTime = \Carbon\Carbon::parse($bimbinganConflict->date)->format('H:i');
+            return [
+                'type' => 'bimbingan',
+                'schedule' => $bimbinganConflict,
+                'message' => "Examiner has a conflicting BIMBINGAN schedule on {$date} at {$bTime}",
             ];
         }
 
@@ -172,6 +269,21 @@ class SchedulingService
             ];
         }
 
+        $bimbinganRoomConflict = Schedule::where('room', $room)
+            ->where('type', 'BIMBINGAN')
+            ->whereRaw('DATE(date) = ?', [$date])
+            ->whereRaw('date < ?', [$date . ' ' . $endTime])
+            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->first();
+
+        if ($bimbinganRoomConflict) {
+            $bTime = \Carbon\Carbon::parse($bimbinganRoomConflict->date)->format('H:i');
+            return [
+                'type' => 'bimbingan',
+                'message' => "Room '{$room}' is already booked for BIMBINGAN on {$date} at {$bTime}",
+            ];
+        }
+
         return null;
     }
 
@@ -212,15 +324,23 @@ class SchedulingService
 
     /**
      * Auto-generate PENDING evaluation rows for a seminar schedule.
+     * Note: EXPO does not require examiner evaluations (only supervisors).
      */
     public function autoGenerateSeminarEvaluations(SeminarSchedule $schedule): void
     {
+        // Skip examiner evaluations for EXPO - only supervisors evaluate EXPO
+        if ($schedule->type === 'EXPO') {
+            return;
+        }
+
         foreach ([$schedule->examiner_1_id, $schedule->examiner_2_id] as $examinerId) {
-            SeminarEvaluation::create([
-                'schedule_id' => $schedule->id,
-                'examiner_id' => $examinerId,
-                'status' => 'PENDING',
-            ]);
+            if ($examinerId) {
+                SeminarEvaluation::create([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $examinerId,
+                    'status' => 'PENDING',
+                ]);
+            }
         }
     }
 
@@ -235,6 +355,7 @@ class SchedulingService
             TaDefenseEvaluation::create([
                 'schedule_id' => $schedule->id,
                 'examiner_id' => $examiner->examiner_id,
+                'student_id' => $schedule->student_id,
                 'status' => 'PENDING',
             ]);
         }
@@ -270,14 +391,30 @@ class SchedulingService
                 'status' => 'SUBMITTED',
             ]);
 
-            // Check if ALL evaluations for this schedule are submitted
             $schedule = SeminarSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
+
+            // Store component scores into sempro_scores table
+            $this->storeComponentScores($rubricJson, $schedule->group_id, $evaluation->examiner_id, $schedule->type);
             $totalEvals = SeminarEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = SeminarEvaluation::where('schedule_id', $schedule->id)
                 ->where('status', 'SUBMITTED')
                 ->count();
 
-            $allSubmitted = $submittedEvals >= $totalEvals;
+            $allExaminerSubmitted = $submittedEvals >= $totalEvals;
+
+            // For SEMPRO and EXPO, also check if supervisors have submitted their evaluations
+            $allSupervisorSubmitted = true;
+            if ($schedule->type === 'SEMPRO' || $schedule->type === 'EXPO') {
+                $allSupervisorSubmitted = $this->checkSupervisorEvaluationsComplete($schedule);
+            }
+
+            // For EXPO: only require supervisor evaluations (no examiners)
+            // For SEMPRO: require both examiners and supervisors
+            if ($schedule->type === 'EXPO') {
+                $allSubmitted = $allSupervisorSubmitted;
+            } else {
+                $allSubmitted = $allExaminerSubmitted && $allSupervisorSubmitted;
+            }
 
             if ($allSubmitted) {
                 $schedule->update(['status' => 'COMPLETED']);
@@ -285,15 +422,29 @@ class SchedulingService
                 // Determine group transition based on result
                 $group = Group::findOrFail($schedule->group_id);
 
+                $this->ensurePeriodIsActive($group);
+
                 if ($schedule->type === 'SEMPRO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
+                        // Auto-transition to PDC2_ACTIVE after SEMPRO completion
+                        $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     } else {
                         $this->stateMachine->transition($group, 'PDC1_ACTIVE');
                     }
                 } elseif ($schedule->type === 'EXPO') {
                     if ($result === 'PASS') {
                         $this->stateMachine->transition($group, 'EXPO_DONE');
+
+                        // Unlock peer review for all group members
+                        try {
+                            $peerReviewService = app(\App\Services\PeerReviewService::class);
+                            $peerReviewService->unlockPeerReview($group->id);
+                            Log::info("Peer review unlocked for group {$group->id} after EXPO completion");
+                        } catch (\Exception $e) {
+                            Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
+                            // Don't throw - peer review unlock failure shouldn't break the flow
+                        }
                     } else {
                         $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     }
@@ -343,8 +494,10 @@ class SchedulingService
                 'status' => 'SUBMITTED',
             ]);
 
-            // Check if ALL evaluations for this TA defense are submitted
             $schedule = TaDefenseSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
+
+            // Store component scores into sidang_ta_scores table
+            $this->storeComponentScores($rubricJson, $schedule->group_id, $evaluation->examiner_id, 'SIDANG_TA', $evaluation->student_id);
             $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
                 ->where('status', 'SUBMITTED')
@@ -359,6 +512,9 @@ class SchedulingService
                 $taSubmission = TaSubmission::where('student_id', $schedule->student_id)
                     ->where('group_id', $schedule->group_id)
                     ->firstOrFail();
+
+                $group = Group::findOrFail($schedule->group_id);
+                $this->ensurePeriodIsActive($group);
 
                 if ($result === 'PASS') {
                     $taSubmission->update(['status' => 'TA_DEFENDED']);
@@ -395,5 +551,114 @@ class SchedulingService
                 'result' => $allSubmitted ? $result : null,
             ];
         });
+    }
+
+    // ══════════════════════════════════════════
+    // TA Defense Methods
+    // ══════════════════════════════════════════
+
+    /**
+     * Create evaluation records for TA defense examiners
+     */
+    public function createTaDefenseEvaluations(TaDefenseSchedule $schedule): void
+    {
+        // Create evaluation record for examiner 1
+        TaDefenseEvaluation::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_1_id,
+            'student_id' => $schedule->student_id,
+        ], [
+            'status' => 'PENDING',
+        ]);
+
+        // Create examiner record for examiner 1 (required for examiner lookup)
+        TaDefenseExaminer::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_1_id,
+        ], [
+            'role' => 'EXAMINER_1',
+        ]);
+
+        // Create evaluation record for examiner 2
+        TaDefenseEvaluation::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_2_id,
+            'student_id' => $schedule->student_id,
+        ], [
+            'status' => 'PENDING',
+        ]);
+
+        // Create examiner record for examiner 2 (required for examiner lookup)
+        TaDefenseExaminer::firstOrCreate([
+            'schedule_id' => $schedule->id,
+            'examiner_id' => $schedule->examiner_2_id,
+        ], [
+            'role' => 'EXAMINER_2',
+        ]);
+    }
+
+    /**
+     * Send notifications when TA defense is scheduled
+     */
+    public function notifyTaDefenseScheduled(TaDefenseSchedule $schedule): void
+    {
+        // This will be implemented by NotificationService
+        // For now, just log the notification
+        Log::info('TA Defense scheduled', [
+            'schedule_id' => $schedule->id,
+            'student_id' => $schedule->student_id,
+            'examiner_1' => $schedule->examiner_1_id,
+            'examiner_2' => $schedule->examiner_2_id,
+            'date' => $schedule->date,
+        ]);
+    }
+
+    private function storeComponentScores(array $rubricJson, int $groupId, int $examinerId, string $type, ?int $studentId = null): void
+    {
+        $scores = $rubricJson['scores'] ?? [];
+
+        if (empty($scores)) {
+            return;
+        }
+
+        $now = now();
+
+        foreach ($scores as $key => $scoreValue) {
+            $parts = explode('_', (string) $key);
+            $periodComponentId = (int) ($parts[0] ?? 0);
+            $sid = (int) ($parts[1] ?? 0);
+
+            if ($periodComponentId <= 0) {
+                continue;
+            }
+
+            $data = [
+                'period_component_id' => $periodComponentId,
+                'examiner_id' => $examinerId,
+                'group_id' => $groupId,
+                'student_id' => $sid > 0 ? $sid : ($studentId ?? null),
+                'score' => (float) $scoreValue,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            DB::table($type === 'SIDANG_TA' ? 'sidang_ta_scores' : 'sempro_scores')
+                ->updateOrInsert(
+                    [
+                        'period_component_id' => $periodComponentId,
+                        'examiner_id' => $examinerId,
+                        'group_id' => $groupId,
+                        'student_id' => $data['student_id'],
+                    ],
+                    $data
+                );
+        }
+
+        Log::info("Stored component scores", [
+            'type' => $type,
+            'group_id' => $groupId,
+            'examiner_id' => $examinerId,
+            'count' => count($scores),
+        ]);
     }
 }

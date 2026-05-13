@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
@@ -14,6 +15,8 @@ use App\Services\GroupStateMachine;
 
 class StudentProposalController extends Controller
 {
+    use RequiresActivePeriod;
+
     protected $stateMachine;
 
     public function __construct(GroupStateMachine $stateMachine)
@@ -208,7 +211,10 @@ class StudentProposalController extends Controller
             ->first();
 
         if (!$membership) {
-            return response()->json(['proposal' => null]);
+            return response()->json([
+                'proposals' => [],
+                'flow' => $this->denyProposalFlow('NO_GROUP'),
+            ]);
         }
 
         $proposals = Title::where('proposed_by_group_id', $membership->group_id)
@@ -217,7 +223,12 @@ class StudentProposalController extends Controller
             ->orderBy('created_at', 'desc')
             ->get();
 
-        return response()->json(['proposals' => $proposals]);
+        $group = Group::with(['period', 'members'])->find($membership->group_id);
+
+        return response()->json([
+            'proposals' => $proposals,
+            'flow' => $this->buildProposalFlowPayload($group, $membership),
+        ]);
     }
 
     /**
@@ -285,7 +296,10 @@ class StudentProposalController extends Controller
                 $title->stakeholders()->sync($validated['stakeholder_ids'] ?? []);
             }
 
-            $group = Group::find($membership->group_id);
+            $group = Group::with('period')->find($membership->group_id);
+
+            $this->ensurePeriodIsActive($group);
+
             $group->update(['has_active_proposal' => true]);
 
             // Notify supervisor
@@ -353,6 +367,8 @@ class StudentProposalController extends Controller
         try {
             $group = Group::with('period', 'members')->find($membership->group_id);
 
+            $this->ensurePeriodIsActive($group);
+
             // Delete the title (this will cascade any notifications if set)
             $title->delete();
             $group->update(['has_active_proposal' => false]);
@@ -368,5 +384,112 @@ class StudentProposalController extends Controller
             DB::rollBack();
             return response()->json(['message' => 'Gagal membatalkan proposal: ' . $e->getMessage()], 500);
         }
+    }
+
+    private function buildProposalFlowPayload(?Group $group, ?GroupMember $membership): array
+    {
+        if (!$group || !$membership) {
+            return $this->denyProposalFlow('NO_GROUP');
+        }
+
+        $isLeader = (bool) $membership->is_leader;
+        $memberCount = $group->members->count();
+        $minSize = $group->period?->min_group_size ?? 3;
+
+        $pendingProposal = Title::where('proposed_by_group_id', $group->id)
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
+            ->exists();
+
+        $hasRejectedProposal = Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->where('supervisor_approval_status', 'REJECTED')
+            ->exists();
+
+        $canCreateProposal = true;
+        $reason = null;
+
+        if (!$isLeader) {
+            $canCreateProposal = false;
+            $reason = 'LEADER_ONLY';
+        }
+
+        if ($canCreateProposal && !$group->is_solo && $memberCount < $minSize) {
+            $canCreateProposal = false;
+            $reason = 'INSUFFICIENT_MEMBERS';
+        }
+
+        if ($canCreateProposal && $group->title_id && $group->status === 'APPROVED') {
+            $canCreateProposal = false;
+            $reason = 'TITLE_ALREADY_ASSIGNED';
+        }
+
+        if ($canCreateProposal && $pendingProposal) {
+            $canCreateProposal = false;
+            $reason = 'PENDING_PROPOSAL_EXISTS';
+        }
+
+        if ($canCreateProposal && !in_array($group->status, ['PENDING', 'READY_FOR_BIDDING', 'REJECTED', 'FORMING', 'FORMING_SOLO'], true)) {
+            $canCreateProposal = false;
+            $reason = 'INVALID_GROUP_STATUS';
+        }
+
+        if (!$group->is_solo) {
+            $hasActiveBid = \App\Models\Bid::where('group_id', $group->id)
+                ->where(function ($q) {
+                    $q->where('status', 'PENDING')
+                      ->orWhere('lecturer_recommendation', 'ACCEPT');
+                })
+                ->exists();
+
+            if ($canCreateProposal && $hasActiveBid) {
+                $canCreateProposal = false;
+                $reason = 'ACTIVE_BID_EXISTS';
+            }
+        }
+
+        $bidCount = \App\Models\Bid::where('group_id', $group->id)
+            ->where(function ($q) {
+                $q->whereNull('lecturer_recommendation')
+                  ->orWhere('lecturer_recommendation', 'ACCEPT');
+            })
+            ->count();
+
+        $proposalCount = Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
+            ->count();
+
+        if ($canCreateProposal && ($bidCount + $proposalCount) >= 3) {
+            $canCreateProposal = false;
+            $reason = 'TITLE_LIMIT_REACHED';
+        }
+
+        if ($canCreateProposal && (!$group->period || !$group->period->is_active)) {
+            $canCreateProposal = false;
+            $reason = 'NO_ACTIVE_PERIOD';
+        }
+
+        $canUpdateRejected = $isLeader && $hasRejectedProposal && !$pendingProposal;
+        $canCancelProposal = $isLeader && Title::where('proposed_by_group_id', $group->id)
+            ->where('title_source', 'STUDENT')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'REJECTED'])
+            ->exists();
+
+        return [
+            'can_create_proposal' => $canCreateProposal,
+            'can_update_rejected_proposal' => $canUpdateRejected,
+            'can_cancel_pending_proposal' => $canCancelProposal,
+            'reason' => $reason,
+        ];
+    }
+
+    private function denyProposalFlow(string $reason): array
+    {
+        return [
+            'can_create_proposal' => false,
+            'can_update_rejected_proposal' => false,
+            'can_cancel_pending_proposal' => false,
+            'reason' => $reason,
+        ];
     }
 }

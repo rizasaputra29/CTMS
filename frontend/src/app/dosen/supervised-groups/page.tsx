@@ -84,7 +84,7 @@ export default function DosenSupervisedGroupsPage() {
         'FORMING': 0, 'FORMING_SOLO': 0, 'READY_FOR_BIDDING': 10,
         'KELOMPOK_FINAL': 20, 'PDC1_ACTIVE': 30, 'READY_FOR_SEMPRO': 40,
         'SEMPRO_DONE': 50, 'PDC2_ACTIVE': 60, 'PDC2_READY_FOR_EXPO': 70,
-        'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'PDC2_COMPLETED': 100, 'CLOSED': 100
+        'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'READY_FOR_TA_INDIVIDUAL': 100, 'CLOSED': 100
     };
 
     return (
@@ -136,7 +136,7 @@ export default function DosenSupervisedGroupsPage() {
                                 <CardHeader className="pb-3">
                                     <div className="flex justify-between items-start">
                                         <div className="flex items-center gap-2">
-                                            <CardTitle className="text-lg">Group #{group.id}</CardTitle>
+                                            <CardTitle className="text-lg">Group {group.id}</CardTitle>
                                             {group.is_dosbing_1 && (
                                                 <Badge className="bg-blue-500">Dosbing 1</Badge>
                                             )}

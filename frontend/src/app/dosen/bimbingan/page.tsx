@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Download, Loader2, Search } from 'lucide-react';
+import { FileText, Loader2, Search, Eye } from 'lucide-react';
 import { toast } from "sonner";
 import {
     Select,
@@ -172,6 +172,13 @@ export default function DosenBimbinganPage() {
         }
     };
 
+    const viewDocument = (filePath: string) => {
+        // Derive backend URL from API URL (remove /api suffix)
+        const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8000';
+        const storageUrl = `${baseUrl}/storage/${filePath}`;
+        window.open(storageUrl, '_blank', 'noopener,noreferrer');
+    };
+
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'APPROVED': return <Badge className="bg-green-500">Approved</Badge>;
@@ -224,7 +231,7 @@ export default function DosenBimbinganPage() {
                             <SelectItem value="all">All Groups</SelectItem>
                             {groups.map((group) => (
                                 <SelectItem key={group.id} value={group.id.toString()}>
-                                    {group.title?.title || `Group #${group.id}`}
+                                    {group.title?.title || `Group ${group.id}`}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -309,10 +316,13 @@ export default function DosenBimbinganPage() {
                                                     )}
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
-                                                    <Button variant="outline" size="sm" className="w-full sm:w-auto" asChild>
-                                                        <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/storage/${doc.file_path}`} target="_blank" rel="noopener noreferrer">
-                                                            <Download className="mr-2 h-4 w-4" /> View
-                                                        </a>
+                                                    <Button 
+                                                        variant="outline" 
+                                                        size="sm" 
+                                                        className="w-full sm:w-auto"
+                                                        onClick={() => viewDocument(doc.file_path)}
+                                                    >
+                                                        <Eye className="mr-2 h-4 w-4" /> View
                                                     </Button>
                                                     <Button size="sm" className="w-full sm:w-auto" onClick={() => handleReview(doc)}>
                                                         Review

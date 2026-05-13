@@ -8,6 +8,7 @@ import type {
   BatchSupervisorResult,
   ExecuteFinalizationRequest,
   RollbackFinalizationRequest,
+  CancelKelompokFinalRequest,
   ExportRequest,
 } from '@/types/finalization';
 
@@ -16,12 +17,14 @@ interface UseFinalizationActionsReturn {
   settingSupervisor: boolean;
   executingFinalization: boolean;
   rollingBack: boolean;
+  cancelingKelompokFinal: boolean;
   exporting: boolean;
-  
+
   // Actions
   batchSetSupervisor: (data: BatchSupervisorRequest) => Promise<BatchSupervisorResult | null>;
   executeFinalization: (data: ExecuteFinalizationRequest) => Promise<boolean>;
   rollbackFinalization: (data: RollbackFinalizationRequest) => Promise<boolean>;
+  cancelKelompokFinal: (data: CancelKelompokFinalRequest) => Promise<boolean>;
   exportReport: (data: ExportRequest) => Promise<void>;
 }
 
@@ -29,6 +32,7 @@ export function useFinalizationActions(): UseFinalizationActionsReturn {
   const [settingSupervisor, setSettingSupervisor] = useState(false);
   const [executingFinalization, setExecutingFinalization] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
+  const [cancelingKelompokFinal, setCancelingKelompokFinal] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const batchSetSupervisor = useCallback(
@@ -124,6 +128,33 @@ export function useFinalizationActions(): UseFinalizationActionsReturn {
     []
   );
 
+  const cancelKelompokFinal = useCallback(
+    async (data: CancelKelompokFinalRequest): Promise<boolean> => {
+      setCancelingKelompokFinal(true);
+
+      try {
+        const response = await api.post<{
+          message: string;
+          group: unknown;
+          old_status: string;
+          new_status: string;
+        }>('/admin/finalization/cancel-kelompok-final', data);
+
+        toast.success(response.data.message);
+        return true;
+      } catch (err) {
+        const message = api.isAxiosError(err)
+          ? err.response?.data?.message || 'Failed to cancel Kelompok Final'
+          : 'An unexpected error occurred';
+        toast.error(message);
+        return false;
+      } finally {
+        setCancelingKelompokFinal(false);
+      }
+    },
+    []
+  );
+
   const exportReport = useCallback(
     async (data: ExportRequest): Promise<void> => {
       setExporting(true);
@@ -166,10 +197,12 @@ export function useFinalizationActions(): UseFinalizationActionsReturn {
     settingSupervisor,
     executingFinalization,
     rollingBack,
+    cancelingKelompokFinal,
     exporting,
     batchSetSupervisor,
     executeFinalization,
     rollbackFinalization,
+    cancelKelompokFinal,
     exportReport,
   };
 }

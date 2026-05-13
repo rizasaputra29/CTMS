@@ -64,6 +64,17 @@ interface Proposal {
         name: string;
     } | null;
     created_at: string;
+    allowed_actions?: {
+        can_approve: boolean;
+        can_reject: boolean;
+        reason: string | null;
+    };
+}
+
+interface LecturerProposalFlow {
+    can_approve_proposal: boolean;
+    can_reject_proposal: boolean;
+    reason: string | null;
 }
 
 export default function TitleApprovalsPage() {
@@ -77,6 +88,7 @@ export default function TitleApprovalsPage() {
     const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
     const [rejectionReason, setRejectionReason] = useState('');
     const [processing, setProcessing] = useState(false);
+    const [proposalFlow, setProposalFlow] = useState<LecturerProposalFlow | null>(null);
 
     const fetchData = useCallback(async (periodId?: string) => {
         if (periodId && periodId !== 'all') setRefreshing(true);
@@ -111,6 +123,7 @@ export default function TitleApprovalsPage() {
             
             const response = await api.get(url);
             setProposals(response.data.data || []);
+            setProposalFlow(response.data.flow || null);
         } catch (error) {
             console.error('Failed to fetch proposals', error);
             toast.error('Failed to load title proposals');
@@ -179,6 +192,12 @@ export default function TitleApprovalsPage() {
         );
     }, [proposals, searchQuery]);
 
+    const flowReasonMap: Record<string, string> = {
+        PERIOD_FINALIZED: 'Periode sudah difinalisasi. Proposal tidak dapat diproses.',
+    };
+
+    const globalFlowMessage = proposalFlow?.reason ? flowReasonMap[proposalFlow.reason] || 'Aksi persetujuan proposal tidak tersedia.' : null;
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -224,6 +243,12 @@ export default function TitleApprovalsPage() {
                 />
             </div>
 
+            {globalFlowMessage && (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    {globalFlowMessage}
+                </div>
+            )}
+
             {filteredProposals.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
                     <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
@@ -234,12 +259,17 @@ export default function TitleApprovalsPage() {
                 <div className="grid gap-6">
                     {filteredProposals.map((proposal) => (
                         <Card key={proposal.id}>
+                            {proposal.allowed_actions?.reason === 'PROPOSAL_ALREADY_PROCESSED' && (
+                                <div className="mx-6 mt-6 rounded-md border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                                    Proposal ini sudah diproses dan tidak dapat diubah.
+                                </div>
+                            )}
                             <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <CardTitle className="text-lg">{proposal.title}</CardTitle>
                                         <CardDescription className="mt-1">
-                                            Group #{proposal.proposed_by_group?.id} · Submitted {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                            Group {proposal.proposed_by_group?.id} · Submitted {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                                         </CardDescription>
                                     </div>
                                     <Badge variant={proposal.supervisor_approval_status === 'PENDING' ? 'secondary' : 'outline'} className="flex items-center gap-1">
@@ -284,11 +314,20 @@ export default function TitleApprovalsPage() {
                                 )}
                             </CardContent>
                             <CardFooter className="flex justify-end gap-2 border-t pt-4">
+                                {(() => {
+                                    const actions = proposal.allowed_actions ?? {
+                                        can_approve: true,
+                                        can_reject: true,
+                                        reason: null,
+                                    };
+
+                                    return (
+                                        <>
                                 <Button
                                     variant="destructive"
                                     size="sm"
                                     onClick={() => openRejectDialog(proposal)}
-                                    disabled={processing}
+                                    disabled={processing || !actions.can_reject}
                                 >
                                     <X className="mr-2 h-4 w-4" /> Reject
                                 </Button>
@@ -318,12 +357,15 @@ export default function TitleApprovalsPage() {
                                         </AlertDialogHeader>
                                         <AlertDialogFooter>
                                             <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                            <AlertDialogAction onClick={() => handleApprove(proposal.id)}>
+                                            <AlertDialogAction onClick={() => handleApprove(proposal.id)} disabled={!actions.can_approve}>
                                                 Confirm {proposal.supervisor_approval_status === 'UNDER_REVIEW' ? 'Re-Approve' : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
                                             </AlertDialogAction>
                                         </AlertDialogFooter>
                                     </AlertDialogContent>
                                 </AlertDialog>
+                                        </>
+                                    );
+                                })()}
                             </CardFooter>
                         </Card>
                     ))}

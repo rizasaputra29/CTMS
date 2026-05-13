@@ -134,4 +134,58 @@ class NotificationService
             );
         }
     }
+
+    /**
+     * Notify supervisors when a schedule is created for their supervised group.
+     */
+    public function notifySupervisorsOfSchedule(\App\Models\Group $group, \App\Models\Schedule $schedule, string $scheduleType): void
+    {
+        $supervisors = $group->supervisions;
+        
+        $typeLabels = [
+            'SEMINAR' => 'Seminar Proposal (SEMPRO)',
+            'TA_DEFENSE' => 'Sidang Tugas Akhir',
+            'EXPO' => 'Expo',
+        ];
+        
+        $typeLabel = $typeLabels[$scheduleType] ?? $scheduleType;
+        $groupName = $group->title->title ?? $group->name ?? "Group #{$group->id}";
+        
+        foreach ($supervisors as $supervision) {
+            $this->send(
+                $supervision->supervisor_id,
+                'supervisor_evaluation_scheduled',
+                'Jadwal Penilaian Baru',
+                "Anda perlu mengisi nilai {$typeLabel} untuk kelompok \"{$groupName}\". Jadwal: " . $schedule->date->format('d M Y H:i') . " di {$schedule->room}.",
+                'Schedule',
+                $schedule->id
+            );
+        }
+    }
+
+    /**
+     * Notify examiners when a schedule is created.
+     */
+    public function notifyExaminersOfSchedule(array $examinerIds, \App\Models\Group $group, \App\Models\Schedule $schedule, string $scheduleType): void
+    {
+        $typeLabels = [
+            'SEMINAR' => 'Seminar Proposal (SEMPRO)',
+            'TA_DEFENSE' => 'Sidang Tugas Akhir',
+            'EXPO' => 'Expo',
+        ];
+        
+        $typeLabel = $typeLabels[$scheduleType] ?? $scheduleType;
+        $groupName = $group->title->title ?? $group->name ?? "Group #{$group->id}";
+        
+        foreach ($examinerIds as $examinerId) {
+            $this->send(
+                $examinerId,
+                'examiner_evaluation_scheduled',
+                'Jadwal Penilaian sebagai Examiner',
+                "Anda ditugaskan sebagai examiner untuk {$typeLabel} kelompok \"{$groupName}\". Jadwal: " . $schedule->date->format('d M Y H:i') . " di {$schedule->room}.",
+                'Schedule',
+                $schedule->id
+            );
+        }
+    }
 }

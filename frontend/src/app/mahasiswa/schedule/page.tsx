@@ -12,10 +12,18 @@ export default function MahasiswaSchedulePage() {
     const fetchSchedules = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await api.get('/mahasiswa/schedules');
-            setSchedules(response.data.data);
+            // Use the new aggregated endpoint that includes BIMBINGAN, SEMPRO, EXPO, and TA_DEFENSE
+            const response = await api.get('/mahasiswa/all-schedules');
+            setSchedules(response.data.data || []);
         } catch (error) {
             console.error('Failed to fetch schedules', error);
+            // Fallback to legacy endpoint if new one fails
+            try {
+                const legacyResponse = await api.get('/mahasiswa/schedules');
+                setSchedules(legacyResponse.data.data || []);
+            } catch (legacyError) {
+                console.error('Failed to fetch legacy schedules', legacyError);
+            }
         } finally {
             setLoading(false);
         }
@@ -37,7 +45,7 @@ export default function MahasiswaSchedulePage() {
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold tracking-tight">My Schedule</h1>
-                <p className="text-muted-foreground">View your bimbingan sessions and upcoming academic events.</p>
+                <p className="text-muted-foreground">View your bimbingan sessions, seminar proposals, expo events, and TA defense schedule.</p>
             </div>
 
             <ScheduleCalendar schedules={schedules} />

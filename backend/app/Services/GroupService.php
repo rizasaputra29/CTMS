@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Models\Period;
 use App\Models\Supervision;
 use App\Models\JoinRequest;
+use App\Concerns\RequiresActivePeriod;
 use App\Exceptions\ConflictRuleException;
 use App\Exceptions\DomainRuleException;
 use Illuminate\Database\QueryException;
@@ -21,6 +22,8 @@ use Throwable;
 
 class GroupService
 {
+    use RequiresActivePeriod;
+
     // Status Constants
     public const STATUS_FORMING = 'FORMING';
     public const STATUS_FORMING_SOLO = 'FORMING_SOLO';
@@ -59,6 +62,8 @@ class GroupService
         if ($this->stateMachine->isAtLeast($targetGroup, 'READY_FOR_FINALIZATION')) {
             throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.");
         }
+
+        $this->ensurePeriodIsActive($targetGroup);
 
         // 2. Pre-validation & Idempotency (Fast Path)
         $this->validateJoinRequest($student, $targetGroup);
@@ -144,6 +149,8 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
                     $oldGroup = Group::where('id', $membership->group_id)->lockForUpdate()->first();
 
+                    $this->ensurePeriodIsActive($oldGroup);
+
                     // LOCKED: After READY_FOR_FINALIZATION, cannot leave group
                     if ($this->stateMachine->isAtLeast($oldGroup, 'READY_FOR_FINALIZATION')) {
                         throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.");
@@ -201,6 +208,10 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($group->period->is_finalized) {
             throw new DomainRuleException("Periode pendaftaran ini sudah ditutup. Hubungi admin jika ada kebutuhan khusus.");
+        }
+
+        if (!$group->period->is_active) {
+            throw new DomainRuleException("Periode tidak aktif. Operasi tidak diizinkan.");
         }
 
         if ($this->stateMachine->isAtLeast($group, self::STATUS_KELOMPOK_FINAL)) {
@@ -342,6 +353,8 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
      */
     public function evaluateGroupReadiness(Group $group): void
     {
+        $this->ensurePeriodIsActive($group);
+
         // IMPORTANT: Refresh to get latest status from DB (avoid stale data from eager loading)
         $group->refresh();
         
@@ -386,7 +399,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($preApprovedTitle) {
             $lecturerId = $preApprovedTitle->proposed_supervisor_id;
-            $maxLoad = $period->max_supervisor_load ?? 8;
+            $maxLoad = $period->supervisorLoadLimit(8);
 
             $currentLoad = Supervision::where('supervisor_id', $lecturerId)
                 ->whereHas('group', fn($q) => $q->where('period_id', $period->id))

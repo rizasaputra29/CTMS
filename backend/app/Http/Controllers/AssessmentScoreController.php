@@ -2,12 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentScore;
 use App\Models\AssessmentComponent;
+use App\Models\PeriodAssessmentComponent;
+use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 
 class AssessmentScoreController extends Controller
 {
+    private function usesPeriodAssessmentComponents(): bool
+    {
+        return Schema::hasTable('period_assessment_components');
+    }
+
     /**
      * Get the assessment form: components + any existing scores for a group.
      * Used by Dosen to fill evaluations.
@@ -22,19 +29,52 @@ class AssessmentScoreController extends Controller
         $user = $request->user();
         $group = \App\Models\Group::with('members.student', 'period')->findOrFail($request->group_id);
 
-        // Get components for this period + type
-        $components = AssessmentComponent::where('period_id', $group->period_id)
-            ->where('type', $request->type)
-            ->orderBy('sort_order')
-            ->get();
+        if ($this->usesPeriodAssessmentComponents()) {
+            $periodComponents = PeriodAssessmentComponent::with('template')
+                ->where('period_id', $group->period_id)
+                ->where('type', $request->type)
+                ->orderBy('sort_order')
+                ->get();
 
-        // Get existing scores by this evaluator for this group
-        $existingScores = AssessmentScore::where('evaluator_id', $user->id)
+            $components = $periodComponents->map(fn ($c) => [
+                'id' => $c->id,
+                'code' => $c->template->code,
+                'name' => $c->template->name,
+                'description' => $c->template->description,
+                'weight' => $c->template->weight,
+                'sort_order' => $c->sort_order,
+                'template_id' => $c->template_id,
+            ]);
+        } else {
+            $components = AssessmentComponent::query()
+                ->where('period_id', $group->period_id)
+                ->where('type', $request->type)
+                ->orderBy('sort_order')
+                ->get()
+                ->map(fn ($c) => [
+                    'id' => $c->id,
+                    'code' => $c->code,
+                    'name' => $c->name,
+                    'description' => $c->description,
+                    'weight' => $c->weight,
+                    'sort_order' => $c->sort_order,
+                    'template_id' => null,
+                ]);
+        }
+
+        $hasPeriodComponentColumn = Schema::hasTable('bimbingan_sempro_scores')
+            || Schema::hasTable('bimbingan_ta_scores');
+
+        $existingScores = AssessmentScoreRepository::forType($request->type)
+            ->where('evaluator_id', $user->id)
             ->where('group_id', $group->id)
-            ->where('evaluation_type', $request->type)
             ->get()
-            ->keyBy(function ($score) {
-                return $score->component_id . '_' . $score->student_id;
+            ->keyBy(function ($score) use ($hasPeriodComponentColumn) {
+                $componentId = $hasPeriodComponentColumn && $score->period_component_id
+                    ? $score->period_component_id
+                    : $score->component_id;
+
+                return $componentId . '_' . $score->student_id;
             });
 
         return response()->json([
@@ -53,7 +93,7 @@ class AssessmentScoreController extends Controller
             'group_id' => 'required|exists:groups,id',
             'evaluation_type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
             'scores' => 'required|array|min:1',
-            'scores.*.component_id' => 'required|exists:assessment_components,id',
+            'scores.*.period_component_id' => 'required|integer',
             'scores.*.student_id' => 'nullable|exists:users,id',
             'scores.*.score' => 'required|numeric|min:0|max:100',
             'scores.*.notes' => 'nullable|string',
@@ -62,23 +102,65 @@ class AssessmentScoreController extends Controller
         $user = $request->user();
         $saved = [];
 
-        foreach ($request->scores as $scoreData) {
-            $saved[] = AssessmentScore::updateOrCreate(
-                [
-                    'component_id' => $scoreData['component_id'],
-                    'evaluator_id' => $user->id,
-                    'student_id' => $scoreData['student_id'] ?? null,
-                ],
-                [
-                    'group_id' => $request->group_id,
-                    'score' => $scoreData['score'],
-                    'notes' => $scoreData['notes'] ?? null,
-                    'evaluation_type' => $request->evaluation_type,
-                ]
-            );
+        $usePeriodComponents = $this->usesPeriodAssessmentComponents();
+        $hasPeriodComponentColumn = Schema::hasTable('bimbingan_sempro_scores')
+            || Schema::hasTable('bimbingan_ta_scores');
+
+        $componentIds = collect($request->scores)->pluck('period_component_id')->map(fn ($v) => (int) $v)->unique()->values();
+
+        if ($usePeriodComponents) {
+            $validIds = PeriodAssessmentComponent::whereIn('id', $componentIds)->pluck('id')->all();
+        } else {
+            $validIds = AssessmentComponent::whereIn('id', $componentIds)->pluck('id')->all();
         }
 
-        return response()->json(['message' => 'Scores submitted', 'count' => count($saved)], 201);
+        $invalidIds = $componentIds->diff($validIds)->values();
+        if ($invalidIds->isNotEmpty()) {
+            return response()->json([
+                'message' => 'Invalid assessment component selected',
+                'invalid_component_ids' => $invalidIds,
+            ], 422);
+        }
+
+        // OPTIMIZED: Use upsert instead of updateOrCreate in loop for better performance
+        $scoresData = [];
+        $now = now();
+
+        foreach ($request->scores as $scoreData) {
+            $data = [
+                'evaluator_id' => $user->id,
+                'student_id' => $scoreData['student_id'] ?? null,
+                'group_id' => $request->group_id,
+                'score' => $scoreData['score'],
+                'notes' => $scoreData['notes'] ?? null,
+                'evaluation_type' => $request->evaluation_type,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+
+            if ($usePeriodComponents && $hasPeriodComponentColumn) {
+                $data['period_component_id'] = $scoreData['period_component_id'];
+                // Also add component_id for the unique constraint (set to null when using period_component_id)
+                $data['component_id'] = null;
+            } else {
+                $data['component_id'] = $scoreData['period_component_id'];
+            }
+
+            $scoresData[] = $data;
+        }
+
+        // Determine unique keys and update columns based on schema
+        // Use correct unique keys based on whether using period_assessment_components or legacy schema
+        $uniqueKeys = $hasPeriodComponentColumn
+            ? ['evaluator_id', 'student_id', 'period_component_id', 'group_id']
+            : ['evaluator_id', 'student_id', 'component_id', 'group_id'];
+
+        $updateColumns = ['group_id', 'score', 'notes', 'updated_at'];
+
+        // Use repository to upsert - dispatches to correct table
+        AssessmentScoreRepository::upsert($request->evaluation_type, $scoresData, $uniqueKeys, $updateColumns);
+
+        return response()->json(['message' => 'Scores submitted', 'count' => count($scoresData)], 201);
     }
 
     /**
@@ -91,9 +173,9 @@ class AssessmentScoreController extends Controller
             'type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
         ]);
 
-        $scores = AssessmentScore::with(['component', 'evaluator', 'student', 'group'])
+        $scores = AssessmentScoreRepository::forType($request->type)
+            ->with(['periodComponent.template', 'evaluator', 'student', 'group'])
             ->whereHas('group', fn($q) => $q->where('period_id', $request->period_id))
-            ->where('evaluation_type', $request->type)
             ->get();
 
         // Group by group_id, then by student_id
@@ -103,7 +185,7 @@ class AssessmentScoreController extends Controller
                 $totalWeight = 0;
 
                 foreach ($studentScores as $score) {
-                    $weight = $score->component->weight;
+                    $weight = $score->periodComponent->template->weight;
                     $totalWeighted += $score->score * $weight;
                     $totalWeight += $weight;
                 }

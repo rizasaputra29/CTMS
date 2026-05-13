@@ -57,6 +57,7 @@ export interface Period {
   id: number;
   name: string;
   is_active: boolean;
+  is_finalized?: boolean;
   max_supervisor_load?: number;
   min_group_size?: number;
   max_group_size?: number;
@@ -103,6 +104,23 @@ export interface Group {
   finalized_by?: number;
   created_at: string;
   updated_at: string;
+  status_label?: string;
+  allowed_actions?: {
+    can_set_supervisor?: boolean;
+    can_mark_kelompok_final?: boolean;
+    can_cancel_kelompok_final?: boolean;
+    can_assign_title?: boolean;
+    can_promote_to_ready_for_finalization?: boolean;
+    reason?: string | null;
+  };
+}
+
+export interface FinalizationFlow {
+  can_modify: boolean;
+  can_execute_finalization: boolean;
+  reason: string | null;
+  tab?: DashboardTab;
+  sub_tab?: OthersSubTab;
 }
 
 // Lecturer with load information
@@ -161,10 +179,12 @@ export interface DocumentRequirementsStatus {
 export interface DashboardStats {
   total_ready: number;
   total_kelompok_final: number;
+  total_pdc1_active?: number;
   total_no_group: number;
   total_no_title: number;
   total_not_ready: number;
   can_finalize: boolean;
+  can_reopen_finalization?: boolean;
   document_requirements?: DocumentRequirementsStatus;
 }
 
@@ -174,6 +194,7 @@ export interface DashboardResponse {
   tab: DashboardTab;
   stats: DashboardStats;
   data: PaginatedResponse<Group> | PaginatedResponse<Student> | PaginatedResponse<Group>;
+  flow?: FinalizationFlow;
 }
 
 // Lecturers response
@@ -215,6 +236,13 @@ export interface RollbackFinalizationRequest {
   reason: string;
 }
 
+// Cancel Kelompok Final request
+export interface CancelKelompokFinalRequest {
+  period_id: number;
+  group_id: number;
+  reason?: string;
+}
+
 // Export request
 export interface ExportRequest {
   period_id: number;
@@ -247,4 +275,8 @@ export interface FilterState {
   search: string;
   perPage: number;
   page: number;
+  // Advanced filters
+  supervisorStatus?: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
+  memberCount?: 'all' | 'under_min' | 'in_range' | 'over_max';
+  titleStatus?: 'all' | 'no_title' | 'lecturer_title' | 'marketplace_title';
 }

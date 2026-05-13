@@ -1,0 +1,874 @@
+'use client';
+
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import api from '@/lib/api';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import {
+    Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import {
+    Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from '@/components/ui/table';
+import { toast } from 'sonner';
+import Link from 'next/link';
+import { format } from 'date-fns';
+import {
+    Loader2, Plus, Search, FileText, ClipboardCheck,
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
+} from 'lucide-react';
+
+interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
+interface Dosen { id: number; name: string; email: string; }
+interface BimbinganEval {
+    student: { id: number; name: string };
+    average_score: number;
+}
+interface Schedule {
+    id: number;
+    group_id: number;
+    type: string;
+    date: string;
+    start_time: string;
+    end_time: string;
+    room: string | null;
+    status: string;
+    examiner1: Dosen;
+    examiner2: Dosen;
+    group: { id: number; title?: { title: string }; supervisor1?: Dosen; supervisor2?: Dosen };
+    evaluations: { id: number; examiner: Dosen; status: string; score: number | null }[];
+    bimbingan_evaluations?: BimbinganEval[];
+    examiner_student_averages?: BimbinganEval[];
+}
+
+interface GroupItem { id: number; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+interface User { id: number; name: string; email: string; role: string; }
+
+type SortKey = 'title' | 'date' | 'status';
+type SortDir = 'asc' | 'desc';
+const PAGE_SIZES = [10, 25, 50];
+
+export default function AdminSemproPage() {
+    const [schedules, setSchedules] = useState<Schedule[]>([]);
+    const [groups, setGroups] = useState<GroupItem[]>([]);
+    const [dosens, setDosens] = useState<Dosen[]>([]);
+    const [periods, setPeriods] = useState<Period[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
+    const [loading, setLoading] = useState(true);
+
+    const [scheduleOpen, setScheduleOpen] = useState(false);
+    const [formGroupId, setFormGroupId] = useState('');
+    const [formDate, setFormDate] = useState('');
+    const [formStartTime, setFormStartTime] = useState('');
+    const [formEndTime, setFormEndTime] = useState('');
+    const [formRoom, setFormRoom] = useState('');
+    const [formExaminer1, setFormExaminer1] = useState('');
+    const [formExaminer2, setFormExaminer2] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [rejectId, setRejectId] = useState<number | null>(null);
+    const [rejectReason, setRejectReason] = useState('');
+
+    const [approveDialogOpen, setApproveDialogOpen] = useState(false);
+    const [approveId, setApproveId] = useState<number | null>(null);
+    const [approveData, setApproveData] = useState({
+        date: '', start_time: '', end_time: '', room: '',
+        examiner_1_id: '', examiner_2_id: '',
+    });
+
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(10);
+    const [sortKey, setSortKey] = useState<SortKey>('date');
+    const [sortDir, setSortDir] = useState<SortDir>('asc');
+    const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
+
+    const fetchSchedules = useCallback(async (periodId?: string) => {
+        const currentPeriod = periodId !== undefined ? periodId : selectedPeriod;
+        setLoading(true);
+        try {
+            const query = currentPeriod !== 'all' && currentPeriod ? `?period_id=${currentPeriod}` : '';
+            const [semproRes, groupsRes] = await Promise.all([
+                api.get(`/admin/sempro/schedules${query}`),
+                api.get(`/admin/groups${query}`),
+            ]);
+            setSchedules(semproRes.data.data || []);
+            setGroups(groupsRes.data.data || []);
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
+    const fetchDosens = useCallback(async () => {
+        try {
+            const res = await api.get('/admin/users');
+            const all = res.data.data || [];
+            setDosens(all.filter((u: User) => u.role === 'dosen'));
+        } catch (err) {
+            console.error(err);
+        }
+    }, []);
+
+    const fetchPeriods = useCallback(async () => {
+        try {
+            const res = await api.get('/admin/periods');
+            const perData = res.data?.data || [];
+            setPeriods(perData);
+            const active = perData.find((p: Period) => p.is_active);
+            if (active && selectedPeriod !== 'all') setSelectedPeriod(active.id.toString());
+        } catch (err) {
+            console.error(err);
+        }
+    }, [selectedPeriod]);
+
+    useEffect(() => { fetchPeriods(); }, []);
+    useEffect(() => { fetchSchedules(selectedPeriod); }, [selectedPeriod]);
+    useEffect(() => { fetchDosens(); }, [fetchDosens]);
+
+    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+
+    const filteredAndSorted = useMemo(() => {
+        const result = schedules.filter(s => {
+            const q = searchQuery.toLowerCase();
+            const title = s.group?.title?.title?.toLowerCase() || '';
+            const groupId = s.group_id.toString();
+            const room = s.room?.toLowerCase() || '';
+            const ex1 = s.examiner1?.name?.toLowerCase() || '';
+            const ex2 = s.examiner2?.name?.toLowerCase() || '';
+            return title.includes(q) || groupId.includes(q) || room.includes(q) || ex1.includes(q) || ex2.includes(q);
+        });
+
+        result.sort((a, b) => {
+            let cmp = 0;
+            if (sortKey === 'title') {
+                const titleA = a.group?.title?.title || '';
+                const titleB = b.group?.title?.title || '';
+                cmp = titleA.localeCompare(titleB);
+            } else if (sortKey === 'date') {
+                cmp = (a.date || '').localeCompare(b.date || '');
+            } else if (sortKey === 'status') {
+                cmp = (a.status || '').localeCompare(b.status || '');
+            }
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+
+        return result;
+    }, [schedules, searchQuery, sortKey, sortDir]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+    const safePage = Math.min(page, totalPages);
+    const paginated = useMemo(() => {
+        const start = (safePage - 1) * pageSize;
+        return filteredAndSorted.slice(start, start + pageSize);
+    }, [filteredAndSorted, safePage, pageSize]);
+
+    const showingStart = filteredAndSorted.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+    const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
+
+    const resetForm = () => {
+        setFormGroupId(''); setFormDate('');
+        setFormStartTime(''); setFormEndTime(''); setFormRoom('');
+        setFormExaminer1(''); setFormExaminer2('');
+    };
+
+    const handleSort = (key: SortKey) => {
+        if (sortKey === key) {
+            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortKey(key);
+            setSortDir('asc');
+        }
+    };
+
+    const toggleExpanded = (id: number) => {
+        setExpandedSchedules(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
+
+    const handleSchedule = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSubmitting(true);
+        try {
+            await api.post('/admin/sempro/schedule', {
+                group_id: Number(formGroupId),
+                date: formDate, start_time: formStartTime, end_time: formEndTime,
+                room: formRoom || null,
+                examiner_1_id: Number(formExaminer1),
+                examiner_2_id: Number(formExaminer2),
+            });
+            toast.success('SEMPRO schedule created');
+            setScheduleOpen(false);
+            resetForm();
+            fetchSchedules();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                const msg = error.response?.data?.message || 'Scheduling failed';
+                const conflicts = error.response?.data?.conflicts;
+                toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
+            } else {
+                toast.error('Scheduling failed');
+            }
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const handleApprove = (id: number, schedule?: Schedule) => {
+        setApproveId(id);
+        setApproveData({
+            date: schedule?.date || '',
+            start_time: schedule?.start_time || '',
+            end_time: schedule?.end_time || '',
+            room: schedule?.room || '',
+            examiner_1_id: schedule?.examiner1?.id?.toString() || '',
+            examiner_2_id: schedule?.examiner2?.id?.toString() || '',
+        });
+        setApproveDialogOpen(true);
+    };
+
+    const submitApprove = async () => {
+        if (!approveId) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${approveId}/approve`, {
+                date: approveData.date,
+                start_time: approveData.start_time,
+                end_time: approveData.end_time,
+                room: approveData.room,
+                examiner_1_id: Number(approveData.examiner_1_id),
+                examiner_2_id: Number(approveData.examiner_2_id),
+            });
+            toast.success('Schedule approved');
+            setApproveDialogOpen(false);
+            setApproveId(null);
+            fetchSchedules();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                const msg = error.response?.data?.message || 'Approval failed';
+                const conflicts = error.response?.data?.conflicts;
+                toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
+            } else {
+                toast.error('Approval failed');
+            }
+        }
+    };
+
+    const handleReject = async () => {
+        if (!rejectId || !rejectReason.trim()) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${rejectId}/reject`, { rejection_reason: rejectReason });
+            toast.success('Schedule request rejected');
+            setRejectId(null);
+            setRejectReason('');
+            fetchSchedules();
+        } catch {
+            toast.error('Rejection failed');
+        }
+    };
+
+    const statusColor = (s: string) => {
+        if (s === 'COMPLETED') return 'default' as const;
+        if (s === 'CANCELLED') return 'destructive' as const;
+        if (s === 'PENDING_APPROVAL') return 'secondary' as const;
+        if (s === 'APPROVED') return 'default' as const;
+        return 'secondary' as const;
+    };
+
+    const statusDisplay = (status: string) => {
+        switch (status) {
+            case 'COMPLETED': return 'Completed';
+            case 'CANCELLED': return 'Cancelled';
+            case 'PENDING_APPROVAL': return 'Pending';
+            case 'APPROVED': return 'Approved';
+            default: return status;
+        }
+    };
+
+    const formatDate = (dateStr: string) => {
+        try {
+            return format(new Date(dateStr), 'dd MMM yyyy');
+        } catch {
+            return dateStr;
+        }
+    };
+
+    const eligibleGroups = groups.filter(g => g.status === 'READY_FOR_SEMPRO');
+
+    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
+        <TableHead
+            className="cursor-pointer select-none hover:bg-muted/50"
+            onClick={() => handleSort(sortKeyName)}
+        >
+            <div className="flex items-center gap-1">
+                {label}
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
+            </div>
+        </TableHead>
+    );
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">Sidang Proposal</h1>
+                    <p className="text-muted-foreground text-sm mt-0.5">Schedule and manage SEMPRO sessions.</p>
+                </div>
+                <Button onClick={() => setScheduleOpen(true)} disabled={!selectedPeriod}>
+                    <Plus className="mr-2 h-4 w-4" /> New Schedule
+                </Button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">Period</span>
+                    <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                        <SelectTrigger className="w-[220px]">
+                            <SelectValue placeholder="Select period" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Semua Periode</SelectItem>
+                            {periods.map(p => (
+                                <SelectItem key={p.id} value={p.id.toString()}>
+                                    {p.name}
+                                    {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                        placeholder="Search by title, examiner, room..."
+                        className="pl-9"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
+            </div>
+
+            {loading && (
+                <div className="flex justify-center items-center h-64">
+                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+            )}
+
+            {!loading && !selectedPeriod && (
+                <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
+                    <ClipboardCheck className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
+                    <p className="text-sm">Select a period to view SEMPRO schedules.</p>
+                </div>
+            )}
+
+            {!loading && selectedPeriod && filteredAndSorted.length === 0 && (
+                <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
+                    <ClipboardCheck className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
+                    <p className="text-sm font-medium">No SEMPRO schedules yet</p>
+                    <p className="text-[13px] text-muted-foreground/60 mt-1">
+                        {eligibleGroups.length > 0
+                            ? `${eligibleGroups.length} group${eligibleGroups.length > 1 ? 's' : ''} ready for scheduling`
+                            : 'No groups are ready for SEMPRO in this period.'}
+                    </p>
+                </div>
+            )}
+
+            {!loading && selectedPeriod && filteredAndSorted.length > 0 && (
+                <>
+                    <div className="rounded-md border">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead className="w-10" />
+                                    <SortHeader label="Group" sortKeyName="title" />
+                                    <SortHeader label="Date" sortKeyName="date" />
+                                    <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead>Room</TableHead>
+                                    <TableHead className="w-[160px]">Supervisors</TableHead>
+                                    <TableHead className="w-[180px]">Examiners</TableHead>
+                                    <SortHeader label="Status" sortKeyName="status" />
+                                    <TableHead className="w-[140px] text-right">Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {paginated.map((s) => {
+                                    const isExpanded = expandedSchedules.has(s.id);
+                                    const isCancelled = s.status === 'CANCELLED';
+
+                                    return (
+                                        <Fragment key={s.id}>
+                                            <TableRow
+                                                className={`cursor-pointer ${s.status === 'PENDING_APPROVAL' ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/50'}`}
+                                                onClick={() => toggleExpanded(s.id)}
+                                            >
+                                                <TableCell>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-8 w-8 p-0"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleExpanded(s.id);
+                                                        }}
+                                                    >
+                                                        {isExpanded ? (
+                                                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                                                        ) : (
+                                                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </Button>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <span className={`font-semibold truncate ${isCancelled ? 'text-muted-foreground/60' : ''}`}>
+                                                            {s.group?.title?.title || `Group ${s.group_id}`}
+                                                        </span>
+                                                        <span className="text-[11px] text-muted-foreground/40 tabular-nums shrink-0">
+                                                            #{s.group_id}
+                                                        </span>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+                                                        {formatDate(s.date)}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground whitespace-nowrap font-mono tabular-nums">
+                                                        {s.start_time}
+                                                        <span className="text-muted-foreground/40 mx-0.5">–</span>
+                                                        {s.end_time}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <span className="text-sm text-muted-foreground">
+                                                        {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                    </span>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground leading-tight">
+                                                        <div className={isCancelled ? 'text-muted-foreground/50' : ''}>
+                                                            {s.group?.supervisor1?.name || <span className="text-muted-foreground/50">—</span>}
+                                                        </div>
+                                                        <div className={isCancelled ? 'text-muted-foreground/50' : ''}>
+                                                            {s.group?.supervisor2?.name || <span className="text-muted-foreground/50">—</span>}
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="text-sm text-muted-foreground leading-tight">
+                                                        <div className={isCancelled ? 'text-muted-foreground/50' : ''}>
+                                                            {s.examiner1?.name || '—'}
+                                                        </div>
+                                                        <div className={isCancelled ? 'text-muted-foreground/50' : ''}>
+                                                            {s.examiner2?.name || '—'}
+                                                        </div>
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={statusColor(s.status)} className="text-[12px]">
+                                                        {statusDisplay(s.status)}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell className="text-right">
+                                                    <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                                                        <Link href={`/admin/evaluation-summary/${s.id}`}>
+                                                            <Button size="sm" variant="outline" className="text-[13px] h-7 px-2">
+                                                                <FileText className="mr-1 h-3.5 w-3.5" />
+                                                                Eval
+                                                            </Button>
+                                                        </Link>
+                                                        {s.status === 'PENDING_APPROVAL' && (
+                                                            <>
+                                                                <Button size="sm" className="h-7 text-[13px]" onClick={() => handleApprove(s.id, s)}>
+                                                                    Approve
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="destructive"
+                                                                    className="h-7 text-[13px]"
+                                                                    onClick={() => setRejectId(s.id)}
+                                                                >
+                                                                    Reject
+                                                                </Button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+
+                                            {isExpanded && (
+                                                <TableRow className={`${s.status === 'PENDING_APPROVAL' ? 'bg-primary/5' : 'bg-muted/30'} hover:bg-inherit`}>
+                                                    <TableCell colSpan={8} className="p-4">
+                                                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                                            <div className="space-y-2">
+                                                                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                                                    Schedule Details
+                                                                </h4>
+                                                                <div className="space-y-1.5">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Date</span>
+                                                                        <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
+                                                                            {formatDate(s.date)}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Time</span>
+                                                                        <span className="text-[12px] text-muted-foreground font-mono tabular-nums">
+                                                                            {s.start_time} — {s.end_time}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                        <span className="text-[12px] text-muted-foreground">
+                                                                            {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Penguji 1</span>
+                                                                        <span className="text-[12px] font-medium text-foreground/80">{s.examiner1?.name || '—'}</span>
+                                                                    </div>
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Penguji 2</span>
+                                                                        <span className="text-[12px] font-medium text-foreground/80">{s.examiner2?.name || '—'}</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                                                    Evaluations
+                                                                </h4>
+                                                                {s.examiner_student_averages && s.examiner_student_averages.length > 0 ? (
+                                                                    <div className="space-y-1.5">
+                                                                        {s.examiner_student_averages.map((ea, i) => (
+                                                                            <div key={i} className="flex items-center justify-between">
+                                                                                <span className="text-[12px] font-medium text-foreground/80">
+                                                                                    {ea.student?.name || `Student #${ea.student?.id}`}
+                                                                                </span>
+                                                                                <span className="text-[13px] text-muted-foreground font-mono tabular-nums">
+                                                                                    {ea.average_score}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-[12px] text-muted-foreground/40">No evaluations yet.</p>
+                                                                )}
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                                                                    Bimbingan Evaluations
+                                                                </h4>
+                                                                {s.bimbingan_evaluations && s.bimbingan_evaluations.length > 0 ? (
+                                                                    <div className="space-y-1.5">
+                                                                        {s.bimbingan_evaluations.map((be, i) => (
+                                                                            <div key={i} className="flex items-center justify-between">
+                                                                                <span className="text-[12px] font-medium text-foreground/80">
+                                                                                    {be.student?.name || `Student #${be.student?.id}`}
+                                                                                </span>
+                                                                                <span className="text-[13px] text-muted-foreground font-mono tabular-nums">
+                                                                                    {be.average_score}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                ) : (
+                                                                    <p className="text-[12px] text-muted-foreground/40">No bimbingan evaluations yet.</p>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            )}
+                                        </Fragment>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <p className="text-sm text-muted-foreground">
+                                Showing {showingStart}–{showingEnd} of {filteredAndSorted.length}
+                            </p>
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-[12px] text-muted-foreground/60">Rows</span>
+                                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                                    <SelectTrigger className="h-7 w-[60px] text-[12px]">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {PAGE_SIZES.map(s => (
+                                            <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={safePage === 1}
+                            >
+                                <ChevronLeft className="h-4 w-4 mr-1" />
+                                Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground px-2">
+                                Page {safePage} of {totalPages}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={safePage === totalPages}
+                            >
+                                Next
+                                <ChevronRight className="h-4 w-4 ml-1" />
+                            </Button>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* --- Create Schedule Dialog --- */}
+            <Dialog open={scheduleOpen} onOpenChange={(v) => { setScheduleOpen(v); if (!v) resetForm(); }}>
+                <DialogContent className="sm:max-w-[480px]">
+                    <form onSubmit={handleSchedule}>
+                        <DialogHeader>
+                            <DialogTitle>New SEMPRO Schedule</DialogTitle>
+                            <DialogDescription>
+                                Schedule a proposal seminar session for a group.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label>Group</Label>
+                                <Select value={formGroupId} onValueChange={setFormGroupId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a group..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {eligibleGroups.length === 0 ? (
+                                            <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                No groups ready for SEMPRO
+                                            </div>
+                                        ) : (
+                                            eligibleGroups.map(g => (
+                                                <SelectItem key={g.id} value={g.id.toString()}>
+                                                    {g.title?.title || `Group ${g.id}`}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="grid gap-1.5">
+                                    <Label className="text-[13px]">Date</Label>
+                                    <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} required />
+                                </div>
+                                <div className="grid gap-1.5">
+                                    <Label className="text-[13px]">Start</Label>
+                                    <Input type="time" value={formStartTime} onChange={e => setFormStartTime(e.target.value)} required />
+                                </div>
+                                <div className="grid gap-1.5">
+                                    <Label className="text-[13px]">End</Label>
+                                    <Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} required />
+                                </div>
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Room</Label>
+                                <Input
+                                    value={formRoom}
+                                    onChange={e => setFormRoom(e.target.value)}
+                                    placeholder="e.g. Lab 301"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div className="grid gap-1.5">
+                                    <Label className="text-[13px]">Penguji 1</Label>
+                                    <Select value={formExaminer1} onValueChange={setFormExaminer1}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {dosens.map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-1.5">
+                                    <Label className="text-[13px]">Penguji 2</Label>
+                                    <Select value={formExaminer2} onValueChange={setFormExaminer2}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {dosens.filter(d => d.id.toString() !== formExaminer1).map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => { setScheduleOpen(false); resetForm(); }}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={submitting}>
+                                {submitting ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Scheduling...
+                                    </>
+                                ) : (
+                                    'Create Schedule'
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Approve Dialog --- */}
+            <Dialog open={approveDialogOpen} onOpenChange={(v) => { if (!v) { setApproveDialogOpen(false); setApproveId(null); } }}>
+                <DialogContent className="sm:max-w-[480px]">
+                    <DialogHeader>
+                        <DialogTitle>Approve SEMPRO Schedule</DialogTitle>
+                        <DialogDescription>
+                            Set schedule details and assign examiners.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Date</Label>
+                                <Input
+                                    type="date"
+                                    value={approveData.date}
+                                    onChange={e => setApproveData({ ...approveData, date: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Start</Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.start_time}
+                                    onChange={e => setApproveData({ ...approveData, start_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">End</Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.end_time}
+                                    onChange={e => setApproveData({ ...approveData, end_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-1.5">
+                            <Label className="text-[13px]">Room</Label>
+                            <Input
+                                value={approveData.room}
+                                onChange={e => setApproveData({ ...approveData, room: e.target.value })}
+                                placeholder="e.g. Lab 301"
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 1</Label>
+                                <Select
+                                    value={approveData.examiner_1_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_1_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {dosens.map(d => (
+                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 2</Label>
+                                <Select
+                                    value={approveData.examiner_2_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_2_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {dosens
+                                            .filter(d => d.id.toString() !== approveData.examiner_1_id)
+                                            .map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setApproveDialogOpen(false); setApproveId(null); }}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={submitApprove}
+                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || !approveData.examiner_1_id || !approveData.examiner_2_id}
+                        >
+                            Approve Schedule
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Reject Dialog --- */}
+            <Dialog open={rejectId !== null} onOpenChange={(v) => { if (!v) { setRejectId(null); setRejectReason(''); } }}>
+                <DialogContent className="sm:max-w-[420px]">
+                    <DialogHeader>
+                        <DialogTitle>Reject Schedule Request</DialogTitle>
+                        <DialogDescription>
+                            Provide a reason for rejecting this SEMPRO schedule.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <Label className="text-[13px]">Reason</Label>
+                        <Input
+                            value={rejectReason}
+                            onChange={e => setRejectReason(e.target.value)}
+                            placeholder="e.g. Time conflict, wrong examiner..."
+                            className="mt-1.5"
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setRejectId(null); setRejectReason(''); }}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim()}>
+                            Reject
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+}

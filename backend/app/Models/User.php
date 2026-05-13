@@ -6,9 +6,12 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-
 use Laravel\Sanctum\HasApiTokens;
 
+/**
+ * @property int $id
+ * @property string $role
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
@@ -77,11 +80,12 @@ class User extends Authenticatable
     {
         $relationRoles = $this->roles->pluck('slug')->filter()->values()->toArray();
 
-        if (!empty($relationRoles)) {
+        if (! empty($relationRoles)) {
             return array_values(array_unique($relationRoles));
         }
 
         $legacyRole = $this->getRawOriginal('role');
+
         return $legacyRole ? [$legacyRole] : [];
     }
 
@@ -92,16 +96,8 @@ class User extends Authenticatable
     {
         if ($this->relationLoaded('roles')) {
             $roleSlug = $this->roles->pluck('slug')->first();
-            if ($roleSlug) {
-                return $roleSlug;
-            }
-            return $value;
-        }
 
-        $roleSlug = $this->roles()->pluck('slug')->first();
-
-        if ($roleSlug) {
-            return $roleSlug;
+            return $roleSlug ?: $value;
         }
 
         return $value;
@@ -137,7 +133,7 @@ class User extends Authenticatable
     public function supervisionLoadInPeriod($periodId): int
     {
         return $this->supervisions()
-            ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $periodId))
             ->count();
     }
 
@@ -148,6 +144,7 @@ class User extends Authenticatable
     {
         return $this->hasMany(GroupMember::class, 'student_id');
     }
+
     /**
      * Periods this student has registered for.
      */

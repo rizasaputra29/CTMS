@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Title;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Auth;
 
 class SoloTitleController extends Controller
 {
+    use RequiresActivePeriod;
+
     /**
      * List solo seeker titles in marketplace.
      * These are student-proposed titles that have been APPROVED and are open for recruitment.
@@ -100,8 +103,10 @@ class SoloTitleController extends Controller
                 'message' => 'Hanya pemimpin kelompok yang dapat mengajukan bid.'
             ], 403);
         }
-        
         $group = Group::with('period', 'members')->find($membership->group_id);
+
+        $this->ensurePeriodIsActive($group);
+
         $period = $group->period;
         
         // 2. Check title exists and is a solo title
@@ -217,7 +222,9 @@ class SoloTitleController extends Controller
         }
         
         $soloGroup = Group::with('period', 'members')->find($membership->group_id);
-        
+
+        $this->ensurePeriodIsActive($soloGroup);
+
         if (!$soloGroup->is_solo) {
             return response()->json([
                 'message' => 'Anda bukan kelompok solo seeker.'
@@ -319,7 +326,9 @@ class SoloTitleController extends Controller
         }
         
         $soloGroup = Group::find($membership->group_id);
-        
+
+        $this->ensurePeriodIsActive($soloGroup);
+
         if (!$soloGroup->is_solo) {
             return response()->json([
                 'message' => 'Anda bukan kelompok solo seeker.'

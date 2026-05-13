@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Loader2, Plus, Trash2, Save } from 'lucide-react';
+import { Loader2, Plus, Trash2, Save, Lock, ArrowRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,13 +15,17 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import api from '@/lib/api';
+import Link from 'next/link';
+import { usePeriodSelection } from '@/context/PeriodSelectionContext';
 
 interface Period {
     id: number;
     name: string;
     is_active: boolean;
+    is_finalized?: boolean;
 }
 
 interface PhaseRequirement {
@@ -43,7 +47,30 @@ const DEFAULT_DOCUMENTS: Record<string, string[]> = {
     SIDANG: ['Buku TA Final', 'CD Program'],
 };
 
+const normalizePeriodList = (payload: unknown): Period[] => {
+    if (Array.isArray(payload)) return payload as Period[];
+    if (payload && typeof payload === 'object') {
+        const data = (payload as { data?: unknown }).data;
+        if (Array.isArray(data)) return data as Period[];
+        if (data && typeof data === 'object') {
+            const nested = (data as { data?: unknown }).data;
+            if (Array.isArray(nested)) return nested as Period[];
+        }
+    }
+    return [];
+};
+
+const normalizePeriodDetail = (payload: unknown): Period | null => {
+    if (payload && typeof payload === 'object') {
+        const data = (payload as { data?: unknown }).data;
+        if (data && typeof data === 'object' && !Array.isArray(data)) return data as Period;
+        if ('id' in (payload as Record<string, unknown>)) return payload as Period;
+    }
+    return null;
+};
+
 export default function AdminDocumentRequirementsPage() {
+    const { setPeriodSelection } = usePeriodSelection();
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
     const [selectedPhase, setSelectedPhase] = useState<string>(PHASES[0]);
@@ -53,10 +80,27 @@ export default function AdminDocumentRequirementsPage() {
     const [newDocName, setNewDocName] = useState('');
     const [newDocDesc, setNewDocDesc] = useState('');
 
+    const selectedPeriod = useMemo(() => {
+        return periods.find(p => p.id.toString() === selectedPeriodId);
+    }, [periods, selectedPeriodId]);
+
+    const isPeriodFinalized = selectedPeriod?.is_finalized ?? false;
+
+    const hydrateSelectedPeriodFinalized = useCallback(async (periodId: string) => {
+        try {
+            const res = await api.get(`/admin/periods/${periodId}`);
+            const detail = normalizePeriodDetail(res.data);
+            if (!detail) return;
+            setPeriods((prev) => prev.map((p) => (p.id === detail.id ? { ...p, is_finalized: detail.is_finalized } : p)));
+        } catch {
+            // ignore detail fetch errors
+        }
+    }, []);
+
     const fetchPeriods = useCallback(async () => {
         try {
             const res = await api.get('/periods-list');
-            const periodsData = res.data?.data || [];
+            const periodsData = normalizePeriodList(res.data);
             setPeriods(periodsData);
             if (periodsData.length > 0) {
                 const active = periodsData.find((p: Period) => p.is_active);
@@ -96,11 +140,20 @@ export default function AdminDocumentRequirementsPage() {
         }
     }, [selectedPeriodId, fetchRequirements]);
 
+    useEffect(() => {
+        const p = periods.find(p => p.id.toString() === selectedPeriodId);
+        if (p && typeof p.is_finalized === 'undefined') {
+            hydrateSelectedPeriodFinalized(p.id.toString());
+        }
+        setPeriodSelection(p?.is_finalized ?? false);
+    }, [selectedPeriodId, periods, setPeriodSelection, hydrateSelectedPeriodFinalized]);
+
     const currentPhaseRequirements = useMemo(() => {
         return requirements.filter(r => r.phase === selectedPhase);
     }, [requirements, selectedPhase]);
 
     const handleAddDocument = () => {
+        if (isPeriodFinalized) return;
         if (!newDocName.trim()) {
             toast.error('Document name is required');
             return;
@@ -128,10 +181,12 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleRemoveDocument = (name: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.filter(r => !(r.phase === selectedPhase && r.name === name)));
     };
 
     const handleToggleRequired = (name: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.map(r => {
             if (r.phase === selectedPhase && r.name === name) {
                 return { ...r, is_required: !r.is_required };
@@ -141,6 +196,7 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleUpdateDescription = (name: string, description: string) => {
+        if (isPeriodFinalized) return;
         setRequirements(prev => prev.map(r => {
             if (r.phase === selectedPhase && r.name === name) {
                 return { ...r, description };
@@ -150,7 +206,8 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleSave = async () => {
-        if (!selectedPeriodId) {
+        if (isPeriodFinalized || !selectedPeriodId) {
+            if (isPeriodFinalized) return;
             toast.error('Please select a period');
             return;
         }
@@ -184,6 +241,7 @@ export default function AdminDocumentRequirementsPage() {
     };
 
     const handleLoadDefaults = () => {
+        if (isPeriodFinalized) return;
         const defaults: PhaseRequirement[] = [];
         
         Object.entries(DEFAULT_DOCUMENTS).forEach(([phase, docs]) => {
@@ -219,16 +277,41 @@ export default function AdminDocumentRequirementsPage() {
                     <p className="text-muted-foreground">Configure required documents for each phase per period.</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button variant="outline" onClick={handleLoadDefaults}>
+                    <Button 
+                        variant="outline" 
+                        onClick={handleLoadDefaults}
+                        disabled={isPeriodFinalized}
+                    >
                         Load Defaults
                     </Button>
-                    <Button onClick={handleSave} disabled={saving || !selectedPeriodId}>
+                    <Button 
+                        onClick={handleSave} 
+                        disabled={saving || !selectedPeriodId || isPeriodFinalized}
+                    >
                         {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         <Save className="mr-2 h-4 w-4" />
                         Save Changes
                     </Button>
                 </div>
             </div>
+
+            {isPeriodFinalized && (
+                <Alert variant="destructive" className="border-amber-500 bg-amber-50">
+                    <Lock className="h-4 w-4 text-amber-600" />
+                    <AlertTitle className="text-amber-800">Period Finalized</AlertTitle>
+                    <AlertDescription className="text-amber-700">
+                        Document requirements cannot be modified for a finalized period.{" "}
+                        <Link 
+                            href="/admin/finalization" 
+                            className="font-semibold underline hover:text-amber-900 inline-flex items-center gap-1"
+                        >
+                            Reopen period from Finalization page
+                            <ArrowRight className="h-3 w-3" />
+                        </Link>{" "}
+                        to make changes.
+                    </AlertDescription>
+                </Alert>
+            )}
 
             <div className="flex gap-4">
                 <div className="w-[300px]">
@@ -288,8 +371,9 @@ export default function AdminDocumentRequirementsPage() {
                                     value={newDocName}
                                     onChange={(e) => setNewDocName(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleAddDocument()}
+                                    disabled={isPeriodFinalized}
                                 />
-                                <Button onClick={handleAddDocument}>
+                                <Button onClick={handleAddDocument} disabled={isPeriodFinalized}>
                                     <Plus className="h-4 w-4" />
                                 </Button>
                             </div>
@@ -297,6 +381,7 @@ export default function AdminDocumentRequirementsPage() {
                                 placeholder="Description (optional)"
                                 value={newDocDesc}
                                 onChange={(e) => setNewDocDesc(e.target.value)}
+                                disabled={isPeriodFinalized}
                             />
 
                             {currentPhaseRequirements.length === 0 ? (
@@ -314,6 +399,7 @@ export default function AdminDocumentRequirementsPage() {
                                                 id={`${req.phase}-${req.name}-required`}
                                                 checked={req.is_required}
                                                 onCheckedChange={() => handleToggleRequired(req.name)}
+                                                disabled={isPeriodFinalized}
                                             />
                                             <div className="flex-1">
                                                 <Label
@@ -327,6 +413,7 @@ export default function AdminDocumentRequirementsPage() {
                                                     value={req.description ?? ''}
                                                     onChange={(e) => handleUpdateDescription(req.name, e.target.value)}
                                                     className="mt-1 h-8 text-sm"
+                                                    disabled={isPeriodFinalized}
                                                 />
                                             </div>
                                             <Button
@@ -334,6 +421,7 @@ export default function AdminDocumentRequirementsPage() {
                                                 size="icon"
                                                 className="text-destructive hover:text-destructive"
                                                 onClick={() => handleRemoveDocument(req.name)}
+                                                disabled={isPeriodFinalized}
                                             >
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
