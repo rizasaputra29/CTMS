@@ -76,4 +76,9 @@ class Title extends Model
     {
         return $this->hasMany(TitleApprovalAudit::class, 'title_id');
     }
+
+    public function deletionAudits()
+    {
+        return $this->hasMany(TitleDeletionAudit::class, 'title_id');
+    }
 }

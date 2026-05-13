@@ -741,4 +741,392 @@ class GradeCheckController extends Controller
 
         return Response::stream($callback, 200, $headers);
     }
+
+    /**
+     * Get overview of all 7 evaluation types for a student
+     */
+    public function studentDetail(Request $request, $studentId)
+    {
+        $request->validate([
+            'period_id' => 'nullable|exists:periods,id',
+        ]);
+
+        $periodId = $request->input('period_id');
+        if (!$periodId) {
+            $activePeriod = Period::getActive();
+            $periodId = $activePeriod?->id;
+        }
+
+        // Get period group IDs
+        $periodGroupIds = null;
+        if ($periodId) {
+            $periodGroupIds = \App\Models\Group::where('period_id', $periodId)->pluck('id');
+        }
+
+        // Evaluation types to check
+        $evaluationTypes = [
+            'SEMPRO',
+            'BIMBINGAN_SEMPRO',
+            'EXPO',
+            'MILESTONE',
+            'NILAI_DOSEN',
+            'PEER_REVIEW',
+            'SIDANG_TA',
+            'BIMBINGAN_TA',
+        ];
+
+        $evaluations = [];
+
+        // Get student info
+        $student = \App\Models\User::where('id', $studentId)
+            ->select('id', 'name', 'nim')
+            ->first();
+
+        if (!$student) {
+            return response()->json([
+                'error' => 'Student not found',
+            ], 404);
+        }
+
+        // Get assessment scores for each type
+        foreach ($evaluationTypes as $type) {
+            $scores = [];
+
+            if ($type === 'PEER_REVIEW') {
+                // Handle peer review separately
+                $peerReviews = PeerReview::with([
+                    'periodIndicator.template:id,code,name,weight'
+                ])
+                ->where('reviewee_id', $studentId)
+                ->where('is_final_submission', true)
+                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+                ->get();
+
+                foreach ($peerReviews as $review) {
+                    $scores[] = [
+                        'evaluator_id' => $review->reviewer_id,
+                        'score' => $review->score,
+                        'component' => [
+                            'code' => $review->periodIndicator?->template?->code ?? 'PR',
+                            'name' => $review->periodIndicator?->template?->name ?? 'Peer Review',
+                            'weight' => $review->periodIndicator?->template?->weight ?? 100,
+                        ],
+                        'submitted_at' => $review->submitted_at,
+                    ];
+                }
+            } elseif (AssessmentScoreRepository::isSupportedType($type)) {
+                $typeScores = AssessmentScoreRepository::forType($type)
+                    ->with(['component:id,name,code,weight', 'periodComponent.template:id,code,name,weight', 'evaluator:id,name'])
+                    ->where('student_id', $studentId)
+                    ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+                    ->get();
+
+                foreach ($typeScores as $score) {
+                    $scores[] = [
+                        'evaluator_id' => $score->evaluator_id,
+                        'evaluator_name' => $score->evaluator?->name,
+                        'score' => $score->score,
+                        'component' => [
+                            'code' => $score->component?->code ?? $score->periodComponent?->template?->code ?? 'COMP',
+                            'name' => $score->component?->name ?? $score->periodComponent?->template?->name ?? 'Component',
+                            'weight' => $score->component?->weight ?? $score->periodComponent?->template?->weight ?? 100,
+                        ],
+                        'submitted_at' => $score->created_at,
+                    ];
+                }
+            }
+
+            // Calculate average score
+            $avgScore = !empty($scores) 
+                ? array_sum(array_column($scores, 'score')) / count($scores) 
+                : null;
+
+            $evaluations[$type] = [
+                'type' => $type,
+                'status' => !empty($scores) ? 'COMPLETED' : 'PENDING',
+                'score_count' => count($scores),
+                'average_score' => $avgScore !== null ? round($avgScore, 2) : null,
+                'scores' => $scores,
+            ];
+        }
+
+        // Calculate PDC1, PDC2, TA using the same logic as export
+        $pdc1 = $this->calculatePDC1($evaluations);
+        $pdc2 = $this->calculatePDC2($evaluations);
+        $ta = $this->calculateTA($evaluations);
+        $final = $this->calculateFinalScore($pdc1, $pdc2, $ta);
+
+        return response()->json([
+            'student' => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'nim' => $student->nim,
+            ],
+            'period_id' => $periodId,
+            'evaluations' => $evaluations,
+            'summary' => [
+                'pdc1' => $pdc1,
+                'pdc2' => $pdc2,
+                'ta' => $ta,
+                'final' => $final,
+            ],
+        ]);
+    }
+
+    /**
+     * Get per-evaluator component breakdown for a specific evaluation type
+     */
+    public function evaluationDetail(Request $request, $studentId, $evaluationType)
+    {
+        $request->validate([
+            'period_id' => 'nullable|exists:periods,id',
+        ]);
+
+        $periodId = $request->input('period_id');
+        if (!$periodId) {
+            $activePeriod = Period::getActive();
+            $periodId = $activePeriod?->id;
+        }
+
+        // Get period group IDs
+        $periodGroupIds = null;
+        if ($periodId) {
+            $periodGroupIds = \App\Models\Group::where('period_id', $periodId)->pluck('id');
+        }
+
+        // Get student info
+        $student = \App\Models\User::where('id', $studentId)
+            ->select('id', 'name', 'nim')
+            ->first();
+
+        if (!$student) {
+            return response()->json([
+                'error' => 'Student not found',
+            ], 404);
+        }
+
+        $evaluators = [];
+
+        if ($evaluationType === 'PEER_REVIEW') {
+            // Handle peer review
+            $peerReviews = PeerReview::with([
+                'reviewer:id,name',
+                'periodIndicator.template:id,code,name,weight'
+            ])
+            ->where('reviewee_id', $studentId)
+            ->where('is_final_submission', true)
+            ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+            ->get();
+
+            foreach ($peerReviews as $review) {
+                $evaluatorId = $review->reviewer_id;
+                
+                if (!isset($evaluators[$evaluatorId])) {
+                    $evaluators[$evaluatorId] = [
+                        'evaluator_id' => $evaluatorId,
+                        'evaluator_name' => $review->reviewer?->name ?? 'Unknown',
+                        'role' => 'PEER_STUDENT',
+                        'components' => [],
+                        'total_weighted_score' => 0,
+                        'total_weight' => 0,
+                    ];
+                }
+
+                $weight = $review->periodIndicator?->template?->weight ?? 100;
+                $evaluators[$evaluatorId]['components'][] = [
+                    'code' => $review->periodIndicator?->template?->code ?? 'PR',
+                    'name' => $review->periodIndicator?->template?->name ?? 'Peer Review',
+                    'raw_score' => $review->raw_score,
+                    'converted_score' => $review->score,
+                    'weight' => $weight,
+                    'weighted_score' => ($review->score * $weight) / 100,
+                ];
+                $evaluators[$evaluatorId]['total_weighted_score'] += ($review->score * $weight) / 100;
+                $evaluators[$evaluatorId]['total_weight'] += $weight;
+            }
+        } elseif ($evaluationType === 'SIDANG_TA' || $evaluationType === 'BIMBINGAN_TA') {
+            // Handle TA defense and guidance
+            $taDefenseEvals = TaDefenseEvaluation::with([
+                'examiner:id,name',
+                'schedule.group:id,status,title_id',
+                'schedule.group.title:id,title',
+            ])
+            ->whereHas('schedule', function($q) use ($studentId, $periodId) {
+                $q->where('student_id', $studentId);
+                if ($periodId) {
+                    $q->where('period_id', $periodId);
+                }
+            })
+            ->get();
+
+            foreach ($taDefenseEvals as $eval) {
+                $evaluatorId = $eval->examiner_id;
+                
+                if (!isset($evaluators[$evaluatorId])) {
+                    $evaluators[$evaluatorId] = [
+                        'evaluator_id' => $evaluatorId,
+                        'evaluator_name' => $eval->examiner?->name ?? 'Unknown',
+                        'role' => 'EXAMINER',
+                        'components' => [],
+                        'total_weighted_score' => 0,
+                        'total_weight' => 0,
+                    ];
+                }
+
+                $evaluators[$evaluatorId]['components'][] = [
+                    'code' => 'TA_DEFENSE',
+                    'name' => 'TA Defense',
+                    'score' => $eval->score,
+                    'weight' => 100,
+                    'weighted_score' => $eval->score,
+                ];
+                $evaluators[$evaluatorId]['total_weighted_score'] += $eval->score;
+                $evaluators[$evaluatorId]['total_weight'] += 100;
+            }
+        } elseif (AssessmentScoreRepository::isSupportedType($evaluationType)) {
+            // Handle other evaluation types
+            $scores = AssessmentScoreRepository::forType($evaluationType)
+                ->with([
+                    'evaluator:id,name',
+                    'component:id,name,code,weight',
+                    'periodComponent.template:id,code,name,weight',
+                    'group:id,supervisor_1_id,supervisor_2_id,status,title_id',
+                    'group.title:id,title'
+                ])
+                ->where('student_id', $studentId)
+                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+                ->get();
+
+            // Preload schedules for role determination
+            $groupIds = $scores->pluck('group_id')->unique()->filter()->values();
+            $schedules = collect();
+            if ($groupIds->isNotEmpty()) {
+                $schedules = \App\Models\Schedule::whereIn('group_id', $groupIds)
+                    ->whereIn('type', ['SEMPRO', 'SIDANG_TA'])
+                    ->get()
+                    ->keyBy(fn($s) => $s->group_id . '_' . $s->type);
+            }
+
+            foreach ($scores as $score) {
+                $evaluatorId = $score->evaluator_id;
+                
+                if (!isset($evaluators[$evaluatorId])) {
+                    // Determine evaluator role
+                    $role = $this->getEvaluatorRole($score, $schedules);
+                    
+                    $evaluators[$evaluatorId] = [
+                        'evaluator_id' => $evaluatorId,
+                        'evaluator_name' => $score->evaluator?->name ?? 'Unknown',
+                        'role' => $role,
+                        'components' => [],
+                        'total_weighted_score' => 0,
+                        'total_weight' => 0,
+                    ];
+                }
+
+                $weight = $score->component?->weight ?? $score->periodComponent?->template?->weight ?? 100;
+                $componentScore = $score->score;
+                
+                $evaluators[$evaluatorId]['components'][] = [
+                    'code' => $score->component?->code ?? $score->periodComponent?->template?->code ?? 'COMP',
+                    'name' => $score->component?->name ?? $score->periodComponent?->template?->name ?? 'Component',
+                    'score' => $componentScore,
+                    'weight' => $weight,
+                    'weighted_score' => ($componentScore * $weight) / 100,
+                ];
+                $evaluators[$evaluatorId]['total_weighted_score'] += ($componentScore * $weight) / 100;
+                $evaluators[$evaluatorId]['total_weight'] += $weight;
+            }
+        }
+
+        // Calculate normalized weights per evaluator (sum to 100%)
+        $evaluatorList = array_values($evaluators);
+        foreach ($evaluatorList as &$evaluator) {
+            if ($evaluator['total_weight'] > 0) {
+                // Normalize component weights to sum to 100%
+                $totalWeight = $evaluator['total_weight'];
+                foreach ($evaluator['components'] as &$component) {
+                    $component['normalized_weight'] = ($component['weight'] / $totalWeight) * 100;
+                }
+                
+                // Calculate final weighted average
+                $evaluator['weighted_average'] = $evaluator['total_weighted_score'] / ($evaluator['total_weight'] / 100);
+            } else {
+                $evaluator['weighted_average'] = null;
+                foreach ($evaluator['components'] as &$component) {
+                    $component['normalized_weight'] = $component['weight'];
+                }
+            }
+        }
+
+        // Calculate overall average across all evaluators
+        $overallScores = array_filter(array_column($evaluatorList, 'weighted_average'));
+        $overallAverage = !empty($overallScores) ? array_sum($overallScores) / count($overallScores) : null;
+
+        return response()->json([
+            'student' => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'nim' => $student->nim,
+            ],
+            'evaluation_type' => $evaluationType,
+            'period_id' => $periodId,
+            'evaluators' => $evaluatorList,
+            'summary' => [
+                'evaluator_count' => count($evaluatorList),
+                'overall_average' => $overallAverage !== null ? round($overallAverage, 2) : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Calculate PDC1 score (SEMPRO + BIMBINGAN_SEMPRO) / 2
+     */
+    private function calculatePDC1(array $evaluations): ?float
+    {
+        $sempro = $evaluations['SEMPRO']['average_score'] ?? null;
+        $bimbinganSempro = $evaluations['BIMBINGAN_SEMPRO']['average_score'] ?? null;
+        
+        $scores = array_filter([$sempro, $bimbinganSempro], fn($s) => $s !== null);
+        
+        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+    }
+
+    /**
+     * Calculate PDC2 score (NILAI_DOSEN + MILESTONE + EXPO + PEER_REVIEW) / 4
+     */
+    private function calculatePDC2(array $evaluations): ?float
+    {
+        $nilaiDosen = $evaluations['NILAI_DOSEN']['average_score'] ?? null;
+        $milestone = $evaluations['MILESTONE']['average_score'] ?? null;
+        $expo = $evaluations['EXPO']['average_score'] ?? null;
+        $peerReview = $evaluations['PEER_REVIEW']['average_score'] ?? null;
+        
+        $scores = array_filter([$nilaiDosen, $milestone, $expo, $peerReview], fn($s) => $s !== null);
+        
+        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+    }
+
+    /**
+     * Calculate TA score (SIDANG_TA + BIMBINGAN_TA) / 2
+     */
+    private function calculateTA(array $evaluations): ?float
+    {
+        $sidangTa = $evaluations['SIDANG_TA']['average_score'] ?? null;
+        $bimbinganTa = $evaluations['BIMBINGAN_TA']['average_score'] ?? null;
+        
+        $scores = array_filter([$sidangTa, $bimbinganTa], fn($s) => $s !== null);
+        
+        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+    }
+
+    /**
+     * Calculate final score (PDC1 + PDC2 + TA) / 3
+     */
+    private function calculateFinalScore(?float $pdc1, ?float $pdc2, ?float $ta): ?float
+    {
+        $scores = array_filter([$pdc1, $pdc2, $ta], fn($s) => $s !== null);
+        
+        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+    }
 }

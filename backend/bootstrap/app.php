@@ -22,7 +22,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\App\Exceptions\ConflictRuleException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
-                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
                 'code' => 'CONFLICT'
             ], 409);
         });
@@ -30,7 +29,6 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\App\Exceptions\DomainRuleException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
-                'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
                 'code' => 'DOMAIN_ERROR'
             ], 422);
         });
@@ -40,7 +38,6 @@ return Application::configure(basePath: dirname(__DIR__))
             if ($request->is('api/*')) {
                 return response()->json([
                     'message' => 'Unauthenticated.',
-                    'request_id' => \Illuminate\Support\Facades\Log::getContext()['request_id'] ?? null,
                 ], 401);
             }
         });

@@ -7,6 +7,7 @@ use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\TitleApprovalAudit;
+use App\Models\TitleDeletionAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -213,6 +214,11 @@ class TitleController extends Controller
             abort(403, 'Unauthorized');
         }
 
+        // Convert empty string to null for pre_assigned_group_id
+        if ($request->input('pre_assigned_group_id') === '') {
+            $request->merge(['pre_assigned_group_id' => null]);
+        }
+
         $validated = $request->validate([
             'title' => 'sometimes|string|max:255',
             'description' => 'sometimes|string',
@@ -222,11 +228,111 @@ class TitleController extends Controller
             'specializations.*' => 'string|in:Software,Embedded,Network,Multimedia,AI,Blockchain',
             'quota' => 'sometimes|integer|min:1',
             'status' => 'sometimes|in:open,closed',
+            'pre_assigned_group_id' => 'nullable|exists:groups,id',
         ]);
 
-        $title->update($validated);
+        $oldPreAssignedGroupId = $title->pre_assigned_group_id;
+        $newPreAssignedGroupId = $validated['pre_assigned_group_id'] ?? null;
 
-        return response()->json($title);
+        DB::beginTransaction();
+        try {
+            // Update title fields
+            $title->update([
+                ...$validated,
+                'is_reserved' => !empty($newPreAssignedGroupId),
+            ]);
+
+            // Handle group assignment changes
+            if ($oldPreAssignedGroupId != $newPreAssignedGroupId) {
+                // Case 1: Unassign old group (if there was one)
+                if ($oldPreAssignedGroupId) {
+                    $oldGroup = Group::find($oldPreAssignedGroupId);
+                    if ($oldGroup && $oldGroup->title_id === $title->id) {
+                        $oldGroup->update(['title_id' => null]);
+                        // Status will be automatically recalculated or remain as-is
+                        
+                        \App\Models\FinalizationAudit::create([
+                            'period_id' => $oldGroup->period_id,
+                            'group_id' => $oldGroup->id,
+                            'user_id' => $request->user()->id,
+                            'action' => 'TITLE_UNASSIGNED_BY_LECTURER',
+                            'old_values' => [
+                                'title_id' => $title->id,
+                                'status' => $oldGroup->status,
+                            ],
+                            'new_values' => [
+                                'title_id' => null,
+                                'status' => $oldGroup->status,
+                            ],
+                        ]);
+                    }
+                }
+
+                // Case 2: Assign new group (if there is one)
+                if ($newPreAssignedGroupId) {
+                    $newGroup = Group::with(['members', 'period'])->findOrFail($newPreAssignedGroupId);
+
+                    // Validate group is in same period
+                    if ((int) $newGroup->period_id !== (int) $title->period_id) {
+                        DB::rollBack();
+                        return response()->json(['message' => 'Kelompok harus berada dalam periode yang sama.'], 422);
+                    }
+
+                    // Validate group status
+                    if ($newGroup->status !== 'READY_FOR_BIDDING') {
+                        DB::rollBack();
+                        return response()->json(['message' => 'Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.'], 422);
+                    }
+
+                    // Validate group doesn't already have a title
+                    if ($newGroup->title_id && $newGroup->title_id !== $title->id) {
+                        DB::rollBack();
+                        return response()->json(['message' => 'Kelompok sudah memiliki judul.'], 422);
+                    }
+
+                    // Validate member count
+                    $minSize = $newGroup->period?->min_group_size ?? 3;
+                    $maxSize = $newGroup->period?->max_group_size ?? 4;
+                    $memberCount = $newGroup->members->count();
+
+                    if ($memberCount < $minSize || $memberCount > $maxSize) {
+                        DB::rollBack();
+                        return response()->json([
+                            'message' => "Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
+                        ], 422);
+                    }
+
+                    // Assign group to title
+                    $oldGroupStatus = $newGroup->status;
+                    $newGroup->update([
+                        'title_id' => $title->id,
+                        'status' => 'TITLE_APPROVED',
+                    ]);
+
+                    \App\Models\FinalizationAudit::create([
+                        'period_id' => $newGroup->period_id,
+                        'group_id' => $newGroup->id,
+                        'user_id' => $request->user()->id,
+                        'action' => 'TITLE_ASSIGNED_BY_LECTURER',
+                        'old_values' => [
+                            'title_id' => null,
+                            'status' => $oldGroupStatus,
+                        ],
+                        'new_values' => [
+                            'title_id' => $title->id,
+                            'status' => 'TITLE_APPROVED',
+                        ],
+                    ]);
+                }
+            }
+
+            DB::commit();
+
+            return response()->json($title->fresh());
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to update title: ' . $e->getMessage()], 500);
+        }
     }
 
     public function destroy(Request $request, Title $title)
@@ -237,9 +343,48 @@ class TitleController extends Controller
             abort(403, 'Unauthorized');
         }
 
+        // Get affected groups before deletion
+        $affectedGroups = Group::where('title_id', $title->id)
+            ->where('status', '!=', 'READY_FOR_FINALIZATION')
+            ->get();
+        
+        $period = $title->period;
+        $minSize = $period->min_group_size ?? 3;
+        
+        // Revert each group and collect info for audit
+        $revertedGroups = [];
+        foreach ($affectedGroups as $group) {
+            $oldStatus = $group->status;
+            // Revert with 'delete' action - always go to base status
+            $newStatus = $group->revertAfterTitleLoss($minSize, 'delete');
+            $revertedGroups[] = [
+                'group_id' => $group->id,
+                'old_status' => $oldStatus,
+                'new_status' => $newStatus,
+            ];
+        }
+
+        // Delete all bids for this title (per requirement: delete removes bids)
+        \App\Models\Bid::where('title_id', $title->id)->delete();
+
+        // Create audit log before deletion if there were affected groups
+        if (!empty($revertedGroups)) {
+            TitleDeletionAudit::create([
+                'title_id' => $title->id,
+                'title_name' => $title->title,
+                'lecturer_id' => $title->lecturer_id,
+                'period_id' => $title->period_id,
+                'affected_groups' => $revertedGroups,
+                'deleted_by' => $request->user()->id,
+            ]);
+        }
+
         $title->delete();
 
-        return response()->json(['message' => 'Title deleted']);
+        return response()->json([
+            'message' => 'Title deleted',
+            'affected_groups' => $revertedGroups,
+        ]);
     }
 
     /**
@@ -293,23 +438,30 @@ class TitleController extends Controller
             $title->update(['status' => 'PENDING']);
         }
 
-        // 5.5. SECURITY FIX: Delete all bids on this title to prevent unauthorized joins
-        // When a title is withdrawn, no new members should be able to join via bidding
-        \App\Models\Bid::where('title_id', $title->id)->delete();
+        // NOTE: Bids are kept on withdrawal (groups can re-bid if needed)
+        // Bids are only deleted when title is permanently deleted
 
-        // 6. For each affected group: revert to FORMING_SOLO
+        // 6. For each affected group: revert to appropriate status based on member count
+        $period = $title->period;
+        $minSize = $period->min_group_size ?? 3;
         $reason = $request->input('reason');
+        
         foreach ($affectedGroups as $group) {
-            // Revert status
-            $group->revertToFormingSolo();
+            $oldStatus = $group->status;
+            // Revert with 'withdraw' action - approved groups go to WAITING_SUPERVISOR_APPROVAL
+            $newStatus = $group->revertAfterTitleLoss($minSize, 'withdraw');
 
-            // Create audit log entry
+            // Create audit log entry with status change info
             TitleApprovalAudit::create([
                 'title_id' => $title->id,
                 'lecturer_id' => $request->user()->id,
                 'affected_group_id' => $group->id,
                 'action' => 'WITHDRAW',
                 'reason' => $reason,
+                'metadata' => json_encode([
+                    'old_group_status' => $oldStatus,
+                    'new_group_status' => $newStatus,
+                ]),
             ]);
 
             // Notify all group members
@@ -350,6 +502,39 @@ class TitleController extends Controller
                         'id' => $audit->affectedGroup->id,
                         'name' => $audit->affectedGroup->name,
                     ] : null,
+                    'created_at' => $audit->created_at,
+                ];
+            });
+
+        return response()->json($audits);
+    }
+
+    /**
+     * Get deletion history for a title (visible to lecturer and affected groups).
+     */
+    public function getDeletionHistory(Request $request, Title $title)
+    {
+        // Authorization: Lecturer who created this title, or admin
+        if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
+            abort(403, 'Unauthorized');
+        }
+
+        $audits = $title->deletionAudits()
+            ->with(['lecturer'])
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(function ($audit) {
+                return [
+                    'id' => $audit->id,
+                    'action' => $audit->action,
+                    'reason' => $audit->reason,
+                    'lecturer' => [
+                        'id' => $audit->lecturer->id,
+                        'name' => $audit->lecturer->name,
+                        'email' => $audit->lecturer->email,
+                    ],
+                    'affected_groups_count' => $audit->affected_groups_count,
+                    'reverted_group_ids' => json_decode($audit->reverted_group_ids, true),
                     'created_at' => $audit->created_at,
                 ];
             });

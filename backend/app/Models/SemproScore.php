@@ -27,6 +27,13 @@ class SemproScore extends Model
         'updated_at' => 'datetime',
     ];
 
+    protected $appends = ['evaluation_type'];
+
+    public function getEvaluationTypeAttribute(): string
+    {
+        return 'SEMPRO';
+    }
+
     public function component(): BelongsTo
     {
         return $this->belongsTo(AssessmentComponent::class, 'component_id');

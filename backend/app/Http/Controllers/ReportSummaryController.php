@@ -27,7 +27,6 @@ class ReportSummaryController extends Controller
                 'assessments' => $this->getAssessmentSummary($periodId),
                 'peer_reviews' => $this->getPeerReviewSummary($periodId),
                 'final_grades' => $this->getFinalGradesSummary($periodId),
-                'grade_consistency' => $this->getGradeConsistencySummary($periodId),
                 'groups' => $this->getGroupsSummary($periodId),
             ]
         ]);
@@ -45,6 +44,7 @@ class ReportSummaryController extends Controller
         
         foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
             $scores = AssessmentScoreRepository::forType($type)
+                ->with(['group.title'])
                 ->whereHas('group', function ($q) use ($periodId) {
                     $q->where('period_id', $periodId);
                 })
@@ -176,9 +176,10 @@ class ReportSummaryController extends Controller
             }
         }
 
-        // Batch calculate ALL grades (2 calls, not N individual calls)
+        // Batch calculate ALL grades (3 calls for PDC1, PDC2, and TA)
         $pdc1Results = $gradeService->calculatePDC1ForStudentsBatch($studentGroupPairs);
         $pdc2Results = $gradeService->calculatePDC2ForStudentsBatch($studentGroupPairs);
+        $taResults = $gradeService->calculateSidangTAForStudentsBatch($studentGroupPairs);
 
         // Clear cache to free memory
         $gradeService->clearCache();
@@ -187,6 +188,9 @@ class ReportSummaryController extends Controller
         $totalStudents = 0;
         $completeGrades = 0;
         $incompleteGrades = 0;
+        $pdc1CompleteCount = 0;
+        $pdc2CompleteCount = 0;
+        $taCompleteCount = 0;
         $topStudents = [];
 
         foreach ($studentGroupPairs as $pair) {
@@ -199,13 +203,21 @@ class ReportSummaryController extends Controller
 
             $pdc1Data = $pdc1Results[$studentId] ?? null;
             $pdc2Data = $pdc2Results[$studentId] ?? null;
+            $taData = $taResults[$studentId] ?? null;
 
-            $pdc1Score = $pdc1Data ? $pdc1Data['grade'] : 0;
-            $pdc2Score = $pdc2Data ? $pdc2Data['grade'] : 0;
+            $pdc1Score = $pdc1Data ? $pdc1Data['grade'] : null;
+            $pdc2Score = $pdc2Data ? $pdc2Data['grade'] : null;
+            $taScore = $taData ? $taData['grade'] : null;
 
-            $isComplete = $pdc1Data && $pdc2Data &&
-                         $pdc1Data['status'] === 'COMPLETE' &&
-                         $pdc2Data['status'] === 'COMPLETE';
+            $isPDC1Complete = $pdc1Data && $pdc1Data['status'] === 'COMPLETE';
+            $isPDC2Complete = $pdc2Data && $pdc2Data['status'] === 'COMPLETE';
+            $isTAComplete = $taData && $taData['status'] === 'COMPLETE';
+            $isComplete = $isPDC1Complete && $isPDC2Complete && $isTAComplete;
+
+            // Count completions for each component
+            if ($isPDC1Complete) $pdc1CompleteCount++;
+            if ($isPDC2Complete) $pdc2CompleteCount++;
+            if ($isTAComplete) $taCompleteCount++;
 
             if ($isComplete) {
                 $completeGrades++;
@@ -213,134 +225,60 @@ class ReportSummaryController extends Controller
                 $incompleteGrades++;
             }
 
-            // Calculate final grade
-            $finalGrade = 0;
-            if ($pdc1Score > 0 && $pdc2Score > 0) {
-                $finalGrade = ($pdc1Score + $pdc2Score) / 2;
-            } elseif ($pdc1Score > 0) {
-                $finalGrade = $pdc1Score;
-            } elseif ($pdc2Score > 0) {
-                $finalGrade = $pdc2Score;
-            }
+            // Include students who have at least one score
+            if ($pdc1Score !== null || $pdc2Score !== null || $taScore !== null) {
+                // Calculate average for ranking purposes (only from available scores)
+                $availableScores = [];
+                if ($pdc1Score !== null) $availableScores[] = $pdc1Score;
+                if ($pdc2Score !== null) $availableScores[] = $pdc2Score;
+                if ($taScore !== null) $availableScores[] = $taScore;
+                $avgScore = count($availableScores) > 0 ? array_sum($availableScores) / count($availableScores) : 0;
 
-            if ($finalGrade > 0) {
                 $topStudents[] = [
                     'group_id' => $group->id,
                     'group_name' => $group->title->title ?? "Group {$group->id}",
                     'student_id' => $student->id,
                     'student_name' => $student->name,
                     'student_nim' => $student->nim ?? '',
-                    'final_grade' => round($finalGrade, 2),
-                    'letter_grade' => $gradeService->getLetterGrade($finalGrade),
-                    'status' => $isComplete ? 'Complete' : 'Incomplete',
+                    'pdc1_score' => $pdc1Score !== null ? round($pdc1Score, 2) : null,
+                    'pdc2_score' => $pdc2Score !== null ? round($pdc2Score, 2) : null,
+                    'ta_score' => $taScore !== null ? round($taScore, 2) : null,
+                    'pdc1_complete' => $isPDC1Complete,
+                    'pdc2_complete' => $isPDC2Complete,
+                    'ta_complete' => $isTAComplete,
+                    // Keep for ranking purposes
+                    '_avg_score' => $avgScore,
                 ];
             }
         }
 
-        // Sort by final grade descending and take top 5
-        usort($topStudents, fn($a, $b) => $b['final_grade'] <=> $a['final_grade']);
+        // Sort by average score descending and take top 5
+        usort($topStudents, fn($a, $b) => $b['_avg_score'] <=> $a['_avg_score']);
         $topStudents = array_slice($topStudents, 0, 5);
+
+        // Remove internal ranking field from output
+        $topStudents = array_map(fn($s) => [
+            'group_id' => $s['group_id'],
+            'group_name' => $s['group_name'],
+            'student_id' => $s['student_id'],
+            'student_name' => $s['student_name'],
+            'student_nim' => $s['student_nim'],
+            'pdc1_score' => $s['pdc1_score'],
+            'pdc2_score' => $s['pdc2_score'],
+            'ta_score' => $s['ta_score'],
+            'pdc1_complete' => $s['pdc1_complete'],
+            'pdc2_complete' => $s['pdc2_complete'],
+            'ta_complete' => $s['ta_complete'],
+        ], $topStudents);
 
         return [
             'total_students' => $totalStudents,
             'complete' => $completeGrades,
             'incomplete' => $incompleteGrades,
+            'pdc1_complete' => $pdc1CompleteCount,
+            'pdc2_complete' => $pdc2CompleteCount,
+            'ta_complete' => $taCompleteCount,
             'top_students' => $topStudents,
-        ];
-    }
-
-    /**
-     * Get grade consistency summary using optimized batch queries.
-     */
-    private function getGradeConsistencySummary(int $periodId): array
-    {
-        $gradeService = new GradeCalculationService();
-
-        // Preload all period data
-        $gradeService->preloadPeriodData($periodId);
-
-        $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student'])
-            ->get();
-
-        // Build student-group pairs
-        $studentGroupPairs = [];
-        $studentInfo = [];
-
-        foreach ($groups as $group) {
-            foreach ($group->members as $member) {
-                $student = $member->student;
-                if (!$student) continue;
-
-                $studentGroupPairs[] = [
-                    'student_id' => $student->id,
-                    'group_id' => $group->id,
-                ];
-
-                $studentInfo[$student->id] = [
-                    'group' => $group,
-                    'student' => $student,
-                ];
-            }
-        }
-
-        // Batch calculate grades
-        $pdc1Results = $gradeService->calculatePDC1ForStudentsBatch($studentGroupPairs);
-        $pdc2Results = $gradeService->calculatePDC2ForStudentsBatch($studentGroupPairs);
-
-        // Clear cache
-        $gradeService->clearCache();
-
-        // Process results
-        $consistentCount = 0;
-        $inconsistentCount = 0;
-        $pendingCount = 0;
-        $inconsistentStudents = [];
-
-        foreach ($studentGroupPairs as $pair) {
-            $studentId = $pair['student_id'];
-            $info = $studentInfo[$studentId];
-            $group = $info['group'];
-            $student = $info['student'];
-
-            $pdc1Data = $pdc1Results[$studentId] ?? null;
-            $pdc2Data = $pdc2Results[$studentId] ?? null;
-
-            $pdc1Score = $pdc1Data ? $pdc1Data['grade'] : 0;
-            $pdc2Score = $pdc2Data ? $pdc2Data['grade'] : 0;
-
-            if ($pdc1Score > 0 && $pdc2Score > 0) {
-                $deviation = abs($pdc1Score - $pdc2Score);
-                $isConsistent = $deviation <= 15;
-
-                if ($isConsistent) {
-                    $consistentCount++;
-                } else {
-                    $inconsistentCount++;
-                    $inconsistentStudents[] = [
-                        'group_id' => $group->id,
-                        'group_name' => $group->title->title ?? "Group {$group->id}",
-                        'student_id' => $student->id,
-                        'student_name' => $student->name,
-                        'pdc1_score' => round($pdc1Score, 2),
-                        'pdc2_score' => round($pdc2Score, 2),
-                        'deviation' => round($deviation, 2),
-                    ];
-                }
-            } else {
-                $pendingCount++;
-            }
-        }
-
-        // Sort by deviation descending and take top 5
-        usort($inconsistentStudents, fn($a, $b) => $b['deviation'] <=> $a['deviation']);
-        $inconsistentStudents = array_slice($inconsistentStudents, 0, 5);
-
-        return [
-            'consistent' => $consistentCount,
-            'inconsistent' => $inconsistentCount,
-            'pending' => $pendingCount,
-            'inconsistent_students' => $inconsistentStudents,
         ];
     }
 

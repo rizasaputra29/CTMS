@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -23,43 +24,33 @@ import {
     GraduationCap,
     ChevronLeft,
     ChevronRight,
-    Filter
+    Filter,
+    Users,
+    ChevronRight as ChevronRightIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface AssessmentScore {
-    id: number;
-    score: number;
-    evaluation_type: string;
-    notes: string | null;
-    created_at: string;
-    component: {
-        code: string;
-        name: string;
-        weight: number;
-    } | null;
-    component_display: {
-        code: string;
-        name: string;
-    } | null;
-    periodComponent: {
-        template: {
-            code: string;
-            name: string;
-        };
-    } | null;
-    evaluator: {
-        name: string;
-    };
-    student: {
-        name: string;
-        nim: string;
-    } | null;
-    group: {
-        id: number;
-        title: {
-            title: string;
-        };
+interface EvaluationStatus {
+    score: number | null;
+    status: 'COMPLETE' | 'PARTIAL' | 'NOT_STARTED';
+    total_components: number;
+    scored_components: number;
+}
+
+interface StudentEvaluation {
+    student_id: number;
+    student_name: string;
+    student_nim: string;
+    group_id: number;
+    group_name: string;
+    evaluations: {
+        SEMPRO: EvaluationStatus;
+        BIMBINGAN_SEMPRO: EvaluationStatus;
+        SIDANG_TA: EvaluationStatus;
+        BIMBINGAN_TA: EvaluationStatus;
+        EXPO: EvaluationStatus;
+        MILESTONE: EvaluationStatus;
+        NILAI_DOSEN: EvaluationStatus;
     };
 }
 
@@ -71,17 +62,29 @@ interface Meta {
 }
 
 const EVALUATION_TYPES = [
-    { value: 'all', label: 'All Types' },
-    { value: 'SEMPRO', label: 'Seminar Proposal (SEMPRO)' },
-    { value: 'BIMBINGAN_SEMPRO', label: 'Bimbingan Sempro' },
-    { value: 'SIDANG_TA', label: 'Sidang TA' },
-    { value: 'BIMBINGAN_TA', label: 'Bimbingan TA' },
-    { value: 'EXPO', label: 'Expo' },
-    { value: 'MILESTONE', label: 'Milestone' },
-    { value: 'NILAI_DOSEN', label: 'Nilai Dosen' },
+    { key: 'SEMPRO', label: 'SEMPRO' },
+    { key: 'BIMBINGAN_SEMPRO', label: 'BIMBINGAN' },
+    { key: 'SIDANG_TA', label: 'SIDANG TA' },
+    { key: 'BIMBINGAN_TA', label: 'BIMBINGAN TA' },
+    { key: 'EXPO', label: 'EXPO' },
+    { key: 'MILESTONE', label: 'MILESTONE' },
+    { key: 'NILAI_DOSEN', label: 'NILAI DOSEN' },
 ];
 
-const getScoreColor = (score: number): string => {
+const getStatusBadge = (status: string) => {
+    switch (status) {
+        case 'COMPLETE':
+            return <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100 text-xs">Complete</Badge>;
+        case 'PARTIAL':
+            return <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100 text-xs">Partial</Badge>;
+        case 'NOT_STARTED':
+        default:
+            return <Badge variant="secondary" className="text-xs">Not Started</Badge>;
+    }
+};
+
+const getScoreColor = (score: number | null): string => {
+    if (score === null) return 'text-gray-400';
     if (score >= 85) return 'text-emerald-600';
     if (score >= 70) return 'text-blue-600';
     if (score >= 60) return 'text-amber-600';
@@ -90,16 +93,17 @@ const getScoreColor = (score: number): string => {
 
 export default function AssessmentsReportPage() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const periodId = searchParams.get('period_id');
     
-    const [scores, setScores] = useState<AssessmentScore[]>([]);
+    const [students, setStudents] = useState<StudentEvaluation[]>([]);
     const [meta, setMeta] = useState<Meta | null>(null);
     const [loading, setLoading] = useState(true);
     const [downloading, setDownloading] = useState(false);
     
     // Filters
-    const [evaluationType, setEvaluationType] = useState('all');
     const [studentSearch, setStudentSearch] = useState('');
+    const [sortBy, setSortBy] = useState('group');
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(50);
 
@@ -112,26 +116,23 @@ export default function AssessmentsReportPage() {
                 period_id: periodId,
                 page,
                 per_page: perPage,
+                sort_by: sortBy,
             };
-            
-            if (evaluationType !== 'all') {
-                params.evaluation_type = evaluationType;
-            }
             
             if (studentSearch) {
                 params.student_search = studentSearch;
             }
             
-            const res = await api.get('/admin/reports/assessments', { params });
-            setScores(res.data.data);
+            const res = await api.get('/admin/reports/student-evaluations-summary', { params });
+            setStudents(res.data.data);
             setMeta(res.data.meta);
         } catch (error) {
-            console.error('Failed to fetch assessments', error);
-            toast.error('Failed to load assessment data');
+            console.error('Failed to fetch evaluations', error);
+            toast.error('Failed to load evaluation data');
         } finally {
             setLoading(false);
         }
-    }, [periodId, evaluationType, studentSearch, page, perPage]);
+    }, [periodId, studentSearch, sortBy, page, perPage]);
 
     useEffect(() => {
         fetchData();
@@ -141,20 +142,16 @@ export default function AssessmentsReportPage() {
         if (!periodId) return;
         setDownloading(true);
         try {
-            const params: Record<string, string | number> = {
+            const params: Record<string, string> = {
                 period_id: periodId,
-                format: 'csv',
+                sort_by: sortBy,
             };
-            
-            if (evaluationType !== 'all') {
-                params.evaluation_type = evaluationType;
-            }
             
             if (studentSearch) {
                 params.student_search = studentSearch;
             }
             
-            const res = await api.get('/admin/reports/assessments', {
+            const res = await api.get('/admin/reports/student-evaluations-summary/export', {
                 params,
                 responseType: 'blob',
             });
@@ -162,17 +159,21 @@ export default function AssessmentsReportPage() {
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const a = document.createElement('a');
             a.href = url;
-            a.download = `assessments_report_period_${periodId}.csv`;
+            a.download = `student_evaluations_summary_period_${periodId}.csv`;
             document.body.appendChild(a);
             a.click();
             a.remove();
             window.URL.revokeObjectURL(url);
-            toast.success('Assessment report downloaded');
+            toast.success('Evaluation summary exported');
         } catch {
-            toast.error('Failed to export report');
+            toast.error('Failed to export');
         } finally {
             setDownloading(false);
         }
+    };
+
+    const handleRowClick = (studentId: number) => {
+        router.push(`/admin/reports/assessments/student/${studentId}?period_id=${periodId}`);
     };
 
     if (!periodId) {
@@ -207,7 +208,7 @@ export default function AssessmentsReportPage() {
                     </Link>
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Assessment Scores</h1>
-                        <p className="text-muted-foreground">Detailed view of all assessment scores.</p>
+                        <p className="text-muted-foreground">Student evaluation status by type.</p>
                     </div>
                 </div>
                 <Button 
@@ -232,26 +233,7 @@ export default function AssessmentsReportPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div className="space-y-2">
-                            <Label>Evaluation Type</Label>
-                            <Select value={evaluationType} onValueChange={(val) => {
-                                setEvaluationType(val);
-                                setPage(1);
-                            }}>
-                                <SelectTrigger>
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {EVALUATION_TYPES.map(type => (
-                                        <SelectItem key={type.value} value={type.value}>
-                                            {type.label}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                         <div className="space-y-2">
                             <Label>Search Student</Label>
                             <div className="relative">
@@ -266,6 +248,22 @@ export default function AssessmentsReportPage() {
                                     className="pl-9"
                                 />
                             </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                            <Label>Sort By</Label>
+                            <Select value={sortBy} onValueChange={(val) => {
+                                setSortBy(val);
+                                setPage(1);
+                            }}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="group">Group</SelectItem>
+                                    <SelectItem value="name">Student Name</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
                         
                         <div className="space-y-2">
@@ -284,6 +282,14 @@ export default function AssessmentsReportPage() {
                                 </SelectContent>
                             </Select>
                         </div>
+
+                        <div className="space-y-2 flex items-end">
+                            <div className="text-sm text-muted-foreground">
+                                {meta && (
+                                    <span>Showing {students.length} of {meta.total} students</span>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -294,104 +300,93 @@ export default function AssessmentsReportPage() {
                     {loading ? (
                         <div className="p-8 text-center">
                             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-                            <p className="text-muted-foreground">Loading assessment data...</p>
+                            <p className="text-muted-foreground">Loading evaluation data...</p>
                         </div>
-                    ) : scores.length === 0 ? (
+                    ) : students.length === 0 ? (
                         <div className="p-8 text-center">
-                            <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                            <h3 className="text-lg font-semibold mb-2">No Data Found</h3>
-                            <p className="text-muted-foreground">No assessment scores match your filters.</p>
+                            <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
+                            <h3 className="text-lg font-semibold mb-2">No Students Found</h3>
+                            <p className="text-muted-foreground">No students match your search criteria.</p>
                         </div>
                     ) : (
-                        <>
-                            <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Date</TableHead>
-                                            <TableHead>Group</TableHead>
-                                            <TableHead>Student</TableHead>
-                                            <TableHead>Evaluator</TableHead>
-                                            <TableHead>Type</TableHead>
-                                            <TableHead>Component</TableHead>
-                                            <TableHead className="text-right">Score</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {scores.map((score) => (
-                                            <TableRow key={score.id}>
-                                                <TableCell className="text-sm text-muted-foreground">
-                                                    {new Date(score.created_at).toLocaleDateString('id-ID')}
-                                                </TableCell>
-                                                <TableCell className="font-medium">
-                                                    {score.group?.title?.title || `Group ${score.group?.id}`}
-                                                </TableCell>
-                                                <TableCell>
-                                                    {score.student ? (
-                                                        <div>
-                                                            <div className="font-medium">{score.student.name}</div>
-                                                            <div className="text-xs text-muted-foreground">{score.student.nim}</div>
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-muted-foreground">Group-level</span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell>{score.evaluator?.name || 'N/A'}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant="outline">{score.evaluation_type}</Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    <div className="text-sm">
-                                                        {score.component_display?.name || 
-                                                         score.component?.name || 
-                                                         score.periodComponent?.template?.name || 
-                                                         'N/A'}
-                                                    </div>
-                                                    <div className="text-xs text-muted-foreground">
-                                                        {score.component_display?.code || 
-                                                         score.component?.code || 
-                                                         score.periodComponent?.template?.code}
-                                                    </div>
-                                                </TableCell>
-                                                <TableCell className={`text-right font-bold ${getScoreColor(Number(score.score))}`}>
-                                                    {Number(score.score).toFixed(1)}
-                                                </TableCell>
-                                            </TableRow>
+                        <div className="overflow-x-auto">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead className="w-[150px]">Student</TableHead>
+                                        <TableHead className="w-[100px]">Group</TableHead>
+                                        {EVALUATION_TYPES.map(type => (
+                                            <TableHead key={type.key} className="text-center min-w-[100px]">
+                                                <div className="text-xs">{type.label}</div>
+                                            </TableHead>
                                         ))}
-                                    </TableBody>
-                                </Table>
+                                        <TableHead className="w-[50px]"></TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {students.map((student) => (
+                                        <TableRow 
+                                            key={student.student_id}
+                                            className="cursor-pointer hover:bg-muted/50"
+                                            onClick={() => handleRowClick(student.student_id)}
+                                        >
+                                            <TableCell>
+                                                <div className="font-medium">{student.student_name}</div>
+                                                <div className="text-xs text-muted-foreground">{student.student_nim}</div>
+                                            </TableCell>
+                                            <TableCell>
+                                                <span className="text-sm">{student.group_name}</span>
+                                            </TableCell>
+                                            {EVALUATION_TYPES.map(type => {
+                                                const evalData = student.evaluations[type.key as keyof typeof student.evaluations];
+                                                return (
+                                                    <TableCell key={type.key} className="text-center">
+                                                        <div className={`text-lg font-bold ${getScoreColor(evalData?.score)}`}>
+                                                            {evalData?.score !== null ? Math.round(evalData.score) : '–'}
+                                                        </div>
+                                                        <div className="mt-1">
+                                                            {getStatusBadge(evalData?.status)}
+                                                        </div>
+                                                    </TableCell>
+                                                );
+                                            })}
+                                            <TableCell>
+                                                <ChevronRightIcon className="h-4 w-4 text-muted-foreground" />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    )}
+                    
+                    {/* Pagination */}
+                    {meta && meta.last_page > 1 && (
+                        <div className="flex items-center justify-between p-4 border-t">
+                            <div className="text-sm text-muted-foreground">
+                                Page {meta.current_page} of {meta.last_page}
                             </div>
-
-                            {/* Pagination */}
-                            {meta && (
-                                <div className="flex items-center justify-between px-4 py-4 border-t">
-                                    <div className="text-sm text-muted-foreground">
-                                        Showing {((meta.current_page - 1) * meta.per_page) + 1} - {Math.min(meta.current_page * meta.per_page, meta.total)} of {meta.total} records
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setPage(p => Math.max(1, p - 1))}
-                                            disabled={meta.current_page === 1}
-                                        >
-                                            <ChevronLeft className="h-4 w-4" />
-                                        </Button>
-                                        <span className="text-sm">
-                                            Page {meta.current_page} of {meta.last_page}
-                                        </span>
-                                        <Button
-                                            variant="outline"
-                                            size="sm"
-                                            onClick={() => setPage(p => Math.min(meta.last_page, p + 1))}
-                                            disabled={meta.current_page === meta.last_page}
-                                        >
-                                            <ChevronRight className="h-4 w-4" />
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
-                        </>
+                            <div className="flex gap-2">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                                    disabled={page === 1 || loading}
+                                >
+                                    <ChevronLeft className="h-4 w-4 mr-1" />
+                                    Previous
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setPage(p => Math.min(meta.last_page, p + 1))}
+                                    disabled={page === meta.last_page || loading}
+                                >
+                                    Next
+                                    <ChevronRight className="h-4 w-4 ml-1" />
+                                </Button>
+                            </div>
+                        </div>
                     )}
                 </CardContent>
             </Card>

@@ -1544,9 +1544,10 @@ class FinalizationController extends Controller
         $maxSize = $period->max_group_size ?? 4;
 
         // Get groups with available capacity
+        // Filter to only show groups with READY_FOR_BIDDING status
         $groups = Group::with(['members.student', 'title.lecturer'])
             ->where('period_id', $period->id)
-            ->whereNotIn('status', ['CLOSED', 'DISSOLVED', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])
+            ->where('status', 'READY_FOR_BIDDING')  // Only show READY_FOR_BIDDING groups
             ->get()
             ->filter(function ($group) use ($maxSize) {
                 return $group->members->count() < $maxSize;

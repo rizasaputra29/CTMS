@@ -210,7 +210,7 @@ class AssessmentScoreRepository
      * @param string $columnName Column name (period_component_id or component_id)
      * @return Collection
      */
-    public static function getByComponentId(int $componentId, string $columnName = 'period_component_id'): Collection
+    public static function getByComponentId(int $componentId, string $columnName = 'period_component_id'): \Illuminate\Support\Collection
     {
         $allScores = collect();
         
@@ -275,7 +275,7 @@ class AssessmentScoreRepository
      * @param array $types Evaluation types
      * @return Collection
      */
-    public static function getByGroupAndTypes(int $groupId, array $types): Collection
+    public static function getByGroupAndTypes(int $groupId, array $types): \Illuminate\Support\Collection
     {
         $allScores = collect();
         
@@ -297,7 +297,7 @@ class AssessmentScoreRepository
      * @param callable|null $filterCallback Optional callback to apply filters
      * @return Collection
      */
-    public static function getAllWith(array $with = [], ?callable $filterCallback = null): Collection
+    public static function getAllWith(array $with = [], ?callable $filterCallback = null): \Illuminate\Support\Collection
     {
         $allScores = collect();
         

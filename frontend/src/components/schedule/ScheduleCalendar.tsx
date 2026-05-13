@@ -222,7 +222,7 @@ export default function ScheduleCalendar({
                                 const statusLabel = event.status
                                     ? event.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                                     : '';
-                                const statusVariant = event.status === 'COMPLETED' || event.status === 'DONE' ? 'default'
+                                const statusVariant: 'default' | 'secondary' | 'destructive' | 'outline' = event.status === 'COMPLETED' || event.status === 'DONE' ? 'default'
                                     : event.status === 'CANCELLED' ? 'destructive'
                                     : event.status === 'PENDING_APPROVAL' ? 'secondary'
                                     : 'secondary';
@@ -242,7 +242,7 @@ export default function ScheduleCalendar({
                                                         {cfg.label}
                                                     </Badge>
                                                     {event.status && (
-                                                        <Badge variant={statusVariant as any} className="text-xs">
+                                                        <Badge variant={statusVariant} className="text-xs">
                                                             {statusLabel}
                                                         </Badge>
                                                     )}

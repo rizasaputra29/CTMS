@@ -54,4 +54,11 @@ class BimbinganSemproScore extends Model
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];
+
+    protected $appends = ['evaluation_type'];
+
+    public function getEvaluationTypeAttribute(): string
+    {
+        return 'BIMBINGAN_SEMPRO';
+    }
 }

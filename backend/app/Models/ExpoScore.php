@@ -53,4 +53,11 @@ class ExpoScore extends Model
         'score' => 'decimal:2',
         'notes' => 'string',
     ];
+
+    protected $appends = ['evaluation_type'];
+
+    public function getEvaluationTypeAttribute(): string
+    {
+        return 'EXPO';
+    }
 }

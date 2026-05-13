@@ -575,6 +575,53 @@ class Group extends Model
     }
 
     /**
+     * Revert group to appropriate status after title loss (withdrawal/deletion).
+     * 
+     * Logic by member count:
+     * - 3+ members: READY_FOR_BIDDING
+     * - 2 members: FORMING
+     * - 1 member + is_solo: FORMING_SOLO
+     * - 1 member (normal): FORMING
+     * 
+     * Logic by action:
+     * - withdraw: Groups that were approved go to WAITING_SUPERVISOR_APPROVAL
+     * - delete: Always go to base status based on member count
+     */
+    public function revertAfterTitleLoss(int $minSize, string $action = 'delete'): string
+    {
+        $memberCount = $this->members()->count();
+        $allowSolo = $this->period->allow_solo ?? false;
+        
+        // Determine base status by member count
+        if ($memberCount >= $minSize) {
+            $baseStatus = 'READY_FOR_BIDDING';
+        } elseif ($memberCount === 2) {
+            $baseStatus = 'FORMING';
+        } elseif ($memberCount === 1 && $this->is_solo && $allowSolo) {
+            $baseStatus = 'FORMING_SOLO';
+        } else {
+            $baseStatus = 'FORMING';
+        }
+        
+        // Apply action-specific logic
+        if ($action === 'withdraw') {
+            // For withdrawal: go to WAITING_SUPERVISOR_APPROVAL if group had approved title
+            if (in_array($this->status, ['TITLE_APPROVED', 'READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'PDC2_ACTIVE'])) {
+                $newStatus = 'WAITING_SUPERVISOR_APPROVAL';
+            } else {
+                $newStatus = $baseStatus;
+            }
+        } else {
+            // For deletion: always go to base status
+            $newStatus = $baseStatus;
+        }
+        
+        $this->update(['status' => $newStatus, 'title_id' => null]);
+        
+        return $newStatus;
+    }
+
+    /**
      * Get approval audit history for this group's current title.
      */
     public function getApprovalAuditHistory()

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -59,29 +60,21 @@ interface ReportSummary {
         total_students: number;
         complete: number;
         incomplete: number;
+        pdc1_complete: number;
+        pdc2_complete: number;
+        ta_complete: number;
         top_students: Array<{
             group_id: number;
             group_name: string;
             student_id: number;
             student_name: string;
             student_nim: string;
-            final_grade: number;
-            letter_grade: string;
-            status: string;
-        }>;
-    };
-    grade_consistency: {
-        consistent: number;
-        inconsistent: number;
-        pending: number;
-        inconsistent_students: Array<{
-            group_id: number;
-            group_name: string;
-            student_id: number;
-            student_name: string;
-            pdc1_score: number;
-            pdc2_score: number;
-            deviation: number;
+            pdc1_score: number | null;
+            pdc2_score: number | null;
+            ta_score: number | null;
+            pdc1_complete: boolean;
+            pdc2_complete: boolean;
+            ta_complete: boolean;
         }>;
     };
     groups: {
@@ -97,7 +90,8 @@ interface ReportSummary {
     };
 }
 
-const getScoreColor = (score: number): string => {
+const getScoreColor = (score: number | null): string => {
+    if (score === null) return 'text-gray-400';
     if (score >= 85) return 'text-emerald-600';
     if (score >= 70) return 'text-blue-600';
     if (score >= 60) return 'text-amber-600';
@@ -187,8 +181,8 @@ export default function AdminReportsPage() {
                         <p className="text-muted-foreground">View detailed reports and export data.</p>
                     </div>
                 </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                    {[1, 2, 3, 4].map(i => (
+                <div className="grid gap-6 md:grid-cols-3">
+                    {[1, 2, 3].map(i => (
                         <Card key={i} className="h-[400px]">
                             <CardContent className="p-6">
                                 <div className="animate-pulse space-y-4">
@@ -227,60 +221,60 @@ export default function AdminReportsPage() {
             </div>
 
             {summary && (
-                <div className="grid gap-6 md:grid-cols-2">
+                <div className="grid gap-4 md:grid-cols-3 items-stretch">
                     {/* Assessment Scores Card */}
-                    <Card className="hover:shadow-lg transition-shadow">
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
+                    <Card className="hover:shadow-lg transition-shadow flex flex-col h-full">
+                        <CardHeader className="pb-2 flex-shrink-0">
+                            <div className="flex items-center gap-2">
                                 <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
-                                    <GraduationCap className="h-5 w-5" />
+                                    <GraduationCap className="h-4 w-4" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-lg">Assessment Scores</CardTitle>
-                                    <CardDescription className="text-sm">
-                                        {summary.assessments.total_scores} scores across {summary.assessments.total_groups} groups
+                                    <CardTitle className="text-base">Assessment Scores</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        {summary.assessments.total_scores} scores
                                     </CardDescription>
                                 </div>
                             </div>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="space-y-3 flex-1 flex flex-col">
                             {/* Stats */}
-                            <div className="grid grid-cols-3 gap-4 text-center">
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-2xl font-bold">{summary.assessments.total_students}</div>
+                            <div className="grid grid-cols-3 gap-2 text-center flex-shrink-0">
+                                <div className="p-2 bg-muted/50 rounded-lg">
+                                    <div className="text-xl font-bold">{summary.assessments.total_students}</div>
                                     <div className="text-xs text-muted-foreground">Students</div>
                                 </div>
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className={`text-2xl font-bold ${getScoreColor(Number(summary.assessments.average_score))}`}>
-                                        {Number(summary.assessments.average_score).toFixed(1)}
+                                <div className="p-2 bg-muted/50 rounded-lg">
+                                    <div className={`text-xl font-bold ${getScoreColor(Number(summary.assessments.average_score))}`}>
+                                        {Number(summary.assessments.average_score).toFixed(0)}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">Avg Score</div>
+                                    <div className="text-xs text-muted-foreground">Avg</div>
                                 </div>
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-2xl font-bold">{summary.assessments.total_groups}</div>
+                                <div className="p-2 bg-muted/50 rounded-lg">
+                                    <div className="text-xl font-bold">{summary.assessments.total_groups}</div>
                                     <div className="text-xs text-muted-foreground">Groups</div>
                                 </div>
                             </div>
 
                             {/* Top Groups Table */}
-                            <div>
-                                <h4 className="text-sm font-medium mb-2">Top 5 Groups by Average Score</h4>
+                            <div className="flex-1">
+                                <h4 className="text-xs font-medium mb-2">Top Groups</h4>
                                 <div className="border rounded-lg overflow-hidden">
-                                    <table className="w-full text-sm">
+                                    <table className="w-full text-xs">
                                         <thead className="bg-muted/50">
                                             <tr>
-                                                <th className="px-3 py-2 text-left font-medium">Group</th>
-                                                <th className="px-3 py-2 text-center font-medium">Students</th>
-                                                <th className="px-3 py-2 text-right font-medium">Avg</th>
+                                                <th className="px-2 py-1.5 text-left font-medium">Group</th>
+                                                <th className="px-2 py-1.5 text-center font-medium">#</th>
+                                                <th className="px-2 py-1.5 text-right font-medium">Avg</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {summary.assessments.top_groups.map((group, idx) => (
                                                 <tr key={idx} className="hover:bg-muted/30">
-                                                    <td className="px-3 py-2 font-medium">{group.group_name}</td>
-                                                    <td className="px-3 py-2 text-center">{group.student_count}</td>
-                                                    <td className={`px-3 py-2 text-right font-semibold ${getScoreColor(Number(group.average_score))}`}>
-                                                        {Number(group.average_score).toFixed(1)}
+                                                    <td className="px-2 py-1.5 font-medium truncate max-w-[100px]">{group.group_name}</td>
+                                                    <td className="px-2 py-1.5 text-center">{group.student_count}</td>
+                                                    <td className={`px-2 py-1.5 text-right font-semibold ${getScoreColor(Number(group.average_score))}`}>
+                                                        {Number(group.average_score).toFixed(0)}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -290,39 +284,25 @@ export default function AdminReportsPage() {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-shrink-0">
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="flex-1"
+                                    className="flex-1 text-xs px-2"
                                     disabled={downloading === 'assessments-all'}
                                     onClick={() => handleExport('assessments', 'all')}
                                 >
                                     {downloading === 'assessments-all' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-3 w-3 animate-spin" />
                                     ) : (
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="h-3 w-3" />
                                     )}
-                                    Export All
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    disabled={downloading === 'assessments-filtered'}
-                                    onClick={() => handleExport('assessments', 'filtered')}
-                                >
-                                    {downloading === 'assessments-filtered' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Download className="mr-2 h-4 w-4" />
-                                    )}
-                                    Export Filtered
+                                    <span className="ml-1">Export</span>
                                 </Button>
                                 <Link href={`/admin/reports/assessments${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
-                                    <Button variant="default" size="sm" className="w-full">
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        View Details
+                                    <Button variant="default" size="sm" className="w-full text-xs px-2">
+                                        <Eye className="h-3 w-3" />
+                                        <span className="ml-1">View</span>
                                     </Button>
                                 </Link>
                             </div>
@@ -330,54 +310,54 @@ export default function AdminReportsPage() {
                     </Card>
 
                     {/* Peer Reviews Card */}
-                    <Card className="hover:shadow-lg transition-shadow">
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
+                    <Card className="hover:shadow-lg transition-shadow flex flex-col h-full">
+                        <CardHeader className="pb-2 flex-shrink-0">
+                            <div className="flex items-center gap-2">
                                 <div className="p-2 rounded-lg bg-yellow-50 text-yellow-600">
-                                    <Star className="h-5 w-5" />
+                                    <Star className="h-4 w-4" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-lg">Peer Reviews</CardTitle>
-                                    <CardDescription className="text-sm">
-                                        {summary.peer_reviews.total_reviews} reviews across {summary.peer_reviews.total_groups} groups
+                                    <CardTitle className="text-base">Peer Reviews</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        {summary.peer_reviews.total_reviews} reviews
                                     </CardDescription>
                                 </div>
                             </div>
                         </CardHeader>
-                        <CardContent className="space-y-4">
+                        <CardContent className="space-y-3 flex-1 flex flex-col">
                             {/* Stats */}
-                            <div className="grid grid-cols-2 gap-4 text-center">
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className={`text-2xl font-bold ${getScoreColor(Number(summary.peer_reviews.average_score))}`}>
-                                        {Number(summary.peer_reviews.average_score).toFixed(1)}
+                            <div className="grid grid-cols-2 gap-2 text-center flex-shrink-0">
+                                <div className="p-2 bg-muted/50 rounded-lg">
+                                    <div className={`text-xl font-bold ${getScoreColor(Number(summary.peer_reviews.average_score))}`}>
+                                        {Number(summary.peer_reviews.average_score).toFixed(0)}
                                     </div>
-                                    <div className="text-xs text-muted-foreground">Avg Score</div>
+                                    <div className="text-xs text-muted-foreground">Avg</div>
                                 </div>
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-2xl font-bold">{summary.peer_reviews.total_groups}</div>
+                                <div className="p-2 bg-muted/50 rounded-lg">
+                                    <div className="text-xl font-bold">{summary.peer_reviews.total_groups}</div>
                                     <div className="text-xs text-muted-foreground">Groups</div>
                                 </div>
                             </div>
 
                             {/* Top Groups Table */}
-                            <div>
-                                <h4 className="text-sm font-medium mb-2">Top 5 Groups by Average Score</h4>
+                            <div className="flex-1">
+                                <h4 className="text-xs font-medium mb-2">Top Groups</h4>
                                 <div className="border rounded-lg overflow-hidden">
-                                    <table className="w-full text-sm">
+                                    <table className="w-full text-xs">
                                         <thead className="bg-muted/50">
                                             <tr>
-                                                <th className="px-3 py-2 text-left font-medium">Group</th>
-                                                <th className="px-3 py-2 text-center font-medium">Students</th>
-                                                <th className="px-3 py-2 text-right font-medium">Avg</th>
+                                                <th className="px-2 py-1.5 text-left font-medium">Group</th>
+                                                <th className="px-2 py-1.5 text-center font-medium">#</th>
+                                                <th className="px-2 py-1.5 text-right font-medium">Avg</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {summary.peer_reviews.top_groups.map((group, idx) => (
                                                 <tr key={idx} className="hover:bg-muted/30">
-                                                    <td className="px-3 py-2 font-medium">{group.group_name}</td>
-                                                    <td className="px-3 py-2 text-center">{group.student_count}</td>
-                                                    <td className={`px-3 py-2 text-right font-semibold ${getScoreColor(Number(group.average_score))}`}>
-                                                        {Number(group.average_score).toFixed(1)}
+                                                    <td className="px-2 py-1.5 font-medium truncate max-w-[100px]">{group.group_name}</td>
+                                                    <td className="px-2 py-1.5 text-center">{group.student_count}</td>
+                                                    <td className={`px-2 py-1.5 text-right font-semibold ${getScoreColor(Number(group.average_score))}`}>
+                                                        {Number(group.average_score).toFixed(0)}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -387,39 +367,25 @@ export default function AdminReportsPage() {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-shrink-0">
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="flex-1"
+                                    className="flex-1 text-xs px-2"
                                     disabled={downloading === 'peer-reviews-all'}
                                     onClick={() => handleExport('peer-reviews', 'all')}
                                 >
                                     {downloading === 'peer-reviews-all' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-3 w-3 animate-spin" />
                                     ) : (
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="h-3 w-3" />
                                     )}
-                                    Export All
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    disabled={downloading === 'peer-reviews-filtered'}
-                                    onClick={() => handleExport('peer-reviews', 'filtered')}
-                                >
-                                    {downloading === 'peer-reviews-filtered' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Download className="mr-2 h-4 w-4" />
-                                    )}
-                                    Export Filtered
+                                    <span className="ml-1">Export</span>
                                 </Button>
                                 <Link href={`/admin/reports/peer-reviews${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
-                                    <Button variant="default" size="sm" className="w-full">
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        View Details
+                                    <Button variant="default" size="sm" className="w-full text-xs px-2">
+                                        <Eye className="h-3 w-3" />
+                                        <span className="ml-1">View</span>
                                     </Button>
                                 </Link>
                             </div>
@@ -427,63 +393,69 @@ export default function AdminReportsPage() {
                     </Card>
 
                     {/* Final Grades Card */}
-                    <Card className="hover:shadow-lg transition-shadow">
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
+                    <Card className="hover:shadow-lg transition-shadow flex flex-col h-full">
+                        <CardHeader className="pb-2 flex-shrink-0">
+                            <div className="flex items-center gap-2">
                                 <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600">
-                                    <Award className="h-5 w-5" />
+                                    <Award className="h-4 w-4" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-lg">Final Grades</CardTitle>
-                                    <CardDescription className="text-sm">
-                                        {summary.final_grades.total_students} students | {summary.final_grades.complete} complete
+                                    <CardTitle className="text-base">Final Grades</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        {summary.final_grades.total_students} students
                                     </CardDescription>
                                 </div>
                             </div>
                         </CardHeader>
-                        <CardContent className="space-y-4">
-                            {/* Stats */}
-                            <div className="grid grid-cols-3 gap-4 text-center">
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-2xl font-bold">{summary.final_grades.total_students}</div>
-                                    <div className="text-xs text-muted-foreground">Total</div>
+                        <CardContent className="space-y-3 flex-1 flex flex-col">
+                            {/* Stats - 3 columns for PDC1, PDC2, TA */}
+                            <div className="grid grid-cols-3 gap-2 text-center flex-shrink-0">
+                                <div className="p-2 bg-blue-50 rounded-lg">
+                                    <div className="text-xl font-bold text-blue-600">{summary.final_grades.pdc1_complete}</div>
+                                    <div className="text-xs text-blue-600">PDC1</div>
                                 </div>
-                                <div className="p-3 bg-emerald-50 rounded-lg">
-                                    <div className="text-2xl font-bold text-emerald-600">{summary.final_grades.complete}</div>
-                                    <div className="text-xs text-emerald-600">Complete</div>
+                                <div className="p-2 bg-purple-50 rounded-lg">
+                                    <div className="text-xl font-bold text-purple-600">{summary.final_grades.pdc2_complete}</div>
+                                    <div className="text-xs text-purple-600">PDC2</div>
                                 </div>
-                                <div className="p-3 bg-amber-50 rounded-lg">
-                                    <div className="text-2xl font-bold text-amber-600">{summary.final_grades.incomplete}</div>
-                                    <div className="text-xs text-amber-600">Incomplete</div>
+                                <div className="p-2 bg-amber-50 rounded-lg">
+                                    <div className="text-xl font-bold text-amber-600">{summary.final_grades.ta_complete}</div>
+                                    <div className="text-xs text-amber-600">TA</div>
                                 </div>
                             </div>
 
                             {/* Top Students Table */}
-                            <div>
-                                <h4 className="text-sm font-medium mb-2">Top 5 Students by Final Grade</h4>
+                            <div className="flex-1">
+                                <h4 className="text-xs font-medium mb-2">Top Students</h4>
                                 <div className="border rounded-lg overflow-hidden">
-                                    <table className="w-full text-sm">
+                                    <table className="w-full text-xs">
                                         <thead className="bg-muted/50">
                                             <tr>
-                                                <th className="px-3 py-2 text-left font-medium">Student</th>
-                                                <th className="px-3 py-2 text-center font-medium">Grade</th>
-                                                <th className="px-3 py-2 text-right font-medium">Score</th>
+                                                <th className="px-2 py-1.5 text-left font-medium">Student</th>
+                                                <th className="px-2 py-1.5 text-center font-medium">P1</th>
+                                                <th className="px-2 py-1.5 text-center font-medium">P2</th>
+                                                <th className="px-2 py-1.5 text-center font-medium">TA</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y">
                                             {summary.final_grades.top_students.map((student, idx) => (
-                                                <tr key={idx} className="hover:bg-muted/30">
-                                                    <td className="px-3 py-2">
-                                                        <div className="font-medium">{student.student_name}</div>
-                                                        <div className="text-xs text-muted-foreground">{student.group_name}</div>
+                                                <tr 
+                                                    key={idx} 
+                                                    className="hover:bg-muted/30 cursor-pointer"
+                                                    onClick={() => router.push(`/admin/reports/assessments/student/${student.student_id}${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`)}
+                                                >
+                                                    <td className="px-2 py-1.5">
+                                                        <div className="font-medium truncate max-w-[80px]">{student.student_name}</div>
+                                                        <div className="text-xs text-muted-foreground truncate max-w-[80px]">{student.group_name}</div>
                                                     </td>
-                                                    <td className="px-3 py-2 text-center">
-                                                        <Badge className={getLetterGradeColor(student.letter_grade)}>
-                                                            {student.letter_grade}
-                                                        </Badge>
+                                                    <td className={`px-2 py-1.5 text-center font-semibold ${getScoreColor(student.pdc1_score)}`}>
+                                                        {student.pdc1_score !== null && !Number.isNaN(student.pdc1_score) ? Number(student.pdc1_score).toFixed(0) : '–'}
                                                     </td>
-                                                    <td className={`px-3 py-2 text-right font-semibold ${getScoreColor(student.final_grade)}`}>
-                                                        {Number(student.final_grade).toFixed(1)}
+                                                    <td className={`px-2 py-1.5 text-center font-semibold ${getScoreColor(student.pdc2_score)}`}>
+                                                        {student.pdc2_score !== null && !Number.isNaN(student.pdc2_score) ? Number(student.pdc2_score).toFixed(0) : '–'}
+                                                    </td>
+                                                    <td className={`px-2 py-1.5 text-center font-semibold ${getScoreColor(student.ta_score)}`}>
+                                                        {student.ta_score !== null && !Number.isNaN(student.ta_score) ? Number(student.ta_score).toFixed(0) : '–'}
                                                     </td>
                                                 </tr>
                                             ))}
@@ -493,155 +465,25 @@ export default function AdminReportsPage() {
                             </div>
 
                             {/* Action Buttons */}
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-shrink-0">
                                 <Button
                                     variant="outline"
                                     size="sm"
-                                    className="flex-1"
+                                    className="flex-1 text-xs px-2"
                                     disabled={downloading === 'final-grades-all'}
                                     onClick={() => handleExport('final-grades', 'all')}
                                 >
                                     {downloading === 'final-grades-all' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        <Loader2 className="h-3 w-3 animate-spin" />
                                     ) : (
-                                        <Download className="mr-2 h-4 w-4" />
+                                        <Download className="h-3 w-3" />
                                     )}
-                                    Export All
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    disabled={downloading === 'final-grades-filtered'}
-                                    onClick={() => handleExport('final-grades', 'filtered')}
-                                >
-                                    {downloading === 'final-grades-filtered' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Download className="mr-2 h-4 w-4" />
-                                    )}
-                                    Export Filtered
+                                    <span className="ml-1">Export</span>
                                 </Button>
                                 <Link href={`/admin/reports/final-grades${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
-                                    <Button variant="default" size="sm" className="w-full">
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        View Details
-                                    </Button>
-                                </Link>
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    {/* Grade Consistency Card */}
-                    <Card className="hover:shadow-lg transition-shadow">
-                        <CardHeader className="pb-3">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 rounded-lg bg-purple-50 text-purple-600">
-                                    <GitCompare className="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <CardTitle className="text-lg">Grade Consistency</CardTitle>
-                                    <CardDescription className="text-sm">
-                                        PDC1 vs PDC2 comparison
-                                    </CardDescription>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            {/* Stats */}
-                            <div className="grid grid-cols-3 gap-4 text-center">
-                                <div className="p-3 bg-emerald-50 rounded-lg">
-                                    <div className="text-2xl font-bold text-emerald-600">{summary.grade_consistency.consistent}</div>
-                                    <div className="text-xs text-emerald-600">Consistent</div>
-                                </div>
-                                <div className="p-3 bg-red-50 rounded-lg">
-                                    <div className="text-2xl font-bold text-red-600">{summary.grade_consistency.inconsistent}</div>
-                                    <div className="text-xs text-red-600">Inconsistent</div>
-                                </div>
-                                <div className="p-3 bg-muted/50 rounded-lg">
-                                    <div className="text-2xl font-bold">{summary.grade_consistency.pending}</div>
-                                    <div className="text-xs text-muted-foreground">Pending</div>
-                                </div>
-                            </div>
-
-                            {/* Inconsistent Students Table */}
-                            {summary.grade_consistency.inconsistent_students.length > 0 && (
-                                <div>
-                                    <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-                                        <AlertTriangle className="h-4 w-4 text-red-500" />
-                                        Most Inconsistent (Top 5)
-                                    </h4>
-                                    <div className="border rounded-lg overflow-hidden border-red-200">
-                                        <table className="w-full text-sm">
-                                            <thead className="bg-red-50">
-                                                <tr>
-                                                    <th className="px-3 py-2 text-left font-medium">Student</th>
-                                                    <th className="px-3 py-2 text-center font-medium">PDC1</th>
-                                                    <th className="px-3 py-2 text-center font-medium">PDC2</th>
-                                                    <th className="px-3 py-2 text-right font-medium">Diff</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y">
-                                                {summary.grade_consistency.inconsistent_students.map((student, idx) => (
-                                                    <tr key={idx} className="hover:bg-muted/30">
-                                                        <td className="px-3 py-2">
-                                                            <div className="font-medium">{student.student_name}</div>
-                                                            <div className="text-xs text-muted-foreground">{student.group_name}</div>
-                                                        </td>
-                                                        <td className="px-3 py-2 text-center">{Number(student.pdc1_score).toFixed(1)}</td>
-                                                        <td className="px-3 py-2 text-center">{Number(student.pdc2_score).toFixed(1)}</td>
-                                                        <td className="px-3 py-2 text-right font-semibold text-red-600">
-                                                            {Number(student.deviation).toFixed(1)}
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            )}
-
-                            {summary.grade_consistency.inconsistent_students.length === 0 && (
-                                <div className="text-center py-6 bg-emerald-50 rounded-lg border border-emerald-200">
-                                    <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" />
-                                    <p className="text-sm text-emerald-700">All grades are consistent!</p>
-                                </div>
-                            )}
-
-                            {/* Action Buttons */}
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    disabled={downloading === 'grade-consistency-all'}
-                                    onClick={() => handleExport('grade-consistency', 'all')}
-                                >
-                                    {downloading === 'grade-consistency-all' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Download className="mr-2 h-4 w-4" />
-                                    )}
-                                    Export All
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="flex-1"
-                                    disabled={downloading === 'grade-consistency-filtered'}
-                                    onClick={() => handleExport('grade-consistency', 'filtered')}
-                                >
-                                    {downloading === 'grade-consistency-filtered' ? (
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Download className="mr-2 h-4 w-4" />
-                                    )}
-                                    Export Filtered
-                                </Button>
-                                <Link href={`/admin/reports/grade-consistency${selectedPeriod ? `?period_id=${selectedPeriod}` : ''}`} className="flex-1">
-                                    <Button variant="default" size="sm" className="w-full">
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        View Details
+                                    <Button variant="default" size="sm" className="w-full text-xs px-2">
+                                        <Eye className="h-3 w-3" />
+                                        <span className="ml-1">View</span>
                                     </Button>
                                 </Link>
                             </div>

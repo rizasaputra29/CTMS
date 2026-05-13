@@ -22,6 +22,11 @@ class GradeConfigurationController extends Controller
         'PEER_REVIEW' => 25
     ];
 
+    private const DEFAULT_TA_WEIGHTS = [
+        'BIMBINGAN_TA' => 50,
+        'SIDANG_TA' => 50
+    ];
+
     protected $gradeCalculationService;
 
     public function __construct(\App\Services\GradeCalculationService $gradeCalculationService)
@@ -64,6 +69,23 @@ class GradeConfigurationController extends Controller
     }
 
     /**
+     * Get grade weight configuration for TA
+     */
+    public function getTAWeights(Request $request, int $periodId): JsonResponse
+    {
+        $period = Period::findOrFail($periodId);
+        
+        $weights = $period->grade_configuration['ta'] ?? self::DEFAULT_TA_WEIGHTS;
+
+        return response()->json([
+            'period_id' => $periodId,
+            'period_name' => $period->name,
+            'ta_weights' => $weights,
+            'total_weight' => array_sum($weights)
+        ]);
+    }
+
+    /**
      * Update grade weight configuration
      */
     public function updateWeights(Request $request, int $periodId): JsonResponse
@@ -79,6 +101,9 @@ class GradeConfigurationController extends Controller
             'pdc2_weights.MILESTONE' => 'nullable|numeric|min:0',
             'pdc2_weights.EXPO' => 'nullable|numeric|min:0',
             'pdc2_weights.PEER_REVIEW' => 'nullable|numeric|min:0',
+            'ta_weights' => 'nullable|array',
+            'ta_weights.BIMBINGAN_TA' => 'nullable|numeric|min:0',
+            'ta_weights.SIDANG_TA' => 'nullable|numeric|min:0',
         ]);
 
         $gradeConfig = $period->grade_configuration ?? [];
@@ -94,6 +119,13 @@ class GradeConfigurationController extends Controller
             $gradeConfig['pdc2'] = array_merge(
                 $gradeConfig['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
                 $validated['pdc2_weights']
+            );
+        }
+
+        if (isset($validated['ta_weights'])) {
+            $gradeConfig['ta'] = array_merge(
+                $gradeConfig['ta'] ?? self::DEFAULT_TA_WEIGHTS,
+                $validated['ta_weights']
             );
         }
 
@@ -242,6 +274,11 @@ class GradeConfigurationController extends Controller
                 'weights' => $config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
                 'components' => ['NILAI_DOSEN', 'MILESTONE', 'EXPO', 'PEER_REVIEW'],
                 'total_weight' => array_sum($config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS)
+            ],
+            'ta' => [
+                'weights' => $config['ta'] ?? self::DEFAULT_TA_WEIGHTS,
+                'components' => ['BIMBINGAN_TA', 'SIDANG_TA'],
+                'total_weight' => array_sum($config['ta'] ?? self::DEFAULT_TA_WEIGHTS)
             ]
         ]);
     }
@@ -255,7 +292,8 @@ class GradeConfigurationController extends Controller
         
         $gradeConfig = [
             'pdc1' => self::DEFAULT_PDC1_WEIGHTS,
-            'pdc2' => self::DEFAULT_PDC2_WEIGHTS
+            'pdc2' => self::DEFAULT_PDC2_WEIGHTS,
+            'ta' => self::DEFAULT_TA_WEIGHTS
         ];
 
         $period->update(['grade_configuration' => $gradeConfig]);
@@ -264,6 +302,75 @@ class GradeConfigurationController extends Controller
             'message' => 'Grade configuration reset to defaults',
             'period_id' => $periodId,
             'grade_configuration' => $gradeConfig
+        ]);
+    }
+
+    /**
+     * Calculate TA grade for a student (per-student, not group-based)
+     */
+    public function calculateTAGrade(Request $request, int $studentId): JsonResponse
+    {
+        $student = \App\Models\User::findOrFail($studentId);
+        
+        // Get student's group to access period
+        $groupMember = \App\Models\GroupMember::with('group.period')
+            ->where('student_id', $studentId)
+            ->first();
+
+        if (!$groupMember || !$groupMember->group) {
+            return response()->json([
+                'message' => 'Student is not assigned to any group',
+                'grades' => null
+            ], 404);
+        }
+
+        $group = $groupMember->group;
+        $period = $group->period;
+        
+        $weights = $period->grade_configuration['ta'] ?? self::DEFAULT_TA_WEIGHTS;
+        
+        $grades = [];
+        $totalWeightedScore = 0;
+        $totalWeight = 0;
+
+        foreach ($weights as $type => $weight) {
+            // TA uses per-student scores, not group scores
+            $scores = AssessmentScoreRepository::getByStudentAndType($studentId, $type);
+
+            if ($scores->isEmpty()) {
+                $grades[$type] = [
+                    'status' => 'not_evaluated',
+                    'average_score' => null,
+                    'weight' => $weight,
+                    'weighted_score' => null
+                ];
+                continue;
+            }
+
+            // Calculate average score for this evaluation type
+            $avgScore = $scores->avg('score');
+            $weightedScore = ($avgScore * $weight) / 100;
+            
+            $grades[$type] = [
+                'status' => 'evaluated',
+                'average_score' => round($avgScore, 2),
+                'weight' => $weight,
+                'weighted_score' => round($weightedScore, 2)
+            ];
+            
+            $totalWeightedScore += $weightedScore;
+            $totalWeight += $weight;
+        }
+
+        return response()->json([
+            'student_id' => $studentId,
+            'student_name' => $student->name,
+            'group_id' => $group->id,
+            'group_name' => $group->name,
+            'period_id' => $period->id,
+            'ta_grades' => $grades,
+            'final_ta_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
+            'total_weight' => $totalWeight
         ]);
     }
 

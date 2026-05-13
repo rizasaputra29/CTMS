@@ -105,10 +105,8 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Analytics',
             icon: BarChart3,
             items: [
-                { title: 'Evaluation Summary', url: '/admin/analytics/evaluation-summary', icon: FileText },
                 { title: 'Grade Check', url: '/admin/analytics/grade-check', icon: GitCompare },
-                { title: 'Grade Consistency', url: '/admin/grade-consistency', icon: ShieldCheck },
-                { title: 'Grade Config', url: '/admin/grade-configuration', icon: GraduationCap },
+                { title: 'Grade Config', url: '/admin/analytics/grade-configuration', icon: GraduationCap },
                 { title: 'Peer Review Dashboard', url: '/admin/peer-review-dashboard', icon: Users },
                 { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
             ]

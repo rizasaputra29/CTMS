@@ -211,6 +211,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Grade Check (admin) - Raw score viewer with filtering
         Route::get('/grade-check', [GradeCheckController::class, 'index']);
         Route::get('/grade-check/export', [GradeCheckController::class, 'export']);
+        Route::get('/grade-check/student/{studentId}', [GradeCheckController::class, 'studentDetail']);
+        Route::get('/grade-check/student/{studentId}/evaluation/{evaluationType}', [GradeCheckController::class, 'evaluationDetail']);
 
         // Document Types (admin)
         Route::apiResource('document-types', DocumentTypeController::class);
@@ -240,6 +242,11 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/reports/grade-consistency', [ReportDetailController::class, 'gradeConsistency']);
         Route::get('/reports/groups', [ReportDetailController::class, 'groups']);
 
+        // Student Evaluation Detail Pages (admin)
+        Route::get('/reports/student-evaluations-summary', [ReportDetailController::class, 'studentEvaluationsSummary']);
+        Route::get('/reports/student-evaluations/{studentId}/{evaluationType}', [ReportDetailController::class, 'studentEvaluationDetail']);
+        Route::get('/reports/student-evaluations-summary/export', [ReportDetailController::class, 'exportStudentEvaluationsSummary']);
+
         // Assign Supervisor 2 (admin only)
         Route::post('/groups/{group}/assign-supervisor-2', [GroupController::class, 'assignSupervisor2']);
 
@@ -257,7 +264,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/grade-configuration/{periodId}/reset', [GradeConfigurationController::class, 'resetToDefaults']);
         Route::get('/grade-configuration/{periodId}/pdc1', [GradeConfigurationController::class, 'getPDC1Weights']);
         Route::get('/grade-configuration/{periodId}/pdc2', [GradeConfigurationController::class, 'getPDC2Weights']);
+        Route::get('/grade-configuration/{periodId}/ta', [GradeConfigurationController::class, 'getTAWeights']);
         Route::get('/grade-configuration/calculate/{groupId}', [GradeConfigurationController::class, 'calculateGroupGrades']);
+        Route::get('/grade-configuration/calculate-ta/{studentId}', [GradeConfigurationController::class, 'calculateTAGrade']);
         Route::get('/student-grades/{studentId}', [GradeConfigurationController::class, 'getStudentGrades']);
 
         // Peer Review Dashboard (admin)
@@ -280,6 +289,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Title Approval Withdrawal & History
         Route::post('/titles/{title}/withdraw-approval', [TitleController::class, 'withdrawApproval']);
         Route::get('/titles/{title}/approval-history', [TitleController::class, 'getApprovalHistory']);
+        
+        // Title Deletion History
+        Route::get('/titles/{title}/deletion-history', [TitleController::class, 'getDeletionHistory']);
 
         // Documents
         Route::put('/documents/{id}', [DocumentController::class, 'update']);

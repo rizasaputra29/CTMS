@@ -346,7 +346,9 @@ class GradeCalculationService
             if ($score->evaluator) {
                 $evaluators[] = [
                     'name' => $score->evaluator->name,
-                    'role' => $this->getEvaluatorRoleFromCache($score->evaluator_id, $groupId),
+                    'role' => $score->evaluator_id !== null 
+                        ? $this->getEvaluatorRoleFromCache($score->evaluator_id, $groupId)
+                        : 'EXAMINER',
                 ];
             }
         }
@@ -629,7 +631,8 @@ class GradeCalculationService
      */
     private function getStudentPeerReviewAverage(int $studentId, int $groupId): ?float
     {
-        $reviews = PeerReview::where('reviewee_id', $studentId)
+        $reviews = PeerReview::with(['periodIndicator.template'])
+            ->where('reviewee_id', $studentId)
             ->where('group_id', $groupId)
             ->where('is_final_submission', true)
             ->get();
@@ -654,8 +657,12 @@ class GradeCalculationService
     /**
      * Get evaluator role (Supervisor 1/2, Examiner, etc.).
      */
-    private function getEvaluatorRole(int $evaluatorId, int $groupId): string
+    private function getEvaluatorRole(?int $evaluatorId, int $groupId): string
     {
+        if ($evaluatorId === null) {
+            return 'UNKNOWN';
+        }
+
         $group = Group::with(['supervisor1', 'supervisor2'])->find($groupId);
 
         if (!$group) {

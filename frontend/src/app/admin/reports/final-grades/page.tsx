@@ -35,9 +35,10 @@ interface FinalGrade {
     group_title: string;
     pdc1_score: number | null;
     pdc2_score: number | null;
-    final_grade: number | null;
-    letter_grade: string;
-    status: 'Complete' | 'Incomplete';
+    ta_score: number | null;
+    pdc1_complete: boolean;
+    pdc2_complete: boolean;
+    ta_complete: boolean;
 }
 
 interface Meta {
@@ -55,17 +56,6 @@ const getScoreColor = (score: number | null): string => {
     return 'text-red-600';
 };
 
-const getLetterGradeBadge = (grade: string): string => {
-    switch (grade) {
-        case 'A': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-        case 'B': return 'bg-blue-100 text-blue-800 border-blue-300';
-        case 'C': return 'bg-amber-100 text-amber-800 border-amber-300';
-        case 'D': return 'bg-orange-100 text-orange-800 border-orange-300';
-        case 'E': return 'bg-red-100 text-red-800 border-red-300';
-        default: return 'bg-gray-100 text-gray-800 border-gray-300';
-    }
-};
-
 export default function FinalGradesReportPage() {
     const searchParams = useSearchParams();
     const periodId = searchParams.get('period_id');
@@ -77,7 +67,6 @@ export default function FinalGradesReportPage() {
     
     // Filters
     const [groupId, setGroupId] = useState('all');
-    const [gradeRange, setGradeRange] = useState('all');
     const [status, setStatus] = useState('all');
     const [studentSearch, setStudentSearch] = useState('');
     const [page, setPage] = useState(1);
@@ -109,10 +98,6 @@ export default function FinalGradesReportPage() {
                 params.group_id = groupId;
             }
             
-            if (gradeRange !== 'all') {
-                params.grade_range = gradeRange;
-            }
-            
             if (status !== 'all') {
                 params.status = status;
             }
@@ -130,7 +115,7 @@ export default function FinalGradesReportPage() {
         } finally {
             setLoading(false);
         }
-    }, [periodId, groupId, gradeRange, status, studentSearch, page, perPage]);
+    }, [periodId, groupId, status, studentSearch, page, perPage]);
 
     useEffect(() => {
         fetchGroups();
@@ -153,10 +138,6 @@ export default function FinalGradesReportPage() {
                 params.group_id = groupId;
             }
             
-            if (gradeRange !== 'all') {
-                params.grade_range = gradeRange;
-            }
-            
             if (status !== 'all') {
                 params.status = status;
             }
@@ -165,7 +146,7 @@ export default function FinalGradesReportPage() {
                 params.student_search = studentSearch;
             }
             
-            const res = await api.get('/admin/reports/final-grades', {
+            const res = await api.get('/admin/reports/final-grades/export', {
                 params,
                 responseType: 'blob',
             });
@@ -187,9 +168,9 @@ export default function FinalGradesReportPage() {
     };
 
     // Calculate summary stats
-    const completeCount = grades.filter(g => g.status === 'Complete').length;
-    const incompleteCount = grades.filter(g => g.status === 'Incomplete').length;
-    const avgGrade = grades.filter(g => g.final_grade !== null).reduce((acc, g) => acc + (g.final_grade || 0), 0) / grades.filter(g => g.final_grade !== null).length || 0;
+    const pdc1CompleteCount = grades.filter(g => g.pdc1_complete).length;
+    const pdc2CompleteCount = grades.filter(g => g.pdc2_complete).length;
+    const taCompleteCount = grades.filter(g => g.ta_complete).length;
 
     if (!periodId) {
         return (
@@ -250,20 +231,20 @@ export default function FinalGradesReportPage() {
                     </Card>
                     <Card>
                         <CardContent className="pt-6">
-                            <div className="text-2xl font-bold text-emerald-600">{completeCount}</div>
-                            <div className="text-sm text-muted-foreground">Complete</div>
+                            <div className="text-2xl font-bold text-blue-600">{pdc1CompleteCount}</div>
+                            <div className="text-sm text-muted-foreground">PDC1 Complete</div>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardContent className="pt-6">
-                            <div className="text-2xl font-bold text-amber-600">{incompleteCount}</div>
-                            <div className="text-sm text-muted-foreground">Incomplete</div>
+                            <div className="text-2xl font-bold text-purple-600">{pdc2CompleteCount}</div>
+                            <div className="text-sm text-muted-foreground">PDC2 Complete</div>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardContent className="pt-6">
-                            <div className="text-2xl font-bold text-blue-600">{Number(avgGrade).toFixed(1)}</div>
-                            <div className="text-sm text-muted-foreground">Average Grade</div>
+                            <div className="text-2xl font-bold text-amber-600">{taCompleteCount}</div>
+                            <div className="text-sm text-muted-foreground">TA Complete</div>
                         </CardContent>
                     </Card>
                 </div>
@@ -278,7 +259,7 @@ export default function FinalGradesReportPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="space-y-2">
                             <Label>Group</Label>
                             <Select value={groupId} onValueChange={(val) => {
@@ -295,26 +276,6 @@ export default function FinalGradesReportPage() {
                                             {group.title?.title || `Group ${group.id}`}
                                         </SelectItem>
                                     ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        
-                        <div className="space-y-2">
-                            <Label>Grade Range</Label>
-                            <Select value={gradeRange} onValueChange={(val) => {
-                                setGradeRange(val);
-                                setPage(1);
-                            }}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="All grades" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="all">All Grades</SelectItem>
-                                    <SelectItem value="A">A (85-100)</SelectItem>
-                                    <SelectItem value="B">B (70-84)</SelectItem>
-                                    <SelectItem value="C">C (60-69)</SelectItem>
-                                    <SelectItem value="D">D (50-59)</SelectItem>
-                                    <SelectItem value="E">E (&lt;50)</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -396,10 +357,11 @@ export default function FinalGradesReportPage() {
                                             <TableHead>Student</TableHead>
                                             <TableHead>NIM</TableHead>
                                             <TableHead className="text-right">PDC 1</TableHead>
+                                            <TableHead className="text-center">PDC1 Status</TableHead>
                                             <TableHead className="text-right">PDC 2</TableHead>
-                                            <TableHead className="text-right">Final</TableHead>
-                                            <TableHead>Letter</TableHead>
-                                            <TableHead>Status</TableHead>
+                                            <TableHead className="text-center">PDC2 Status</TableHead>
+                                            <TableHead className="text-right">TA</TableHead>
+                                            <TableHead className="text-center">TA Status</TableHead>
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
@@ -411,26 +373,27 @@ export default function FinalGradesReportPage() {
                                                 <TableCell className="font-medium">{grade.student_name}</TableCell>
                                                 <TableCell className="text-muted-foreground">{grade.student_nim}</TableCell>
                                                 <TableCell className={`text-right font-bold ${getScoreColor(grade.pdc1_score)}`}>
-                                                    {grade.pdc1_score !== null ? Number(grade.pdc1_score).toFixed(1) : 'N/A'}
+                                                    {grade.pdc1_score !== null && !Number.isNaN(grade.pdc1_score) ? Number(grade.pdc1_score).toFixed(1) : 'N/A'}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    <Badge variant={grade.pdc1_complete ? 'default' : 'secondary'}>
+                                                        {grade.pdc1_complete ? 'Complete' : 'Incomplete'}
+                                                    </Badge>
                                                 </TableCell>
                                                 <TableCell className={`text-right font-bold ${getScoreColor(grade.pdc2_score)}`}>
-                                                    {grade.pdc2_score !== null ? Number(grade.pdc2_score).toFixed(1) : 'N/A'}
+                                                    {grade.pdc2_score !== null && !Number.isNaN(grade.pdc2_score) ? Number(grade.pdc2_score).toFixed(1) : 'N/A'}
                                                 </TableCell>
-                                                <TableCell className={`text-right font-bold ${getScoreColor(grade.final_grade)}`}>
-                                                    {grade.final_grade !== null ? Number(grade.final_grade).toFixed(1) : 'N/A'}
+                                                <TableCell className="text-center">
+                                                    <Badge variant={grade.pdc2_complete ? 'default' : 'secondary'}>
+                                                        {grade.pdc2_complete ? 'Complete' : 'Incomplete'}
+                                                    </Badge>
                                                 </TableCell>
-                                                <TableCell>
-                                                    {grade.letter_grade !== 'N/A' ? (
-                                                        <Badge className={`${getLetterGradeBadge(grade.letter_grade)}`}>
-                                                            {grade.letter_grade}
-                                                        </Badge>
-                                                    ) : (
-                                                        <span className="text-muted-foreground">-</span>
-                                                    )}
+                                                <TableCell className={`text-right font-bold ${getScoreColor(grade.ta_score)}`}>
+                                                    {grade.ta_score !== null && !Number.isNaN(grade.ta_score) ? Number(grade.ta_score).toFixed(1) : 'N/A'}
                                                 </TableCell>
-                                                <TableCell>
-                                                    <Badge variant={grade.status === 'Complete' ? 'default' : 'secondary'}>
-                                                        {grade.status}
+                                                <TableCell className="text-center">
+                                                    <Badge variant={grade.ta_complete ? 'default' : 'secondary'}>
+                                                        {grade.ta_complete ? 'Complete' : 'Incomplete'}
                                                     </Badge>
                                                 </TableCell>
                                             </TableRow>

@@ -365,6 +365,7 @@ export default function AdminTaDefensePage() {
         const paginated = useMemo(() => {
             const start = (safePage - 1) * pageSize;
             return data.slice(start, start + pageSize);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- pageSize is valid state dependency
         }, [data, safePage, pageSize]);
 
         const showingStart = data.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
