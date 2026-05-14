@@ -65,22 +65,6 @@ interface ApiTaDefenseSchedule {
     evaluations: { id: number; examiner: Dosen; status: string; score: number | null }[];
 }
 
-interface GroupItem {
-    id: number;
-    status: string;
-    title?: { title: string };
-    members: { student: { id: number; name: string } }[];
-    period?: { id: number; name: string };
-    period_id?: number;
-}
-
-interface User {
-    id: number;
-    name: string;
-    email: string;
-    role: string;
-}
-
 export default function AdminSchedulePage() {
     const [semproSchedules, setSemproSchedules] = useState<ApiSchedule[]>([]);
     const [expoSchedules, setExpoSchedules] = useState<ApiSchedule[]>([]);
@@ -369,7 +353,7 @@ export default function AdminSchedulePage() {
                     schedules={filteredSchedules}
                     canEdit={false}
                     onApprove={handleApprove}
-                    onReject={(id, type) => {
+                    onReject={(_id, _type) => {
                         // This is handled in calendar differently - we'll just toast
                         toast.info('Use table view for quick actions');
                     }}

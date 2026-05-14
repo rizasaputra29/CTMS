@@ -151,9 +151,10 @@ export default function AdminGroupsPage() {
             setGroups(prev => prev.filter(g => g.id !== groupToDelete.id));
             setDeleteDialogOpen(false);
             setGroupToDelete(null);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('Failed to delete group', error);
-            alert(error.response?.data?.message || 'Failed to delete group');
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete group';
+            alert(errorMessage);
         } finally {
             setDeleteLoading(false);
         }

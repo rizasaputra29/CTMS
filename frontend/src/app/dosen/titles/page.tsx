@@ -31,10 +31,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X, AlertCircle, History } from 'lucide-react';
+import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X, History } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
+import type { TitleApprovalHistoryItem, TitleDeletionHistoryItem } from '@/types';
 
 interface Title {
     id: number;
@@ -97,8 +98,8 @@ export default function DosenTitlesPage() {
         open: boolean;
         title?: Title;
         loading: boolean;
-        approvalHistory: any[];
-        deletionHistory: any[];
+        approvalHistory: TitleApprovalHistoryItem[];
+        deletionHistory: TitleDeletionHistoryItem[];
     }>({ open: false, loading: false, approvalHistory: [], deletionHistory: [] });
 
     const fetchTitles = useCallback(async (periodId?: string) => {
@@ -477,7 +478,7 @@ export default function DosenTitlesPage() {
                                             </SelectContent>
                                         </Select>
                                         <div className="text-xs text-muted-foreground space-y-1">
-                                            <p>Hanya kelompok dengan status "READY_FOR_BIDDING" yang dapat dipilih.</p>
+                                            <p>Hanya kelompok dengan status &quot;READY_FOR_BIDDING&quot; yang dapat dipilih.</p>
                                             <p>Jika dipilih, judul tidak akan muncul di marketplace dan otomatis ditugaskan ke kelompok tersebut.</p>
                                         </div>
                                     </div>

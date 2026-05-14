@@ -66,7 +66,6 @@ interface EligibleStudentData {
 
 type SortKey = 'name' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
-type ViewMode = 'calendar' | 'table';
 type StatusFilter = 'ALL' | 'SCHEDULED' | 'DONE' | 'CANCELLED';
 const PAGE_SIZES = [10, 25, 50];
 

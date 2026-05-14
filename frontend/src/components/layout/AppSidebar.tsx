@@ -35,7 +35,7 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
-    ListChecks, BarChart3, GitCompare, Star, ChevronRight, TrendingUp,
+    ListChecks, BarChart3, Star, ChevronRight, TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';

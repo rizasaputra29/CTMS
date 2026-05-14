@@ -18,8 +18,6 @@ import {
     Award, 
     FileSpreadsheet,
 
-    AlertTriangle,
-    CheckCircle2,
     Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -97,7 +95,7 @@ const getScoreColor = (score: number | null): string => {
     return 'text-red-600';
 };
 
-const getLetterGradeColor = (grade: string): string => {
+const _getLetterGradeColor = (grade: string): string => {
     switch (grade) {
         case 'A': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
         case 'B': return 'bg-blue-100 text-blue-800 border-blue-300';

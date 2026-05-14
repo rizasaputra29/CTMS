@@ -180,17 +180,6 @@ export default function DosenSchedulePage() {
         }
     };
 
-    const handleAdd = (date: Date) => {
-        resetForm();
-        setFormData(prev => ({
-            ...prev,
-            date: format(date, 'yyyy-MM-dd'),
-            start_time: '09:00',
-            end_time: '11:00',
-        }));
-        setOpen(true);
-    };
-
     const handleEdit = (schedule: ScheduleEvent) => {
         // Only allow editing BIMBINGAN schedules
         // SEMPRO, EXPO, and TA_DEFENSE are view-only

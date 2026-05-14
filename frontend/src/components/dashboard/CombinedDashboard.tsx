@@ -23,7 +23,7 @@ import {
   FileText, ClipboardCheck, Gavel, Star,
 } from 'lucide-react';
 
-interface ApiResponse<T> {
+interface ApiResponseData<T = unknown> {
   data?: T;
   [key: string]: unknown;
 }
@@ -68,8 +68,8 @@ export default function CombinedDashboard() {
           api.get('/dosen/supervisor-evaluation/pending-count'),
         ]);
 
-        const getData = (result: PromiseSettledResult<AxiosResponse<unknown>>) =>
-          result.status === 'fulfilled' ? (result.value.data as any) : null;
+        const getData = (result: PromiseSettledResult<AxiosResponse<ApiResponseData>>) =>
+          result.status === 'fulfilled' ? result.value.data : null;
 
         const periodsData = getData(periodsRes);
         const groupsData = getData(groupsRes);

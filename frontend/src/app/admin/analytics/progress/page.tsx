@@ -2,9 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -20,7 +19,6 @@ import {
 } from '@/components/ui/tooltip';
 import { Progress } from '@/components/ui/progress';
 import { 
-    ArrowLeft, 
     Download, 
     Loader2, 
     Search,
@@ -195,7 +193,7 @@ function getPhaseColor(status: string): string {
     }
 }
 
-function ProgressBar({ phases, currentPhase }: { phases: ProgressPhase[]; currentPhase: string | null }) {
+function ProgressBar({ phases, currentPhase: _currentPhase }: { phases: ProgressPhase[]; currentPhase?: string | null }) {
     const completedCount = phases.filter(p => p.status === 'completed').length;
     const totalPhases = phases.length;
     const progress = totalPhases > 0 ? (completedCount / totalPhases) * 100 : 0;
@@ -337,7 +335,7 @@ export default function ProgressPage() {
                 }
                 const res = await api.get('/admin/groups', { params: fallbackParams });
                 // Transform data to match expected format
-                const transformedData = (res.data.data || []).map((group: any) => ({
+                const transformedData = (res.data.data || []).map((group: GroupProgress) => ({
                     ...group,
                     progress: null,
                     progress_percentage: calculateProgressPercentage(group.status)

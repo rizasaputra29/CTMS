@@ -137,8 +137,6 @@ export default function ProposeTitlePage() {
     const hasPendingProposal = proposals.some(p => ['PENDING', 'UNDER_REVIEW'].includes(p.supervisor_approval_status));
     const hasApprovedProposal = proposals.some(p => p.supervisor_approval_status === 'APPROVED');
     
-    const canCancelProposal = proposalFlow?.can_cancel_pending_proposal ?? (hasGroup && isLeader && hasPendingProposal && ['READY_FOR_BIDDING', 'FORMING', 'FORMING_SOLO'].includes(group?.status || ''));
-
     const MAX_TITLES = 3;
     const activeProposalCount = proposals.filter(p => ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)).length;
     const totalUsed = bidCount + activeProposalCount;
@@ -168,7 +166,7 @@ export default function ProposeTitlePage() {
                     ...formData,
                     proposed_supervisor_id: parseInt(formData.proposed_supervisor_id),
                 });
-                toast.success('Proposal resubmitted successfully!');
+                toast.success(editingProposal.supervisor_approval_status === 'PENDING' ? 'Proposal updated successfully!' : 'Proposal resubmitted successfully!');
             } else {
                 await api.post('/mahasiswa/propose-title', {
                     ...formData,
@@ -191,7 +189,12 @@ export default function ProposeTitlePage() {
         }
     };
 
-    const handleResubmit = (proposal: Proposal) => {
+    const canEditProposal = (proposal: Proposal): boolean => {
+        // Can edit if proposal is PENDING or REJECTED
+        return ['PENDING', 'REJECTED'].includes(proposal.supervisor_approval_status) && isLeader;
+    };
+
+    const handleEdit = (proposal: Proposal) => {
         setEditingProposal(proposal);
         setFormData({
             title: proposal.title,
@@ -369,14 +372,16 @@ export default function ProposeTitlePage() {
             )}
 
             {/* Proposal Form */}
-            {showForm && canCreateProposal && (
+            {showForm && (canCreateProposal || editingProposal?.supervisor_approval_status === 'PENDING') && (
                 <Card>
                     <form onSubmit={handleSubmit}>
                         <CardHeader>
-                            <CardTitle>{editingProposal ? 'Resubmit Proposal' : 'New Title Proposal'}</CardTitle>
+                            <CardTitle>{editingProposal ? (editingProposal.supervisor_approval_status === 'PENDING' ? 'Edit Proposal' : 'Resubmit Proposal') : 'New Title Proposal'}</CardTitle>
                             <CardDescription>
                                 {editingProposal 
-                                    ? 'Edit your proposal and resubmit for review.'
+                                    ? (editingProposal.supervisor_approval_status === 'PENDING' 
+                                        ? 'Edit your pending proposal before it is reviewed.' 
+                                        : 'Edit your proposal and resubmit for review.')
                                     : 'Fill in the details for your proposed title and select a supervisor.'}
                             </CardDescription>
                         </CardHeader>
@@ -469,7 +474,7 @@ export default function ProposeTitlePage() {
                             </Button>
                             <Button type="submit" disabled={submitting || !formData.proposed_supervisor_id}>
                                 {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                                {editingProposal ? 'Resubmit' : 'Submit Proposal'}
+                                {editingProposal ? (editingProposal.supervisor_approval_status === 'PENDING' ? 'Update Proposal' : 'Resubmit Proposal') : 'Submit Proposal'}
                             </Button>
                         </CardFooter>
                     </form>
@@ -529,15 +534,18 @@ export default function ProposeTitlePage() {
                                     <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
                                         <Trash2 className="mr-2 h-4 w-4" /> Batalkan
                                     </Button>
-                                    <Button variant="outline" size="sm" onClick={() => handleResubmit(proposal)}>
+                                    <Button variant="outline" size="sm" onClick={() => handleEdit(proposal)}>
                                         <RotateCcw className="mr-2 h-4 w-4" /> Edit & Resubmit
                                     </Button>
                                 </CardFooter>
                             )}
-                            {proposal.supervisor_approval_status === 'PENDING' && canCancelProposal && (
+                            {proposal.supervisor_approval_status === 'PENDING' && canEditProposal(proposal) && (
                                 <CardFooter className="flex justify-end gap-2">
                                     <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
                                         <Trash2 className="mr-2 h-4 w-4" /> Batalkan
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleEdit(proposal)}>
+                                        <PenLine className="mr-2 h-4 w-4" /> Edit
                                     </Button>
                                 </CardFooter>
                             )}

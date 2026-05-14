@@ -329,7 +329,7 @@ export default function ScheduleCalendar({
                                                     )}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        onRowClick && onRowClick(event);
+                                                        onRowClick?.(event);
                                                     }}
                                                     title={`${time} ${title}`}
                                                 >
@@ -383,7 +383,6 @@ export default function ScheduleCalendar({
                             {selectedDayEvents.map((event, index) => {
                                 const cfg = TYPE_CONFIG[event.type] || TYPE_CONFIG.BIMBINGAN;
                                 const timeRange = formatTimeRange(event);
-                                const title = getEventTitle(event);
                                 const isPending = event.status === 'PENDING' || event.status === 'PENDING_APPROVAL';
                                 const isRejected = event.status === 'REJECTED' || event.status === 'CANCELLED';
 

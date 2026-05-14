@@ -13,7 +13,6 @@ import {
     Loader2, 
     Download,
     GraduationCap,
-    ClipboardCheck,
     Calculator,
     CheckCircle2,
     AlertCircle,
@@ -158,7 +157,6 @@ const getScoreColor = (score: number | null): string => {
 function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; index: number }) {
     const [isOpen, setIsOpen] = useState(true);
     const statusConfig = getStatusConfig(evaluator.status);
-    const StatusIcon = statusConfig.icon;
     const progressPercent = evaluator.total_components > 0 
         ? (evaluator.scored_components / evaluator.total_components) * 100 
         : 0;
