@@ -158,7 +158,6 @@ export default function AdminTaDefensePage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
-    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir, statusFilter]);
 
     const getAvailableStudents = (): EligibleMember[] => {
         const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
@@ -323,6 +322,22 @@ export default function AdminTaDefensePage() {
             setSortKey(key);
             setSortDir('asc');
         }
+        setPage(1); // Reset page when sort changes
+    };
+
+    const handlePageSizeChange = (size: number) => {
+        setPageSize(size);
+        setPage(1); // Reset page when page size changes
+    };
+
+    const handleSearchChange = (query: string) => {
+        setSearchQuery(query);
+        setPage(1); // Reset page when search changes
+    };
+
+    const handleStatusFilterChange = (status: StatusFilter) => {
+        setStatusFilter(status);
+        setPage(1); // Reset page when filter changes
     };
 
     const toggleExpanded = (id: number) => {
@@ -595,7 +610,7 @@ export default function AdminTaDefensePage() {
                         </p>
                         <div className="flex items-center gap-1.5">
                             <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                            <Select value={String(pageSize)} onValueChange={(v) => handlePageSizeChange(Number(v))}>
                                 <SelectTrigger className="h-7 w-[60px] text-[12px]">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -691,7 +706,7 @@ export default function AdminTaDefensePage() {
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-                    <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                    <Select value={statusFilter} onValueChange={(v) => handleStatusFilterChange(v as StatusFilter)}>
                         <SelectTrigger className="w-[160px]">
                             <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
@@ -709,7 +724,7 @@ export default function AdminTaDefensePage() {
                         placeholder="Search student, NIM, group..."
                         className="pl-9"
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                     />
                 </div>
             </div>

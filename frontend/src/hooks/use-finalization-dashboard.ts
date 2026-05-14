@@ -119,12 +119,6 @@ export function useFinalizationDashboard(
     router.replace(newUrl, { scroll: false });
   }, [router, selectedPeriodId, activeTab, activeSubTab, filters]);
 
-  // Removed LocalStorage on mount to enforce period selection when clicking menu
-  useEffect(() => {
-    // If we want any initialization code it can go here,
-    // but we no longer read from localStorage.
-  }, []);
-
   // Fetch active periods
   const fetchActivePeriods = useCallback(async () => {
     try {

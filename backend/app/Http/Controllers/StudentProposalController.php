@@ -348,9 +348,9 @@ class StudentProposalController extends Controller
         $activePeriod = \App\Models\Period::where('is_active', true)->first();
         
         // Check if user is leader in current period
+        // GroupMember doesn't have period_id, period is on Group model
         $membership = GroupMember::where('student_id', $user->id)
             ->where('is_leader', true)
-            ->where('period_id', $activePeriod?->id)
             ->whereHas('group', function ($q) use ($activePeriod) {
                 $q->where('period_id', $activePeriod?->id)
                   ->where('status', '!=', 'REJECTED');

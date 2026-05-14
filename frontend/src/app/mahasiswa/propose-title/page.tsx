@@ -372,7 +372,7 @@ export default function ProposeTitlePage() {
             )}
 
             {/* Proposal Form */}
-            {showForm && (canCreateProposal || editingProposal?.supervisor_approval_status === 'PENDING') && (
+            {showForm && (canCreateProposal || (editingProposal && ['PENDING', 'REJECTED', 'UNDER_REVIEW'].includes(editingProposal.supervisor_approval_status))) && (
                 <Card>
                     <form onSubmit={handleSubmit}>
                         <CardHeader>
