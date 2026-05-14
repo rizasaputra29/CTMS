@@ -226,9 +226,11 @@ export default function AdminExpoPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">Expo Events</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">Create and manage expo events for student groups.</p>
                 </div>
-                <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> New Event
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={openCreate}>
+                        <Plus className="mr-2 h-4 w-4" /> New Event
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">

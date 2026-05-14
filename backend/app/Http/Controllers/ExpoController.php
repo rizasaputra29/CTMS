@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
+use App\Models\Period;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Services\ExpoEligibilityService;
@@ -12,6 +13,7 @@ use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class ExpoController extends Controller
@@ -34,20 +36,40 @@ class ExpoController extends Controller
 
     /**
      * List EXPO schedules (admin).
+     * Cross-period: Fetches schedules from all active and finalized periods by default.
      */
     public function index(Request $request)
     {
+        // Get active and finalized period IDs for cross-period fetching
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+
         $query = SeminarSchedule::with(['group.title', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'EXPO')
+            ->whereHas('group', function ($q) use ($periodIds, $request) {
+                // Filter by active/finalized periods
+                $q->whereIn('period_id', $periodIds);
+
+                // Allow explicit period filter if provided
+                if ($request->has('period_id')) {
+                    $q->where('period_id', $request->period_id);
+                }
+            })
             ->orderByDesc('date');
 
-        if ($request->has('period_id')) {
-            $query->whereHas('group', function ($q) use ($request) {
-                $q->where('period_id', $request->period_id);
-            });
-        }
-
         return response()->json(['data' => $query->get()]);
+    }
+
+    /**
+     * Get cached active and finalized period IDs.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
     }
 
     /**

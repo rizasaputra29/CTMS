@@ -76,6 +76,7 @@ const navItems: Record<string, NavItem[]> = {
             items: [
                 { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
                 { title: 'Users', url: '/admin/users', icon: Users },
+                { title: 'Groups', url: '/admin/groups', icon: Users },
                 { title: 'Document Requirements', url: '/admin/document-requirements', icon: FileText },
             ]
         },
@@ -94,7 +95,6 @@ const navItems: Record<string, NavItem[]> = {
             icon: Settings,
             items: [
                 { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
-                { title: 'Groups', url: '/admin/groups', icon: Users },
                 { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
                 { title: 'Sidang Proposal', url: '/admin/sempro', icon: ClipboardCheck },
                 { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
@@ -173,7 +173,6 @@ const navItems: Record<string, NavItem[]> = {
             icon: FileCheck,
             items: [
                 { title: 'Bimbingan Schedule', url: '/dosen/schedule', icon: CalendarIcon },
-                { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
                 { title: 'Evaluate Students', url: '/dosen/evaluation', icon: GraduationCap },
                 { title: 'Supervisor Evaluation', url: '/dosen/supervisor-evaluation', icon: Star },
             ]

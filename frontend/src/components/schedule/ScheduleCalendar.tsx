@@ -1,12 +1,22 @@
 'use client';
 
-import { useState, useMemo } from 'react';
-import { Calendar } from '@/components/ui/calendar';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { useState, useMemo, useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { MapPin, Clock, Video, Building, Edit, Trash2, Plus, StickyNote } from 'lucide-react';
-import { format } from 'date-fns';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Clock, MapPin, Video, Building, User, Users, StickyNote, Check, X, Edit, Trash2 } from 'lucide-react';
+import {
+    format,
+    startOfMonth,
+    endOfMonth,
+    startOfWeek,
+    endOfWeek,
+    addDays,
+    isSameMonth,
+    isSameDay,
+    isToday,
+    addMonths,
+    subMonths,
+} from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export interface ScheduleEvent {
@@ -24,6 +34,10 @@ export interface ScheduleEvent {
     examiner1?: { name: string } | null;
     examiner2?: { name: string } | null;
     examiners?: { name: string; role?: string }[];
+    start_time?: string;
+    end_time?: string;
+    online_link?: string;
+    rejection_reason?: string;
     group: {
         title: {
             title: string;
@@ -32,6 +46,7 @@ export interface ScheduleEvent {
         members?: {
             student: { name: string };
         }[];
+        supervisor?: { name: string } | null;
     };
 }
 
@@ -43,39 +58,81 @@ interface ScheduleCalendarProps {
     onDelete?: (id: number | string) => void;
     onApprove?: (id: number | string, type: string) => void;
     onReject?: (id: number | string, type: string) => void;
+    onRowClick?: (schedule: ScheduleEvent) => void;
 }
 
-const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string; dotColor: string }> = {
+const TYPE_CONFIG: Record<string, { 
+    label: string; 
+    textColor: string; 
+    bgColor: string;
+    borderColor: string;
+}> = {
     BIMBINGAN: {
         label: 'Bimbingan',
-        color: 'text-blue-700 dark:text-blue-400',
-        bgColor: 'bg-blue-50 border-blue-200 dark:bg-blue-950/40 dark:border-blue-900',
-        dotColor: 'bg-blue-500',
+        textColor: 'text-blue-700',
+        bgColor: 'bg-blue-100',
+        borderColor: 'border-blue-200',
     },
     SEMPRO: {
-        label: 'Seminar Proposal',
-        color: 'text-amber-700 dark:text-amber-400',
-        bgColor: 'bg-amber-50 border-amber-200 dark:bg-amber-950/40 dark:border-amber-900',
-        dotColor: 'bg-amber-500',
+        label: 'Sempro',
+        textColor: 'text-amber-700',
+        bgColor: 'bg-amber-100',
+        borderColor: 'border-amber-200',
     },
     SIDANG: {
         label: 'Sidang TA',
-        color: 'text-purple-700 dark:text-purple-400',
-        bgColor: 'bg-purple-50 border-purple-200 dark:bg-purple-950/40 dark:border-purple-900',
-        dotColor: 'bg-purple-500',
+        textColor: 'text-purple-700',
+        bgColor: 'bg-purple-100',
+        borderColor: 'border-purple-200',
     },
     EXPO: {
         label: 'Expo',
-        color: 'text-emerald-700 dark:text-emerald-400',
-        bgColor: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-900',
-        dotColor: 'bg-emerald-500',
+        textColor: 'text-emerald-700',
+        bgColor: 'bg-emerald-100',
+        borderColor: 'border-emerald-200',
     },
     TA_DEFENSE: {
         label: 'TA Defense',
-        color: 'text-rose-700 dark:text-rose-400',
-        bgColor: 'bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:border-rose-900',
-        dotColor: 'bg-rose-500',
+        textColor: 'text-rose-700',
+        bgColor: 'bg-rose-100',
+        borderColor: 'border-rose-200',
     },
+};
+
+// Get event title for display
+const getEventTitle = (event: ScheduleEvent): string => {
+    if (event.student_name) {
+        return event.student_name;
+    }
+    if (event.group?.title?.title) {
+        return event.group.title.title;
+    }
+    return TYPE_CONFIG[event.type]?.label || event.type;
+};
+
+// Format time to display format matching dedicated pages (e.g., "09:00")
+const formatTime = (timeString: string): string => {
+    if (!timeString) return '';
+    // Return HH:mm format (slice first 5 chars: "09:00:00" -> "09:00")
+    return timeString.slice(0, 5);
+};
+
+// Get event time for display
+const getEventTime = (event: ScheduleEvent): string => {
+    return formatTime(event.start_time || '');
+};
+
+// Format time range for display matching dedicated pages (e.g., "09:00 — 11:00")
+const formatTimeRange = (event: ScheduleEvent): string => {
+    const start = formatTime(event.start_time || '');
+    const end = formatTime(event.end_time || '');
+    
+    if (start && end) {
+        return `${start} — ${end}`; // Using em-dash with spacing like dedicated pages
+    } else if (start) {
+        return `${start}`;
+    }
+    return 'Time not set';
 };
 
 export default function ScheduleCalendar({
@@ -86,11 +143,12 @@ export default function ScheduleCalendar({
     onDelete,
     onApprove,
     onReject,
+    onRowClick,
 }: ScheduleCalendarProps) {
-    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
     const [currentMonth, setCurrentMonth] = useState<Date>(new Date());
+    const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
-    // Group events by date string for quick lookup
+    // Group events by date
     const eventsByDate = useMemo(() => {
         const map = new Map<string, ScheduleEvent[]>();
         for (const s of schedules) {
@@ -103,236 +161,436 @@ export default function ScheduleCalendar({
             if (!map.has(key)) map.set(key, []);
             map.get(key)!.push(s);
         }
+        // Sort events by time
+        map.forEach((events) => {
+            events.sort((a, b) => {
+                const timeA = a.start_time || '';
+                const timeB = b.start_time || '';
+                return timeA.localeCompare(timeB);
+            });
+        });
         return map;
     }, [schedules]);
 
-    // Events for the selected day
-    const selectedDayEvents = useMemo(() => {
-        const key = format(selectedDate, 'yyyy-MM-dd');
-        return (eventsByDate.get(key) || []).sort((a, b) => {
-            const dateA = new Date(a.date);
-            const dateB = new Date(b.date);
-            if (isNaN(dateA.getTime()) || isNaN(dateB.getTime())) return 0;
-            return dateA.getTime() - dateB.getTime();
-        });
-    }, [selectedDate, eventsByDate]);
+    // Generate calendar days
+    const calendarDays = useMemo(() => {
+        const monthStart = startOfMonth(currentMonth);
+        const monthEnd = endOfMonth(monthStart);
+        const startDate = startOfWeek(monthStart);
+        const endDate = endOfWeek(monthEnd);
 
-    // Get unique event types for a given date (for dot colors)
-    const getEventTypesForDate = (date: Date): string[] => {
-        const key = format(date, 'yyyy-MM-dd');
-        const events = eventsByDate.get(key) || [];
-        return [...new Set(events.map(e => e.type))];
+        const days: Date[] = [];
+        let day = startDate;
+        while (day <= endDate) {
+            days.push(day);
+            day = addDays(day, 1);
+        }
+        return days;
+    }, [currentMonth]);
+
+    const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    const handlePrevMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
+    const handleNextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+    const handleToday = () => {
+        const today = new Date();
+        setCurrentMonth(today);
+        setSelectedDate(today);
     };
 
-    return (
-        <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-6">
-            {/* Calendar Panel */}
-            <Card className="w-full lg:w-fit">
-                <CardContent className="p-3 sm:p-4">
-                    <Calendar
-                        mode="single"
-                        selected={selectedDate}
-                        onSelect={(date) => date && setSelectedDate(date)}
-                        month={currentMonth}
-                        onMonthChange={setCurrentMonth}
-                        className="w-full"
-                        classNames={{
-                            day: "relative w-full h-full p-0 text-center [&:last-child[data-selected=true]_button]:rounded-r-md group/day aspect-square select-none [&:first-child[data-selected=true]_button]:rounded-l-md",
-                        }}
-                        components={{
-                            DayButton: ({ day, modifiers, className, ...props }) => {
-                                const types = getEventTypesForDate(day.date);
-                                const hasEvents = types.length > 0;
-                                const isSelected = modifiers.selected;
-                                const isToday = modifiers.today;
+    const getEventsForDate = useCallback((date: Date): ScheduleEvent[] => {
+        const key = format(date, 'yyyy-MM-dd');
+        return eventsByDate.get(key) || [];
+    }, [eventsByDate]);
 
-                                return (
-                                    <button
-                                        className={cn(
-                                            "inline-flex flex-col items-center justify-center w-full aspect-square rounded-md text-sm font-normal transition-colors relative",
-                                            "hover:bg-accent hover:text-accent-foreground",
-                                            isSelected && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
-                                            isToday && !isSelected && "bg-accent text-accent-foreground",
-                                            modifiers.outside && "text-muted-foreground opacity-50",
-                                            modifiers.disabled && "text-muted-foreground opacity-50",
-                                            className
-                                        )}
-                                        {...props}
-                                    >
-                                        <span>{day.date.getDate()}</span>
-                                        {hasEvents && (
-                                            <span className="flex gap-0.5 absolute bottom-1">
-                                                {types.slice(0, 3).map((type) => (
-                                                    <span
-                                                        key={type}
-                                                        className={cn(
-                                                            "w-1.5 h-1.5 rounded-full",
-                                                            isSelected ? "bg-primary-foreground/70" : TYPE_CONFIG[type]?.dotColor || 'bg-gray-400'
-                                                        )}
-                                                    />
-                                                ))}
-                                            </span>
-                                        )}
-                                    </button>
-                                );
-                            },
-                        }}
-                    />
-                    {/* Legend */}
-                    <div className="flex flex-wrap gap-3 pt-3 px-1 border-t mt-2">
-                        {Object.entries(TYPE_CONFIG).map(([key, cfg]) => (
-                            <div key={key} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <span className={cn("w-2 h-2 rounded-full", cfg.dotColor)} />
-                                {cfg.label}
+    const selectedDayEvents = useMemo(() => {
+        return getEventsForDate(selectedDate);
+    }, [selectedDate, getEventsForDate]);
+
+    return (
+        <div className="flex flex-col gap-6">
+            {/* Calendar Card */}
+            <Card className="w-full overflow-hidden">
+                {/* Header */}
+                <div className="flex items-center justify-between px-6 py-4 border-b">
+                    <div className="flex items-center gap-4">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleToday}
+                            className="font-medium"
+                        >
+                            Today
+                        </Button>
+                        <div className="flex items-center gap-1">
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handlePrevMonth}
+                                className="h-8 w-8"
+                            >
+                                <ChevronLeft className="h-4 w-4" />
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={handleNextMonth}
+                                className="h-8 w-8"
+                            >
+                                <ChevronRight className="h-4 w-4" />
+                            </Button>
+                        </div>
+                        <h2 className="text-xl font-semibold">
+                            {format(currentMonth, 'MMMM yyyy')}
+                        </h2>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {canEdit && onAdd && (
+                            <Button
+                                size="sm"
+                                onClick={() => onAdd(selectedDate)}
+                                className="bg-black text-white hover:bg-gray-800"
+                            >
+                                <span className="mr-1">+</span> New event
+                            </Button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Calendar Grid */}
+                <CardContent className="p-0">
+                    {/* Week Day Headers */}
+                    <div className="grid grid-cols-7 border-b">
+                        {weekDays.map((day) => (
+                            <div
+                                key={day}
+                                className="py-3 text-center text-sm font-medium text-gray-500"
+                            >
+                                {day}
                             </div>
                         ))}
+                    </div>
+
+                    {/* Calendar Days */}
+                    <div className="grid grid-cols-7">
+                        {calendarDays.map((day, dayIdx) => {
+                            const events = getEventsForDate(day);
+                            const isCurrentMonth = isSameMonth(day, currentMonth);
+                            const isSelected = isSameDay(day, selectedDate);
+                            const isTodayDate = isToday(day);
+
+                            return (
+                                <div
+                                    key={day.toISOString()}
+                                    onClick={() => setSelectedDate(day)}
+                                    className={cn(
+                                        "min-h-[100px] border-b border-r p-2 cursor-pointer transition-colors",
+                                        !isCurrentMonth && "bg-gray-50/50",
+                                        isSelected && "bg-blue-50/50",
+                                        "hover:bg-gray-50",
+                                        (dayIdx + 1) % 7 === 0 && "border-r-0",
+                                        dayIdx >= calendarDays.length - 7 && "border-b-0"
+                                    )}
+                                >
+                                    {/* Date Number */}
+                                    <div className="flex justify-center mb-1">
+                                        {isTodayDate ? (
+                                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-black text-white text-sm font-medium">
+                                                {format(day, 'd')}
+                                            </span>
+                                        ) : (
+                                            <span className={cn(
+                                                "text-sm font-medium",
+                                                !isCurrentMonth && "text-gray-400",
+                                                isCurrentMonth && "text-gray-900"
+                                            )}>
+                                                {format(day, 'd')}
+                                            </span>
+                                        )}
+                                    </div>
+
+                                    {/* Events */}
+                                    <div className="space-y-1">
+                                        {events.slice(0, 3).map((event) => {
+                                            const cfg = TYPE_CONFIG[event.type] || TYPE_CONFIG.BIMBINGAN;
+                                            const time = getEventTime(event);
+                                            const title = getEventTitle(event);
+
+                                            return (
+                                                <div
+                                                    key={event.id}
+                                                    className={cn(
+                                                        "px-2 py-1 rounded-md text-xs truncate cursor-pointer transition-opacity",
+                                                        cfg.bgColor,
+                                                        cfg.textColor,
+                                                        cfg.borderColor,
+                                                        "border",
+                                                        "hover:opacity-80"
+                                                    )}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onRowClick && onRowClick(event);
+                                                    }}
+                                                    title={`${time} ${title}`}
+                                                >
+                                                    {time && (
+                                                        <span className="font-medium mr-1">
+                                                            {time}
+                                                        </span>
+                                                    )}
+                                                    <span>{title}</span>
+                                                </div>
+                                            );
+                                        })}
+                                        {events.length > 3 && (
+                                            <div className="px-2 py-0.5 text-xs text-gray-500">
+                                                +{events.length - 3} more
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
                     </div>
                 </CardContent>
             </Card>
 
-            {/* Day Detail Panel */}
-            <Card className="min-h-[400px] flex flex-col">
-                <CardHeader className="pb-3 flex flex-row items-center justify-between shrink-0">
-                    <div>
-                        <CardTitle className="text-lg">
-                            {format(selectedDate, 'EEEE, MMMM d, yyyy')}
-                        </CardTitle>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                            {selectedDayEvents.length === 0
-                                ? 'No events scheduled'
-                                : `${selectedDayEvents.length} event${selectedDayEvents.length > 1 ? 's' : ''}`}
-                        </p>
+            {/* Selected Day Events Panel */}
+            <Card className="min-h-[300px]">
+                <div className="px-6 py-4 border-b bg-gray-50/50">
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h3 className="font-semibold text-lg">
+                                {format(selectedDate, 'EEEE, MMMM d, yyyy')}
+                            </h3>
+                            <p className="text-sm text-gray-500">
+                                {selectedDayEvents.length === 0
+                                    ? 'No events scheduled'
+                                    : `${selectedDayEvents.length} event${selectedDayEvents.length > 1 ? 's' : ''} scheduled`}
+                            </p>
+                        </div>
                     </div>
-                    {canEdit && onAdd && (
-                        <Button size="sm" onClick={() => onAdd(selectedDate)}>
-                            <Plus className="mr-1 h-4 w-4" /> Add
-                        </Button>
-                    )}
-                </CardHeader>
-                <CardContent className="flex-1 overflow-y-auto">
+                </div>
+                <CardContent className="p-0">
                     {selectedDayEvents.length === 0 ? (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm py-12">
-                            No events on this day.
+                        <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                            <CalendarIcon className="h-12 w-12 mb-3 opacity-20" />
+                            <p className="text-sm font-medium">No events on this day</p>
+                            <p className="text-xs mt-1 opacity-70">Select a date with events to view details</p>
                         </div>
                     ) : (
-                        <div className="space-y-3">
-                            {selectedDayEvents.map((event) => {
+                        <div className="divide-y">
+                            {selectedDayEvents.map((event, index) => {
                                 const cfg = TYPE_CONFIG[event.type] || TYPE_CONFIG.BIMBINGAN;
-                                const isPending = event.status === 'PENDING_APPROVAL';
-                                const statusLabel = event.status
-                                    ? event.status.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-                                    : '';
-                                const statusVariant: 'default' | 'secondary' | 'destructive' | 'outline' = event.status === 'COMPLETED' || event.status === 'DONE' ? 'default'
-                                    : event.status === 'CANCELLED' ? 'destructive'
-                                    : event.status === 'PENDING_APPROVAL' ? 'secondary'
-                                    : 'secondary';
+                                const timeRange = formatTimeRange(event);
+                                const title = getEventTitle(event);
+                                const isPending = event.status === 'PENDING' || event.status === 'PENDING_APPROVAL';
+                                const isRejected = event.status === 'REJECTED' || event.status === 'CANCELLED';
 
                                 return (
                                     <div
                                         key={event.id}
                                         className={cn(
-                                            "rounded-lg border border-muted-foreground/20 bg-white dark:bg-zinc-950 p-4 transition-colors",
-                                            isPending && "border-amber-300 dark:border-amber-700"
+                                            "group p-5 hover:bg-gray-50 transition-colors",
+                                            index === 0 && "rounded-t-lg",
+                                            index === selectedDayEvents.length - 1 && "rounded-b-lg"
                                         )}
                                     >
-                                        <div className="flex items-start justify-between gap-2 mb-2">
-                                            <div className="flex flex-col gap-1 min-w-0">
-                                                <div className="flex items-center gap-2 flex-wrap">
-                                                    <Badge variant="outline" className="text-xs font-semibold text-black dark:text-white">
-                                                        {cfg.label}
-                                                    </Badge>
-                                                    {event.status && (
-                                                        <Badge variant={statusVariant} className="text-xs">
-                                                            {statusLabel}
-                                                        </Badge>
+                                        {/* Header Row */}
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex items-center gap-3">
+                                                {/* Event Type Badge */}
+                                                <span className={cn(
+                                                    "px-2.5 py-1 rounded-md text-xs font-medium",
+                                                    cfg.bgColor,
+                                                    cfg.textColor
+                                                )}>
+                                                    {cfg.label}
+                                                </span>
+                                                
+                                                {/* Status Badge */}
+                                                {event.status && (
+                                                    <span className={cn(
+                                                        "px-2 py-0.5 rounded-full text-xs font-medium",
+                                                        event.status === 'APPROVED' || event.status === 'SCHEDULED'
+                                                            ? "bg-green-100 text-green-700"
+                                                            : event.status === 'COMPLETED' || event.status === 'DONE'
+                                                                ? "bg-blue-100 text-blue-700"
+                                                                : event.status === 'REJECTED' || event.status === 'CANCELLED'
+                                                                    ? "bg-red-100 text-red-700"
+                                                                    : "bg-amber-100 text-amber-700"
+                                                    )}>
+                                                        {event.status}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            
+                                            {/* Period */}
+                                            {event.period_name && (
+                                                <span className="text-xs text-gray-400">
+                                                    {event.period_name}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Title */}
+                                        <h4 className="text-base font-semibold text-gray-900 mb-3">
+                                            {event.group?.title?.title || 'Untitled'}
+                                        </h4>
+
+                                        {/* Details Grid */}
+                                        <div className="grid grid-cols-2 gap-4 text-sm">
+                                            {/* Time */}
+                                            <div className="flex items-center gap-2 text-gray-600">
+                                                <Clock className="h-4 w-4 text-gray-400" />
+                                                <span className="font-medium text-gray-900">
+                                                    {timeRange}
+                                                </span>
+                                            </div>
+
+                                            {/* Location */}
+                                            <div className="flex items-center gap-2 text-gray-600">
+                                                <MapPin className="h-4 w-4 text-gray-400" />
+                                                <span>
+                                                    {event.room ? (
+                                                        <span className="font-medium text-gray-900">{event.room}</span>
+                                                    ) : event.mode === 'online' ? (
+                                                        <span className="font-medium text-gray-900">Online</span>
+                                                    ) : (
+                                                        <span className="text-gray-400">Location not set</span>
                                                     )}
-                                                    {event.period_name && (
-                                                        <Badge variant="outline" className="text-xs text-muted-foreground">
-                                                            {event.period_name}
-                                                        </Badge>
-                                                    )}
-                                                    {event.mode && (
-                                                        <Badge variant="outline" className="text-xs gap-1 text-black dark:text-white">
-                                                            {event.mode === 'online' ? (
-                                                                <Video className="h-3 w-3" />
-                                                            ) : (
-                                                                <Building className="h-3 w-3" />
-                                                            )}
-                                                            {event.mode}
-                                                        </Badge>
-                                                    )}
+                                                </span>
+                                            </div>
+
+                                            {/* Student */}
+                                            {(event.student_name || event.type === 'TA_DEFENSE') && (
+                                                <div className="flex items-center gap-2 text-gray-600">
+                                                    <User className="h-4 w-4 text-gray-400" />
+                                                    <span>
+                                                        {event.student_name ? (
+                                                            <span className="font-medium text-gray-900">{event.student_name}</span>
+                                                        ) : (
+                                                            <span className="text-gray-400">No student assigned</span>
+                                                        )}
+                                                    </span>
                                                 </div>
-                                                <h4 className="font-semibold text-sm leading-snug text-black dark:text-white truncate">
-                                                    {event.group?.title?.title || 'Untitled Project'}
-                                                </h4>
-                                                {event.type === 'TA_DEFENSE' && event.student_name && (
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Student: {event.student_name}
-                                                    </p>
-                                                )}
-                                                {(event.examiner1 || event.examiner2) && (
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Examiners: {[event.examiner1?.name, event.examiner2?.name].filter(Boolean).join(', ')}
-                                                    </p>
-                                                )}
-                                                {event.examiners && event.examiners.length > 0 && (
-                                                    <p className="text-xs text-muted-foreground">
-                                                        Examiners: {event.examiners.map(e => e.name).join(', ')}
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <div className="flex gap-1 shrink-0">
-                                                {canEdit && event.type === 'BIMBINGAN' && (
-                                                    <>
-                                                        {onEdit && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(event)}>
-                                                                <Edit className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
-                                                        {onDelete && (
-                                                            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => onDelete(event.id)}>
-                                                                <Trash2 className="h-3.5 w-3.5" />
-                                                            </Button>
-                                                        )}
-                                                    </>
-                                                )}
-                                                {isPending && onApprove && (
-                                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950/30"
-                                                        onClick={() => onApprove(event.id, event.type)}>
-                                                        Approve
-                                                    </Button>
-                                                )}
-                                                {isPending && onReject && (
-                                                    <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:text-destructive"
-                                                        onClick={() => onReject(event.id, event.type)}>
-                                                        Reject
-                                                    </Button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                                            <span className="flex items-center gap-1">
-                                                <Clock className="h-3 w-3" />
-                                                {format(new Date(event.date), 'HH:mm')}
-                                            </span>
-                                            {event.room && (
-                                                <span className="flex items-center gap-1">
-                                                    <MapPin className="h-3 w-3" />
-                                                    {event.room}
-                                                </span>
                                             )}
-                                            {event.group?.title?.lecturer && (
-                                                <span className="text-xs">
-                                                    Dosen: {event.group.title.lecturer.name}
-                                                </span>
+
+                                            {/* Mode */}
+                                            {event.mode && (
+                                                <div className="flex items-center gap-2 text-gray-600">
+                                                    {event.mode === 'online' ? (
+                                                        <Video className="h-4 w-4 text-gray-400" />
+                                                    ) : (
+                                                        <Building className="h-4 w-4 text-gray-400" />
+                                                    )}
+                                                    <span className="capitalize font-medium text-gray-900">{event.mode}</span>
+                                                </div>
+                                            )}
+
+                                            {/* Examiners */}
+                                            {(event.examiner1 || event.examiner2 || (event.examiners && event.examiners.length > 0)) && (
+                                                <div className="flex items-start gap-2 text-gray-600 col-span-2">
+                                                    <Users className="h-4 w-4 text-gray-400 mt-0.5" />
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block mb-0.5">Examiners</span>
+                                                        <span className="text-gray-900">
+                                                            {event.examiners && event.examiners.length > 0
+                                                                ? event.examiners.map(e => e.name).join(', ')
+                                                                : [event.examiner1?.name, event.examiner2?.name].filter(Boolean).join(', ')}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Group Members */}
+                                            {event.group?.members && event.group.members.length > 0 && (
+                                                <div className="flex items-start gap-2 text-gray-600 col-span-2">
+                                                    <Users className="h-4 w-4 text-gray-400 mt-0.5" />
+                                                    <div>
+                                                        <span className="text-xs text-gray-400 block mb-0.5">Group Members</span>
+                                                        <span className="text-gray-900">
+                                                            {event.group.members.map(m => m.student.name).join(', ')}
+                                                        </span>
+                                                    </div>
+                                                </div>
                                             )}
                                         </div>
+
+                                        {/* Notes */}
                                         {event.notes && (
-                                            <div className="mt-2 text-xs text-muted-foreground flex items-start gap-1">
-                                                <StickyNote className="h-3 w-3 mt-0.5 shrink-0" />
-                                                <span>{event.notes}</span>
+                                            <div className="mt-3 pt-3 border-t border-gray-100">
+                                                <div className="flex items-start gap-2">
+                                                    <StickyNote className="h-4 w-4 text-gray-400 mt-0.5" />
+                                                    <p className="text-sm text-gray-600">{event.notes}</p>
+                                                </div>
                                             </div>
                                         )}
+
+                                        {/* Rejection Reason */}
+                                        {isRejected && event.rejection_reason && (
+                                            <div className="mt-3 p-3 bg-red-50 rounded-md border border-red-100">
+                                                <p className="text-sm text-red-700">
+                                                    <span className="font-medium">Rejection Reason:</span> {event.rejection_reason}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {/* Action Buttons */}
+                                        <div className="flex items-center gap-2 mt-4 pt-3 border-t border-gray-100">
+                                            {isPending && (
+                                                <>
+                                                    {onApprove && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="text-green-600 border-green-200 hover:bg-green-50 hover:text-green-700"
+                                                            onClick={() => onApprove(event.id, event.type)}
+                                                        >
+                                                            <Check className="h-3.5 w-3.5 mr-1.5" />
+                                                            Approve
+                                                        </Button>
+                                                    )}
+                                                    {onReject && (
+                                                        <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            className="text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                                                            onClick={() => onReject(event.id, event.type)}
+                                                        >
+                                                            <X className="h-3.5 w-3.5 mr-1.5" />
+                                                            Reject
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            )}
+                                            {canEdit && event.type === 'BIMBINGAN' && (
+                                                <>
+                                                    {onEdit && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-gray-600 hover:text-gray-900"
+                                                            onClick={() => onEdit(event)}
+                                                        >
+                                                            <Edit className="h-3.5 w-3.5 mr-1.5" />
+                                                            Edit
+                                                        </Button>
+                                                    )}
+                                                    {onDelete && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                                            onClick={() => onDelete(event.id)}
+                                                        >
+                                                            <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                                                            Delete
+                                                        </Button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 );
                             })}

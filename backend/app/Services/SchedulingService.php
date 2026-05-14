@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Period;
 use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
@@ -14,6 +15,7 @@ use App\Models\TaSubmission;
 use App\Models\AuditLog;
 use App\Repositories\AssessmentScoreRepository;
 use App\Concerns\RequiresActivePeriod;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -149,8 +151,21 @@ class SchedulingService
     // ══════════════════════════════════════════
 
     /**
+     * Get cached active and finalized period IDs for cross-period conflict checking.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
+    }
+
+    /**
      * Check if an examiner has an overlapping schedule on the given date/time range.
-     * Queries BOTH seminar_schedules and ta_defense_schedules.
+     * Queries BOTH seminar_schedules and ta_defense_schedules across ALL active and finalized periods.
      * Filtered to non-CANCELLED schedules only.
      *
      * @return array|null  The conflicting schedule info, or null if no conflict.
@@ -163,11 +178,16 @@ class SchedulingService
         ?int $excludeSeminarId = null,
         ?int $excludeTaDefenseId = null
     ): ?array {
-        // Check seminar_schedules (examiner as examiner_1 or examiner_2)
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+
+        // Check seminar_schedules (examiner as examiner_1 or examiner_2) - cross periods
         $seminarConflict = SeminarSchedule::where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->where(function ($q) use ($examinerId) {
                 $q->where('examiner_1_id', $examinerId)
                     ->orWhere('examiner_2_id', $examinerId);
@@ -183,11 +203,14 @@ class SchedulingService
             ];
         }
 
-        // Check ta_defense_schedules via direct columns and examiners pivot
+        // Check ta_defense_schedules via direct columns and examiners pivot - cross periods
         $taConflict = TaDefenseSchedule::where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->where(function ($q) use ($examinerId) {
                 $q->where('examiner_1_id', $examinerId)
                     ->orWhere('examiner_2_id', $examinerId)
@@ -204,12 +227,15 @@ class SchedulingService
             ];
         }
 
-        // Check BIMBINGAN schedules (dosen as group supervisor)
+        // Check BIMBINGAN schedules (dosen as group supervisor) - cross periods
         $bimbinganConflict = Schedule::where('type', 'BIMBINGAN')
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->whereHas('group.supervisions', fn($q) => $q->where('supervisor_id', $examinerId))
             ->whereRaw('DATE(date) = ?', [$date])
             ->whereRaw('date < ?', [$date . ' ' . $endTime])
-            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->whereRaw("date + INTERVAL '1 hour' > ?", [$date . ' ' . $startTime])
             ->first();
 
         if ($bimbinganConflict) {
@@ -226,6 +252,7 @@ class SchedulingService
 
     /**
      * Check if a room has an overlapping schedule on the given date/time range.
+     * Checks across ALL active and finalized periods.
      */
     public function checkRoomConflict(
         string $room,
@@ -239,11 +266,17 @@ class SchedulingService
             return null;
         }
 
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+
+        // Check seminar_schedules - cross periods
         $seminarConflict = SeminarSchedule::where('room', $room)
             ->where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->when($excludeSeminarId, fn($q) => $q->where('id', '!=', $excludeSeminarId))
             ->first();
 
@@ -254,11 +287,15 @@ class SchedulingService
             ];
         }
 
+        // Check ta_defense_schedules - cross periods
         $taConflict = TaDefenseSchedule::where('room', $room)
             ->where('date', $date)
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->when($excludeTaDefenseId, fn($q) => $q->where('id', '!=', $excludeTaDefenseId))
             ->first();
 
@@ -269,11 +306,15 @@ class SchedulingService
             ];
         }
 
+        // Check BIMBINGAN schedules - cross periods
         $bimbinganRoomConflict = Schedule::where('room', $room)
             ->where('type', 'BIMBINGAN')
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
             ->whereRaw('DATE(date) = ?', [$date])
             ->whereRaw('date < ?', [$date . ' ' . $endTime])
-            ->whereRaw('date + INTERVAL 1 HOUR > ?', [$date . ' ' . $startTime])
+            ->whereRaw("date + INTERVAL '1 hour' > ?", [$date . ' ' . $startTime])
             ->first();
 
         if ($bimbinganRoomConflict) {

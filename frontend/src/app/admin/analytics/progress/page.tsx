@@ -212,7 +212,7 @@ function ProgressBar({ phases, currentPhase }: { phases: ProgressPhase[]; curren
                         </div>
                         <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
                             <div 
-                                className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                                className="h-full bg-linear-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
                                 style={{ width: `${progress}%` }}
                             />
                         </div>

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\Group;
+use App\Models\Period;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Services\GroupStateMachine;
@@ -11,6 +12,7 @@ use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class SemproController extends Controller
@@ -26,18 +28,25 @@ class SemproController extends Controller
 
     /**
      * List SEMPRO schedules (admin).
+     * Cross-period: Fetches schedules from all active and finalized periods by default.
      */
     public function index(Request $request)
     {
+        // Get active and finalized period IDs for cross-period fetching
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+
         $query = SeminarSchedule::with(['group.title', 'group.supervisor1', 'group.supervisor2', 'group.members.student', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
             ->where('type', 'SEMPRO')
-            ->orderByDesc('date');
+            ->whereHas('group', function ($q) use ($periodIds, $request) {
+                // Filter by active/finalized periods
+                $q->whereIn('period_id', $periodIds);
 
-        if ($request->has('period_id')) {
-            $query->whereHas('group', function ($q) use ($request) {
-                $q->where('period_id', $request->period_id);
-            });
-        }
+                // Allow explicit period filter if provided
+                if ($request->has('period_id')) {
+                    $q->where('period_id', $request->period_id);
+                }
+            })
+            ->orderByDesc('date');
 
         $schedules = $query->get();
 
@@ -104,6 +113,19 @@ class SemproController extends Controller
         }
 
         return response()->json(['data' => $schedules]);
+    }
+
+    /**
+     * Get cached active and finalized period IDs.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
     }
 
     /**

@@ -17,6 +17,7 @@ import { QuickActions } from '@/components/dashboard/QuickActions';
 import { SectionHeader } from '@/components/dashboard/SectionHeader';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
+import type { AxiosResponse } from 'axios';
 import {
   Users, BookOpen, Calendar, GraduationCap,
   FileText, ClipboardCheck, Gavel, Star,
@@ -67,8 +68,8 @@ export default function CombinedDashboard() {
           api.get('/dosen/supervisor-evaluation/pending-count'),
         ]);
 
-        const getData = (result: PromiseSettledResult<ApiResponse<unknown>>) =>
-          result.status === 'fulfilled' ? result.value.data : null;
+        const getData = (result: PromiseSettledResult<AxiosResponse<unknown>>) =>
+          result.status === 'fulfilled' ? (result.value.data as any) : null;
 
         const periodsData = getData(periodsRes);
         const groupsData = getData(groupsRes);

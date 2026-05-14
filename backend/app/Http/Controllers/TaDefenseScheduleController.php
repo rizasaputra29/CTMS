@@ -8,10 +8,12 @@ use App\Models\TaSubmission;
 use App\Models\Group;
 use App\Models\User;
 use App\Models\Notification;
+use App\Models\Period;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -27,6 +29,7 @@ class TaDefenseScheduleController extends Controller
 
     /**
      * List all TA defense schedules for admin
+     * Cross-period: Fetches schedules from all active and finalized periods by default.
      */
     public function index(Request $request): JsonResponse
     {
@@ -41,12 +44,24 @@ class TaDefenseScheduleController extends Controller
             $with[] = 'period';
         }
 
+        // Get active and finalized period IDs for cross-period fetching
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+        $hasPeriodColumn = $this->hasPeriodColumn();
+
         $query = TaDefenseSchedule::with($with)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                // Filter by active/finalized periods by default
+                $q->whereIn('period_id', $periodIds);
+            })
             ->orderBy('date', 'asc');
 
-        // Handle period_id filter including 'all'
-        if ($request->has('period_id') && $request->period_id !== 'all') {
-            if ($this->hasPeriodColumn()) {
+        // Handle period_id filter including 'all' (all removes the period filter for viewing historical data)
+        if ($request->has('period_id')) {
+            if ($request->period_id === 'all') {
+                // Remove the whereHas constraint by requerying without it
+                $query = TaDefenseSchedule::with($with)
+                    ->orderBy('date', 'asc');
+            } elseif ($hasPeriodColumn) {
                 $query->where('period_id', $request->period_id);
             } else {
                 $query->whereHas('group', function ($q) use ($request) {
@@ -73,6 +88,19 @@ class TaDefenseScheduleController extends Controller
                 'total' => $schedules->total(),
             ]
         ]);
+    }
+
+    /**
+     * Get cached active and finalized period IDs.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
     }
 
     /**

@@ -19,7 +19,6 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
@@ -67,6 +66,8 @@ interface EligibleStudentData {
 
 type SortKey = 'name' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
+type ViewMode = 'calendar' | 'table';
+type StatusFilter = 'ALL' | 'SCHEDULED' | 'DONE' | 'CANCELLED';
 const PAGE_SIZES = [10, 25, 50];
 
 export default function AdminTaDefensePage() {
@@ -102,6 +103,9 @@ export default function AdminTaDefensePage() {
     const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
 
     const [eligibleGroups, setEligibleGroups] = useState<EligibleStudentData[]>([]);
+
+    // Status filter state
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -155,7 +159,7 @@ export default function AdminTaDefensePage() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
-    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir, statusFilter]);
 
     const getAvailableStudents = (): EligibleMember[] => {
         const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
@@ -305,8 +309,13 @@ export default function AdminTaDefensePage() {
         return result;
     }, [schedules, searchQuery, sortKey, sortDir]);
 
-    const activeSchedules = useMemo(() => filteredAndSorted.filter(s => s.status !== 'CANCELLED'), [filteredAndSorted]);
-    const cancelledSchedules = useMemo(() => filteredAndSorted.filter(s => s.status === 'CANCELLED'), [filteredAndSorted]);
+    // Filter by status
+    const filteredSchedules = useMemo(() => {
+        if (statusFilter === 'ALL') {
+            return filteredAndSorted;
+        }
+        return filteredAndSorted.filter(s => s.status === statusFilter);
+    }, [filteredAndSorted, statusFilter]);
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -644,21 +653,23 @@ export default function AdminTaDefensePage() {
                         Manage individual TA defense schedules for students.
                     </p>
                 </div>
-                <Button onClick={() => {
-                    const activePeriod = periods.find(p => p.is_active);
-                    const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
-                    setFormPeriodId(defaultPeriodId);
-                    setDialogMode('create');
-                    // Fetch eligible groups for the period
-                    const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
-                    if (periodToFetch) {
-                        fetchEligibleGroups(periodToFetch);
-                    }
-                    setCreateOpen(true);
-                }} disabled={!selectedPeriod}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Schedule TA Defense
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => {
+                        const activePeriod = periods.find(p => p.is_active);
+                        const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
+                        setFormPeriodId(defaultPeriodId);
+                        setDialogMode('create');
+                        // Fetch eligible groups for the period
+                        const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
+                        if (periodToFetch) {
+                            fetchEligibleGroups(periodToFetch);
+                        }
+                        setCreateOpen(true);
+                    }} disabled={!selectedPeriod}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Schedule TA Defense
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -676,6 +687,20 @@ export default function AdminTaDefensePage() {
                                     {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
                                 </SelectItem>
                             ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
+                    <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                        <SelectTrigger className="w-[160px]">
+                            <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">All Status</SelectItem>
+                            <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                            <SelectItem value="DONE">Done</SelectItem>
+                            <SelectItem value="CANCELLED">Cancelled</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
@@ -697,48 +722,17 @@ export default function AdminTaDefensePage() {
                 </div>
             )}
 
-            {selectedPeriod && filteredAndSorted.length === 0 && (
+            {selectedPeriod && filteredSchedules.length === 0 && (
                 <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
                     <GraduationCap className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
                     <p className="text-sm font-medium">No TA defense schedules found</p>
                     <p className="text-[13px] text-muted-foreground/60 mt-1">
-                        Create a new schedule to get started.
+                        {statusFilter !== 'ALL' ? `No ${statusFilter.toLowerCase()} schedules. Try changing the status filter.` : 'Create a new schedule to get started.'}
                     </p>
                 </div>
             )}
 
-            {selectedPeriod && filteredAndSorted.length > 0 && (
-                <Tabs defaultValue="active" className="space-y-6">
-                    <TabsList className="grid w-full max-w-md grid-cols-2">
-                        <TabsTrigger value="active">
-                            Active ({activeSchedules.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="cancelled">
-                            Cancelled ({cancelledSchedules.length})
-                        </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="active" className="space-y-0">
-                        {activeSchedules.length === 0 ? (
-                            <div className="text-center py-12 border rounded-lg border-dashed">
-                                <p className="text-muted-foreground text-sm">No active schedules</p>
-                            </div>
-                        ) : (
-                            <ScheduleTable data={activeSchedules} />
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="cancelled" className="space-y-0">
-                        {cancelledSchedules.length === 0 ? (
-                            <div className="text-center py-12 border rounded-lg border-dashed">
-                                <p className="text-muted-foreground text-sm">No cancelled schedules</p>
-                            </div>
-                        ) : (
-                            <ScheduleTable data={cancelledSchedules} />
-                        )}
-                    </TabsContent>
-                </Tabs>
-            )}
+            {selectedPeriod && filteredSchedules.length > 0 && <ScheduleTable data={filteredSchedules} />}
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="sm:max-w-[600px]">

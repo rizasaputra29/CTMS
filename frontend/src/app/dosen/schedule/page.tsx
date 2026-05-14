@@ -14,7 +14,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { toast } from "sonner";
 import { format } from 'date-fns';
 import {
@@ -26,7 +26,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import { Badge } from '@/components/ui/badge';
+import { Pencil, Trash2 } from 'lucide-react';
 
 interface Group {
     id: number;
@@ -38,6 +47,21 @@ interface Group {
             name: string;
         }
     }[];
+}
+
+interface ScheduleEvent {
+    id: number | string;
+    group_id: number;
+    type: string;
+    date: string;
+    start_time?: string;
+    end_time?: string;
+    room: string;
+    mode?: string;
+    notes?: string;
+    group?: {
+        title?: { title: string };
+    };
 }
 
 export default function DosenSchedulePage() {
@@ -54,6 +78,8 @@ export default function DosenSchedulePage() {
         group_id: '',
         type: 'BIMBINGAN',
         date: '',
+        start_time: '',
+        end_time: '',
         room: '',
         mode: 'offline',
         notes: '',
@@ -76,7 +102,7 @@ export default function DosenSchedulePage() {
             // Use the new aggregated endpoint that includes BIMBINGAN, SEMPRO/EXPO, and TA_DEFENSE
             const [schedulesRes, groupsRes] = await Promise.all([
                 api.get(`/dosen/all-schedules${queryParam}`),
-                api.get(`/dosen/groups${queryParam}`)
+                api.get(`/dosen/groups/supervised${queryParam}`)
             ]);
             setSchedules(schedulesRes.data.data || []);
             setGroups(groupsRes.data.data || []);
@@ -87,7 +113,7 @@ export default function DosenSchedulePage() {
                 const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
                 const [schedulesRes, groupsRes] = await Promise.all([
                     api.get(`/dosen/schedules${queryParam}`),
-                    api.get(`/dosen/groups${queryParam}`)
+                    api.get(`/dosen/groups/supervised${queryParam}`)
                 ]);
                 setSchedules(schedulesRes.data.data || []);
                 setGroups(groupsRes.data.data || []);
@@ -127,7 +153,7 @@ export default function DosenSchedulePage() {
             }
             setOpen(false);
             resetForm();
-            fetchData();
+            await fetchData();
         } catch (error) {
             console.error('Failed to save schedule', error);
             toast.error('Failed to save schedule');
@@ -147,7 +173,7 @@ export default function DosenSchedulePage() {
         try {
             await api.delete(`/schedules/${id}`);
             toast.success('Schedule deleted');
-            fetchData();
+            await fetchData();
         } catch (error) {
             console.error('Failed to delete', error);
             toast.error('Failed to delete schedule');
@@ -158,7 +184,9 @@ export default function DosenSchedulePage() {
         resetForm();
         setFormData(prev => ({
             ...prev,
-            date: format(date, "yyyy-MM-dd'T'HH:mm"),
+            date: format(date, 'yyyy-MM-dd'),
+            start_time: '09:00',
+            end_time: '11:00',
         }));
         setOpen(true);
     };
@@ -175,7 +203,9 @@ export default function DosenSchedulePage() {
         setFormData({
             group_id: schedule.group_id.toString(),
             type: schedule.type,
-            date: format(d, "yyyy-MM-dd'T'HH:mm"),
+            date: format(d, 'yyyy-MM-dd'),
+            start_time: schedule.start_time?.slice(0, 5) || '',
+            end_time: schedule.end_time?.slice(0, 5) || '',
             room: schedule.room,
             mode: schedule.mode || 'offline',
             notes: schedule.notes || '',
@@ -189,6 +219,8 @@ export default function DosenSchedulePage() {
             group_id: '',
             type: 'BIMBINGAN',
             date: '',
+            start_time: '',
+            end_time: '',
             room: '',
             mode: 'offline',
             notes: '',
@@ -211,6 +243,9 @@ export default function DosenSchedulePage() {
                     <p className="text-muted-foreground">Manage bimbingan sessions for your supervised groups.</p>
                 </div>
                 <div className="flex items-center gap-2">
+                    <Button onClick={() => { resetForm(); setOpen(true); }}>
+                        <Plus className="mr-2 h-4 w-4" /> New Schedule
+                    </Button>
                     <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                         <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="All Periods" />
@@ -231,13 +266,70 @@ export default function DosenSchedulePage() {
                 </div>
             </div>
 
-            <ScheduleCalendar
-                schedules={schedules}
-                canEdit
-                onAdd={handleAdd}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-            />
+            <div className="rounded-md border">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Time</TableHead>
+                            <TableHead>Group</TableHead>
+                            <TableHead>Room</TableHead>
+                            <TableHead>Mode</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {schedules.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                                    No BIMBINGAN schedules found
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            schedules
+                                .filter(s => s.type === 'BIMBINGAN')
+                                .map((schedule) => (
+                                    <TableRow key={schedule.id}>
+                                        <TableCell>
+                                            {format(new Date(schedule.date), 'dd MMM yyyy')}
+                                        </TableCell>
+                                        <TableCell>
+                                            {schedule.start_time?.slice(0, 5) || ''} - {schedule.end_time?.slice(0, 5) || ''}
+                                        </TableCell>
+                                        <TableCell>
+                                            {schedule.group?.title?.title || `Group ${schedule.group_id}`}
+                                        </TableCell>
+                                        <TableCell>{schedule.room}</TableCell>
+                                        <TableCell>
+                                            <Badge variant={schedule.mode === 'online' ? 'default' : 'secondary'}>
+                                                {schedule.mode}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className="flex justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleEdit(schedule)}
+                                                >
+                                                    <Pencil className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() => handleDelete(schedule.id)}
+                                                    className="text-destructive"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
 
             {/* Schedule Dialog */}
             <Dialog open={open} onOpenChange={(val) => {
@@ -288,14 +380,36 @@ export default function DosenSchedulePage() {
                                 </Select>
                             </div>
                             <div className="grid gap-2">
-                                <Label htmlFor="date">Date & Time</Label>
+                                <Label htmlFor="date">Date</Label>
                                 <Input
                                     id="date"
-                                    type="datetime-local"
+                                    type="date"
                                     value={formData.date}
                                     onChange={(e) => setFormData({ ...formData, date: e.target.value })}
                                     required
                                 />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="start_time">Start Time</Label>
+                                    <Input
+                                        id="start_time"
+                                        type="time"
+                                        value={formData.start_time}
+                                        onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                                        required
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="end_time">End Time</Label>
+                                    <Input
+                                        id="end_time"
+                                        type="time"
+                                        value={formData.end_time}
+                                        onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                                        required
+                                    />
+                                </div>
                             </div>
                             <div className="grid gap-2">
                                 <Label htmlFor="room">Room / Location</Label>

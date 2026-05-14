@@ -8,12 +8,14 @@ use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\ExpoEvent;
 use App\Models\ExpoRegistration;
+use App\Models\Period;
 use App\Models\TaDefenseSchedule;
 use App\Models\SeminarSchedule;
 use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 
 class ScheduleController extends Controller
 {
@@ -28,39 +30,39 @@ class ScheduleController extends Controller
 
     /**
      * Display a listing of the resource.
+     * Cross-period: Fetches schedules from all active and finalized periods by default.
      */
     public function index(Request $request)
     {
         $user = Auth::user();
-        $query = Schedule::with('group.title.lecturer', 'group.members.student')
+        
+        // Get active and finalized period IDs for cross-period fetching
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+        
+        $query = Schedule::with(['group.title.lecturer', 'group.members.student', 'group.period'])
+            ->whereHas('group', function ($q) use ($periodIds, $request) {
+                // Filter by active/finalized periods
+                $q->whereIn('period_id', $periodIds);
+                
+                // Allow explicit period filter if provided
+                if ($request->has('period_id')) {
+                    $q->where('period_id', $request->period_id);
+                }
+            })
             ->orderBy('date', 'asc');
 
-        if ($request->has('period_id')) {
-            $query->whereHas('group', function ($q) use ($request) {
-                $q->where('period_id', $request->period_id);
-            });
-        }
-
-        // Admin can only see SEMPRO, SIDANG, EXPO schedules
+        // Admin can only see SEMPRO, SIDANG, EXPO, BIMBINGAN schedules
         if ($user->hasRole('admin')) {
             return response()->json([
                 'data' => $query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO', 'BIMBINGAN'])->get()
             ]);
         }
 
-        // Dosen can only see BIMBINGAN schedules for their own groups
+        // Dosen can only see BIMBINGAN schedules they created
         if ($user->hasRole('dosen')) {
-            $groupIds = Group::whereHas('title', function ($q) use ($user) {
-                $q->where('lecturer_id', $user->id);
-            });
-
-            if ($request->has('period_id')) {
-                $groupIds->where('period_id', $request->period_id);
-            }
-
             return response()->json([
-                'data' => $query->whereIn('group_id', $groupIds->pluck('id'))
-                    ->where('type', 'BIMBINGAN')
+                'data' => $query->where('type', 'BIMBINGAN')
+                    ->where('created_by', $user->id)
                     ->get()
             ]);
         }
@@ -68,8 +70,9 @@ class ScheduleController extends Controller
         // Mahasiswa can only see their own group's schedule (exclude rejected groups)
         if ($user->hasRole('mahasiswa')) {
             $groupMember = \App\Models\GroupMember::where('student_id', $user->id)
-                ->whereHas('group', function ($q) {
-                    $q->where('status', '!=', 'REJECTED');
+                ->whereHas('group', function ($q) use ($periodIds) {
+                    $q->where('status', '!=', 'REJECTED')
+                      ->whereIn('period_id', $periodIds);
                 })
                 ->first();
             if (!$groupMember) {
@@ -81,6 +84,19 @@ class ScheduleController extends Controller
         }
 
         return response()->json(['data' => []]);
+    }
+
+    /**
+     * Get cached active and finalized period IDs.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
     }
 
     /**
@@ -103,6 +119,8 @@ class ScheduleController extends Controller
             'group_id' => 'required|exists:groups,id',
             'type' => ['required', 'string', 'in:' . implode(',', $allowedTypes)],
             'date' => 'required|date',
+            'start_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
+            'end_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
             'room' => 'required|string',
             'mode' => 'nullable|string|in:online,offline',
             'notes' => 'nullable|string|max:1000',
@@ -110,17 +128,39 @@ class ScheduleController extends Controller
 
         $data = $request->all();
 
+        // If start_time is provided but end_time isn't, default to 1 hour after start
+        if ($request->has('start_time') && !$request->has('end_time')) {
+            $data['end_time'] = \Carbon\Carbon::parse($request->date . ' ' . $request->start_time)->addHour()->format('H:i');
+        }
+
         $group = Group::with(['supervisions', 'title'])->find($request->group_id);
         if ($group) {
             $this->ensurePeriodIsActive($group);
+        }
+
+        // For BIMBINGAN schedules, validate that dosen is a supervisor of the group
+        if ($user->hasRole('dosen') && $request->type === 'BIMBINGAN') {
+            $isSupervisor = $group && $group->supervisions->contains(function ($sup) use ($user) {
+                return $sup->supervisor_id === $user->id && 
+                       in_array($sup->role, ['SUPERVISOR_1', 'SUPERVISOR_2']);
+            });
+
+            if (!$isSupervisor) {
+                return response()->json([
+                    'message' => 'Unauthorized. You can only create BIMBINGAN schedules for groups you supervise.'
+                ], 403);
+            }
+
+            // Set created_by to current user
+            $data['created_by'] = $user->id;
         }
 
         // Validate scheduling conflicts for BIMBINGAN (cross-period)
         if ($user->hasRole('dosen') && ($request->type === 'BIMBINGAN' || !$request->has('type'))) {
             $scheduleDate = \Carbon\Carbon::parse($request->date);
             $dateOnly = $scheduleDate->format('Y-m-d');
-            $startTime = $scheduleDate->format('H:i:00');
-            $endTime = $scheduleDate->copy()->addHour()->format('H:i:00');
+            $startTime = $request->start_time ?? '09:00';
+            $endTime = $request->end_time ?? \Carbon\Carbon::parse($dateOnly . ' ' . $startTime)->addHour()->format('H:i');
 
             $conflicts = $this->schedulingService->validateScheduleConflicts(
                 [$user->id],
@@ -183,6 +223,8 @@ class ScheduleController extends Controller
             'group_id' => 'exists:groups,id',
             'type' => ['string', 'in:' . implode(',', $allowedTypes)],
             'date' => 'date',
+            'start_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
+            'end_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
             'room' => 'string',
             'mode' => 'nullable|string|in:online,offline',
             'notes' => 'nullable|string|max:1000',
@@ -192,7 +234,15 @@ class ScheduleController extends Controller
         if ($schedule->group) {
             $this->ensurePeriodIsActive($schedule->group);
         }
-        $schedule->update($request->all());
+        
+        $data = $request->all();
+        
+        // If start_time is provided but end_time isn't, default to 1 hour after start
+        if ($request->has('start_time') && !$request->has('end_time')) {
+            $data['end_time'] = \Carbon\Carbon::parse($request->date . ' ' . $request->start_time)->addHour()->format('H:i');
+        }
+        
+        $schedule->update($data);
 
         return response()->json(['message' => 'Schedule updated successfully', 'data' => $schedule]);
     }
@@ -247,10 +297,19 @@ class ScheduleController extends Controller
             ->where('type', 'BIMBINGAN')
             ->get()
             ->map(function ($schedule) {
+                // Format date as ISO 8601 with time if available
+                $dateStr = $schedule->date->format('Y-m-d');
+                $startTimeStr = $schedule->start_time ? substr($schedule->start_time, 0, 5) : null;
+                $isoDate = $startTimeStr 
+                    ? $dateStr . 'T' . $startTimeStr . ':00'
+                    : $schedule->date;
+                
                 return [
                     'id' => $schedule->id,
                     'type' => 'BIMBINGAN',
-                    'date' => $schedule->date,
+                    'date' => $isoDate,
+                    'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
+                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
                     'mode' => $schedule->mode,
                     'notes' => $schedule->notes,
@@ -388,21 +447,26 @@ class ScheduleController extends Controller
 
         $allSchedules = [];
 
-        // 1. BIMBINGAN schedules for supervised groups
-        $supervisedGroupIds = Group::whereHas('supervisions', function ($q) use ($user) {
-            $q->where('supervisor_id', $user->id);
-        })->pluck('id');
-
+        // 1. BIMBINGAN schedules created by this dosen
         // OPTIMIZED: Added 'group.members.student' to eager loading to prevent N+1 queries
         $bimbinganSchedules = Schedule::with(['group.title.lecturer', 'group.members.student'])
-            ->whereIn('group_id', $supervisedGroupIds)
             ->where('type', 'BIMBINGAN')
+            ->where('created_by', $user->id)
             ->get()
             ->map(function ($schedule) {
+                // Format date as ISO 8601 with time if available
+                $dateStr = $schedule->date->format('Y-m-d');
+                $startTimeStr = $schedule->start_time ? $schedule->start_time->format('H:i') : null;
+                $isoDate = $startTimeStr 
+                    ? $dateStr . 'T' . $startTimeStr . ':00'
+                    : $schedule->date;
+                
                 return [
                     'id' => $schedule->id,
                     'type' => 'BIMBINGAN',
-                    'date' => $schedule->date,
+                    'date' => $isoDate,
+                    'start_time' => $schedule->start_time ? $schedule->start_time->format('H:i') : null,
+                    'end_time' => $schedule->end_time ? $schedule->end_time->format('H:i') : null,
                     'room' => $schedule->room,
                     'mode' => $schedule->mode,
                     'notes' => $schedule->notes,

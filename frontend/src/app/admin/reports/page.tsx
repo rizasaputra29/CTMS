@@ -108,6 +108,7 @@ const getLetterGradeColor = (grade: string): string => {
 };
 
 export default function AdminReportsPage() {
+    const router = useRouter();
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [summary, setSummary] = useState<ReportSummary | null>(null);

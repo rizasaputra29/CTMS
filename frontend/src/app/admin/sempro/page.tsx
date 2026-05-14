@@ -23,6 +23,7 @@ import {
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
 } from 'lucide-react';
 
+
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
 interface Dosen { id: number; name: string; email: string; }
 interface BimbinganEval {
@@ -46,7 +47,7 @@ interface Schedule {
     examiner_student_averages?: BimbinganEval[];
 }
 
-interface GroupItem { id: number; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[] }
 interface User { id: number; name: string; email: string; role: string; }
 
 type SortKey = 'title' | 'date' | 'status';
@@ -63,6 +64,7 @@ export default function AdminSemproPage() {
     const [loading, setLoading] = useState(true);
 
     const [scheduleOpen, setScheduleOpen] = useState(false);
+    const [formPeriodId, setFormPeriodId] = useState('');
     const [formGroupId, setFormGroupId] = useState('');
     const [formDate, setFormDate] = useState('');
     const [formStartTime, setFormStartTime] = useState('');
@@ -86,6 +88,7 @@ export default function AdminSemproPage() {
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
+
 
     const fetchSchedules = useCallback(async (periodId?: string) => {
         const currentPeriod = periodId !== undefined ? periodId : selectedPeriod;
@@ -172,7 +175,7 @@ export default function AdminSemproPage() {
     const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
 
     const resetForm = () => {
-        setFormGroupId(''); setFormDate('');
+        setFormPeriodId(''); setFormGroupId(''); setFormDate('');
         setFormStartTime(''); setFormEndTime(''); setFormRoom('');
         setFormExaminer1(''); setFormExaminer2('');
     };
@@ -301,7 +304,16 @@ export default function AdminSemproPage() {
         }
     };
 
-    const eligibleGroups = groups.filter(g => g.status === 'READY_FOR_SEMPRO');
+    // Filter eligible groups based on form period selection
+    const eligibleGroups = useMemo(() => {
+        return groups.filter(g => {
+            if (g.status !== 'READY_FOR_SEMPRO') return false;
+            // If no period selected in form, show all ready groups
+            if (!formPeriodId) return true;
+            // Filter by selected period
+            return g.period_id?.toString() === formPeriodId;
+        });
+    }, [groups, formPeriodId]);
 
     const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
         <TableHead
@@ -322,9 +334,11 @@ export default function AdminSemproPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">Sidang Proposal</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">Schedule and manage SEMPRO sessions.</p>
                 </div>
-                <Button onClick={() => setScheduleOpen(true)} disabled={!selectedPeriod}>
-                    <Plus className="mr-2 h-4 w-4" /> New Schedule
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => setScheduleOpen(true)} disabled={!selectedPeriod}>
+                        <Plus className="mr-2 h-4 w-4" /> New Schedule
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -653,15 +667,37 @@ export default function AdminSemproPage() {
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
-                                <Label>Group</Label>
-                                <Select value={formGroupId} onValueChange={setFormGroupId}>
+                                <Label>Period <span className="text-destructive">*</span></Label>
+                                <Select value={formPeriodId} onValueChange={setFormPeriodId}>
                                     <SelectTrigger>
-                                        <SelectValue placeholder="Select a group..." />
+                                        <SelectValue placeholder="Select a period..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {periods.length === 0 ? (
+                                            <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                No periods available
+                                            </div>
+                                        ) : (
+                                            periods.map(p => (
+                                                <SelectItem key={p.id} value={p.id.toString()}>
+                                                    {p.name}
+                                                    {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Group <span className="text-destructive">*</span></Label>
+                                <Select value={formGroupId} onValueChange={setFormGroupId} disabled={!formPeriodId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={formPeriodId ? "Select a group..." : "Select a period first..."} />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {eligibleGroups.length === 0 ? (
                                             <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                                                No groups ready for SEMPRO
+                                                {formPeriodId ? "No groups ready for SEMPRO in this period" : "Select a period to see available groups"}
                                             </div>
                                         ) : (
                                             eligibleGroups.map(g => (
