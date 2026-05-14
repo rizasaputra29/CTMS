@@ -190,8 +190,8 @@ export default function ProposeTitlePage() {
     };
 
     const canEditProposal = (proposal: Proposal): boolean => {
-        // Can edit if proposal is PENDING or REJECTED
-        return ['PENDING', 'REJECTED'].includes(proposal.supervisor_approval_status) && isLeader;
+        // Can edit if proposal is PENDING, REJECTED, or UNDER_REVIEW
+        return ['PENDING', 'REJECTED', 'UNDER_REVIEW'].includes(proposal.supervisor_approval_status) && isLeader;
     };
 
     const handleEdit = (proposal: Proposal) => {
@@ -540,6 +540,16 @@ export default function ProposeTitlePage() {
                                 </CardFooter>
                             )}
                             {proposal.supervisor_approval_status === 'PENDING' && canEditProposal(proposal) && (
+                                <CardFooter className="flex justify-end gap-2">
+                                    <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
+                                        <Trash2 className="mr-2 h-4 w-4" /> Batalkan
+                                    </Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleEdit(proposal)}>
+                                        <PenLine className="mr-2 h-4 w-4" /> Edit
+                                    </Button>
+                                </CardFooter>
+                            )}
+                            {proposal.supervisor_approval_status === 'UNDER_REVIEW' && canEditProposal(proposal) && (
                                 <CardFooter className="flex justify-end gap-2">
                                     <Button variant="outline" size="sm" onClick={() => handleCancelProposal(proposal.id)}>
                                         <Trash2 className="mr-2 h-4 w-4" /> Batalkan

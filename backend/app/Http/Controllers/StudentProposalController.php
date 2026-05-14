@@ -260,16 +260,16 @@ class StudentProposalController extends Controller
         }
 
         // Allow editing REJECTED or PENDING proposals
+        // Allow editing PENDING, REJECTED, or UNDER_REVIEW proposals
         $title = Title::where('id', $validated['title_id'])
             ->where('proposed_by_group_id', $membership->group_id)
-            ->whereIn('supervisor_approval_status', ['REJECTED', 'PENDING'])
+            ->whereIn('supervisor_approval_status', ['PENDING', 'REJECTED', 'UNDER_REVIEW'])
             ->first();
 
         if (!$title) {
-            return response()->json(['message' => 'No editable proposal found. Only PENDING or REJECTED proposals can be edited.'], 404);
+            return response()->json(['message' => 'No editable proposal found. Only PENDING, REJECTED, or UNDER_REVIEW proposals can be edited.'], 404);
         }
 
-        // For PENDING proposals, we allow editing in-place (no need to check other pending proposals)
         // For REJECTED proposals, check no other pending proposal exists
         if ($title->supervisor_approval_status === 'REJECTED') {
             $pendingExists = Title::where('proposed_by_group_id', $membership->group_id)
@@ -371,8 +371,8 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Proposal tidak ditemukan.'], 404);
         }
 
-        // Only PENDING or REJECTED proposals can be cancelled
-        if (!in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED'])) {
+        // PENDING, REJECTED, or UNDER_REVIEW proposals can be cancelled
+        if (!in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED', 'UNDER_REVIEW'])) {
             return response()->json(['message' => 'Proposal sudah disetujui dan tidak dapat dibatalkan. Hubungi admin jika ada kebutuhan khusus.'], 400);
         }
 
