@@ -113,6 +113,136 @@ class GroupController extends Controller
     }
 
     /**
+     * Get group progress data with workflow status for all groups.
+     */
+    public function progress(Request $request)
+    {
+        $page = $request->input('page', 1);
+        $perPage = $request->input('per_page', 25);
+        $periodId = $request->input('period_id');
+        $status = $request->input('status');
+        $search = $request->input('search');
+
+        $query = Group::with(['title', 'members.student', 'period', 'supervisor1', 'supervisor2', 'documents']);
+
+        // Apply period filter
+        if ($periodId && $periodId !== 'all') {
+            $query->where('period_id', $periodId);
+        }
+
+        // Apply status filter
+        if ($status && $status !== 'all') {
+            $query->where('status', $status);
+        }
+
+        // Apply search filter
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('title', function ($titleQuery) use ($search) {
+                    $titleQuery->where('title', 'like', "%{$search}%");
+                })
+                ->orWhereHas('members.student', function ($studentQuery) use ($search) {
+                    $studentQuery->where('name', 'like', "%{$search}%")
+                        ->orWhere('nim', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        // Get paginated results
+        $groups = $query->paginate($perPage, ['*'], 'page', $page);
+
+        // Get all periods for the groups
+        $periodIds = $groups->pluck('period_id')->unique()->filter();
+        $allRequirements = \App\Models\PhaseDocumentRequirement::whereIn('period_id', $periodIds)
+            ->where('is_required', true)
+            ->get();
+
+        // Transform the data with progress information
+        $workflowService = app(\App\Services\WorkflowService::class);
+        $stateMachine = app(\App\Services\GroupStateMachine::class);
+
+        $transformedData = $groups->getCollection()->map(function (Group $group) use ($workflowService, $allRequirements, $stateMachine) {
+            // Get documents for this group
+            $documents = $group->documents ?? collect();
+            $periodRequirements = $allRequirements->where('period_id', $group->period_id);
+
+            // Calculate workflow data
+            $progressData = null;
+            if ($documents->isNotEmpty() || $periodRequirements->isNotEmpty()) {
+                try {
+                    $progressData = $workflowService->getWorkflowData($group, $documents, $periodRequirements);
+                } catch (\Exception $e) {
+                    // If workflow service fails, continue without progress data
+                    \Illuminate\Support\Facades\Log::error('Failed to get workflow data', ['group_id' => $group->id, 'error' => $e->getMessage()]);
+                }
+            }
+
+            // Calculate progress percentage based on status
+            $statusOrder = [
+                'FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_PROPOSED', 'TITLE_APPROVED',
+                'READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE',
+                'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL',
+                'TA_IN_PROGRESS', 'CLOSED', 'DISSOLVED'
+            ];
+            $statusIndex = array_search($group->status, $statusOrder);
+            $progressPercentage = $statusIndex !== false
+                ? min(round((($statusIndex + 1) / count($statusOrder)) * 100), 100)
+                : 0;
+
+            // Count members
+            $membersCount = $group->members?->count() ?? 0;
+
+            return [
+                'id' => $group->id,
+                'name' => null, // Calculated on frontend or added if needed
+                'status' => $group->status,
+                'period_id' => $group->period_id,
+                'period' => $group->period ? [
+                    'id' => $group->period->id,
+                    'name' => $group->period->name,
+                    'is_active' => $group->period->is_active,
+                ] : null,
+                'title' => $group->title ? [
+                    'id' => $group->title->id,
+                    'title' => $group->title->title,
+                ] : null,
+                'supervisor1' => $group->supervisor1 ? [
+                    'id' => $group->supervisor1->id,
+                    'name' => $group->supervisor1->name,
+                ] : null,
+                'supervisor2' => $group->supervisor2 ? [
+                    'id' => $group->supervisor2->id,
+                    'name' => $group->supervisor2->name,
+                ] : null,
+                'members' => $group->members?->map(function ($member) {
+                    return [
+                        'id' => $member->id,
+                        'student' => [
+                            'id' => $member->student?->id,
+                            'name' => $member->student?->name,
+                            'nim' => $member->student?->nim,
+                        ],
+                    ];
+                })->toArray() ?? [],
+                'members_count' => $membersCount,
+                'progress' => $progressData,
+                'progress_percentage' => $progressPercentage,
+            ];
+        });
+
+        // Create response with pagination meta
+        return response()->json([
+            'data' => $transformedData,
+            'meta' => [
+                'current_page' => $groups->currentPage(),
+                'last_page' => $groups->lastPage(),
+                'per_page' => $groups->perPage(),
+                'total' => $groups->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Display a single group with full details.
      */
     public function show(Group $group)

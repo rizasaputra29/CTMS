@@ -14,7 +14,6 @@ import {
     Loader2, 
     Users, 
     GraduationCap, 
-    GitCompare, 
     Star, 
     Award, 
     FileSpreadsheet,

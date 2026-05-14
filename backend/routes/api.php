@@ -208,11 +208,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/grade-consistency/generate', [GradeConsistencyController::class, 'generate']);
         Route::put('/grade-consistency/{id}', [GradeConsistencyController::class, 'update']);
 
-        // Grade Check (admin) - Raw score viewer with filtering
-        Route::get('/grade-check', [GradeCheckController::class, 'index']);
-        Route::get('/grade-check/export', [GradeCheckController::class, 'export']);
-        Route::get('/grade-check/student/{studentId}', [GradeCheckController::class, 'studentDetail']);
-        Route::get('/grade-check/student/{studentId}/evaluation/{evaluationType}', [GradeCheckController::class, 'evaluationDetail']);
+
 
         // Document Types (admin)
         Route::apiResource('document-types', DocumentTypeController::class);
@@ -267,6 +263,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/grade-configuration/{periodId}/ta', [GradeConfigurationController::class, 'getTAWeights']);
         Route::get('/grade-configuration/calculate/{groupId}', [GradeConfigurationController::class, 'calculateGroupGrades']);
         Route::get('/grade-configuration/calculate-ta/{studentId}', [GradeConfigurationController::class, 'calculateTAGrade']);
+
+        // Analytics - Group Progress
+        Route::get('/analytics/group-progress', [GroupController::class, 'progress']);
         Route::get('/student-grades/{studentId}', [GradeConfigurationController::class, 'getStudentGrades']);
 
         // Peer Review Dashboard (admin)

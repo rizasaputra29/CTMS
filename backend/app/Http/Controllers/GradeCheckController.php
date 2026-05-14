@@ -1129,4 +1129,50 @@ class GradeCheckController extends Controller
         
         return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
     }
+
+    /**
+     * Get grade check summary for reports dashboard
+     */
+    public function summary(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+        ]);
+
+        $periodId = $request->input('period_id');
+
+        // Get all groups for the period
+        $groupIds = DB::table('groups')
+            ->where('period_id', $periodId)
+            ->pluck('id');
+
+        // Get all students in these groups with their final grades
+        $students = DB::table('final_grades')
+            ->join('users', 'final_grades.student_id', '=', 'users.id')
+            ->join('groups', 'final_grades.group_id', '=', 'groups.id')
+            ->whereIn('final_grades.group_id', $groupIds)
+            ->whereNull('users.deleted_at')
+            ->select(
+                'final_grades.student_id',
+                'final_grades.pdc1_score',
+                'final_grades.pdc2_score',
+                'final_grades.ta_score',
+                'final_grades.pdc1_complete',
+                'final_grades.pdc2_complete',
+                'final_grades.ta_complete'
+            )
+            ->get();
+
+        $totalStudents = $students->count();
+        $pdc1Complete = $students->where('pdc1_complete', true)->count();
+        $pdc2Complete = $students->where('pdc2_complete', true)->count();
+        $taComplete = $students->where('ta_complete', true)->count();
+
+        return response()->json([
+            'total_students' => $totalStudents,
+            'pdc1_complete' => $pdc1Complete,
+            'pdc2_complete' => $pdc2Complete,
+            'ta_complete' => $taComplete,
+        ]);
+    }
 }

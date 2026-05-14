@@ -35,7 +35,7 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
-     ListChecks, BarChart3, GitCompare, Star, ChevronRight,
+    ListChecks, BarChart3, GitCompare, Star, ChevronRight, TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -105,7 +105,7 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Analytics',
             icon: BarChart3,
             items: [
-                { title: 'Grade Check', url: '/admin/analytics/grade-check', icon: GitCompare },
+                { title: 'Progress', url: '/admin/analytics/progress', icon: TrendingUp },
                 { title: 'Grade Config', url: '/admin/analytics/grade-configuration', icon: GraduationCap },
                 { title: 'Peer Review Dashboard', url: '/admin/peer-review-dashboard', icon: Users },
                 { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
