@@ -187,7 +187,7 @@ class GradeConfigurationController extends Controller
 
         return response()->json([
             'group_id' => $groupId,
-            'group_name' => $group->name,
+            'group_name' => $group->code,
             'period_id' => $period->id,
             'pdc1_grades' => $grades,
             'final_pdc1_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
@@ -245,7 +245,7 @@ class GradeConfigurationController extends Controller
 
         return response()->json([
             'group_id' => $groupId,
-            'group_name' => $group->name,
+            'group_name' => $group->code,
             'period_id' => $period->id,
             'pdc2_grades' => $grades,
             'final_pdc2_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
@@ -366,7 +366,7 @@ class GradeConfigurationController extends Controller
             'student_id' => $studentId,
             'student_name' => $student->name,
             'group_id' => $group->id,
-            'group_name' => $group->name,
+            'group_name' => $group->code,
             'period_id' => $period->id,
             'ta_grades' => $grades,
             'final_ta_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,

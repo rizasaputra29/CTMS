@@ -27,6 +27,7 @@ interface Document {
 
 interface Group {
     id: number;
+    code?: string;
     status: string;
     period: { name: string };
     members: { student: { name: string } }[];
@@ -136,7 +137,7 @@ export default function DosenSupervisedGroupsPage() {
                                 <CardHeader className="pb-3">
                                     <div className="flex justify-between items-start">
                                         <div className="flex items-center gap-2">
-                                            <CardTitle className="text-lg">Group {group.id}</CardTitle>
+                                            <CardTitle className="text-lg">{group.code || `Group ${group.id}`}</CardTitle>
                                             {group.is_dosbing_1 && (
                                                 <Badge className="bg-blue-500">Dosbing 1</Badge>
                                             )}

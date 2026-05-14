@@ -46,7 +46,7 @@ interface Schedule {
     examiner_student_averages?: BimbinganEval[];
 }
 
-interface GroupItem { id: number; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+interface GroupItem { id: number; code?: string; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
 interface User { id: number; name: string; email: string; role: string; }
 
 type SortKey = 'title' | 'date' | 'status';
@@ -666,7 +666,7 @@ export default function AdminSemproPage() {
                                         ) : (
                                             eligibleGroups.map(g => (
                                                 <SelectItem key={g.id} value={g.id.toString()}>
-                                                    {g.title?.title || `Group ${g.id}`}
+                                                    {g.title?.title || g.code || `Group ${g.id}`}
                                                 </SelectItem>
                                             ))
                                         )}

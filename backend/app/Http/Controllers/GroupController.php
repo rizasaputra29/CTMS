@@ -1212,7 +1212,7 @@ class GroupController extends Controller
             return $name;
         }
 
-        return "Kelompok #{$group->id}";
+        return $group->code ?? "Kelompok #{$group->id}";
     }
 
     private function resolveAllowedActions(Group $group, User $user): array

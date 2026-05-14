@@ -47,6 +47,7 @@ interface GradeConsistencyCheck {
     } | null;
     group: {
         id: number;
+        code?: string;
         title: {
             title: string;
         };
@@ -343,7 +344,7 @@ export default function GradeConsistencyReportPage() {
                                                         {new Date(check.created_at).toLocaleDateString('id-ID')}
                                                     </TableCell>
                                                     <TableCell className="font-medium">
-                                                        {check.group?.title?.title || `Group ${check.group?.id}`}
+                                                        {check.group?.title?.title || check.group?.code || `Group ${check.group?.id}`}
                                                     </TableCell>
                                                     <TableCell>
                                                         {check.student ? (

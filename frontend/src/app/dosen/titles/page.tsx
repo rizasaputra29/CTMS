@@ -54,6 +54,7 @@ interface Title {
 
 interface GroupSummary {
     id: number;
+    code?: string;
     status: string;
     period_id?: number;
     members: Array<{ id: number; name?: string }>;
@@ -467,7 +468,7 @@ export default function DosenTitlesPage() {
                                                                     disabled={!isReady}
                                                                 >
                                                                     <span className={!isReady ? 'text-muted-foreground' : ''}>
-                                                                        Group {group.id} ({memberCount} anggota) - {group.status}
+                                                                        {group.code || `Group ${group.id}`} ({memberCount} anggota) - {group.status}
                                                                         {!isReady && ' (Tidak tersedia)'}
                                                                     </span>
                                                                 </SelectItem>

@@ -687,7 +687,7 @@ class FinalizationController extends Controller
             return $name;
         }
 
-        return "Kelompok #{$group->id}";
+        return $group->code ?? "Kelompok #{$group->id}";
     }
 
     private function resolveGroupStatusLabel(string $status): string

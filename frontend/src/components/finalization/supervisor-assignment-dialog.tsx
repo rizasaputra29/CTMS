@@ -116,7 +116,7 @@ export function SupervisorAssignmentDialog({
             <div className="mt-2 flex flex-wrap gap-1">
               {selectedGroups.slice(0, 5).map((group) => (
                 <Badge key={group.id} variant="secondary" className="text-xs">
-                  Group {group.id}
+                  {group.code || `Group ${group.id}`}
                 </Badge>
               ))}
               {selectedGroups.length > 5 && (

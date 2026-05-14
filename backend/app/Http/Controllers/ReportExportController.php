@@ -66,7 +66,7 @@ class ReportExportController extends Controller
                 'student_name' => $student->name,
                 'student_nim' => $student->nim ?? '',
                 'group_id' => $group ? $group->id : '',
-                'group_name' => $group && $group->title ? $group->title->title : ($group ? 'Group ' . $group->id : ''),
+                'group_name' => $group && $group->code ? $group->code : ($group ? 'Group ' . $group->id : ''),
                 'evaluations' => [
                     'SEMPRO' => ['score' => null, 'status' => 'NOT_STARTED'],
                     'BIMBINGAN_SEMPRO' => ['score' => null, 'status' => 'NOT_STARTED'],

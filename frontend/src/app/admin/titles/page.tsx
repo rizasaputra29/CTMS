@@ -22,6 +22,7 @@ interface Period {
 
 interface Group {
     id: number;
+    code?: string;
     status: string;
     members: { student: { name: string } }[];
     title: { title: string } | null;
@@ -133,7 +134,7 @@ export default function AdminTitlesPage() {
                             <Card key={group.id}>
                                 <CardHeader className="pb-3">
                                     <div className="flex justify-between items-start">
-                                        <CardTitle className="text-base font-bold">Group {group.id}</CardTitle>
+                                        <CardTitle className="text-base font-bold">{group.code || `Group ${group.id}`}</CardTitle>
                                         <Badge variant={progress === 100 ? 'default' : 'secondary'}>
                                             {group.status}
                                         </Badge>

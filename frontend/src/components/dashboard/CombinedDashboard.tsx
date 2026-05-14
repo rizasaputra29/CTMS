@@ -29,6 +29,7 @@ interface ApiResponse<T> {
 
 interface GroupItem {
   id: number;
+  code?: string;
   status?: string;
   period?: { name?: string };
 }
@@ -82,7 +83,7 @@ export default function CombinedDashboard() {
         // Transform recent groups
         const recentGroups = (Array.isArray(groups) ? groups.slice(0, 5) : []).map((g: GroupItem) => ({
           id: g.id,
-          label: `Group ${g.id}`,
+          label: g.code || `Group ${g.id}`,
           subtitle: g.status || '',
           status: {
             label: g.status || 'Unknown',
@@ -96,7 +97,7 @@ export default function CombinedDashboard() {
         // Transform recent supervised groups
         const recentSubmissions = (Array.isArray(supervised) ? supervised.slice(0, 5) : []).map((g: GroupItem) => ({
           id: g.id,
-          label: `Group ${g.id}`,
+          label: g.code || `Group ${g.id}`,
           subtitle: `Period: ${g.period?.name || 'N/A'}`,
           status: {
             label: g.status || 'Active',

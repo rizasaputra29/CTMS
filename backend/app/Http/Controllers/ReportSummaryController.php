@@ -69,7 +69,7 @@ class ReportSummaryController extends Controller
                 $group = $groupScores->first()->group;
                 return (object) [
                     'group_id' => $group->id,
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'student_count' => $groupScores->pluck('student_id')->unique()->count(),
                     'average_score' => round($groupScores->avg('score'), 2),
                 ];
@@ -118,7 +118,7 @@ class ReportSummaryController extends Controller
             ->where('groups.period_id', $periodId)
             ->select(
                 'groups.id as group_id',
-                DB::raw("COALESCE(titles.title, 'Group ' || groups.id) as group_name"),
+                DB::raw("COALESCE(groups.code, 'Group ' || groups.id) as group_name"),
                 DB::raw('COUNT(DISTINCT peer_reviews.reviewee_id) as student_count'),
                 DB::raw('ROUND(AVG(peer_reviews.score), 2) as average_score')
             )
@@ -236,7 +236,7 @@ class ReportSummaryController extends Controller
 
                 $topStudents[] = [
                     'group_id' => $group->id,
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'student_id' => $student->id,
                     'student_name' => $student->name,
                     'student_nim' => $student->nim ?? '',
@@ -296,7 +296,7 @@ class ReportSummaryController extends Controller
             ->map(function ($group) {
                 return [
                     'group_id' => $group->id,
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'status' => $group->status,
                     'member_count' => $group->members_count,
                     'supervisor_1' => $group->supervisor1->name ?? 'Not assigned',

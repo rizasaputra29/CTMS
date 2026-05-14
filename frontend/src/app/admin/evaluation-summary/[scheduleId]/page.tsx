@@ -170,7 +170,7 @@ export default function EvaluationSummaryPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Evaluation Summary</h1>
             <p className="text-muted-foreground mt-1">
-              Complete evaluation results for Group {data.group.id}
+              Complete evaluation results for {data.group.code || `Group ${data.group.id}`}
             </p>
           </div>
           <Button onClick={handleExportCSV} disabled={exporting}>
@@ -205,7 +205,7 @@ export default function EvaluationSummaryPage() {
             </div>
             <div>
               <p className="text-sm text-muted-foreground">Group</p>
-              <p className="font-medium">Group {data.group.id}</p>
+              <p className="font-medium">{data.group.code || `Group ${data.group.id}`}</p>
             </div>
           </div>
         </CardContent>

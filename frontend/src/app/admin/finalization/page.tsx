@@ -431,7 +431,7 @@ export default function FinalizationPage() {
     const headers = ['ID', 'Nama Grup', 'Status', 'Judul', 'Supervisor 1', 'Supervisor 2', 'Jumlah Anggota'];
     const rows = selectedGroups.map((group) => [
       group.id,
-      `Group ${group.id}`,
+      group.code || `Group ${group.id}`,
       group.status,
       group.title?.title || '-',
       group.supervisor1?.name || '-',
@@ -505,7 +505,7 @@ export default function FinalizationPage() {
       // Show validation errors
       toast.error(`${invalid.length} grup tidak valid untuk di-mark final`);
       invalid.forEach(({ group, reason }) => {
-        toast.error(`Group ${group.id}: ${reason}`);
+        toast.error(`${group.code || `Group ${group.id}`}: ${reason}`);
       });
     }
 
@@ -1146,10 +1146,10 @@ export default function FinalizationPage() {
                             <Checkbox
                               checked={selectedRows.has(group.id)}
                               onCheckedChange={() => toggleRowSelection(group.id)}
-                              aria-label={`Select Group ${group.id}`}
+                              aria-label={`Select ${group.code || `Group ${group.id}`}`}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">Group {group.id}</TableCell>
+                          <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -1364,10 +1364,10 @@ export default function FinalizationPage() {
                             <Checkbox
                               checked={selectedRows.has(group.id)}
                               onCheckedChange={() => toggleRowSelection(group.id)}
-                              aria-label={`Select Group ${group.id}`}
+                              aria-label={`Select ${group.code || `Group ${group.id}`}`}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">Group {group.id}</TableCell>
+                          <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                           <TableCell>
                             {group.title ? (
                               <div>
@@ -1590,7 +1590,7 @@ export default function FinalizationPage() {
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">Group {group.id}</TableCell>
+                              <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1660,7 +1660,7 @@ export default function FinalizationPage() {
                         ) : (
                           (tableData as Group[]).map((group) => (
                             <TableRow key={group.id}>
-                              <TableCell className="font-medium">Group {group.id}</TableCell>
+                              <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                               <TableCell>
                                 <div className="flex flex-col gap-1">
                                   {group.members?.slice(0, 2).map((member) => (
@@ -1897,7 +1897,7 @@ export default function FinalizationPage() {
                       <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 space-y-1">
                             {valid.map((group) => (
                           <div key={group.id} className="text-sm text-emerald-800">
-                            Group {group.id}
+                            {group.code || `Group ${group.id}`}
                           </div>
                         ))}
                       </div>
@@ -1914,7 +1914,7 @@ export default function FinalizationPage() {
                       <div className="bg-red-50 border border-red-200 rounded-md p-3 space-y-1">
                         {invalid.map(({ group, reason }) => (
                           <div key={group.id} className="text-sm text-red-800 flex justify-between">
-                            <span>Group {group.id}</span>
+                            <span>{group.code || `Group ${group.id}`}</span>
                             <span className="text-red-600">{reason}</span>
                           </div>
                         ))}

@@ -71,7 +71,7 @@ export default function FinalGradesReportPage() {
     const [studentSearch, setStudentSearch] = useState('');
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(50);
-    const [groups, setGroups] = useState<{id: number, title: {title: string}}[]>([]);
+    const [groups, setGroups] = useState<{id: number, code?: string, title: {title: string}}[]>([]);
 
     const fetchGroups = useCallback(async () => {
         if (!periodId) return;
@@ -273,7 +273,7 @@ export default function FinalGradesReportPage() {
                                     <SelectItem value="all">All Groups</SelectItem>
                                     {groups.map(group => (
                                         <SelectItem key={group.id} value={group.id.toString()}>
-                                            {group.title?.title || `Group ${group.id}`}
+                                            {group.title?.title || group.code || `Group ${group.id}`}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

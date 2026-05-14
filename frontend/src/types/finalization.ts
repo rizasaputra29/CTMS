@@ -88,6 +88,7 @@ export interface GroupMember {
 // Group type with supervisors
 export interface Group {
   id: number;
+  code?: string;
   name: string;
   status: GroupStatus;
   period_id: number;

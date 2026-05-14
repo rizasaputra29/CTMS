@@ -38,6 +38,7 @@ interface SeminarSchedule {
     final_result: 'PASS' | 'FAIL' | null;
     group: {
         id: number;
+        code?: string;
         name: string;
     };
 }
@@ -125,7 +126,7 @@ export default function StudentSchedulesPage() {
                     <div className="flex justify-between items-start">
                         <div>
                             <CardTitle className="text-sm font-medium">Seminar Proposal</CardTitle>
-                            <p className="text-xs text-muted-foreground mt-0.5">Group {s.group.id}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{s.group.code || `Group ${s.group.id}`}</p>
                         </div>
                         <div className="flex flex-col items-end gap-1">
                             <Badge variant={statusColor(s.status)}>{s.status === 'PENDING_APPROVAL' ? '⏳ Pending Approval' : s.status}</Badge>

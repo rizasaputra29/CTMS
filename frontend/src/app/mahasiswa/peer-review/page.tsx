@@ -80,7 +80,7 @@ export default function MahasiswaPeerReviewPage() {
       if (formRes.data.group) {
         setGroupInfo({
           name: formRes.data.group.name,
-          code: `Group ${formRes.data.group.id}`,
+          code: formRes.data.group.code || `Group ${formRes.data.group.id}`,
           title: formRes.data.group.title,
         });
       }

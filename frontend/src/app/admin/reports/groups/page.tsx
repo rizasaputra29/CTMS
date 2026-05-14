@@ -46,6 +46,7 @@ interface GroupMember {
 
 interface Group {
     id: number;
+    code?: string;
     status: string;
     group_mode: string;
     created_at: string;
@@ -325,7 +326,7 @@ export default function GroupsReportPage() {
                                             <div className="flex items-center gap-4 text-left w-full pr-4">
                                                 <div className="flex-1">
                                                     <div className="flex items-center gap-2">
-                                                        <span className="font-semibold">Group {group.id}</span>
+                                                        <span className="font-semibold">{group.code || `Group ${group.id}`}</span>
                                                         <Badge variant={group.status === 'ACTIVE' ? 'default' : 'secondary'}>
                                                             {group.status}
                                                         </Badge>

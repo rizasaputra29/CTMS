@@ -312,7 +312,7 @@ class PeerReviewController extends Controller
                 $result[] = [
                     'group_id' => $group->id,
                     'group_code' => $group->code,
-                    'group_name' => $group->name,
+                    'group_name' => $group->code,
                     'period' => $group->period,
                     'title' => $group->title,
                     'members' => $memberScores,
@@ -528,7 +528,7 @@ class PeerReviewController extends Controller
 
             return [
                 'group_id' => $group->id,
-                'group_name' => $group->name,
+                'group_name' => $group->code,
                 'group_code' => $group->code,
                 'period_name' => $group->period->name,
                 'total_members' => $totalMembers,

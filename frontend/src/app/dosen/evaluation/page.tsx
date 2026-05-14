@@ -50,6 +50,7 @@ interface Evaluation {
     // Group info
     group: {
         id: number;
+        code?: string;
         title?: { title?: string; name?: string };
         members?: { student: { id: number; name: string; nim?: string } }[];
     };
@@ -74,6 +75,7 @@ interface SeminarData {
     }[];
     group: {
         id: number;
+        code?: string;
         title?: { title: string; name: string };
         members?: { student: { id: number; name: string; nim?: string } }[];
     };
@@ -154,7 +156,7 @@ function EvaluationCard({
     isOverdue: boolean;
     showScore?: boolean;
 }) {
-    const displayTitle = evalItem.group.title?.title || evalItem.group.title?.name || `Group ${evalItem.group.id}`;
+    const displayTitle = evalItem.group.title?.title || evalItem.group.title?.name || evalItem.group.code || `Group ${evalItem.group.id}`;
     const students = evalItem.type === 'TA_DEFENSE' && evalItem.student
         ? [evalItem.student]
         : evalItem.group.members?.map(m => m.student) || [];

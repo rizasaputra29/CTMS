@@ -30,6 +30,7 @@ import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/Sche
 
 interface Group {
     id: number;
+    code?: string;
     title: {
         title: string;
     } | null;
@@ -265,7 +266,7 @@ export default function DosenSchedulePage() {
                                     <SelectContent>
                                         {groups.map((group) => (
                                             <SelectItem key={group.id} value={group.id.toString()}>
-                                                {group.title?.title || `Group ${group.id}`}
+                                                {group.title?.title || group.code || `Group ${group.id}`}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>

@@ -43,6 +43,7 @@ interface Student {
 
 interface Group {
     id: number
+    code?: string
     period_id: number
     members?: { student: Student }[]
     title?: { name: string; title?: string }
@@ -313,7 +314,7 @@ export default function EvaluationDetailPage() {
                                 {!isTaDefense && (
                                     <div className="space-y-1">
                                         <Label className="text-xs text-muted-foreground uppercase font-semibold">Group</Label>
-                                        <p className="font-medium">Group {context.group.id}</p>
+                                        <p className="font-medium">{context.group.code || `Group ${context.group.id}`}</p>
                                         <Separator className="bg-primary/10" />
                                     </div>
                                 )}

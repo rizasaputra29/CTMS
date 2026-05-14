@@ -35,6 +35,7 @@ interface ApiSchedule {
     rejection_reason?: string;
     group: {
         id: number;
+        code?: string;
         title?: { title: string };
         period?: { id: number; name: string };
     };
@@ -57,6 +58,7 @@ interface ApiTaDefenseSchedule {
 
 interface GroupItem {
     id: number;
+    code?: string;
     status: string;
     title?: { title: string };
     members: { student: { id: number; name: string } }[];
@@ -463,7 +465,7 @@ export default function AdminSchedulePage() {
                                         <SelectContent>
                                             {(scheduleType === 'SEMPRO' ? semproEligible : expoEligible).map(g => (
                                                 <SelectItem key={g.id} value={g.id.toString()}>
-                                                    {g.title?.title || `Group ${g.id}`}
+                                                    {g.title?.title || g.code || `Group ${g.id}`}
                                                     {g.period?.name ? ` — ${g.period.name}` : ''}
                                                 </SelectItem>
                                             ))}
