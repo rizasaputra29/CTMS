@@ -3,16 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
+use App\Models\AuditLog;
+use App\Models\Document;
+use App\Models\Evaluation;
 use App\Models\Group;
+use App\Models\GroupInvitation;
 use App\Models\GroupMember;
 use App\Models\GroupSupervisorProposal;
-use App\Models\Supervision;
-use App\Models\Title;
-use App\Models\Period;
-use App\Models\User;
+use App\Models\JoinRequest;
 use App\Models\Notification;
-use App\Models\GroupInvitation;
+use App\Models\Period;
 use App\Models\PeriodRegistration;
+use App\Models\Schedule;
+use App\Models\SeminarSchedule;
+use App\Models\Supervision;
+use App\Models\TaDefenseSchedule;
+use App\Models\TaSubmission;
+use App\Models\Title;
+use App\Models\TitleApprovalAudit;
+use App\Models\User;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
@@ -1255,5 +1264,125 @@ class GroupController extends Controller
                 && $group->status === 'READY_FOR_FINALIZATION'
                 && (bool) ($period?->is_active),
         ];
+    }
+
+    /**
+     * Admin: Force delete a group and all associated data.
+     * Only allows deletion for groups in inactive periods or early formation stages.
+     */
+    public function adminDeleteGroup(Request $request, Group $group)
+    {
+        $admin = $request->user();
+
+        // Check if period is inactive OR group is in early formation stage
+        $period = $group->period;
+        $canDelete = false;
+        $reason = null;
+
+        if (!$period) {
+            // No period assigned - allow deletion
+            $canDelete = true;
+        } elseif (!$period->is_active) {
+            // Period is inactive - allow deletion
+            $canDelete = true;
+        } elseif (in_array($group->status, ['FORMING', 'FORMING_SOLO'])) {
+            // Group is still in formation stage - allow deletion in active period
+            $canDelete = true;
+        } else {
+            $reason = 'Cannot delete group: must be inactive period or group in FORMING/FORMING_SOLO status. Current status: ' . $group->status;
+        }
+
+        if (!$canDelete) {
+            return response()->json(['message' => $reason], 403);
+        }
+
+        // Get affected students before deletion for notifications
+        $affectedStudents = $group->members()->pluck('student_id')->toArray();
+
+        DB::beginTransaction();
+        try {
+            // Delete student proposals (titles)
+            Title::where('proposed_by_group_id', $group->id)
+                ->where('title_source', 'STUDENT')
+                ->delete();
+
+            // Delete bids
+            $group->bids()->delete();
+
+            // Delete supervisor proposals
+            $group->supervisorProposals()->delete();
+
+            // Delete supervisions
+            $group->supervisions()->delete();
+
+            // Delete TA submissions
+            $group->taSubmissions()->delete();
+
+            // Delete documents
+            $group->documents()->delete();
+
+            // Delete evaluations
+            $group->evaluations()->delete();
+
+            // Delete schedules
+            $group->schedules()->delete();
+
+            // Delete seminar schedules
+            $group->seminarSchedules()->delete();
+
+            // Delete TA defense schedules
+            $group->taDefenseSchedules()->delete();
+
+            // Delete approval audits
+            $group->approvalAudits()->delete();
+
+            // Delete group members
+            $group->members()->delete();
+
+            // Delete invitations for this group
+            GroupInvitation::where('group_id', $group->id)->delete();
+
+            // Delete join requests for this group
+            JoinRequest::where('group_id', $group->id)->delete();
+
+            // Log the deletion
+            AuditLog::create([
+                'user_id' => $admin->id,
+                'action' => 'GROUP_DELETED_BY_ADMIN',
+                'target_type' => 'Group',
+                'target_id' => $group->id,
+                'payload' => [
+                    'group_id' => $group->id,
+                    'period_id' => $group->period_id,
+                    'status' => $group->status,
+                    'affected_students' => $affectedStudents,
+                ],
+            ]);
+
+            // Delete the group
+            $group->delete();
+
+            // Notify affected students
+            foreach ($affectedStudents as $studentId) {
+                Notification::create([
+                    'user_id' => $studentId,
+                    'type' => 'GROUP_DELETED_BY_ADMIN',
+                    'title' => 'Kelompok Dihapus oleh Admin',
+                    'message' => "Kelompok Anda telah dihapus oleh admin. Anda sekarang dapat mendaftar kembali ke periode yang aktif.",
+                    'related_type' => 'Period',
+                    'related_id' => $period?->id,
+                ]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Group deleted successfully. Affected students have been notified and can now register for new periods.',
+                'affected_students_count' => count($affectedStudents),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['message' => 'Failed to delete group: ' . $e->getMessage()], 500);
+        }
     }
 }

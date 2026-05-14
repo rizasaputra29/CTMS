@@ -156,6 +156,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Exception: approve member leave
         Route::post('/groups/{group}/approve-member-leave', [GroupController::class, 'approveMemberLeave']);
 
+        // Admin: Force delete group
+        Route::delete('/groups/{group}/force-delete', [GroupController::class, 'adminDeleteGroup']);
+
         // Assessment Component Templates (Bank Soal)
         Route::get('/assessment-templates', [AssessmentComponentTemplateController::class, 'index']);
         Route::post('/assessment-templates', [AssessmentComponentTemplateController::class, 'store']);
