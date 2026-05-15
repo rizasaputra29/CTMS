@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { TemplateDialog } from './components/TemplateDialog';
 import { TemplateList } from './components/TemplateList';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Template {
   id: number;
@@ -68,8 +69,7 @@ export default function AssessmentBankPage() {
       toast.success('Template deleted successfully');
       fetchTemplates();
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to delete template');
+      toast.error(getApiErrorMessage(error) || 'Failed to delete template');
     }
   };
 
@@ -82,8 +82,7 @@ export default function AssessmentBankPage() {
       toast.success(template.is_active ? 'Template archived' : 'Template activated');
       fetchTemplates();
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to update template');
+      toast.error(getApiErrorMessage(error) || 'Failed to update template');
     }
   };
 
@@ -99,8 +98,7 @@ export default function AssessmentBankPage() {
       setDialogOpen(false);
       fetchTemplates();
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to save template');
+      toast.error(getApiErrorMessage(error) || 'Failed to save template');
     }
   };
 

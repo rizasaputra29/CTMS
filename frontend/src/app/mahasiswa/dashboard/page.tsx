@@ -811,6 +811,7 @@ export default function MahasiswaDashboard() {
                                 { key: 'expo_evaluation', label: 'Expo Evaluation' }
                             ].map(({ key, label }) => {
                                 const sectionKey = key as keyof FinalReadyStatus;
+                                if (!stats.final_ready_for_ta_individual) return null;
                                 const status = stats.final_ready_for_ta_individual[sectionKey];
                                 if (typeof status !== 'object' || status === null || !('configured' in status)) return null;
                                 const section = status as { configured: boolean; completed: boolean; supervisors?: SupervisorInEvaluation[] };

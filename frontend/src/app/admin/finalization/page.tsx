@@ -80,6 +80,7 @@ import api from '@/lib/api';
 import { toast } from 'sonner';
 
 import type { Group, Student, DashboardTab, OthersSubTab } from '@/types/finalization';
+import { isDashboardTab, isOthersSubTab } from '@/types/finalization';
 
 export default function FinalizationPage() {
   const searchParams = useSearchParams();
@@ -1006,7 +1007,7 @@ export default function FinalizationPage() {
       )}
 
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DashboardTab)}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(isDashboardTab(v) ? v : activeTab)}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="ready" className="relative">
             Siap Finalisasi
@@ -1445,7 +1446,7 @@ export default function FinalizationPage() {
               {/* Sub Tabs */}
               <Tabs
                 value={activeSubTab}
-                onValueChange={(v) => setActiveSubTab(v as OthersSubTab)}
+                onValueChange={(v) => setActiveSubTab(isOthersSubTab(v) ? v : activeSubTab)}
               >
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="no_group">

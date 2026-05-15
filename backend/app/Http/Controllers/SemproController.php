@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
 use App\Models\Group;
+use App\Models\Location;
 use App\Models\Period;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
@@ -141,6 +142,7 @@ class SemproController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
+            'location_id' => 'nullable|exists:locations,id',
             'examiner_1_id' => 'required|exists:users,id',
             'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
         ]);
@@ -181,13 +183,20 @@ class SemproController extends Controller
             return response()->json(['message' => $constraintError], 400);
         }
 
+        // Determine room/location for conflict checking
+        $room = $request->room;
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $room = $location->name;
+        }
+
         // Double-booking & room conflict check
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
             $request->date,
             $request->start_time,
             $request->end_time,
-            $request->room
+            $room
         );
 
         if (!empty($conflicts)) {
@@ -200,7 +209,8 @@ class SemproController extends Controller
             'date' => $request->date,
             'start_time' => $request->start_time,
             'end_time' => $request->end_time,
-            'room' => $request->room,
+            'room' => $room,
+            'location_id' => $request->location_id,
             'examiner_1_id' => $request->examiner_1_id,
             'examiner_2_id' => $request->examiner_2_id,
             'status' => 'SCHEDULED',

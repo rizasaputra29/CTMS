@@ -15,6 +15,7 @@ class SeminarSchedule extends Model
         'start_time',
         'end_time',
         'room',
+        'location_id',
         'examiner_1_id',
         'examiner_2_id',
         'status',
@@ -44,5 +45,10 @@ class SeminarSchedule extends Model
     public function evaluations(): HasMany
     {
         return $this->hasMany(SeminarEvaluation::class, 'schedule_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 }

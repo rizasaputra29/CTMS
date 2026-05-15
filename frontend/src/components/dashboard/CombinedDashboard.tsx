@@ -121,7 +121,7 @@ export default function CombinedDashboard() {
           },
           dosen: {
             supervisedGroups: Array.isArray(supervised) ? supervised.length : 0,
-            pendingEvaluations: evalCountData?.count || 0,
+            pendingEvaluations: (evalCountData as { count?: number } | null)?.count || 0,
             pendingBids: 0, // Could fetch separately
             upcomingSchedules: 0, // Could fetch separately
             recentSubmissions,

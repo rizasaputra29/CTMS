@@ -101,7 +101,7 @@ export interface CardProps extends BaseComponentProps {
 /**
  * Stats card props
  */
-export interface StatsCardProps extends VariantProps<never> {
+export interface StatsCardProps {
   title: string;
   value: string | number;
   subtitle?: string;

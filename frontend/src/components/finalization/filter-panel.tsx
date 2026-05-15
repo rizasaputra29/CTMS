@@ -17,15 +17,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { X, Filter, SlidersHorizontal, UserCheck, Users } from 'lucide-react';
-
-export interface FilterState {
-  supervisorStatus: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
-  memberCount: 'all' | 'under_min' | 'in_range' | 'over_max';
-}
+import type { FilterPanelState } from '@/types/finalization';
+import { isSupervisorStatus, isMemberCount } from '@/types/finalization';
 
 interface FilterPanelProps {
-  filters: FilterState;
-  onFilterChange: (filters: FilterState) => void;
+  filters: FilterPanelState;
+  onFilterChange: (filters: FilterPanelState) => void;
   minGroupSize?: number;
   maxGroupSize?: number;
   showSupervisor?: boolean;
@@ -51,174 +48,145 @@ export function FilterPanel({
     (showMemberCount && filters.memberCount !== 'all' ? 1 : 0)
   );
 
-  const hasActiveFilters = activeFiltersCount > 0;
-
-  const clearFilters = () => {
-    onFilterChange({
-      supervisorStatus: 'all',
-      memberCount: 'all',
-    });
-  };
-
-  const getSupervisorLabel = (value: string) => {
-    const labels: Record<string, string> = {
-      all: 'Semua',
-      missing_sv1: 'Tanpa SV1',
-      missing_sv2: 'Tanpa SV2',
-      complete: 'Lengkap',
-    };
-    return labels[value] || value;
-  };
-
-  const getMemberCountLabel = (value: string) => {
-    const labels: Record<string, string> = {
-      all: 'Semua',
-      under_min: `< ${minGroupSize}`,
-      in_range: `${minGroupSize}-${maxGroupSize}`,
-      over_max: `> ${maxGroupSize}`,
-    };
-    return labels[value] || value;
-  };
-
   return (
-    <div className="space-y-3">
-      {/* Filter Trigger Button */}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-2"
-          >
-            <SlidersHorizontal className="h-3.5 w-3.5" />
-            Filter
-            {hasActiveFilters && (
-              <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-xs">
-                {activeFiltersCount}
-              </Badge>
-            )}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-72" align="start">
-          <div className="space-y-4">
-            {/* Popover Header */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Filter</span>
-              </div>
-              {hasActiveFilters && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearFilters}
-                  className="h-7 text-xs"
-                >
-                  <X className="mr-1 h-3 w-3" />
-                  Reset
-                </Button>
-              )}
-            </div>
-
-            <Separator />
-
-            {/* Filter Controls */}
-            <div className="space-y-4">
-              {/* Supervisor Status Filter */}
-              {showSupervisor && (
-                <div className="space-y-2">
-                  <Label className="text-xs flex items-center gap-1.5">
-                    <UserCheck className="h-3.5 w-3.5" />
-                    Status Supervisor
-                  </Label>
-                  <Select
-                    value={filters.supervisorStatus}
-                    onValueChange={(value) =>
-                      onFilterChange({
-                        ...filters,
-                        supervisorStatus: value as FilterState['supervisorStatus'],
-                      })
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Pilih status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua</SelectItem>
-                      <SelectItem value="missing_sv1">Tanpa SV1</SelectItem>
-                      <SelectItem value="missing_sv2">Tanpa SV2</SelectItem>
-                      <SelectItem value="complete">Lengkap</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Member Count Filter */}
-              {showMemberCount && (
-                <div className="space-y-2">
-                  <Label className="text-xs flex items-center gap-1.5">
-                    <Users className="h-3.5 w-3.5" />
-                    Jumlah Anggota
-                  </Label>
-                  <Select
-                    value={filters.memberCount}
-                    onValueChange={(value) =>
-                      onFilterChange({
-                        ...filters,
-                        memberCount: value as FilterState['memberCount'],
-                      })
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder="Pilih jumlah" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua</SelectItem>
-                      <SelectItem value="under_min">{`< ${minGroupSize}`}</SelectItem>
-                      <SelectItem value="in_range">{`${minGroupSize}-${maxGroupSize}`}</SelectItem>
-                      <SelectItem value="over_max">{`> ${maxGroupSize}`}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      {/* Active Filter Badges */}
-      {hasActiveFilters && (
-        <div className="flex flex-wrap gap-2">
-          {showSupervisor && filters.supervisorStatus !== 'all' && (
-            <Badge variant="secondary" className="gap-1 px-2 py-1 text-xs">
-              <UserCheck className="h-3 w-3" />
-              {getSupervisorLabel(filters.supervisorStatus)}
-              <button
-                onClick={() =>
-                  onFilterChange({ ...filters, supervisorStatus: 'all' })
-                }
-                className="ml-1 rounded-full hover:bg-muted"
-              >
-                <X className="h-3 w-3" />
-              </button>
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="h-8 gap-1.5 relative">
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          <span>Filter</span>
+          {activeFiltersCount > 0 && (
+            <Badge variant="secondary" className="h-4 px-1 text-[10px] ml-1">
+              {activeFiltersCount}
             </Badge>
           )}
-          {showMemberCount && filters.memberCount !== 'all' && (
-            <Badge variant="secondary" className="gap-1 px-2 py-1 text-xs">
-              <Users className="h-3 w-3" />
-              {getMemberCountLabel(filters.memberCount)}
-              <button
-                onClick={() =>
-                  onFilterChange({ ...filters, memberCount: 'all' })
-                }
-                className="ml-1 rounded-full hover:bg-muted"
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64" align="end">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="font-medium text-sm flex items-center gap-2">
+              <Filter className="h-4 w-4" />
+              Filter Options
+            </h4>
+            {activeFiltersCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => {
+                  onFilterChange({
+                    ...filters,
+                    supervisorStatus: 'all',
+                    memberCount: 'all',
+                  });
+                }}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </Badge>
+                Clear
+              </Button>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-3">
+            {/* Supervisor Status Filter */}
+            {showSupervisor && (
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1.5">
+                  <UserCheck className="h-3.5 w-3.5" />
+                  Status Supervisor
+                </Label>
+                <Select
+                  value={filters.supervisorStatus}
+                  onValueChange={(value) =>
+                    onFilterChange({
+                      ...filters,
+                      supervisorStatus: isSupervisorStatus(value) ? value : 'all',
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Pilih status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua</SelectItem>
+                    <SelectItem value="missing_sv1">Tanpa SV1</SelectItem>
+                    <SelectItem value="missing_sv2">Tanpa SV2</SelectItem>
+                    <SelectItem value="complete">Lengkap</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Member Count Filter */}
+            {showMemberCount && (
+              <div className="space-y-2">
+                <Label className="text-xs flex items-center gap-1.5">
+                  <Users className="h-3.5 w-3.5" />
+                  Jumlah Anggota
+                </Label>
+                <Select
+                  value={filters.memberCount}
+                  onValueChange={(value) =>
+                    onFilterChange({
+                      ...filters,
+                      memberCount: isMemberCount(value) ? value : 'all',
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Pilih jumlah" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua</SelectItem>
+                    <SelectItem value="under_min">{`< ${minGroupSize}`}</SelectItem>
+                    <SelectItem value="in_range">{`${minGroupSize}-${maxGroupSize}`}</SelectItem>
+                    <SelectItem value="over_max">{`> ${maxGroupSize}`}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          {/* Active Filters Summary */}
+          {activeFiltersCount > 0 && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <div className="text-xs text-muted-foreground">Active Filters:</div>
+                <div className="flex flex-wrap gap-1">
+                  {showSupervisor && filters.supervisorStatus !== 'all' && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Supervisor: {filters.supervisorStatus}
+                      <button
+                        className="ml-1 hover:text-destructive"
+                        onClick={() =>
+                          onFilterChange({ ...filters, supervisorStatus: 'all' })
+                        }
+                      >
+                        <X className="h-2.5 w-2.5 inline" />
+                      </button>
+                    </Badge>
+                  )}
+                  {showMemberCount && filters.memberCount !== 'all' && (
+                    <Badge variant="secondary" className="text-[10px]">
+                      Members: {filters.memberCount}
+                      <button
+                        className="ml-1 hover:text-destructive"
+                        onClick={() =>
+                          onFilterChange({ ...filters, memberCount: 'all' })
+                        }
+                      >
+                        <X className="h-2.5 w-2.5 inline" />
+                      </button>
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
-      )}
-    </div>
+      </PopoverContent>
+    </Popover>
   );
 }

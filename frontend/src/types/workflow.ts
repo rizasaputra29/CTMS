@@ -5,6 +5,7 @@
 
 import type { LatestDocument } from './document';
 import type { SupervisorInEvaluation } from './user';
+import type { WorkflowPhase } from './dashboard';
 
 /**
  * Workflow step keys
@@ -29,9 +30,9 @@ export interface WorkflowStep {
 }
 
 /**
- * Phase document requirement
+ * Phase document requirement in workflow context
  */
-export interface PhaseDocumentRequirement {
+export interface WorkflowPhaseDocumentRequirement {
   type: string;
   name: string;
   required: boolean;
@@ -85,7 +86,7 @@ export interface WorkflowState {
 export interface WorkflowPhaseDetail {
   phase: string;
   status: 'locked' | 'unlocked' | 'submitted' | 'draft' | 'revision' | 'completed';
-  documents: PhaseDocumentRequirement[];
+  documents: WorkflowPhaseDocumentRequirement[];
   required_types: string[];
   document_count: number;
 }

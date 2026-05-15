@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Group;
-use App\Models\Period;
+use App\Models\Location;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Services\ExpoEligibilityService;
@@ -83,6 +83,7 @@ class ExpoController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'nullable|string',
+            'location_id' => 'nullable|exists:locations,id',
             // Examiners are now optional for EXPO (only supervisors evaluate EXPO)
             'examiner_1_id' => 'nullable|exists:users,id',
             'examiner_2_id' => 'nullable|exists:users,id|different:examiner_1_id',
@@ -119,6 +120,13 @@ class ExpoController extends Controller
             return response()->json(['message' => 'Group already has an EXPO schedule.'], 400);
         }
 
+        // Determine room/location for conflict checking
+        $room = $request->room;
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $room = $location->name;
+        }
+
         // Double-booking & room conflict check (only check examiners if provided)
         $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
         $conflicts = $this->schedulingService->validateScheduleConflicts(
@@ -126,7 +134,7 @@ class ExpoController extends Controller
             $request->date,
             $request->start_time,
             $request->end_time,
-            $request->room
+            $room
         );
 
         if (!empty($conflicts)) {
@@ -139,7 +147,8 @@ class ExpoController extends Controller
             'date' => $request->date,
             'start_time' => $request->start_time,
             'end_time' => $request->end_time,
-            'room' => $request->room,
+            'room' => $room,
+            'location_id' => $request->location_id,
             'examiner_1_id' => $request->examiner_1_id,
             'examiner_2_id' => $request->examiner_2_id,
             'status' => 'SCHEDULED',

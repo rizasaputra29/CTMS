@@ -35,7 +35,7 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
-    ListChecks, BarChart3, Star, ChevronRight, TrendingUp,
+    ListChecks, BarChart3, Star, ChevronRight, TrendingUp, MapPin,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -77,6 +77,7 @@ const navItems: Record<string, NavItem[]> = {
                 { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
                 { title: 'Users', url: '/admin/users', icon: Users },
                 { title: 'Groups', url: '/admin/groups', icon: Users },
+                { title: 'Locations', url: '/admin/locations', icon: MapPin },
                 { title: 'Document Requirements', url: '/admin/document-requirements', icon: FileText },
             ]
         },

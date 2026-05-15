@@ -2,15 +2,24 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Field } from '@/components/ui/field';
+import { FieldLabel } from '@/components/ui/field-label';
+import { FieldError } from '@/components/ui/field-error';
+import { FieldDescription } from '@/components/ui/field-description';
+import { FieldSet } from '@/components/ui/field-set';
+import { FieldLegend } from '@/components/ui/field-legend';
+import { FieldGroup } from '@/components/ui/field-group';
+import { FieldContent } from '@/components/ui/field-content';
 import {
     Select,
     SelectContent,
@@ -22,6 +31,7 @@ import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, L
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { Bid } from '@/types/bid';
+import { proposeTitleSchema, type ProposeTitleFormData } from '@/lib/validations/proposals';
 
 interface Lecturer {
     id: number;
@@ -64,26 +74,37 @@ interface ProposalFlow {
     reason: string | null;
 }
 
+const specializations = ['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'];
+
 export default function ProposeTitlePage() {
     const { user } = useAuth();
     const [lecturers, setLecturers] = useState<Lecturer[]>([]);
     const [proposals, setProposals] = useState<Proposal[]>([]);
     const [group, setGroup] = useState<GroupInfo | null>(null);
     const [loading, setLoading] = useState(true);
-    const [submitting, setSubmitting] = useState(false);
     const [showForm, setShowForm] = useState(false);
     const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
     const [bidCount, setBidCount] = useState(0);
     const [activeBids, setActiveBids] = useState<Bid[]>([]);
     const [proposalFlow, setProposalFlow] = useState<ProposalFlow | null>(null);
 
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        problem_statement: '',
-        scope: '',
-        specializations: [] as string[],
-        proposed_supervisor_id: '',
+    const {
+        control,
+        handleSubmit,
+        reset,
+        formState: { errors, isSubmitting },
+        setError: setFormError,
+    } = useForm<ProposeTitleFormData>({
+        resolver: zodResolver(proposeTitleSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            title: '',
+            description: '',
+            problem_statement: '',
+            scope: '',
+            specializations: [],
+            proposed_supervisor_id: '',
+        },
     });
 
     const fetchData = useCallback(async () => {
@@ -102,7 +123,6 @@ export default function ProposeTitlePage() {
             setProposalFlow(proposalRes.data.flow || null);
             
             const allBids = bidsRes.data.data || [];
-            // Filter active bids only (not rejected) for slot counting
             const activeBidsFiltered = allBids.filter((b: Bid) =>
                 !b.lecturer_recommendation || b.lecturer_recommendation === 'ACCEPT'
             );
@@ -127,7 +147,6 @@ export default function ProposeTitlePage() {
     const hasActiveProposalFlag = group?.has_active_proposal === true;
     const isLeader = group?.members?.some(m => m.is_leader && m.student.id === user?.id) ?? false;
     
-    // Member count validation for non-solo groups
     const memberCount = group?.members?.length || 0;
     const minGroupSize = 3;
     const hasEnoughMembers = group?.is_solo || memberCount >= minGroupSize;
@@ -156,47 +175,45 @@ export default function ProposeTitlePage() {
         NO_ACTIVE_PERIOD: 'Periode aktif tidak ditemukan untuk kelompok ini.',
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmitting(true);
+    const onSubmit = async (data: ProposeTitleFormData) => {
         try {
             if (editingProposal) {
                 await api.put('/mahasiswa/my-proposal', {
                     title_id: editingProposal.id,
-                    ...formData,
-                    proposed_supervisor_id: parseInt(formData.proposed_supervisor_id),
+                    ...data,
+                    proposed_supervisor_id: parseInt(data.proposed_supervisor_id),
                 });
                 toast.success(editingProposal.supervisor_approval_status === 'PENDING' ? 'Proposal updated successfully!' : 'Proposal resubmitted successfully!');
             } else {
                 await api.post('/mahasiswa/propose-title', {
-                    ...formData,
-                    proposed_supervisor_id: parseInt(formData.proposed_supervisor_id),
+                    ...data,
+                    proposed_supervisor_id: parseInt(data.proposed_supervisor_id),
                 });
                 toast.success('Proposal submitted successfully!');
             }
             setShowForm(false);
             setEditingProposal(null);
-            setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], proposed_supervisor_id: '' });
+            reset();
             fetchData();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to submit proposal');
+                const message = error.response?.data?.message || 'Failed to submit proposal';
+                setFormError('root', { type: 'manual', message });
+                toast.error(message);
             } else {
+                setFormError('root', { type: 'manual', message: 'Failed to submit proposal' });
                 toast.error('Failed to submit proposal');
             }
-        } finally {
-            setSubmitting(false);
         }
     };
 
     const canEditProposal = (proposal: Proposal): boolean => {
-        // Can edit if proposal is PENDING, REJECTED, or UNDER_REVIEW
         return ['PENDING', 'REJECTED', 'UNDER_REVIEW'].includes(proposal.supervisor_approval_status) && isLeader;
     };
 
     const handleEdit = (proposal: Proposal) => {
         setEditingProposal(proposal);
-        setFormData({
+        reset({
             title: proposal.title,
             description: proposal.description,
             problem_statement: proposal.problem_statement || '',
@@ -223,6 +240,12 @@ export default function ProposeTitlePage() {
                 toast.error('Gagal membatalkan proposal');
             }
         }
+    };
+
+    const handleCloseForm = () => {
+        setShowForm(false);
+        setEditingProposal(null);
+        reset();
     };
 
     const getStatusIcon = (status: string) => {
@@ -284,7 +307,6 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
-            {/* Leader-only guard */}
             {hasGroup && !isLeader && (
                 <Alert>
                     <Lock className="h-4 w-4" />
@@ -295,7 +317,6 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
-            {/* Limit reached */}
             {isLeader && limitReached && !hasApprovedProposal && (
                 <Alert>
                     <AlertTriangle className="h-4 w-4" />
@@ -306,7 +327,6 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
-            {/* Lock Alerts */}
             {!hasGroup && (
                 <Alert>
                     <Info className="h-4 w-4" />
@@ -371,10 +391,19 @@ export default function ProposeTitlePage() {
                 </Alert>
             )}
 
+            {/* Root Error */}
+            {errors.root && (
+                <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{errors.root.message}</AlertDescription>
+                </Alert>
+            )}
+
             {/* Proposal Form */}
             {showForm && (canCreateProposal || (editingProposal && ['PENDING', 'REJECTED', 'UNDER_REVIEW'].includes(editingProposal.supervisor_approval_status))) && (
                 <Card>
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={handleSubmit(onSubmit)}>
                         <CardHeader>
                             <CardTitle>{editingProposal ? (editingProposal.supervisor_approval_status === 'PENDING' ? 'Edit Proposal' : 'Resubmit Proposal') : 'New Title Proposal'}</CardTitle>
                             <CardDescription>
@@ -386,94 +415,164 @@ export default function ProposeTitlePage() {
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="grid gap-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="title">Title</Label>
-                                <Input
-                                    id="title"
-                                    value={formData.title}
-                                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                    placeholder="Enter your proposed title"
-                                    required
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="description">Description</Label>
-                                <Textarea
-                                    id="description"
-                                    value={formData.description}
-                                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                    placeholder="Describe your project in detail"
-                                    rows={3}
-                                    required
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="problem_statement">Problem Statement</Label>
-                                <Textarea
-                                    id="problem_statement"
-                                    value={formData.problem_statement}
-                                    onChange={(e) => setFormData({ ...formData, problem_statement: e.target.value })}
-                                    placeholder="What problem does your project solve?"
-                                    rows={3}
-                                    required
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="scope">Scope</Label>
-                                <Textarea
-                                    id="scope"
-                                    value={formData.scope}
-                                    onChange={(e) => setFormData({ ...formData, scope: e.target.value })}
-                                    placeholder="Define the boundaries and scope of your project"
-                                    rows={3}
-                                    required
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Specializations</Label>
-                                <div className="flex flex-wrap gap-3">
-                                    {['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'].map(spec => (
-                                        <label key={spec} className="flex items-center gap-2 cursor-pointer">
-                                            <Checkbox
-                                                checked={formData.specializations.includes(spec)}
-                                                onCheckedChange={() => setFormData(prev => ({
-                                                    ...prev,
-                                                    specializations: prev.specializations.includes(spec)
-                                                        ? prev.specializations.filter(s => s !== spec)
-                                                        : [...prev.specializations, spec],
-                                                }))}
-                                            />
-                                            <span className="text-sm">{spec}</span>
-                                        </label>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="supervisor">Supervisor (Dosen Pembimbing)</Label>
-                                <Select
-                                    value={formData.proposed_supervisor_id}
-                                    onValueChange={(value) => setFormData({ ...formData, proposed_supervisor_id: value })}
-                                    required
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a supervisor" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {lecturers.map((lecturer) => (
-                                            <SelectItem key={lecturer.id} value={lecturer.id.toString()}>
-                                                {lecturer.name} ({lecturer.email})
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            <Controller
+                                name="title"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Title</FieldLabel>
+                                        <Input
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="Enter your proposed title"
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Controller
+                                name="description"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Description</FieldLabel>
+                                        <Textarea
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="Describe your project in detail"
+                                            rows={3}
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        <FieldDescription>
+                                            Provide a clear description of what your project will accomplish.
+                                        </FieldDescription>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Controller
+                                name="problem_statement"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Problem Statement</FieldLabel>
+                                        <Textarea
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="What problem does your project solve?"
+                                            rows={3}
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        <FieldDescription>
+                                            Describe the specific problem or gap that your project addresses.
+                                        </FieldDescription>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Controller
+                                name="scope"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Scope</FieldLabel>
+                                        <Textarea
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="Define the boundaries and scope of your project"
+                                            rows={3}
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        <FieldDescription>
+                                            Define what is included and excluded in your project scope.
+                                        </FieldDescription>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Controller
+                                name="specializations"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <FieldSet>
+                                        <FieldLegend variant="label">Specializations</FieldLegend>
+                                        <FieldDescription>Select all specializations that apply to your project.</FieldDescription>
+                                        <FieldGroup data-slot="checkbox-group">
+                                            {specializations.map((spec) => (
+                                                <Field
+                                                    key={spec}
+                                                    orientation="horizontal"
+                                                    data-invalid={fieldState.invalid}
+                                                >
+                                                    <Checkbox
+                                                        id={`spec-${spec}`}
+                                                        name={field.name}
+                                                        checked={field.value?.includes(spec)}
+                                                        onCheckedChange={(checked) => {
+                                                            const newValue = checked
+                                                                ? [...(field.value || []), spec]
+                                                                : field.value?.filter((s) => s !== spec) || [];
+                                                            field.onChange(newValue);
+                                                        }}
+                                                        aria-invalid={fieldState.invalid}
+                                                    />
+                                                    <FieldLabel htmlFor={`spec-${spec}`} className="font-normal">
+                                                        {spec}
+                                                    </FieldLabel>
+                                                </Field>
+                                            ))}
+                                        </FieldGroup>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </FieldSet>
+                                )}
+                            />
+
+                            <Controller
+                                name="proposed_supervisor_id"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldContent>
+                                            <FieldLabel htmlFor={field.name}>Supervisor (Dosen Pembimbing)</FieldLabel>
+                                            <FieldDescription>
+                                                Select a lecturer who will supervise your project.
+                                            </FieldDescription>
+                                            {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                        </FieldContent>
+                                        <Select
+                                            name={field.name}
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger
+                                                id={field.name}
+                                                aria-invalid={fieldState.invalid}
+                                            >
+                                                <SelectValue placeholder="Select a supervisor" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {lecturers.map((lecturer) => (
+                                                    <SelectItem key={lecturer.id} value={lecturer.id.toString()}>
+                                                        {lecturer.name} ({lecturer.email})
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </Field>
+                                )}
+                            />
                         </CardContent>
                         <CardFooter className="flex justify-end gap-2">
-                            <Button type="button" variant="outline" onClick={() => { setShowForm(false); setEditingProposal(null); }}>
+                            <Button type="button" variant="outline" onClick={handleCloseForm}>
                                 Cancel
                             </Button>
-                            <Button type="submit" disabled={submitting || !formData.proposed_supervisor_id}>
-                                {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                                 {editingProposal ? (editingProposal.supervisor_approval_status === 'PENDING' ? 'Update Proposal' : 'Resubmit Proposal') : 'Submit Proposal'}
                             </Button>
                         </CardFooter>

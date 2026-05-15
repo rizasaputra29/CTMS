@@ -54,9 +54,15 @@ export interface TitleApprovalHistoryItem {
   title_id: number;
   previous_status: TitleStatus;
   new_status: TitleStatus;
+  action?: string;
   reason?: string | null;
   approved_by?: number;
   approved_by_user?: User;
+  lecturer?: User;
+  affected_group?: {
+    id: number;
+    name: string;
+  };
   created_at: string;
 }
 
@@ -69,6 +75,10 @@ export interface TitleDeletionHistoryItem {
   title_id: number;
   deleted_by: number;
   deleted_by_user?: User;
+  action?: string;
+  lecturer?: User;
+  affected_groups_count?: number;
+  reverted_group_ids?: number[];
   reason?: string | null;
   created_at: string;
 }
@@ -115,7 +125,12 @@ export interface TitleSummary {
  * Title marketplace item
  * Used in bidding/marketplace views
  */
-export interface TitleMarketplaceItem extends Title {
+export interface TitleMarketplaceItem {
+  id: number;
+  title: string;
+  description: string;
+  quota: number;
+  status: TitleStatus;
   lecturer?: {
     id: number;
     name: string;

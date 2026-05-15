@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +10,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Loader2, Download, ArrowLeft, FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { useStringParam } from '@/hooks/use-params';
+import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Student {
   id: number;
@@ -71,21 +72,24 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function EvaluationSummaryPage() {
-  const params = useParams();
-  const scheduleId = params.scheduleId as string;
+  const scheduleId = useStringParam('scheduleId');
   
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
 
   const fetchSummary = useCallback(async () => {
+    if (!scheduleId) {
+      toast.error('Invalid schedule ID');
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const res = await api.get(`/admin/supervisor-evaluation/schedules/${scheduleId}/summary`);
       setData(res.data);
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to load evaluation summary');
+      toast.error(getApiErrorMessage(error) || 'Failed to load evaluation summary');
     } finally {
       setLoading(false);
     }

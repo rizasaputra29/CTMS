@@ -36,6 +36,20 @@ export type GroupStatus = BackendGroupStatus;
 export type DashboardTab = 'ready' | 'final' | 'others';
 export type OthersSubTab = 'no_group' | 'no_title' | 'not_ready';
 
+/**
+ * Validates if value is a valid DashboardTab
+ */
+export function isDashboardTab(value: string): value is DashboardTab {
+  return ['ready', 'final', 'others'].includes(value);
+}
+
+/**
+ * Validates if value is a valid OthersSubTab
+ */
+export function isOthersSubTab(value: string): value is OthersSubTab {
+  return ['no_group', 'no_title', 'not_ready'].includes(value);
+}
+
 // Base user type
 export interface User {
   id: number;
@@ -279,4 +293,25 @@ export interface FilterState {
   supervisorStatus?: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
   memberCount?: 'all' | 'under_min' | 'in_range' | 'over_max';
   titleStatus?: 'all' | 'no_title' | 'lecturer_title' | 'marketplace_title';
+}
+
+// Filter panel state (subset of FilterState used by FilterPanel component)
+export interface FilterPanelState {
+  supervisorStatus: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
+  memberCount: 'all' | 'under_min' | 'in_range' | 'over_max';
+}
+
+// Type guard for supervisor status
+export function isSupervisorStatus(value: string): value is FilterState['supervisorStatus'] {
+  return ['all', 'missing_sv1', 'missing_sv2', 'complete'].includes(value);
+}
+
+// Type guard for member count
+export function isMemberCount(value: string): value is FilterState['memberCount'] {
+  return ['all', 'under_min', 'in_range', 'over_max'].includes(value);
+}
+
+// Type guard for title status
+export function isTitleStatus(value: string): value is FilterState['titleStatus'] {
+  return ['all', 'no_title', 'lecturer_title', 'marketplace_title'].includes(value);
 }

@@ -29,6 +29,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getApiErrorMessage, isAxiosError } from '@/lib/error-utils';
 import {
   Select,
   SelectContent,
@@ -102,16 +103,16 @@ export default function MahasiswaPeerReviewPage() {
       }
       setScores(initial);
     } catch (error: unknown) {
-      const err = error as { response?: { status?: number; data?: { message?: string } }; message?: string };
       console.error('Peer review fetch error:', error);
+      const errorMessage = getApiErrorMessage(error);
+      const axiosError = isAxiosError(error) ? error : null;
 
-      if (err?.response?.status === 404 &&
-        err?.response?.data?.message?.includes('not in any group')) {
+      if (axiosError?.response?.status === 404 &&
+        axiosError?.response?.data?.message?.includes('not in any group')) {
         setHasGroup(false);
       } else {
         setHasGroup(true);
-        toast.error('Failed to load peer review data: ' +
-          (err?.response?.data?.message || err?.message || 'Unknown error'));
+        toast.error('Failed to load peer review data: ' + errorMessage);
       }
     } finally { 
       setLoading(false);
@@ -166,10 +167,8 @@ export default function MahasiswaPeerReviewPage() {
       toast.success('Peer review submitted successfully!');
       await fetchData();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } }; message?: string };
       console.error('Peer review submit error:', error);
-      toast.error('Failed to submit peer review: ' +
-        (err?.response?.data?.message || err?.message || 'Unknown error'));
+      toast.error('Failed to submit peer review: ' + getApiErrorMessage(error));
     } finally { setSubmitting(false); }
   };
 

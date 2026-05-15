@@ -18,6 +18,7 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { getApiErrorMessage } from '@/lib/error-utils';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -29,6 +30,13 @@ import {
 interface Period { id: number; name: string; is_active: boolean; }
 interface Dosen { id: number; name: string; email: string; }
 interface Student { id: number; name: string; nim: string; }
+interface Location {
+    id: number;
+    name: string;
+    capacity: number;
+    type: 'physical' | 'online';
+    is_active: boolean;
+}
 
 interface TaDefenseSchedule {
     id: number;
@@ -40,6 +48,7 @@ interface TaDefenseSchedule {
     start_time: string;
     end_time: string;
     room: string | null;
+    location_id?: number;
     status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
     examiner1: Dosen;
     examiner2: Dosen;
@@ -67,6 +76,14 @@ interface EligibleStudentData {
 type SortKey = 'name' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
 type StatusFilter = 'ALL' | 'SCHEDULED' | 'DONE' | 'CANCELLED';
+
+/**
+ * Validates if value is a valid StatusFilter
+ */
+function isStatusFilter(value: string): value is StatusFilter {
+  return ['ALL', 'SCHEDULED', 'DONE', 'CANCELLED'].includes(value);
+}
+
 const PAGE_SIZES = [10, 25, 50];
 
 export default function AdminTaDefensePage() {
@@ -85,7 +102,7 @@ export default function AdminTaDefensePage() {
     const [formDate, setFormDate] = useState('');
     const [formStartTime, setFormStartTime] = useState('');
     const [formEndTime, setFormEndTime] = useState('');
-    const [formRoom, setFormRoom] = useState('');
+    const [formLocationId, setFormLocationId] = useState('');
     const [formExaminer1, setFormExaminer1] = useState('');
     const [formExaminer2, setFormExaminer2] = useState('');
     const [formNotes, setFormNotes] = useState('');
@@ -94,6 +111,7 @@ export default function AdminTaDefensePage() {
 
     const [cancelOpen, setCancelOpen] = useState(false);
     const [cancelSchedule, setCancelSchedule] = useState<TaDefenseSchedule | null>(null);
+    const [locations, setLocations] = useState<Location[]>([]);
 
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
@@ -156,8 +174,18 @@ export default function AdminTaDefensePage() {
         }
     }, [selectedPeriod]);
 
+    const fetchLocations = useCallback(async () => {
+        try {
+            const res = await api.get('/locations');
+            setLocations(res.data?.data || []);
+        } catch (err) {
+            console.error('Failed to fetch locations', err);
+        }
+    }, []);
+
     useEffect(() => { fetchData(); }, [fetchData]);
     useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
+    useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
     const getAvailableStudents = (): EligibleMember[] => {
         const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
@@ -227,7 +255,7 @@ export default function AdminTaDefensePage() {
                 date: formDate,
                 start_time: formStartTime,
                 end_time: formEndTime,
-                room: formRoom,
+                location_id: formLocationId ? parseInt(formLocationId) : null,
                 notes: formNotes || null,
             });
             toast.success('TA Defense schedule created');
@@ -265,7 +293,7 @@ export default function AdminTaDefensePage() {
         setFormDate('');
         setFormStartTime('');
         setFormEndTime('');
-        setFormRoom('');
+        setFormLocationId('');
         setFormExaminer1('');
         setFormExaminer2('');
         setFormNotes('');
@@ -282,10 +310,12 @@ export default function AdminTaDefensePage() {
                 st.nim?.toLowerCase().includes(q)
             ) || s.student?.name?.toLowerCase().includes(q);
             
+            const locationName = locations.find(l => l.id === s.location_id)?.name || s.room || '';
+            
             return (
                 studentMatch ||
                 s.group?.id?.toString().includes(q) ||
-                (s.room?.toLowerCase() || '').includes(q)
+                locationName.toLowerCase().includes(q)
             );
         });
 
@@ -335,9 +365,11 @@ export default function AdminTaDefensePage() {
         setPage(1); // Reset page when search changes
     };
 
-    const handleStatusFilterChange = (status: StatusFilter) => {
-        setStatusFilter(status);
-        setPage(1); // Reset page when filter changes
+    const handleStatusFilterChange = (status: string) => {
+        if (isStatusFilter(status)) {
+            setStatusFilter(status);
+            setPage(1); // Reset page when filter changes
+        }
     };
 
     const toggleExpanded = (id: number) => {
@@ -406,7 +438,7 @@ export default function AdminTaDefensePage() {
                                 <TableHead className="w-[80px]">Group</TableHead>
                                 <SortHeader label="Date" sortKeyName="date" />
                                 <TableHead className="w-[120px]">Time</TableHead>
-                                <TableHead>Room</TableHead>
+                                <TableHead>Location</TableHead>
                                 <TableHead className="w-[180px]">Examiners</TableHead>
                                 <SortHeader label="Status" sortKeyName="status" />
                                 <TableHead className="w-[80px] text-right">Actions</TableHead>
@@ -469,7 +501,7 @@ export default function AdminTaDefensePage() {
                                             </TableCell>
                                             <TableCell>
                                                 <span className={`text-sm ${isCancelled ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
-                                                    {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                    {locations.find(l => l.id === s.location_id)?.name || s.room || <span className="text-muted-foreground/40">—</span>}
                                                 </span>
                                             </TableCell>
                                             <TableCell>
@@ -529,9 +561,9 @@ export default function AdminTaDefensePage() {
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between">
-                                                                    <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                    <span className="text-muted-foreground/70 text-[12px]">Location</span>
                                                                     <span className="text-[12px] text-muted-foreground">
-                                                                        {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                                        {locations.find(l => l.id === s.location_id)?.name || s.room || <span className="text-muted-foreground/40">—</span>}
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between">
@@ -706,7 +738,7 @@ export default function AdminTaDefensePage() {
                 </div>
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-                    <Select value={statusFilter} onValueChange={(v) => handleStatusFilterChange(v as StatusFilter)}>
+                    <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
                         <SelectTrigger className="w-[160px]">
                             <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
@@ -887,8 +919,22 @@ export default function AdminTaDefensePage() {
                                 <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
                             </div>
                             <div className="space-y-2">
-                                <Label>Room</Label>
-                                <Input placeholder="e.g., Room A, Lab 1" value={formRoom} onChange={(e) => setFormRoom(e.target.value)} />
+                                <Label>Location</Label>
+                                <Select value={formLocationId || undefined} onValueChange={setFormLocationId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select location..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {locations.length === 0 && (
+                                            <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                        )}
+                                        {locations.filter(l => l.is_active).map((loc) => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
 

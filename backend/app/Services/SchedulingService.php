@@ -234,16 +234,17 @@ class SchedulingService
             })
             ->whereHas('group.supervisions', fn($q) => $q->where('supervisor_id', $examinerId))
             ->whereRaw('DATE(date) = ?', [$date])
-            ->whereRaw('date < ?', [$date . ' ' . $endTime])
-            ->whereRaw("date + INTERVAL '1 hour' > ?", [$date . ' ' . $startTime])
+            ->whereRaw('start_time < ?', [$endTime])
+            ->whereRaw('end_time > ?', [$startTime])
             ->first();
 
         if ($bimbinganConflict) {
-            $bTime = \Carbon\Carbon::parse($bimbinganConflict->date)->format('H:i');
+            $bTime = $bimbinganConflict->start_time->format('H:i');
+            $bEndTime = $bimbinganConflict->end_time->format('H:i');
             return [
                 'type' => 'bimbingan',
                 'schedule' => $bimbinganConflict,
-                'message' => "Examiner has a conflicting BIMBINGAN schedule on {$date} at {$bTime}",
+                'message' => "Examiner has a conflicting BIMBINGAN schedule on {$date} ({$bTime}-{$bEndTime})",
             ];
         }
 
@@ -313,15 +314,16 @@ class SchedulingService
                 $q->whereIn('period_id', $periodIds);
             })
             ->whereRaw('DATE(date) = ?', [$date])
-            ->whereRaw('date < ?', [$date . ' ' . $endTime])
-            ->whereRaw("date + INTERVAL '1 hour' > ?", [$date . ' ' . $startTime])
+            ->whereRaw('start_time < ?', [$endTime])
+            ->whereRaw('end_time > ?', [$startTime])
             ->first();
 
         if ($bimbinganRoomConflict) {
-            $bTime = \Carbon\Carbon::parse($bimbinganRoomConflict->date)->format('H:i');
+            $bTime = $bimbinganRoomConflict->start_time->format('H:i');
+            $bEndTime = $bimbinganRoomConflict->end_time->format('H:i');
             return [
                 'type' => 'bimbingan',
-                'message' => "Room '{$room}' is already booked for BIMBINGAN on {$date} at {$bTime}",
+                'message' => "Room '{$room}' is already booked for BIMBINGAN on {$date} ({$bTime}-{$bEndTime})",
             ];
         }
 
@@ -354,6 +356,83 @@ class SchedulingService
             if ($roomConflict) {
                 $errors[] = $roomConflict['message'];
             }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * Validate BIMBINGAN schedule creation for a dosen.
+     * Checks if dosen has conflicts as an examiner in SEMPRO, EXPO, or TA Defense schedules.
+     * Also checks for existing BIMBINGAN conflicts for this dosen.
+     *
+     * @param int $dosenId The dosen creating the BIMBINGAN
+     * @param string $date Date in Y-m-d format
+     * @param string $startTime Start time in H:i format
+     * @param string $endTime End time in H:i format
+     * @param int|null $excludeBimbinganId BIMBINGAN schedule ID to exclude (for updates)
+     * @return array Array of conflict error messages, empty if no conflicts
+     */
+    public function validateBimbinganConflicts(
+        int $dosenId,
+        string $date,
+        string $startTime,
+        string $endTime,
+        ?int $excludeBimbinganId = null
+    ): array {
+        $errors = [];
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+
+        // 1. Check if dosen is an examiner for SEMPRO or EXPO
+        $seminarConflict = SeminarSchedule::where('date', $date)
+            ->where('status', '!=', 'CANCELLED')
+            ->where('start_time', '<', $endTime)
+            ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
+            ->where(function ($q) use ($dosenId) {
+                $q->where('examiner_1_id', $dosenId)
+                    ->orWhere('examiner_2_id', $dosenId);
+            })
+            ->first();
+
+        if ($seminarConflict) {
+            $errors[] = "You have a conflicting {$seminarConflict->type} schedule on {$date} ({$seminarConflict->start_time}-{$seminarConflict->end_time})";
+        }
+
+        // 2. Check if dosen is an examiner for TA Defense
+        $taConflict = TaDefenseSchedule::where('date', $date)
+            ->where('status', '!=', 'CANCELLED')
+            ->where('start_time', '<', $endTime)
+            ->where('end_time', '>', $startTime)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                $q->whereIn('period_id', $periodIds);
+            })
+            ->where(function ($q) use ($dosenId) {
+                $q->where('examiner_1_id', $dosenId)
+                    ->orWhere('examiner_2_id', $dosenId)
+                    ->orWhereHas('examiners', fn($sq) => $sq->where('examiner_id', $dosenId));
+            })
+            ->first();
+
+        if ($taConflict) {
+            $errors[] = "You have a conflicting TA defense schedule on {$date} ({$taConflict->start_time}-{$taConflict->end_time})";
+        }
+
+        // 3. Check for existing BIMBINGAN schedules by this dosen
+        $bimbinganConflict = Schedule::where('type', 'BIMBINGAN')
+            ->where('created_by', $dosenId)
+            ->whereRaw('DATE(date) = ?', [$date])
+            ->whereRaw('start_time < ?', [$endTime])
+            ->whereRaw('end_time > ?', [$startTime])
+            ->when($excludeBimbinganId, fn($q) => $q->where('id', '!=', $excludeBimbinganId))
+            ->first();
+
+        if ($bimbinganConflict) {
+            $bTime = $bimbinganConflict->start_time->format('H:i');
+            $bEndTime = $bimbinganConflict->end_time->format('H:i');
+            $errors[] = "You have a conflicting BIMBINGAN schedule on {$date} ({$bTime}-{$bEndTime})";
         }
 
         return $errors;

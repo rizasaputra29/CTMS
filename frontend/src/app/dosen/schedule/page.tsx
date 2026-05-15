@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Textarea } from "@/components/ui/textarea";
 import {
     Dialog,
     DialogContent,
@@ -13,7 +15,6 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Plus } from 'lucide-react';
 import { toast } from "sonner";
 import { format } from 'date-fns';
@@ -36,6 +37,10 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Pencil, Trash2 } from 'lucide-react';
+import { dosenScheduleSchema, type DosenScheduleFormData } from '@/lib/validations/schedule';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
+import type { ScheduleMode } from '@/types';
+import { toScheduleMode, toNumber } from '@/types';
 
 interface Group {
     id: number;
@@ -47,6 +52,14 @@ interface Group {
             name: string;
         }
     }[];
+}
+
+interface Location {
+    id: number;
+    name: string;
+    type: 'offline' | 'online';
+    capacity: number | null;
+    is_active: boolean;
 }
 
 interface ScheduleEvent {
@@ -67,24 +80,38 @@ interface ScheduleEvent {
 export default function DosenSchedulePage() {
     const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
     const [groups, setGroups] = useState<Group[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
     const [periods, setPeriods] = useState<{ id: number; name: string; is_active: boolean }[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
-
-    const [formData, setFormData] = useState({
-        group_id: '',
-        type: 'BIMBINGAN',
-        date: '',
-        start_time: '',
-        end_time: '',
-        room: '',
-        mode: 'offline',
-        notes: '',
-    });
     const [editingId, setEditingId] = useState<number | null>(null);
+
+    const form = useForm<DosenScheduleFormData>({
+        resolver: zodResolver(dosenScheduleSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            group_id: '',
+            type: 'BIMBINGAN',
+            date: '',
+            start_time: '',
+            end_time: '',
+            room: '',
+            mode: 'offline',
+            notes: undefined,
+        },
+    });
+
+    const fetchLocations = async () => {
+        try {
+            const res = await api.get('/locations');
+            setLocations(res.data?.data || []);
+        } catch (error) {
+            console.error('Failed to fetch locations', error);
+        }
+    };
 
     const fetchData = useCallback(async (periodId?: string) => {
         if (periodId) setRefreshing(true);
@@ -96,6 +123,9 @@ export default function DosenSchedulePage() {
                 const periodsRes = await api.get('/periods-list');
                 setPeriods(periodsRes.data?.data || []);
             }
+
+            // Fetch locations
+            await fetchLocations();
 
             const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
 
@@ -135,15 +165,31 @@ export default function DosenSchedulePage() {
         fetchData(val);
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async (data: DosenScheduleFormData) => {
         setSaving(true);
         try {
-            const payload = {
-                ...formData,
-                mode: formData.type === 'BIMBINGAN' ? formData.mode : null,
-                notes: formData.notes || null,
+            const payload: any = {
+                group_id: data.group_id,
+                type: data.type,
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
             };
+            
+            // Only include room if it has a value
+            if (data.room) {
+                payload.room = data.room;
+            }
+            
+            // Only include mode for BIMBINGAN
+            if (data.type === 'BIMBINGAN' && data.mode) {
+                payload.mode = data.mode;
+            }
+            
+            // Only include notes if it has a value
+            if (data.notes) {
+                payload.notes = data.notes;
+            }
             if (editingId) {
                 await api.put(`/schedules/${editingId}`, payload);
                 toast.success('Schedule updated successfully');
@@ -154,9 +200,15 @@ export default function DosenSchedulePage() {
             setOpen(false);
             resetForm();
             await fetchData();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Failed to save schedule', error);
-            toast.error('Failed to save schedule');
+            const message = error?.response?.data?.message || 'Failed to save schedule';
+            const conflicts = error?.response?.data?.conflicts;
+            if (conflicts && conflicts.length > 0) {
+                toast.error(`${message}: ${conflicts.join(', ')}`);
+            } else {
+                toast.error(message);
+            }
         } finally {
             setSaving(false);
         }
@@ -187,24 +239,25 @@ export default function DosenSchedulePage() {
             toast.info(`${schedule.type} schedules are view-only. Please use the evaluation page for assessments.`);
             return;
         }
-        setEditingId(schedule.id as number);
+        const editingIdNum = toNumber(schedule.id?.toString());
+        setEditingId(editingIdNum);
         const d = new Date(schedule.date);
-        setFormData({
+        form.reset({
             group_id: schedule.group_id.toString(),
             type: schedule.type,
             date: format(d, 'yyyy-MM-dd'),
             start_time: schedule.start_time?.slice(0, 5) || '',
             end_time: schedule.end_time?.slice(0, 5) || '',
-            room: schedule.room,
-            mode: schedule.mode || 'offline',
-            notes: schedule.notes || '',
+            room: schedule.room || '',
+            mode: toScheduleMode(schedule.mode),
+            notes: schedule.notes || undefined,
         });
         setOpen(true);
     };
 
     const resetForm = () => {
         setEditingId(null);
-        setFormData({
+        form.reset({
             group_id: '',
             type: 'BIMBINGAN',
             date: '',
@@ -212,9 +265,12 @@ export default function DosenSchedulePage() {
             end_time: '',
             room: '',
             mode: 'offline',
-            notes: '',
+            notes: undefined,
         });
     };
+
+    const watchMode = form.watch('mode');
+    const offlineLocations = locations.filter(l => l.type === 'offline');
 
     if (loading) {
         return (
@@ -288,10 +344,10 @@ export default function DosenSchedulePage() {
                                         <TableCell>
                                             {schedule.group?.title?.title || `Group ${schedule.group_id}`}
                                         </TableCell>
-                                        <TableCell>{schedule.room}</TableCell>
+                                        <TableCell>{schedule.room || '-'}</TableCell>
                                         <TableCell>
                                             <Badge variant={schedule.mode === 'online' ? 'default' : 'secondary'}>
-                                                {schedule.mode}
+                                                {schedule.mode || 'offline'}
                                             </Badge>
                                         </TableCell>
                                         <TableCell className="text-right">
@@ -326,7 +382,7 @@ export default function DosenSchedulePage() {
                 if (!val) resetForm();
             }}>
                 <DialogContent className="sm:max-w-[480px]">
-                    <form onSubmit={handleSubmit}>
+                    <form onSubmit={form.handleSubmit(handleSubmit)}>
                         <DialogHeader>
                             <DialogTitle>{editingId ? 'Edit Schedule' : 'New Schedule'}</DialogTitle>
                             <DialogDescription>
@@ -334,92 +390,183 @@ export default function DosenSchedulePage() {
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="group">Group / Title</Label>
-                                <Select
-                                    value={formData.group_id}
-                                    onValueChange={(val) => setFormData({ ...formData, group_id: val })}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select group" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {groups.map((group) => (
-                                            <SelectItem key={group.id} value={group.id.toString()}>
-                                                {group.title?.title || `Group ${group.id}`}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            <Field>
+                                <FieldLabel htmlFor="group">Group / Title</FieldLabel>
+                                <Controller
+                                    name="group_id"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Select
+                                            value={field.value || undefined}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger data-invalid={form.formState.errors.group_id ? '' : undefined}>
+                                                <SelectValue placeholder="Select group" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {groups.map((group) => (
+                                                    <SelectItem key={group.id} value={group.id.toString()}>
+                                                        {group.title?.title || `Group ${group.id}`}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                />
+                                <FieldError>{form.formState.errors.group_id?.message}</FieldError>
+                            </Field>
 
-                            <div className="grid gap-2">
-                                <Label>Mode</Label>
-                                <Select
-                                    value={formData.mode}
-                                    onValueChange={(val) => setFormData({ ...formData, mode: val })}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="offline">Offline</SelectItem>
-                                        <SelectItem value="online">Online</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="date">Date</Label>
-                                <Input
-                                    id="date"
-                                    type="date"
-                                    value={formData.date}
-                                    onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                    required
+                            <Field>
+                                <FieldLabel>Mode</FieldLabel>
+                                <Controller
+                                    name="mode"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Select
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="offline">Offline</SelectItem>
+                                                <SelectItem value="online">Online</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    )}
                                 />
-                            </div>
+                                <FieldError>{form.formState.errors.mode?.message}</FieldError>
+                            </Field>
+                            
+                            <Field>
+                                <FieldLabel htmlFor="date">Date</FieldLabel>
+                                <Controller
+                                    name="date"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Input
+                                            id="date"
+                                            type="date"
+                                            {...field}
+                                            data-invalid={fieldState.error ? '' : undefined}
+                                            aria-invalid={fieldState.error ? 'true' : 'false'}
+                                        />
+                                    )}
+                                />
+                                <FieldError>{form.formState.errors.date?.message}</FieldError>
+                            </Field>
+                            
                             <div className="grid grid-cols-2 gap-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="start_time">Start Time</Label>
-                                    <Input
-                                        id="start_time"
-                                        type="time"
-                                        value={formData.start_time}
-                                        onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                                        required
+                                <Field>
+                                    <FieldLabel htmlFor="start_time">Start Time</FieldLabel>
+                                    <Controller
+                                        name="start_time"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Input
+                                                id="start_time"
+                                                type="time"
+                                                {...field}
+                                                data-invalid={fieldState.error ? '' : undefined}
+                                                aria-invalid={fieldState.error ? 'true' : 'false'}
+                                            />
+                                        )}
                                     />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="end_time">End Time</Label>
-                                    <Input
-                                        id="end_time"
-                                        type="time"
-                                        value={formData.end_time}
-                                        onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                                        required
+                                    <FieldError>{form.formState.errors.start_time?.message}</FieldError>
+                                </Field>
+                                
+                                <Field>
+                                    <FieldLabel htmlFor="end_time">End Time</FieldLabel>
+                                    <Controller
+                                        name="end_time"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Input
+                                                id="end_time"
+                                                type="time"
+                                                {...field}
+                                                data-invalid={fieldState.error ? '' : undefined}
+                                                aria-invalid={fieldState.error ? 'true' : 'false'}
+                                            />
+                                        )}
                                     />
-                                </div>
+                                    <FieldError>{form.formState.errors.end_time?.message}</FieldError>
+                                </Field>
                             </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="room">Room / Location</Label>
-                                <Input
-                                    id="room"
-                                    placeholder={formData.mode === 'online' ? 'e.g. Zoom link' : 'e.g. Room A101'}
-                                    value={formData.room}
-                                    onChange={(e) => setFormData({ ...formData, room: e.target.value })}
-                                    required
+                            
+                            {watchMode === 'offline' ? (
+                                <Field>
+                                    <FieldLabel htmlFor="room">Room / Location</FieldLabel>
+                                    <Controller
+                                        name="room"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Select
+                                                value={field.value || undefined}
+                                                onValueChange={field.onChange}
+                                            >
+                                                <SelectTrigger data-invalid={form.formState.errors.room ? '' : undefined}>
+                                                    <SelectValue placeholder="Select location" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {offlineLocations.length === 0 ? (
+                                                        <SelectItem value="no-locations" disabled>
+                                                            No locations available
+                                                        </SelectItem>
+                                                    ) : (
+                                                        offlineLocations.map((location) => (
+                                                            <SelectItem key={location.id} value={location.name}>
+                                                                {location.name}
+                                                                {location.capacity && ` (Capacity: ${location.capacity})`}
+                                                            </SelectItem>
+                                                        ))
+                                                    )}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    <FieldError>{form.formState.errors.room?.message}</FieldError>
+                                </Field>
+                            ) : (
+                                <Field>
+                                    <FieldLabel htmlFor="room">Zoom Link</FieldLabel>
+                                    <Controller
+                                        name="room"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Input
+                                                id="room"
+                                                placeholder="https://zoom.us/j/..."
+                                                {...field}
+                                                data-invalid={fieldState.error ? '' : undefined}
+                                                aria-invalid={fieldState.error ? 'true' : 'false'}
+                                            />
+                                        )}
+                                    />
+                                    <FieldError>{form.formState.errors.room?.message}</FieldError>
+                                </Field>
+                            )}
+                            
+                            <Field>
+                                <FieldLabel htmlFor="notes">Notes (optional)</FieldLabel>
+                                <Controller
+                                    name="notes"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Textarea
+                                            id="notes"
+                                            placeholder="Additional information..."
+                                            {...field}
+                                            value={field.value || ''}
+                                            data-invalid={fieldState.error ? '' : undefined}
+                                            aria-invalid={fieldState.error ? 'true' : 'false'}
+                                            rows={3}
+                                        />
+                                    )}
                                 />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="notes">Notes (optional)</Label>
-                                <Textarea
-                                    id="notes"
-                                    placeholder="Additional information..."
-                                    value={formData.notes}
-                                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                                    rows={3}
-                                />
-                            </div>
+                                <FieldError>{form.formState.errors.notes?.message}</FieldError>
+                            </Field>
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => { setOpen(false); resetForm(); }}>

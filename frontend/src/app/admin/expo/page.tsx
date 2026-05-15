@@ -27,6 +27,7 @@ interface ExpoEvent {
     start_time: string;
     end_time: string;
     room: string;
+    location_id?: number;
     capacity: number;
     is_published: boolean;
     registrations_count: number;
@@ -37,6 +38,14 @@ interface ExpoEvent {
 interface Period {
     id: number;
     name: string;
+    is_active: boolean;
+}
+
+interface Location {
+    id: number;
+    name: string;
+    capacity: number;
+    type: 'physical' | 'online';
     is_active: boolean;
 }
 
@@ -60,7 +69,7 @@ export default function AdminExpoPage() {
         date: '',
         start_time: '',
         end_time: '',
-        room: '',
+        location_id: '',
         capacity: '30',
     });
 
@@ -69,6 +78,7 @@ export default function AdminExpoPage() {
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+    const [locations, setLocations] = useState<Location[]>([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -90,13 +100,24 @@ export default function AdminExpoPage() {
         }
     }, [selectedPeriod]);
 
+    const fetchLocations = useCallback(async () => {
+        try {
+            const res = await api.get('/locations');
+            setLocations(res.data?.data || []);
+        } catch (err) {
+            console.error('Failed to fetch locations', err);
+        }
+    }, []);
+
     useEffect(() => { fetchData(); }, [selectedPeriod]);
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+    useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
     const filteredAndSorted = useMemo(() => {
         const result = events.filter(evt => {
             const q = searchQuery.toLowerCase();
-            return evt.name.toLowerCase().includes(q) || evt.room.toLowerCase().includes(q);
+            const locationName = locations.find(l => l.id === evt.location_id)?.name || evt.room || '';
+            return evt.name.toLowerCase().includes(q) || locationName.toLowerCase().includes(q);
         });
 
         result.sort((a, b) => {
@@ -124,7 +145,7 @@ export default function AdminExpoPage() {
 
     const openCreate = () => {
         setEditing(null);
-        setForm({ period_id: periods[0]?.id.toString() || '', name: '', date: '', start_time: '', end_time: '', room: '', capacity: '30' });
+        setForm({ period_id: periods[0]?.id.toString() || '', name: '', date: '', start_time: '', end_time: '', location_id: '', capacity: '30' });
         setDialogOpen(true);
     };
 
@@ -136,7 +157,7 @@ export default function AdminExpoPage() {
             date: evt.date.split('T')[0],
             start_time: evt.start_time.slice(0, 5),
             end_time: evt.end_time.slice(0, 5),
-            room: evt.room,
+            location_id: evt.location_id?.toString() || '',
             capacity: evt.capacity.toString(),
         });
         setDialogOpen(true);
@@ -145,7 +166,12 @@ export default function AdminExpoPage() {
     const handleSubmit = async () => {
         setSubmitting(true);
         try {
-            const payload = { ...form, capacity: Number(form.capacity), period_id: Number(form.period_id) };
+            const payload = { 
+                ...form, 
+                capacity: Number(form.capacity), 
+                period_id: Number(form.period_id),
+                location_id: form.location_id ? Number(form.location_id) : null
+            };
             if (editing) {
                 await api.put(`/admin/expo-events/${editing.id}`, payload);
                 toast.success('Event updated');
@@ -287,8 +313,8 @@ export default function AdminExpoPage() {
                                     <TableHead className="w-10" />
                                     <SortHeader label="Event" sortKeyName="name" />
                                     <SortHeader label="Date" sortKeyName="date" />
-                                    <TableHead className="w-[120px]">Time</TableHead>
-                                    <TableHead>Room</TableHead>
+                                            <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead>Location</TableHead>
                                     <TableHead className="w-[160px]">Registrations</TableHead>
                                     <TableHead className="w-[110px]">Status</TableHead>
                                     <TableHead className="w-[200px] text-right">Actions</TableHead>
@@ -339,7 +365,7 @@ export default function AdminExpoPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                     <span className="text-sm text-muted-foreground">
-                                                        {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                        {locations.find(l => l.id === evt.location_id)?.name || evt.room || <span className="text-muted-foreground/40">—</span>}
                                                     </span>
                                                 </TableCell>
                                                 <TableCell>
@@ -422,9 +448,9 @@ export default function AdminExpoPage() {
                                                                         </span>
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Location</span>
                                                                         <span className="text-[12px] text-muted-foreground">
-                                                                            {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                                            {locations.find(l => l.id === evt.location_id)?.name || evt.room || <span className="text-muted-foreground/40">—</span>}
                                                                         </span>
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
@@ -553,8 +579,20 @@ export default function AdminExpoPage() {
                                 <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
                             </div>
                             <div>
-                                <Label>Room</Label>
-                                <Input value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} placeholder="e.g. Lab IF-101" />
+                                <Label>Location</Label>
+                                <Select value={form.location_id || undefined} onValueChange={(v) => setForm({ ...form, location_id: v })}>
+                                    <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
+                                    <SelectContent>
+                                        {locations.length === 0 && (
+                                            <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                        )}
+                                        {locations.filter(l => l.is_active).map((loc) => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
                         <div className="grid grid-cols-3 gap-4">

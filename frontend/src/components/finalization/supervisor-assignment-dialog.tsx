@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useMemo } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import {
   Dialog,
   DialogContent,
@@ -17,13 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, Users, AlertTriangle } from 'lucide-react';
 import type { Group, LecturerWithLoad } from '@/types/finalization';
+import { supervisorAssignmentSchema, type SupervisorAssignmentFormData } from '@/lib/validations/finalization';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 
 interface SupervisorAssignmentDialogProps {
   open: boolean;
@@ -46,53 +49,44 @@ export function SupervisorAssignmentDialog({
   loading,
   onSubmit,
 }: SupervisorAssignmentDialogProps) {
-  const [supervisor1Id, setSupervisor1Id] = useState<string>('');
-  const [supervisor2Id, setSupervisor2Id] = useState<string>('');
-  const [notes, setNotes] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const form = useForm<SupervisorAssignmentFormData>({
+    resolver: zodResolver(supervisorAssignmentSchema),
+    mode: 'onBlur',
+    defaultValues: {
+      supervisor_1_id: undefined,
+      supervisor_2_id: undefined,
+      notes: '',
+    },
+  });
+
+  const supervisor1Id = form.watch('supervisor_1_id');
+  const supervisor2Id = form.watch('supervisor_2_id');
 
   const availableLecturers = useMemo(() => {
     return lecturers.filter((l) => !l.is_overloaded);
   }, [lecturers]);
 
   const selectedSupervisor1 = useMemo(() => {
-    return lecturers.find((l) => l.id.toString() === supervisor1Id);
+    return lecturers.find((l) => l.id === supervisor1Id);
   }, [lecturers, supervisor1Id]);
 
   const selectedSupervisor2 = useMemo(() => {
-    return lecturers.find((l) => l.id.toString() === supervisor2Id);
+    return lecturers.find((l) => l.id === supervisor2Id);
   }, [lecturers, supervisor2Id]);
 
-  const handleSubmit = async () => {
-    setError(null);
-
-    if (!supervisor1Id) {
-      setError('Supervisor 1 wajib dipilih');
-      return;
-    }
-
-    if (supervisor1Id === supervisor2Id) {
-      setError('Supervisor 1 dan 2 tidak boleh sama');
-      return;
-    }
-
+  const handleSubmit = async (data: SupervisorAssignmentFormData) => {
     await onSubmit({
-      supervisor_1_id: parseInt(supervisor1Id),
-      supervisor_2_id: supervisor2Id ? parseInt(supervisor2Id) : undefined,
-      notes: notes || undefined,
+      supervisor_1_id: data.supervisor_1_id,
+      supervisor_2_id: data.supervisor_2_id,
+      notes: data.notes || undefined,
     });
 
     // Reset form
-    setSupervisor1Id('');
-    setSupervisor2Id('');
-    setNotes('');
+    form.reset();
   };
 
   const handleClose = () => {
-    setSupervisor1Id('');
-    setSupervisor2Id('');
-    setNotes('');
-    setError(null);
+    form.reset();
     onOpenChange(false);
   };
 
@@ -106,153 +100,168 @@ export function SupervisorAssignmentDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          {/* Selected groups summary */}
-          <div className="rounded-lg border bg-muted/50 p-3">
-            <div className="flex items-center gap-2 text-sm">
-              <Users className="h-4 w-4" />
-              <span className="font-medium">{selectedGroups.length} Kelompok Terpilih</span>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {selectedGroups.slice(0, 5).map((group) => (
-                <Badge key={group.id} variant="secondary" className="text-xs">
-                  Group {group.id}
-                </Badge>
-              ))}
-              {selectedGroups.length > 5 && (
-                <Badge variant="secondary" className="text-xs">
-                  +{selectedGroups.length - 5} lainnya
-                </Badge>
-              )}
-            </div>
-          </div>
-
-          {error && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          {/* Supervisor 1 Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="supervisor-1">
-              Supervisor 1 <span className="text-red-500">*</span>
-            </Label>
-            <Select value={supervisor1Id} onValueChange={setSupervisor1Id}>
-              <SelectTrigger id="supervisor-1">
-                <SelectValue placeholder="Pilih Supervisor 1" />
-              </SelectTrigger>
-              <SelectContent>
-                {lecturers.map((lecturer) => (
-                  <SelectItem
-                    key={lecturer.id}
-                    value={lecturer.id.toString()}
-                    disabled={lecturer.is_overloaded}
-                  >
-                    <div className="flex items-center justify-between w-full gap-4">
-                      <span>{lecturer.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {lecturer.current_load}/{lecturer.max_load} grup
-                      </span>
-                    </div>
-                  </SelectItem>
+        <form onSubmit={form.handleSubmit(handleSubmit)}>
+          <div className="space-y-4 py-4">
+            {/* Selected groups summary */}
+            <div className="rounded-lg border bg-muted/50 p-3">
+              <div className="flex items-center gap-2 text-sm">
+                <Users className="h-4 w-4" />
+                <span className="font-medium">{selectedGroups.length} Kelompok Terpilih</span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {selectedGroups.slice(0, 5).map((group) => (
+                  <Badge key={group.id} variant="secondary" className="text-xs">
+                    Group {group.id}
+                  </Badge>
                 ))}
-              </SelectContent>
-            </Select>
-
-            {selectedSupervisor1 && (
-              <div className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Beban Saat Ini</span>
-                  <span className="font-medium">
-                    {selectedSupervisor1.current_load} / {selectedSupervisor1.max_load} grup
-                  </span>
-                </div>
-                <Progress
-                  value={(selectedSupervisor1.current_load / selectedSupervisor1.max_load) * 100}
-                  className={selectedSupervisor1.is_overloaded ? 'bg-red-500' : ''}
-                />
-                {selectedSupervisor1.is_overloaded && (
-                  <p className="text-xs text-red-500 flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Supervisor ini sudah mencapai batas maksimum beban
-                  </p>
+                {selectedGroups.length > 5 && (
+                  <Badge variant="secondary" className="text-xs">
+                    +{selectedGroups.length - 5} lainnya
+                  </Badge>
                 )}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Supervisor 2 Selection */}
-          <div className="space-y-2">
-            <Label htmlFor="supervisor-2">Supervisor 2 (Opsional)</Label>
-            <Select value={supervisor2Id} onValueChange={setSupervisor2Id}>
-              <SelectTrigger id="supervisor-2">
-                <SelectValue placeholder="Pilih Supervisor 2 (opsional)" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Tidak ada</SelectItem>
-                {availableLecturers.map((lecturer) => (
-                  <SelectItem
-                    key={lecturer.id}
-                    value={lecturer.id.toString()}
-                    disabled={lecturer.id.toString() === supervisor1Id}
+            {form.formState.errors.root && (
+              <Alert variant="destructive">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>{form.formState.errors.root.message}</AlertDescription>
+              </Alert>
+            )}
+
+            {/* Supervisor 1 Selection */}
+            <Field>
+              <FieldLabel htmlFor="supervisor-1">
+                Supervisor 1 <span className="text-destructive">*</span>
+              </FieldLabel>
+              <Controller
+                name="supervisor_1_id"
+                control={form.control}
+                render={({ field }) => (
+                  <Select 
+                    value={field.value?.toString() || ''} 
+                    onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}
                   >
-                    <div className="flex items-center justify-between w-full gap-4">
-                      <span>{lecturer.name}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {lecturer.current_load}/{lecturer.max_load} grup
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                    <SelectTrigger id="supervisor-1" data-invalid={form.formState.errors.supervisor_1_id ? '' : undefined}>
+                      <SelectValue placeholder="Pilih Supervisor 1" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {lecturers.map((lecturer) => (
+                        <SelectItem
+                          key={lecturer.id}
+                          value={lecturer.id.toString()}
+                          disabled={lecturer.is_overloaded}
+                        >
+                          <div className="flex items-center justify-between w-full gap-4">
+                            <span>{lecturer.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {lecturer.current_load}/{lecturer.max_load} grup
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError>{form.formState.errors.supervisor_1_id?.message}</FieldError>
 
-            {selectedSupervisor2 && (
-              <div className="rounded-lg border p-3 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Beban Saat Ini</span>
-                  <span className="font-medium">
-                    {selectedSupervisor2.current_load} / {selectedSupervisor2.max_load} grup
-                  </span>
+              {selectedSupervisor1 && (
+                <div className="rounded-lg border p-3 space-y-2 mt-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Beban Saat Ini</span>
+                    <span className="font-medium">
+                      {selectedSupervisor1.current_load} / {selectedSupervisor1.max_load} grup
+                    </span>
+                  </div>
+                  <Progress
+                    value={(selectedSupervisor1.current_load / selectedSupervisor1.max_load) * 100}
+                    className={selectedSupervisor1.is_overloaded ? 'bg-red-500' : ''}
+                  />
+                  {selectedSupervisor1.is_overloaded && (
+                    <p className="text-xs text-destructive flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      Supervisor ini sudah mencapai batas maksimum beban
+                    </p>
+                  )}
                 </div>
-                <Progress
-                  value={(selectedSupervisor2.current_load / selectedSupervisor2.max_load) * 100}
-                />
-              </div>
-            )}
-          </div>
+              )}
+            </Field>
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label htmlFor="notes">Catatan Finalisasi (Opsional)</Label>
-            <Textarea
-              id="notes"
-              placeholder="Tambahkan catatan untuk finalisasi ini..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-            />
-          </div>
-        </div>
+            {/* Supervisor 2 Selection */}
+            <Field>
+              <FieldLabel htmlFor="supervisor-2">Supervisor 2 (Opsional)</FieldLabel>
+              <Controller
+                name="supervisor_2_id"
+                control={form.control}
+                render={({ field }) => (
+                  <Select 
+                    value={field.value?.toString() || ''} 
+                    onValueChange={(value) => field.onChange(value ? parseInt(value) : undefined)}
+                  >
+                    <SelectTrigger id="supervisor-2">
+                      <SelectValue placeholder="Pilih Supervisor 2 (opsional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Tidak ada</SelectItem>
+                      {availableLecturers.map((lecturer) => (
+                        <SelectItem
+                          key={lecturer.id}
+                          value={lecturer.id.toString()}
+                          disabled={lecturer.id === supervisor1Id}
+                        >
+                          <div className="flex items-center justify-between w-full gap-4">
+                            <span>{lecturer.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {lecturer.current_load}/{lecturer.max_load} grup
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <FieldError>{form.formState.errors.supervisor_2_id?.message}</FieldError>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={handleClose} disabled={loading}>
-            Batal
-          </Button>
-          <Button onClick={handleSubmit} disabled={loading || !supervisor1Id}>
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Menyimpan...
-              </>
-            ) : (
-              `Tetapkan Supervisor (${selectedGroups.length})`
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+              {selectedSupervisor2 && (
+                <div className="rounded-lg border p-3 space-y-2 mt-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Beban Saat Ini</span>
+                    <span className="font-medium">
+                      {selectedSupervisor2.current_load} / {selectedSupervisor2.max_load} grup
+                    </span>
+                  </div>
+                  <Progress
+                    value={(selectedSupervisor2.current_load / selectedSupervisor2.max_load) * 100}
+                  />
+                </div>
+              )}
+            </Field>
+
+            {/* Notes */}
+            <Field>
+              <FieldLabel htmlFor="notes">Catatan Finalisasi (Opsional)</FieldLabel>
+              <Controller
+                name="notes"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Textarea
+                    id="notes"
+                    placeholder="Tambahkan catatan untuk finalisasi ini..."
+                    rows={3}
+                    {...field}
+                    value={field.value || ''}
+                    data-invalid={fieldState.error ? '' : undefined}
+                    aria-invalid={fieldState.error ? 'true' : 'false'}
+                  />
+                )}
+              />
+              <FieldError>{form.formState.errors.notes?.message}</FieldError>
+            </Field>
+          </div>
+      </form>
+    </DialogContent>
+  </Dialog>
+);
 }

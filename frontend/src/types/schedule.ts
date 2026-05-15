@@ -29,6 +29,22 @@ export type ScheduleStatus =
   | 'draft';
 
 /**
+ * Schedule mode types
+ * Used for online/offline schedule distinction
+ */
+export type ScheduleMode = 'offline' | 'online';
+
+/**
+ * Schedule type filter for filtering by event type
+ */
+export type ScheduleTypeFilter = 'all' | ScheduleEventType;
+
+/**
+ * Schedule status filter for filtering by status
+ */
+export type ScheduleStatusFilter = 'all' | ScheduleStatus;
+
+/**
  * Main schedule event interface
  * Used in calendar and table views
  */
@@ -39,7 +55,7 @@ export interface ScheduleEvent {
   type: ScheduleEventType;
   date: string;
   room: string;
-  mode?: string | null;
+  mode?: ScheduleMode | null;
   notes?: string | null;
   status?: ScheduleStatus;
   period_name?: string;
@@ -69,7 +85,7 @@ export interface ApiSchedule {
   start_time?: string;
   end_time?: string;
   room: string;
-  mode?: string;
+  mode?: ScheduleMode;
   status: ScheduleStatus;
   notes?: string;
   online_link?: string;
@@ -112,7 +128,7 @@ export interface ScheduleBookingRequest {
   start_time?: string;
   end_time?: string;
   room: string;
-  mode?: string;
+  mode?: ScheduleMode;
   notes?: string;
   online_link?: string;
   examiners?: number[];

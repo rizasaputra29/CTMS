@@ -121,7 +121,7 @@ class ScheduleController extends Controller
             'date' => 'required|date',
             'start_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
             'end_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
-            'room' => 'required|string',
+            'room' => 'nullable|string',
             'mode' => 'nullable|string|in:online,offline',
             'notes' => 'nullable|string|max:1000',
         ]);
@@ -161,14 +161,40 @@ class ScheduleController extends Controller
             $dateOnly = $scheduleDate->format('Y-m-d');
             $startTime = $request->start_time ?? '09:00';
             $endTime = $request->end_time ?? \Carbon\Carbon::parse($dateOnly . ' ' . $startTime)->addHour()->format('H:i');
+            $mode = $request->mode ?? 'offline';
 
-            $conflicts = $this->schedulingService->validateScheduleConflicts(
-                [$user->id],
-                $dateOnly,
-                $startTime,
-                $endTime,
-                $request->room
-            );
+            // For BIMBINGAN online: only check dosen examiner conflicts (no room conflict)
+            // For BIMBINGAN offline: check dosen examiner conflicts + room conflicts
+            if ($mode === 'online') {
+                // Online BIMBINGAN: No location conflicts, just check if dosen is available
+                $conflicts = $this->schedulingService->validateBimbinganConflicts(
+                    $user->id,
+                    $dateOnly,
+                    $startTime,
+                    $endTime
+                );
+            } else {
+                // Offline BIMBINGAN: Check dosen availability + room conflicts
+                $conflicts = $this->schedulingService->validateBimbinganConflicts(
+                    $user->id,
+                    $dateOnly,
+                    $startTime,
+                    $endTime
+                );
+
+                // Also check for room conflicts
+                if ($request->room) {
+                    $roomConflict = $this->schedulingService->checkRoomConflict(
+                        $request->room,
+                        $dateOnly,
+                        $startTime,
+                        $endTime
+                    );
+                    if ($roomConflict) {
+                        $conflicts[] = $roomConflict['message'];
+                    }
+                }
+            }
 
             if (!empty($conflicts)) {
                 return response()->json([
@@ -225,7 +251,7 @@ class ScheduleController extends Controller
             'date' => 'date',
             'start_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
             'end_time' => ['nullable', 'string', 'regex:/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/u'],
-            'room' => 'string',
+            'room' => 'nullable|string',
             'mode' => 'nullable|string|in:online,offline',
             'notes' => 'nullable|string|max:1000',
         ]);
@@ -240,6 +266,56 @@ class ScheduleController extends Controller
         // If start_time is provided but end_time isn't, default to 1 hour after start
         if ($request->has('start_time') && !$request->has('end_time')) {
             $data['end_time'] = \Carbon\Carbon::parse($request->date . ' ' . $request->start_time)->addHour()->format('H:i');
+        }
+        
+        // Validate scheduling conflicts for BIMBINGAN updates (cross-period)
+        if ($user->hasRole('dosen') && $schedule->type === 'BIMBINGAN') {
+            $scheduleDate = \Carbon\Carbon::parse($request->date ?? $schedule->date);
+            $dateOnly = $scheduleDate->format('Y-m-d');
+            $startTime = $request->start_time ?? $schedule->start_time?->format('H:i') ?? '09:00';
+            $endTime = $request->end_time ?? $schedule->end_time?->format('H:i') ?? \Carbon\Carbon::parse($dateOnly . ' ' . $startTime)->addHour()->format('H:i');
+            $room = $request->room ?? $schedule->room;
+            $mode = $request->mode ?? $schedule->mode ?? 'offline';
+
+            // For BIMBINGAN online: only check dosen examiner conflicts
+            // For BIMBINGAN offline: check dosen examiner conflicts + room conflicts
+            if ($mode === 'online') {
+                $conflicts = $this->schedulingService->validateBimbinganConflicts(
+                    $user->id,
+                    $dateOnly,
+                    $startTime,
+                    $endTime,
+                    $schedule->id
+                );
+            } else {
+                $conflicts = $this->schedulingService->validateBimbinganConflicts(
+                    $user->id,
+                    $dateOnly,
+                    $startTime,
+                    $endTime,
+                    $schedule->id
+                );
+
+                // Also check for room conflicts
+                if ($room) {
+                    $roomConflict = $this->schedulingService->checkRoomConflict(
+                        $room,
+                        $dateOnly,
+                        $startTime,
+                        $endTime
+                    );
+                    if ($roomConflict) {
+                        $conflicts[] = $roomConflict['message'];
+                    }
+                }
+            }
+
+            if (!empty($conflicts)) {
+                return response()->json([
+                    'message' => 'Scheduling conflicts detected.',
+                    'conflicts' => $conflicts
+                ], 400);
+            }
         }
         
         $schedule->update($data);

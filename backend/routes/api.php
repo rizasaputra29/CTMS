@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\LocationController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 use App\Http\Controllers\AssessmentComponentController;
@@ -470,5 +471,19 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // ────────────────────────────────
     Route::middleware(['role:admin,dosen'])->group(function () {
         Route::apiResource('schedules', ScheduleController::class)->except(['index', 'show']);
+    });
+
+    // ────────────────────────────────
+    // Locations (accessible by all authenticated users for dropdown)
+    // ────────────────────────────────
+    Route::get('/locations', [LocationController::class, 'active']);
+    Route::get('/locations/physical', [LocationController::class, 'physical']);
+    Route::get('/locations/online', [LocationController::class, 'online']);
+    Route::get('/locations/all', [LocationController::class, 'index']);
+    Route::get('/locations/available', [LocationController::class, 'available']);
+    
+    // Admin-only location management
+    Route::middleware(['role:admin'])->group(function () {
+        Route::apiResource('locations', LocationController::class)->except(['index']);
     });
 });

@@ -344,15 +344,14 @@ class StudentProposalController extends Controller
     {
         $user = $request->user();
 
-        // Get active period
-        $activePeriod = \App\Models\Period::where('is_active', true)->first();
+        // Get all active period IDs
+        $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
         
-        // Check if user is leader in current period
-        // GroupMember doesn't have period_id, period is on Group model
+        // Check if user is leader in any active period
         $membership = GroupMember::where('student_id', $user->id)
             ->where('is_leader', true)
-            ->whereHas('group', function ($q) use ($activePeriod) {
-                $q->where('period_id', $activePeriod?->id)
+            ->whereHas('group', function ($q) use ($activePeriodIds) {
+                $q->whereIn('period_id', $activePeriodIds)
                   ->where('status', '!=', 'REJECTED');
             })
             ->first();

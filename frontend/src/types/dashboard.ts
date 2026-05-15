@@ -3,8 +3,10 @@
  * Dashboard-specific data structures and statistics
  */
 
-import type { SupervisorInEvaluation, EvaluationWithSupervisors } from './evaluation';
+import type { EvaluationWithSupervisors } from './evaluation';
+import type { SupervisorInEvaluation } from './user';
 import type { LatestDocument } from './document';
+import type { GroupStatus } from './group';
 
 /**
  * Workflow phase status
@@ -56,6 +58,14 @@ export interface NextPhaseSeminarSchedule {
     required: boolean;
     configured: boolean;
     completed: boolean;
+    submitted?: number;
+    total?: number;
+    pending?: number;
+    examiners?: Array<{
+      id: number;
+      name: string;
+      has_submitted: boolean;
+    }>;
   };
   supervisor_bimbingan?: {
     supervisors: SupervisorInEvaluation[];
@@ -226,21 +236,6 @@ export interface DashboardQuickAction {
   href: string;
   icon: React.ElementType;
   description?: string;
-}
-
-/**
- * Stats card props
- */
-export interface StatsCardProps {
-  title: string;
-  value: string | number;
-  subtitle?: string;
-  icon: React.ElementType;
-  trend?: {
-    value: string;
-    positive: boolean;
-  };
-  className?: string;
 }
 
 /**

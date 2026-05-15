@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'next/navigation';
 import api from '@/lib/api';
+import { useStringParam } from '@/hooks/use-params';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,13 +40,17 @@ interface GroupDetail {
 }
 
 export default function GroupDetailPage() {
-    const params = useParams();
-    const groupId = params.id as string;
+    const groupId = useStringParam('id');
     
     const [group, setGroup] = useState<GroupDetail | null>(null);
     const [loading, setLoading] = useState(true);
 
     const fetchGroup = useCallback(async () => {
+        if (!groupId) {
+            toast.error('Invalid group ID');
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
             const response = await api.get(`/admin/groups/${groupId}`);

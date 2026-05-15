@@ -37,6 +37,11 @@ export * from './dashboard';
 export * from './components';
 
 // ==========================================
+// Type Guard Utilities
+// ==========================================
+export * from './guards';
+
+// ==========================================
 // Re-exports from finalization.ts (legacy)
 // ==========================================
 export type {

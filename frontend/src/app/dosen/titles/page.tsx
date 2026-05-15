@@ -741,7 +741,7 @@ export default function DosenTitlesPage() {
                                                                             Reason: {audit.reason}
                                                                         </p>
                                                                     )}
-                                                                    {audit.affected_groups_count > 0 && (
+                                                                    {audit.affected_groups_count && audit.affected_groups_count > 0 && (
                                                                         <p className="text-xs text-gray-600">
                                                                             Affected: {audit.affected_groups_count} group(s)
                                                                             {audit.reverted_group_ids && audit.reverted_group_ids.length > 0 && (

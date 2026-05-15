@@ -21,6 +21,7 @@ import {
     ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useStringParam } from '@/hooks/use-params';
 
 interface EvaluationStatus {
     score: number | null;
@@ -93,10 +94,9 @@ const getScoreColor = (score: number | null): string => {
 
 export default function StudentAssessmentDetailPage() {
     const searchParams = useSearchParams();
-    const params = useParams();
     const router = useRouter();
     const periodId = searchParams.get('period_id');
-    const studentId = params.studentId as string;
+    const studentId = useStringParam('studentId');
     
     const [data, setData] = useState<StudentEvaluations | null>(null);
     const [loading, setLoading] = useState(true);

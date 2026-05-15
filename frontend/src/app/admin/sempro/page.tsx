@@ -26,6 +26,7 @@ import {
 
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
 interface Dosen { id: number; name: string; email: string; }
+interface Location { id: number; name: string; capacity: number; type: 'physical' | 'online'; is_active: boolean; }
 interface BimbinganEval {
     student: { id: number; name: string };
     average_score: number;
@@ -59,6 +60,7 @@ export default function AdminSemproPage() {
     const [groups, setGroups] = useState<GroupItem[]>([]);
     const [dosens, setDosens] = useState<Dosen[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -69,7 +71,7 @@ export default function AdminSemproPage() {
     const [formDate, setFormDate] = useState('');
     const [formStartTime, setFormStartTime] = useState('');
     const [formEndTime, setFormEndTime] = useState('');
-    const [formRoom, setFormRoom] = useState('');
+    const [formLocationId, setFormLocationId] = useState('');
     const [formExaminer1, setFormExaminer1] = useState('');
     const [formExaminer2, setFormExaminer2] = useState('');
     const [submitting, setSubmitting] = useState(false);
@@ -79,7 +81,7 @@ export default function AdminSemproPage() {
     const [approveDialogOpen, setApproveDialogOpen] = useState(false);
     const [approveId, setApproveId] = useState<number | null>(null);
     const [approveData, setApproveData] = useState({
-        date: '', start_time: '', end_time: '', room: '',
+        date: '', start_time: '', end_time: '', location_id: '',
         examiner_1_id: '', examiner_2_id: '',
     });
 
@@ -118,6 +120,15 @@ export default function AdminSemproPage() {
         }
     }, []);
 
+    const fetchLocations = useCallback(async () => {
+        try {
+            const res = await api.get('/locations');
+            setLocations(res.data.data || []);
+        } catch (err) {
+            console.error(err);
+        }
+    }, []);
+
     const fetchPeriods = useCallback(async () => {
         try {
             const res = await api.get('/admin/periods');
@@ -133,6 +144,7 @@ export default function AdminSemproPage() {
     useEffect(() => { fetchPeriods(); }, []);
     useEffect(() => { fetchSchedules(selectedPeriod); }, [selectedPeriod]);
     useEffect(() => { fetchDosens(); }, [fetchDosens]);
+    useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
 
@@ -176,7 +188,7 @@ export default function AdminSemproPage() {
 
     const resetForm = () => {
         setFormPeriodId(''); setFormGroupId(''); setFormDate('');
-        setFormStartTime(''); setFormEndTime(''); setFormRoom('');
+        setFormStartTime(''); setFormEndTime(''); setFormLocationId('');
         setFormExaminer1(''); setFormExaminer2('');
     };
 
@@ -202,13 +214,16 @@ export default function AdminSemproPage() {
         e.preventDefault();
         setSubmitting(true);
         try {
-            await api.post('/admin/sempro/schedule', {
+            const payload: any = {
                 group_id: Number(formGroupId),
                 date: formDate, start_time: formStartTime, end_time: formEndTime,
-                room: formRoom || null,
                 examiner_1_id: Number(formExaminer1),
                 examiner_2_id: Number(formExaminer2),
-            });
+            };
+            if (formLocationId) {
+                payload.location_id = Number(formLocationId);
+            }
+            await api.post('/admin/sempro/schedule', payload);
             toast.success('SEMPRO schedule created');
             setScheduleOpen(false);
             resetForm();
@@ -232,7 +247,7 @@ export default function AdminSemproPage() {
             date: schedule?.date || '',
             start_time: schedule?.start_time || '',
             end_time: schedule?.end_time || '',
-            room: schedule?.room || '',
+            location_id: schedule?.room?.toString() || '', // Keep room as string, will look up location later
             examiner_1_id: schedule?.examiner1?.id?.toString() || '',
             examiner_2_id: schedule?.examiner2?.id?.toString() || '',
         });
@@ -242,14 +257,17 @@ export default function AdminSemproPage() {
     const submitApprove = async () => {
         if (!approveId) return;
         try {
-            await api.put(`/admin/sempro/schedules/${approveId}/approve`, {
+            const payload: any = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
-                room: approveData.room,
                 examiner_1_id: Number(approveData.examiner_1_id),
                 examiner_2_id: Number(approveData.examiner_2_id),
-            });
+            };
+            if (approveData.location_id) {
+                payload.location_id = Number(approveData.location_id);
+            }
+            await api.put(`/admin/sempro/schedules/${approveId}/approve`, payload);
             toast.success('Schedule approved');
             setApproveDialogOpen(false);
             setApproveId(null);
@@ -724,12 +742,25 @@ export default function AdminSemproPage() {
                                 </div>
                             </div>
                             <div className="grid gap-1.5">
-                                <Label className="text-[13px]">Room</Label>
-                                <Input
-                                    value={formRoom}
-                                    onChange={e => setFormRoom(e.target.value)}
-                                    placeholder="e.g. Lab 301"
-                                />
+                                <Label className="text-[13px]">Room <span className="text-muted-foreground">(optional)</span></Label>
+                                <Select value={formLocationId} onValueChange={setFormLocationId}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select a room..." />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {locations.length === 0 ? (
+                                            <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                No locations available. Add locations in system settings.
+                                            </div>
+                                        ) : (
+                                            locations.map(loc => (
+                                                <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                    {loc.name} (Capacity: {loc.capacity})
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="grid gap-1.5">
@@ -819,12 +850,28 @@ export default function AdminSemproPage() {
                             </div>
                         </div>
                         <div className="grid gap-1.5">
-                            <Label className="text-[13px]">Room</Label>
-                            <Input
-                                value={approveData.room}
-                                onChange={e => setApproveData({ ...approveData, room: e.target.value })}
-                                placeholder="e.g. Lab 301"
-                            />
+                            <Label className="text-[13px]">Room <span className="text-muted-foreground">(optional)</span></Label>
+                            <Select 
+                                value={approveData.location_id} 
+                                onValueChange={(val) => setApproveData({ ...approveData, location_id: val })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a room..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {locations.length === 0 ? (
+                                        <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                            No locations available. Add locations in system settings.
+                                        </div>
+                                    ) : (
+                                        locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} (Capacity: {loc.capacity})
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="grid gap-1.5">
