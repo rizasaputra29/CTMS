@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { isDashboardTab, isOthersSubTab, isSupervisorStatus, isMemberCount } from '@/types/finalization';
 import type {
   DashboardTab,
   OthersSubTab,
@@ -51,14 +52,23 @@ export function useFinalizationDashboard(
 
   // Parse URL params
   const parseUrlParams = useCallback(() => {
+    const tabParam = searchParams.get('tab');
+    const subTabParam = searchParams.get('sub_tab');
+    const svStatusParam = searchParams.get('supervisor_status');
+    const memberCountParam = searchParams.get('member_count');
+    
     return {
-      tab: (searchParams.get('tab') as DashboardTab) || 'ready',
-      subTab: (searchParams.get('sub_tab') as OthersSubTab) || 'no_group',
+      tab: isDashboardTab(tabParam || '') ? tabParam as DashboardTab : 'ready',
+      subTab: isOthersSubTab(subTabParam || '') ? subTabParam as OthersSubTab : 'no_group',
       search: searchParams.get('search') || '',
       page: parseInt(searchParams.get('page') || '1', 10),
       perPage: parseInt(searchParams.get('per_page') || '20', 10),
-      supervisorStatus: (searchParams.get('supervisor_status') as FilterState['supervisorStatus']) || 'all',
-      memberCount: (searchParams.get('member_count') as FilterState['memberCount']) || 'all',
+      supervisorStatus: isSupervisorStatus(svStatusParam || 'all') 
+        ? svStatusParam as FilterState['supervisorStatus'] 
+        : 'all',
+      memberCount: isMemberCount(memberCountParam || 'all') 
+        ? memberCountParam as FilterState['memberCount'] 
+        : 'all',
       periodId: searchParams.get('period_id')
         ? parseInt(searchParams.get('period_id')!, 10)
         : initialPeriodId,

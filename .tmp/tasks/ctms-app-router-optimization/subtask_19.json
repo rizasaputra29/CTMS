@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-19",
+  "seq": "19",
+  "title": "Phase 5: Set up Playwright E2E testing framework",
+  "status": "pending",
+  "depends_on": [],
+  "parallel": false,
+  "suggested_agent": "TestEngineer",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/e2e-testing.md"
+  ],
+  "reference_files": [
+    "frontend/package.json",
+    "backend/routes/api.php"
+  ],
+  "acceptance_criteria": [
+    "Playwright configured with multiple browsers (Chrome, Firefox, WebKit)",
+    "Test database setup for isolated test runs",
+    "Test fixtures for admin, dosen, and mahasiswa users",
+    "Authentication helpers for E2E tests",
+    "CI/CD integration configured"
+  ],
+  "deliverables": [
+    "frontend/playwright.config.ts",
+    "frontend/e2e/auth.setup.ts",
+    "frontend/e2e/fixtures/auth.ts",
+    "frontend/e2e/fixtures/test-data.ts",
+    "frontend/.env.test.example"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-5-testing-polish",
+  "code_example": "```typescript\n// playwright.config.ts\nimport { defineConfig, devices } from '@playwright/test';\n\nexport default defineConfig({\n  testDir: './e2e',\n  fullyParallel: true,\n  forbidOnly: !!process.env.CI,\n  retries: process.env.CI ? 2 : 0,\n  workers: process.env.CI ? 1 : undefined,\n  reporter: 'html',\n  use: {\n    baseURL: 'http://localhost:3000',\n    trace: 'on-first-retry',\n    screenshot: 'only-on-failure',\n  },\n  projects: [\n    {\n      name: 'setup',\n      testMatch: /.*\.setup\.ts/,\n    },\n    {\n      name: 'chromium',\n      use: { ...devices['Desktop Chrome'] },\n      dependencies: ['setup'],\n    },\n    {\n      name: 'firefox',\n      use: { ...devices['Desktop Firefox'] },\n      dependencies: ['setup'],\n    },\n  ],\n});\n```"
+}

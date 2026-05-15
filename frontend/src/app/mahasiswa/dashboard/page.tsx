@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { isFinalReadyEvaluationSection } from '@/types/guards';
 import type { 
     SupervisorInEvaluation, 
     EvaluationWithSupervisors,
@@ -810,21 +811,20 @@ export default function MahasiswaDashboard() {
                                 { key: 'milestone', label: 'Milestone' },
                                 { key: 'expo_evaluation', label: 'Expo Evaluation' }
                             ].map(({ key, label }) => {
-                                const sectionKey = key as keyof FinalReadyStatus;
                                 if (!stats.final_ready_for_ta_individual) return null;
-                                const status = stats.final_ready_for_ta_individual[sectionKey];
-                                if (typeof status !== 'object' || status === null || !('configured' in status)) return null;
-                                const section = status as { configured: boolean; completed: boolean; supervisors?: SupervisorInEvaluation[] };
-                                if (!section?.configured) return null;
+                                // Use type-safe property access with validation
+                                const status = stats.final_ready_for_ta_individual[key as keyof FinalReadyStatus];
+                                if (!isFinalReadyEvaluationSection(status)) return null;
+                                if (!status?.configured) return null;
                                 return (
                                     <div key={key} className="flex items-center justify-between text-sm">
                                         <span>{label}</span>
-                                        {section.completed ? (
+                                        {status.completed ? (
                                             <Check className="h-4 w-4 text-green-600" />
                                         ) : (
                                             <span className="text-xs text-muted-foreground">
-                                                {section.supervisors?.filter((s: SupervisorInEvaluation) => s.status === 'completed').length || 0}/
-                                                {section.supervisors?.length || 0}
+                                                {status.supervisors?.filter((s) => s.status === 'completed').length || 0}/
+                                                {status.supervisors?.length || 0}
                                             </span>
                                         )}
                                     </div>

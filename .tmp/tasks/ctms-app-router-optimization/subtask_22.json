@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-22",
+  "seq": "22",
+  "title": "Phase 5: Performance and accessibility audit",
+  "status": "pending",
+  "depends_on": ["20"],
+  "parallel": true,
+  "suggested_agent": "TestEngineer",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/performance.md",
+    "/Users/riza/.config/opencode/context/core/standards/accessibility.md"
+  ],
+  "reference_files": [
+    "frontend/src/app/layout.tsx",
+    "frontend/next.config.js"
+  ],
+  "acceptance_criteria": [
+    "Lighthouse performance score ≥90 on all pages",
+    "Lighthouse accessibility score ≥95 on all pages",
+    "Core Web Vitals pass (LCP <2.5s, FID <100ms, CLS <0.1)",
+    "All interactive elements keyboard accessible",
+    "Proper heading hierarchy and ARIA labels"
+  ],
+  "deliverables": [
+    "frontend/e2e/performance/lighthouse.spec.ts",
+    "frontend/e2e/accessibility/a11y.spec.ts",
+    "docs/PERFORMANCE_AUDIT.md",
+    "docs/ACCESSIBILITY_AUDIT.md"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-5-testing-polish",
+  "code_example": "```typescript\n// e2e/performance/lighthouse.spec.ts\nimport { test, expect } from '@playwright/test';\nimport { playAudit } from 'playwright-lighthouse';\nimport { loginAs } from '../fixtures/auth';\n\nconst PAGES_TO_TEST = [\n  { path: '/admin/dashboard', name: 'Admin Dashboard' },\n  { path: '/dosen/dashboard', name: 'Dosen Dashboard' },\n  { path: '/mahasiswa/dashboard', name: 'Mahasiswa Dashboard' },\n  { path: '/admin/titles', name: 'Admin Titles' },\n  { path: '/login', name: 'Login' },\n];\n\ntest.describe('Lighthouse Performance Audit', () => {\n  for (const page of PAGES_TO_TEST) {\n    test(`${page.name} passes Lighthouse audit`, async ({ page: p }) => {\n      // Login first if needed\n      if (!page.path.includes('login')) {\n        await loginAs(p, 'admin');\n      }\n      \n      await p.goto(page.path);\n      await p.waitForLoadState('networkidle');\n      \n      await playAudit({\n        page: p,\n        thresholds: {\n          performance: 90,\n          accessibility: 95,\n          'best-practices': 90,\n          seo: 90,\n        },\n        port: 9222,\n      });\n    });\n  }\n});\n```"
+}

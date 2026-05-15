@@ -42,6 +42,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import api from '@/lib/api';
+import { toNavRoleKey } from '@/types/guards';
 
 const SIDEBAR_STATE_KEY = 'sidebar_sections';
 
@@ -601,7 +602,8 @@ export function AppSidebar() {
     // ─── Render single-role sidebar (existing behavior) ─────
     const renderSingleRoleSidebar = () => {
         const currentRole = activeRole || user?.role || 'mahasiswa';
-        const roleItems = navItems[currentRole as keyof typeof navItems] || [];
+        const safeRoleKey = toNavRoleKey(currentRole);
+        const roleItems = navItems[safeRoleKey] || [];
 
         const items: NavItem[] = roleItems.map(item => {
             if (currentRole === 'mahasiswa' && item.title === 'Evaluations' && item.items) {

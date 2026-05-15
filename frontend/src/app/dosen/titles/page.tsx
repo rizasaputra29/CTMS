@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { titleSchema, TitleFormData } from '@/lib/validations/title';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -77,14 +80,18 @@ export default function DosenTitlesPage() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [availableGroups, setAvailableGroups] = useState<GroupSummary[]>([]);
 
-    const [formData, setFormData] = useState({
-        title: '',
-        description: '',
-        problem_statement: '',
-        scope: '',
-        specializations: [] as string[],
-        quota: 1,
-        pre_assigned_group_id: '' as string,
+    const form = useForm<TitleFormData>({
+        resolver: zodResolver(titleSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            title: '',
+            description: '',
+            problem_statement: '',
+            scope: '',
+            specializations: [],
+            quota: 1,
+            pre_assigned_group_id: '',
+        },
     });
 
     const [withdrawDialog, setWithdrawDialog] = useState<{
@@ -166,15 +173,17 @@ export default function DosenTitlesPage() {
         }
     }, [selectedPeriod]);
 
+    const hasFetchedGroups = useRef(false);
     useEffect(() => {
-        if (open) {
+        if (open && !hasFetchedGroups.current) {
+            hasFetchedGroups.current = true;
             fetchAvailableGroups();
         }
-    }, [open]);
+    }, [open, fetchAvailableGroups]);
 
     // --- Manage Titles Handlers ---
     const handleEdit = (title: Title) => {
-        setFormData({
+        form.reset({
             title: title.title,
             description: title.description,
             problem_statement: title.problem_statement || '',
@@ -190,22 +199,21 @@ export default function DosenTitlesPage() {
     const handleOpenChange = (isOpen: boolean) => {
         setOpen(isOpen);
         if (!isOpen) {
-            setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' });
+            form.reset();
             setEditingId(null);
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const onSubmit = async (data: TitleFormData) => {
         try {
             if (editingId) {
-                await api.put(`/dosen/titles/${editingId}`, formData);
+                await api.put(`/dosen/titles/${editingId}`, data);
                 toast.success('Title updated successfully');
             } else {
-                const assignedGroupId = formData.pre_assigned_group_id || null;
+                const assignedGroupId = data.pre_assigned_group_id || null;
                 // Include period_id in the request
                 const payload = {
-                    ...formData,
+                    ...data,
                     period_id: selectedPeriod ? parseInt(selectedPeriod) : undefined,
                 };
                 await api.post('/dosen/titles', payload);
@@ -216,7 +224,7 @@ export default function DosenTitlesPage() {
                 }
             }
             setOpen(false);
-            setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' });
+            form.reset();
             setEditingId(null);
             fetchTitles(selectedPeriod);
         } catch (error) {
@@ -369,7 +377,7 @@ export default function DosenTitlesPage() {
                     <Dialog open={open} onOpenChange={handleOpenChange}>
                         <DialogTrigger asChild>
                             <Button 
-                                onClick={() => { setEditingId(null); setFormData({ title: '', description: '', problem_statement: '', scope: '', specializations: [], quota: 1, pre_assigned_group_id: '' }); }}
+                                onClick={() => { setEditingId(null); form.reset(); }}
                                 disabled={!selectedPeriod}
                                 title={!selectedPeriod ? "Please select a period first" : undefined}
                             >
@@ -377,7 +385,7 @@ export default function DosenTitlesPage() {
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-[550px] max-h-[90vh] overflow-y-auto">
-                            <form onSubmit={handleSubmit}>
+                            <form onSubmit={form.handleSubmit(onSubmit)}>
                                 <DialogHeader>
                                     <DialogTitle>{editingId ? 'Edit Title' : 'Add New Title'}</DialogTitle>
                                     <DialogDescription>
@@ -385,103 +393,149 @@ export default function DosenTitlesPage() {
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="title">Title</Label>
-                                        <Input
-                                            id="title"
-                                            value={formData.title}
-                                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="description">Description</Label>
-                                        <Textarea
-                                            id="description"
-                                            value={formData.description}
-                                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                                            rows={3}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="problem_statement">Problem Statement</Label>
-                                        <Textarea
-                                            id="problem_statement"
-                                            value={formData.problem_statement}
-                                            onChange={(e) => setFormData({ ...formData, problem_statement: e.target.value })}
-                                            placeholder="What problem does this project solve?"
-                                            rows={3}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="scope">Scope</Label>
-                                        <Textarea
-                                            id="scope"
-                                            value={formData.scope}
-                                            onChange={(e) => setFormData({ ...formData, scope: e.target.value })}
-                                            placeholder="Define the boundaries and scope of this project"
-                                            rows={3}
-                                            required
-                                        />
-                                    </div>
-                                    <SpecializationSelector
-                                        selected={formData.specializations}
-                                        onChange={(specializations) => setFormData({ ...formData, specializations })}
-                                        required
+                                    <Controller
+                                        name="title"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="title">Title</FieldLabel>
+                                                <Input
+                                                    id="title"
+                                                    {...field}
+                                                    aria-invalid={!!fieldState.error}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
                                     />
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="quota">Quota (Groups)</Label>
-                                        <Input
-                                            id="quota"
-                                            type="number"
-                                            min="1"
-                                            value={formData.quota}
-                                            onChange={(e) => setFormData({ ...formData, quota: parseInt(e.target.value) })}
-                                            required
-                                        />
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="pre_assigned_group_id">Tugaskan ke Kelompok (Opsional)</Label>
-                                        <Select 
-                                            value={formData.pre_assigned_group_id} 
-                                            onValueChange={(value) => setFormData({ ...formData, pre_assigned_group_id: value })}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Pilih kelompok..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {availableGroups.length === 0 ? (
-                                                    <SelectItem value="no-groups-available" disabled>
-                                                        Tidak ada kelompok tersedia untuk periode ini
-                                                    </SelectItem>
-                                                ) : (
-                                                    availableGroups
-                                                        .map(group => {
-                                                            const isReady = group.status === 'READY_FOR_BIDDING';
-                                                            const memberCount = group.members?.length || 0;
-                                                            return (
-                                                                <SelectItem 
-                                                                    key={group.id} 
-                                                                    value={group.id.toString()}
-                                                                    disabled={!isReady}
-                                                                >
-                                                                    <span className={!isReady ? 'text-muted-foreground' : ''}>
-                                                                        Group {group.id} ({memberCount} anggota) - {group.status}
-                                                                        {!isReady && ' (Tidak tersedia)'}
-                                                                    </span>
-                                                                </SelectItem>
-                                                            );
-                                                        })
-                                                )}
-                                            </SelectContent>
-                                        </Select>
-                                        <div className="text-xs text-muted-foreground space-y-1">
-                                            <p>Hanya kelompok dengan status &quot;READY_FOR_BIDDING&quot; yang dapat dipilih.</p>
-                                            <p>Jika dipilih, judul tidak akan muncul di marketplace dan otomatis ditugaskan ke kelompok tersebut.</p>
-                                        </div>
-                                    </div>
+                                    <Controller
+                                        name="description"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="description">Description</FieldLabel>
+                                                <Textarea
+                                                    id="description"
+                                                    {...field}
+                                                    rows={3}
+                                                    aria-invalid={!!fieldState.error}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="problem_statement"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="problem_statement">Problem Statement</FieldLabel>
+                                                <Textarea
+                                                    id="problem_statement"
+                                                    {...field}
+                                                    placeholder="What problem does this project solve?"
+                                                    rows={3}
+                                                    aria-invalid={!!fieldState.error}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="scope"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="scope">Scope</FieldLabel>
+                                                <Textarea
+                                                    id="scope"
+                                                    {...field}
+                                                    placeholder="Define the boundaries and scope of this project"
+                                                    rows={3}
+                                                    aria-invalid={!!fieldState.error}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="specializations"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <SpecializationSelector
+                                                    selected={field.value || []}
+                                                    onChange={(specializations) => field.onChange(specializations)}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="quota"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="quota">Quota (Groups)</FieldLabel>
+                                                <Input
+                                                    id="quota"
+                                                    type="number"
+                                                    min="1"
+                                                    {...field}
+                                                    onChange={(e) => field.onChange(parseInt(e.target.value) || 1)}
+                                                    aria-invalid={!!fieldState.error}
+                                                />
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="pre_assigned_group_id"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={!!fieldState.error}>
+                                                <FieldLabel htmlFor="pre_assigned_group_id">Tugaskan ke Kelompok (Opsional)</FieldLabel>
+                                                <Select 
+                                                    value={field.value} 
+                                                    onValueChange={field.onChange}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Pilih kelompok..." />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {availableGroups.length === 0 ? (
+                                                            <SelectItem value="no-groups-available" disabled>
+                                                                Tidak ada kelompok tersedia untuk periode ini
+                                                            </SelectItem>
+                                                        ) : (
+                                                            availableGroups
+                                                                .map(group => {
+                                                                    const isReady = group.status === 'READY_FOR_BIDDING';
+                                                                    const memberCount = group.members?.length || 0;
+                                                                    return (
+                                                                        <SelectItem 
+                                                                            key={group.id} 
+                                                                            value={group.id.toString()}
+                                                                            disabled={!isReady}
+                                                                        >
+                                                                            <span className={!isReady ? 'text-muted-foreground' : ''}>
+                                                                                Group {group.id} ({memberCount} anggota) - {group.status}
+                                                                                {!isReady && ' (Tidak tersedia)'}
+                                                                            </span>
+                                                                        </SelectItem>
+                                                                    );
+                                                                })
+                                                        )}
+                                                    </SelectContent>
+                                                </Select>
+                                                <FieldError>{fieldState.error?.message}</FieldError>
+                                                <div className="text-xs text-muted-foreground space-y-1">
+                                                    <p>Hanya kelompok dengan status &quot;READY_FOR_BIDDING&quot; yang dapat dipilih.</p>
+                                                    <p>Jika dipilih, judul tidak akan muncul di marketplace dan otomatis ditugaskan ke kelompok tersebut.</p>
+                                                </div>
+                                            </Field>
+                                        )}
+                                    />
                                 </div>
                                 <DialogFooter>
                                     <Button type="submit">{editingId ? 'Update Title' : 'Create Title'}</Button>
@@ -619,7 +673,7 @@ export default function DosenTitlesPage() {
                         )}
 
                         <div className="space-y-2">
-                            <Label htmlFor="withdraw-reason">Reason (Optional)</Label>
+                            <FieldLabel htmlFor="withdraw-reason">Reason (Optional)</FieldLabel>
                             <Textarea
                                 id="withdraw-reason"
                                 placeholder="Why are you withdrawing approval? (leave blank if not applicable)"

@@ -1,0 +1,44 @@
+{
+  "id": "ctms-app-router-optimization",
+  "name": "CTMS Next.js + Laravel App Router Optimization",
+  "status": "active",
+  "objective": "Migrate CTMS from Client Components to App Router with HTTP-only cookie auth, Server Components for data fetching, Server Actions for forms, and parallel data fetching with React.cache",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/task-management/navigation.md",
+    "/Users/riza/.config/opencode/context/core/task-management/guides/splitting-tasks.md",
+    "/Users/riza/.config/opencode/context/core/task-management/standards/task-schema.md"
+  ],
+  "reference_files": [
+    "frontend/package.json",
+    "backend/composer.json",
+    "backend/app/Http/Controllers/AuthController.php",
+    "backend/app/Http/Middleware/RoleMiddleware.php",
+    "backend/app/Models/User.php"
+  ],
+  "exit_criteria": [
+    "All 67 pages migrated from Client Components to Server Components where applicable",
+    "HTTP-only cookie auth with refresh tokens implemented (15min access, 7day refresh)",
+    "Next.js middleware.ts protecting all role-based routes",
+    "Server Actions replacing direct Axios API calls for mutations",
+    "React.cache implemented for parallel data fetching",
+    "Error boundaries and loading states on all routes",
+    "Playwright E2E tests covering critical auth flows",
+    "VPS deployment configured with PM2 and Nginx",
+    "Zero security vulnerabilities (JWT in localStorage removed)"
+  ],
+  "subtask_count": 28,
+  "completed_count": 0,
+  "created_at": "2026-05-15T00:00:00Z",
+  "bounded_context": "authentication",
+  "module": "ctms-frontend",
+  "vertical_slice": "app-router-migration",
+  "related_adrs": [],
+  "rice_score": {
+    "reach": 500,
+    "impact": 5,
+    "confidence": 85,
+    "effort": 8,
+    "score": 2656
+  },
+  "release_slice": "v2.0-security-optimization"
+}

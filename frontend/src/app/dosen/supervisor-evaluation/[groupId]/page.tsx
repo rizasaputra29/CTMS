@@ -119,8 +119,7 @@ export default function SupervisorEvaluationDetailPage() {
       console.error('Error fetching evaluation form:', error);
       toast.error(getApiErrorMessage(error) || 'Gagal memuat form penilaian');
       // Check if it's a 400 error
-      const errStatus = (error as { response?: { status?: number } })?.response?.status;
-      if (errStatus === 400) {
+      if (api.isAxiosError(error) && error.response?.status === 400) {
         router.push('/dosen/supervisor-evaluation');
       }
     } finally {

@@ -1,0 +1,31 @@
+{
+  "id": "ctms-app-router-optimization-08",
+  "seq": "08",
+  "title": "Phase 2: Implement Server Actions for authentication",
+  "status": "pending",
+  "depends_on": ["07"],
+  "parallel": true,
+  "suggested_agent": "FullStackDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md"
+  ],
+  "reference_files": [
+    "frontend/src/app/login/page.tsx",
+    "frontend/src/context/AuthContext.tsx"
+  ],
+  "acceptance_criteria": [
+    "Server Action login() validates credentials and sets HTTP-only cookies",
+    "Server Action logout() clears cookies and revokes refresh tokens",
+    "Server Action refreshToken() exchanges refresh token for new access token",
+    "All actions handle errors and return typed responses",
+    "No localStorage usage for tokens - all cookie-based"
+  ],
+  "deliverables": [
+    "frontend/src/app/actions/auth.ts",
+    "frontend/src/app/actions/refresh-token.ts",
+    "frontend/src/lib/api/server-client.ts"
+  ],
+  "estimated_hours": 4,
+  "phase": "phase-2-frontend-infrastructure",
+  "code_example": "```typescript\n// src/app/actions/auth.ts\n'use server';\n\nimport { cookies } from 'next/headers';\nimport { redirect } from 'next/navigation';\n\ninterface LoginResponse {\n  user: {\n    id: number;\n    name: string;\n    email: string;\n    role: string;\n    roles: string[];\n  };\n}\n\nexport async function login(formData: FormData) {\n  const email = formData.get('email') as string;\n  const password = formData.get('password') as string;\n  \n  const response = await fetch(`${process.env.API_URL}/api/login`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    credentials: 'include',\n    body: JSON.stringify({ email, password }),\n  });\n  \n  if (!response.ok) {\n    return { error: 'Invalid credentials' };\n  }\n  \n  const data: LoginResponse = await response.json();\n  \n  // Cookies set by backend, just redirect\n  redirect(`/${data.user.role}/dashboard`);\n}\n\nexport async function logout() {\n  await fetch(`${process.env.API_URL}/api/logout`, {\n    method: 'POST',\n    credentials: 'include',\n  });\n  \n  redirect('/login');\n}\n\nexport async function refreshToken() {\n  const response = await fetch(`${process.env.API_URL}/api/refresh`, {\n    method: 'POST',\n    credentials: 'include',\n  });\n  \n  if (!response.ok) {\n    return { error: 'Token refresh failed' };\n  }\n  \n  return { success: true };\n}\n```"
+}

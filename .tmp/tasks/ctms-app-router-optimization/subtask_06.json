@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-06",
+  "seq": "06",
+  "title": "Phase 2: Set up Next.js middleware.ts for server-side auth",
+  "status": "pending",
+  "depends_on": ["02", "03"],
+  "parallel": false,
+  "suggested_agent": "FullStackDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md",
+    "/Users/riza/.config/opencode/context/core/standards/security-patterns.md"
+  ],
+  "reference_files": [
+    "frontend/src/app/layout.tsx",
+    "frontend/src/context/AuthContext.tsx",
+    "frontend/src/middleware.ts (if exists)"
+  ],
+  "acceptance_criteria": [
+    "middleware.ts created at frontend root with role-based route protection",
+    "Middleware reads HTTP-only cookies from request",
+    "Redirects to /login when not authenticated",
+    "Redirects to /unauthorized when role doesn't match route",
+    "Public routes (/login, /register, /) bypass auth check",
+    "Middleware runs on all routes except static files"
+  ],
+  "deliverables": [
+    "frontend/middleware.ts",
+    "frontend/src/lib/auth/verify-token.ts"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-2-frontend-infrastructure",
+  "code_example": "```typescript\n// middleware.ts\nimport { NextResponse } from 'next/server';\nimport type { NextRequest } from 'next/server';\n\nconst PROTECTED_ROUTES = {\n  '/admin': ['admin'],\n  '/dosen': ['dosen', 'admin'],\n  '/mahasiswa': ['mahasiswa'],\n};\n\nexport function middleware(request: NextRequest) {\n  const { pathname } = request.nextUrl;\n  \n  // Skip middleware for public routes\n  if (pathname === '/' || pathname.startsWith('/login') || pathname.startsWith('/register')) {\n    return NextResponse.next();\n  }\n  \n  // Check auth cookie\n  const accessToken = request.cookies.get('access_token');\n  const userRole = request.cookies.get('user_role');\n  \n  if (!accessToken) {\n    return NextResponse.redirect(new URL('/login', request.url));\n  }\n  \n  // Check role-based access\n  const requiredRole = Object.entries(PROTECTED_ROUTES)\n    .find(([route]) => pathname.startsWith(route))?.[1];\n  \n  if (requiredRole && !requiredRole.includes(userRole?.value || '')) {\n    return NextResponse.redirect(new URL('/unauthorized', request.url));\n  }\n  \n  return NextResponse.next();\n}\n\nexport const config = {\n  matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)'],\n};\n```"
+}

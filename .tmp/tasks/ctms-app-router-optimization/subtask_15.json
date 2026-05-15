@@ -1,0 +1,34 @@
+{
+  "id": "ctms-app-router-optimization-15",
+  "seq": "15",
+  "title": "Phase 4: Create Server Actions for all mutations",
+  "status": "pending",
+  "depends_on": ["08"],
+  "parallel": false,
+  "suggested_agent": "FullStackDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md",
+    "/Users/riza/.config/opencode/context/core/standards/server-actions.md"
+  ],
+  "reference_files": [
+    "backend/app/Http/Controllers/"
+  ],
+  "acceptance_criteria": [
+    "Server Actions replace direct API calls for all mutations",
+    "Actions handle validation with zod schemas",
+    "Error messages propagated to client properly",
+    "Revalidation paths defined for affected routes",
+    "Type-safe action signatures"
+  ],
+  "deliverables": [
+    "frontend/src/app/actions/titles.ts",
+    "frontend/src/app/actions/groups.ts",
+    "frontend/src/app/actions/periods.ts",
+    "frontend/src/app/actions/users.ts",
+    "frontend/src/app/actions/schedules.ts",
+    "frontend/src/app/actions/evaluations.ts"
+  ],
+  "estimated_hours": 6,
+  "phase": "phase-4-client-optimization",
+  "code_example": "```typescript\n// src/app/actions/titles.ts\n'use server';\n\nimport { revalidatePath } from 'next/cache';\nimport { z } from 'zod';\n\nconst createTitleSchema = z.object({\n  title: z.string().min(3).max(255),\n  description: z.string().min(10),\n  periodId: z.number().int().positive(),\n  quota: z.number().int().min(1),\n});\n\ntype CreateTitleInput = z.infer<typeof createTitleSchema>;\n\nexport async function createTitle(formData: FormData) {\n  const validated = createTitleSchema.safeParse({\n    title: formData.get('title'),\n    description: formData.get('description'),\n    periodId: Number(formData.get('periodId')),\n    quota: Number(formData.get('quota')),\n  });\n  \n  if (!validated.success) {\n    return { error: 'Invalid input', details: validated.error.flatten() };\n  }\n  \n  const response = await fetch(`${process.env.API_URL}/api/titles`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    credentials: 'include',\n    body: JSON.stringify(validated.data),\n  });\n  \n  if (!response.ok) {\n    const error = await response.json();\n    return { error: error.message || 'Failed to create title' };\n  }\n  \n  revalidatePath('/admin/titles');\n  return { success: true };\n}\n```"
+}

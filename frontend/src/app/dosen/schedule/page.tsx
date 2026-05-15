@@ -39,7 +39,6 @@ import { Badge } from '@/components/ui/badge';
 import { Pencil, Trash2 } from 'lucide-react';
 import { dosenScheduleSchema, type DosenScheduleFormData } from '@/lib/validations/schedule';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
-import type { ScheduleMode } from '@/types';
 import { toScheduleMode, toNumber } from '@/types';
 
 interface Group {
@@ -168,7 +167,17 @@ export default function DosenSchedulePage() {
     const handleSubmit = async (data: DosenScheduleFormData) => {
         setSaving(true);
         try {
-            const payload: any = {
+            interface SchedulePayload {
+                group_id: string;
+                type: string;
+                date: string;
+                start_time: string;
+                end_time: string;
+                room?: string;
+                mode?: string;
+                notes?: string;
+            }
+            const payload: SchedulePayload = {
                 group_id: data.group_id,
                 type: data.type,
                 date: data.date,
@@ -200,9 +209,9 @@ export default function DosenSchedulePage() {
             setOpen(false);
             resetForm();
             await fetchData();
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to save schedule', error);
-            const message = error?.response?.data?.message || 'Failed to save schedule';
+            const message = api.getApiErrorMessage(error, 'Failed to save schedule');
             const conflicts = error?.response?.data?.conflicts;
             if (conflicts && conflicts.length > 0) {
                 toast.error(`${message}: ${conflicts.join(', ')}`);

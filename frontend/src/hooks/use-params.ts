@@ -1,5 +1,4 @@
 import { useParams } from 'next/navigation';
-import type { ReadonlyURLSearchParams } from 'next/navigation';
 import { useMemo } from 'react';
 
 /**

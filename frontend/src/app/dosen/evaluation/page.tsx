@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
+import { toViewMode } from '@/types/guards';
 
 interface Evaluation {
     id: number;
@@ -422,7 +423,10 @@ export default function DosenExaminerPage() {
             </div>
 
             {/* View Mode Toggle */}
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'schedule' | 'group')} className="mb-6">
+            <Tabs value={viewMode} onValueChange={(v) => {
+                const validatedMode = toViewMode(v, viewMode);
+                setViewMode(validatedMode);
+            }} className="mb-6">
                 <TabsList className="grid w-full max-w-md grid-cols-2">
                     <TabsTrigger value="schedule">
                         <Calendar className="w-4 h-4 mr-2" />

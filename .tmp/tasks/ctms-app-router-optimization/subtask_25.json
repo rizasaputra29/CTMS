@@ -1,0 +1,34 @@
+{
+  "id": "ctms-app-router-optimization-25",
+  "seq": "25",
+  "title": "Phase 6: Create deployment automation scripts",
+  "status": "pending",
+  "depends_on": ["23", "24"],
+  "parallel": true,
+  "suggested_agent": "DevOpsEngineer",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/deployment.md"
+  ],
+  "reference_files": [
+    "package.json (root)"
+  ],
+  "acceptance_criteria": [
+    "Deploy script for zero-downtime deployment",
+    "Database migration script with rollback capability",
+    "Health check endpoint validation",
+    "Smoke tests after deployment",
+    "Rollback script for quick recovery"
+  ],
+  "deliverables": [
+    "scripts/deploy.sh",
+    "scripts/deploy-backend.sh",
+    "scripts/deploy-frontend.sh",
+    "scripts/migrate-db.sh",
+    "scripts/health-check.sh",
+    "scripts/rollback.sh",
+    "scripts/setup-vps.sh"
+  ],
+  "estimated_hours": 4,
+  "phase": "phase-6-deployment",
+  "code_example": "```bash\n#!/bin/bash\n# scripts/deploy.sh\n\nset -e\n\necho \"🚀 Starting CTMS deployment...\"\n\n# Configuration\nBACKUP_DIR=\"/var/backups/ctms/$(date +%Y%m%d_%H%M%S)\"\nDEPLOY_DIR=\"/var/www/ctms\"\n\n# Create backup\necho \"📦 Creating backup...\"\nmkdir -p $BACKUP_DIR\ncp -r $DEPLOY_DIR/* $BACKUP_DIR/ 2>/dev/null || true\nmysqldump -u root ctms > $BACKUP_DIR/database.sql 2>/dev/null || true\n\n# Git pull\necho \"📥 Pulling latest code...\"\ncd $DEPLOY_DIR\ngit pull origin main\n\n# Install dependencies\necho \"📦 Installing dependencies...\"\ncd backend\ncomposer install --no-dev --optimize-autoloader\ncd ../frontend\nnpm ci\n\n# Build frontend\necho \"🔨 Building frontend...\"\nnpm run build\n\n# Run migrations\necho \"🗄️ Running database migrations...\"\ncd ../backend\nphp artisan migrate --force\n\n# Clear caches\necho \"🧹 Clearing caches...\"\nphp artisan cache:clear\nphp artisan config:clear\nphp artisan view:clear\n\n# Reload PM2\necho \"🔄 Reloading PM2 processes...\"\ncd ..\npm2 reload ecosystem.config.js --env production\n\n# Health check\necho \"🏥 Running health checks...\"\nsleep 5\n./scripts/health-check.sh\n\necho \"✅ Deployment complete!\"\n```"
+}

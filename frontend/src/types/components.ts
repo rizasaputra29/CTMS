@@ -4,7 +4,6 @@
  */
 
 import type { ReactNode, ElementType } from 'react';
-import type { VariantProps } from 'class-variance-authority';
 
 /**
  * Base component props

@@ -29,6 +29,7 @@ import {
     ChevronRight as ChevronRightIcon
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { getEvaluationData } from '@/types/guards';
 
 interface EvaluationStatus {
     score: number | null;
@@ -338,14 +339,14 @@ export default function AssessmentsReportPage() {
                                                 <span className="text-sm">{student.group_name}</span>
                                             </TableCell>
                                             {EVALUATION_TYPES.map(type => {
-                                                const evalData = student.evaluations[type.key as keyof typeof student.evaluations];
+                                                const evalData = getEvaluationData(student.evaluations, type.key);
                                                 return (
                                                     <TableCell key={type.key} className="text-center">
-                                                        <div className={`text-lg font-bold ${getScoreColor(evalData?.score)}`}>
-                                                            {evalData?.score !== null ? Math.round(evalData.score) : '–'}
+                                                        <div className={`text-lg font-bold ${getScoreColor(evalData?.score ?? null)}`}>
+                                                            {evalData?.score != null ? Math.round(evalData.score) : '–'}
                                                         </div>
                                                         <div className="mt-1">
-                                                            {getStatusBadge(evalData?.status)}
+                                                            {getStatusBadge(evalData?.status ?? '')}
                                                         </div>
                                                     </TableCell>
                                                 );

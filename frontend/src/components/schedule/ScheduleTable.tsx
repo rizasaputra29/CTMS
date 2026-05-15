@@ -1,5 +1,7 @@
 'use client';
 
+// This component uses TanStack Table's useReactTable() which cannot be safely memoized
+// The React Compiler is configured to skip memoization for this component
 import { useState } from 'react';
 import {
     useReactTable,

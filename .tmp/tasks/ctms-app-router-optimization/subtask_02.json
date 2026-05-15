@@ -1,0 +1,34 @@
+{
+  "id": "ctms-app-router-optimization-02",
+  "seq": "02",
+  "title": "Phase 1: Implement Laravel Sanctum with HTTP-only cookie auth",
+  "status": "pending",
+  "depends_on": ["01"],
+  "parallel": false,
+  "suggested_agent": "BackendDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/security-patterns.md",
+    "/Users/riza/.config/opencode/context/core/standards/api-design.md"
+  ],
+  "reference_files": [
+    "backend/app/Http/Controllers/AuthController.php",
+    "backend/config/sanctum.php",
+    "backend/app/Http/Kernel.php"
+  ],
+  "acceptance_criteria": [
+    "AuthController updated to issue HTTP-only cookies instead of JSON tokens",
+    "Access token expires in 15 minutes, refresh token in 7 days",
+    "CORS configured for cookie sharing between frontend and backend",
+    "SameSite=Strict set on all auth cookies",
+    "Logout endpoint revokes refresh tokens and clears cookies"
+  ],
+  "deliverables": [
+    "backend/app/Http/Controllers/AuthController.php (refactored)",
+    "backend/app/Http/Controllers/RefreshTokenController.php",
+    "backend/config/cors.php (updated)",
+    "backend/app/Services/TokenService.php"
+  ],
+  "estimated_hours": 4,
+  "phase": "phase-1-database-backend",
+  "code_example": "```php\n// AuthController login method\npublic function login(Request $request) {\n    $credentials = $request->validate([...]);\n    \n    if (!Auth::attempt($credentials)) {\n        throw new AuthenticationException();\n    }\n    \n    $user = Auth::user();\n    $accessToken = $user->createToken('access', ['*'], now()->addMinutes(15));\n    $refreshToken = $this->tokenService->createRefreshToken($user);\n    \n    return response()->json(['user' => $user, 'roles' => $user->roles])\n        ->withCookie(cookie('access_token', $accessToken->plainTextToken, 15, '/', null, true, true, false, 'Strict'))\n        ->withCookie(cookie('refresh_token', $refreshToken, 10080, '/', null, true, true, false, 'Strict'))\n        ->withCookie(cookie('user_role', $user->primaryRole(), null, '/', null, false, false, false, 'Strict'));\n}\n```"
+}

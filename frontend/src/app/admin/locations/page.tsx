@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -19,7 +20,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Plus, Trash2, Edit, Loader2, Search, ArrowUpDown, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ScheduleMode } from '@/types';
+import { locationSchema, type LocationFormData } from '@/lib/validations/location';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { isScheduleMode, toScheduleMode } from '@/types';
 
 interface Location {
@@ -60,20 +62,17 @@ export default function AdminLocationsPage() {
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
-    const [submitting, setSubmitting] = useState(false);
 
-    const [form, setForm] = useState<{
-        name: string;
-        type: ScheduleMode;
-        capacity: string;
-        description: string;
-        is_active: boolean;
-    }>({
-        name: '',
-        type: 'offline',
-        capacity: '',
-        description: '',
-        is_active: true,
+    const form = useForm<LocationFormData>({
+        resolver: zodResolver(locationSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            name: '',
+            type: 'offline',
+            capacity: '',
+            description: '',
+            is_active: true,
+        },
     });
 
     const fetchLocations = useCallback(async () => {
@@ -153,7 +152,7 @@ export default function AdminLocationsPage() {
 
     const resetForm = () => {
         setEditing(null);
-        setForm({
+        form.reset({
             name: '',
             type: 'offline',
             capacity: '',
@@ -169,7 +168,7 @@ export default function AdminLocationsPage() {
 
     const openEdit = (location: Location) => {
         setEditing(location);
-        setForm({
+        form.reset({
             name: location.name,
             type: location.type,
             capacity: location.capacity?.toString() || '',
@@ -179,15 +178,14 @@ export default function AdminLocationsPage() {
         setDialogOpen(true);
     };
 
-    const handleSubmit = async () => {
-        setSubmitting(true);
+    const onSubmit = async (data: LocationFormData) => {
         try {
             const payload = {
-                name: form.name,
-                type: form.type,
-                capacity: form.capacity ? parseInt(form.capacity) : null,
-                description: form.description || null,
-                is_active: form.is_active,
+                name: data.name,
+                type: data.type,
+                capacity: data.capacity ? parseInt(data.capacity) : null,
+                description: data.description || null,
+                is_active: data.is_active,
             };
 
             if (editing) {
@@ -201,12 +199,10 @@ export default function AdminLocationsPage() {
             setDialogOpen(false);
             resetForm();
             fetchLocations();
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to save location', error);
-            const message = error?.response?.data?.message || 'Failed to save location';
+            const message = api.getApiErrorMessage(error, 'Failed to save location');
             toast.error(message);
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -220,9 +216,9 @@ export default function AdminLocationsPage() {
             await api.delete(`/locations/${location.id}`);
             toast.success('Location deleted successfully');
             fetchLocations();
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to delete location', error);
-            const message = error?.response?.data?.message || 'Failed to delete location';
+            const message = api.getApiErrorMessage(error, 'Failed to delete location');
             toast.error(message);
         } finally {
             setDeleting(null);
@@ -236,9 +232,9 @@ export default function AdminLocationsPage() {
             });
             toast.success(`Location ${location.is_active ? 'deactivated' : 'activated'} successfully`);
             fetchLocations();
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to update location status', error);
-            const message = error?.response?.data?.message || 'Failed to update location status';
+            const message = api.getApiErrorMessage(error, 'Failed to update location status');
             toast.error(message);
         }
     };
@@ -465,98 +461,133 @@ export default function AdminLocationsPage() {
 
             {/* Create/Edit Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                <DialogContent className="sm:max-w-[500px]">
-                    <DialogHeader>
-                        <DialogTitle>{editing ? 'Edit Location' : 'Add Location'}</DialogTitle>
-                        <DialogDescription>
-                            {editing
-                                ? 'Update the location details below.'
-                                : 'Create a new location for scheduling events and sessions.'}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="name">Name *</Label>
-                            <Input
-                                id="name"
-                                value={form.name}
-                                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                                placeholder="e.g., Lab IF-101, Zoom Meeting Room"
-                            />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="type">Type *</Label>
-                                <Select
-                                    value={form.type}
-                                    onValueChange={(v) => setForm({ ...form, type: toScheduleMode(v) })}
-                                >
-                                    <SelectTrigger id="type">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="offline">Offline</SelectItem>
-                                        <SelectItem value="online">Online</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="capacity">Capacity (optional)</Label>
-                                <Input
-                                    id="capacity"
-                                    type="number"
-                                    min="1"
-                                    value={form.capacity}
-                                    onChange={(e) => setForm({ ...form, capacity: e.target.value })}
-                                    placeholder="e.g., 30"
+                    <DialogContent className="sm:max-w-[500px]">
+                        <DialogHeader>
+                            <DialogTitle>{editing ? 'Edit Location' : 'Add Location'}</DialogTitle>
+                            <DialogDescription>
+                                {editing
+                                    ? 'Update the location details below.'
+                                    : 'Create a new location for scheduling events and sessions.'}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <form onSubmit={form.handleSubmit(onSubmit)}>
+                            <div className="space-y-4 py-4">
+                                <Controller
+                                    name="name"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor={field.name}>Name *</FieldLabel>
+                                            <Input
+                                                {...field}
+                                                id={field.name}
+                                                placeholder="e.g., Lab IF-101, Zoom Meeting Room"
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                        </Field>
+                                    )}
                                 />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <Controller
+                                        name="type"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={fieldState.invalid}>
+                                                <FieldLabel htmlFor={field.name}>Type *</FieldLabel>
+                                                <Select
+                                                    value={field.value}
+                                                    onValueChange={(v) => field.onChange(toScheduleMode(v))}
+                                                >
+                                                    <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                                                        <SelectValue />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="offline">Offline</SelectItem>
+                                                        <SelectItem value="online">Online</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                            </Field>
+                                        )}
+                                    />
+                                    <Controller
+                                        name="capacity"
+                                        control={form.control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={fieldState.invalid}>
+                                                <FieldLabel htmlFor={field.name}>Capacity (optional)</FieldLabel>
+                                                <Input
+                                                    {...field}
+                                                    id={field.name}
+                                                    type="number"
+                                                    min="1"
+                                                    placeholder="e.g., 30"
+                                                    aria-invalid={fieldState.invalid}
+                                                />
+                                                {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                            </Field>
+                                        )}
+                                    />
+                                </div>
+                                <Controller
+                                    name="description"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor={field.name}>Description (optional)</FieldLabel>
+                                            <Textarea
+                                                {...field}
+                                                id={field.name}
+                                                placeholder="Additional details about this location..."
+                                                rows={3}
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="is_active"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field orientation="horizontal" data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor={field.name}>Active</FieldLabel>
+                                            <Switch
+                                                id={field.name}
+                                                checked={field.value}
+                                                onCheckedChange={field.onChange}
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                        </Field>
+                                    )}
+                                />
+                                {editing && (
+                                    <p className="text-xs text-muted-foreground">
+                                        Tip: Set to inactive to prevent this location from appearing in schedule dropdowns.
+                                    </p>
+                                )}
                             </div>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="description">Description (optional)</Label>
-                            <Textarea
-                                id="description"
-                                value={form.description}
-                                onChange={(e) => setForm({ ...form, description: e.target.value })}
-                                placeholder="Additional details about this location..."
-                                rows={3}
-                            />
-                        </div>
-                        <div className="flex items-center justify-between space-y-0">
-                            <Label htmlFor="is_active">Active</Label>
-                            <Switch
-                                id="is_active"
-                                checked={form.is_active}
-                                onCheckedChange={(checked) => setForm({ ...form, is_active: checked })}
-                            />
-                        </div>
-                        {editing && (
-                            <p className="text-xs text-muted-foreground">
-                                Tip: Set to inactive to prevent this location from appearing in schedule dropdowns.
-                            </p>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={submitting}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleSubmit}
-                            disabled={submitting || !form.name.trim()}
-                        >
-                            {submitting ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Saving...
-                                </>
-                            ) : editing ? (
-                                'Save Changes'
-                            ) : (
-                                'Create Location'
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
+                            <DialogFooter>
+                                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={form.formState.isSubmitting}>
+                                    Cancel
+                                </Button>
+                                <Button type="submit" disabled={form.formState.isSubmitting}>
+                                    {form.formState.isSubmitting ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            Saving...
+                                        </>
+                                    ) : editing ? (
+                                        'Save Changes'
+                                    ) : (
+                                        'Create Location'
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogContent>
             </Dialog>
         </div>
     );

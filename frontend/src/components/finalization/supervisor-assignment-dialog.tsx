@@ -1,5 +1,7 @@
 'use client';
 
+// This component uses React Hook Form's watch() which cannot be safely memoized
+// The React Compiler is configured to skip memoization for this component
 import { useMemo } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -7,11 +9,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -23,7 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, Users, AlertTriangle } from 'lucide-react';
+import { Users, AlertTriangle } from 'lucide-react';
 import type { Group, LecturerWithLoad } from '@/types/finalization';
 import { supervisorAssignmentSchema, type SupervisorAssignmentFormData } from '@/lib/validations/finalization';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
@@ -46,7 +46,7 @@ export function SupervisorAssignmentDialog({
   onOpenChange,
   selectedGroups,
   lecturers,
-  loading,
+  loading: _loading,
   onSubmit,
 }: SupervisorAssignmentDialogProps) {
   const form = useForm<SupervisorAssignmentFormData>({

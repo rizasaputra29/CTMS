@@ -9,6 +9,7 @@ import { Loader2, Calendar, Clock, MapPin, Users, GraduationCap, CheckCircle2, C
 import {
     Tabs, TabsContent, TabsList, TabsTrigger,
 } from '@/components/ui/tabs';
+import { getSemproStatusBadgeVariant } from '@/lib/badge-variants';
 
 interface Evaluator {
     id: number;
@@ -76,12 +77,7 @@ export default function StudentSchedulesPage() {
     useEffect(() => { fetchData(); }, [fetchData]);
 
 
-    const statusColor = (s: string) => {
-        if (s === 'COMPLETED') return 'default' as const;
-        if (s === 'CANCELLED') return 'destructive' as const;
-        if (s === 'PENDING_APPROVAL') return 'secondary' as const;
-        return 'secondary' as const;
-    };
+    const statusColor = (s: string) => getSemproStatusBadgeVariant(s);
 
     const evaluatorStatusColor = (status: string) => {
         if (status === 'SUBMITTED') return 'bg-green-100 text-green-800 border-green-300';

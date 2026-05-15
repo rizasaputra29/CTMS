@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-05",
+  "seq": "05",
+  "title": "Phase 1: Create API response contracts for Server Components",
+  "status": "pending",
+  "depends_on": [],
+  "parallel": true,
+  "suggested_agent": "BackendDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/api-design.md"
+  ],
+  "reference_files": [
+    "backend/app/Http/Controllers/ApiResponseTrait.php",
+    "backend/app/Http/Resources/"
+  ],
+  "acceptance_criteria": [
+    "Standardized JSON response format across all API endpoints",
+    "Resources created for User, Group, Period, Title models",
+    "Consistent error response structure with code and message",
+    "Pagination wrapped in standardized meta format",
+    "Documentation includes response examples for all endpoints"
+  ],
+  "deliverables": [
+    "backend/app/Http/Resources/UserResource.php",
+    "backend/app/Http/Resources/GroupResource.php",
+    "backend/app/Http/Resources/PeriodResource.php",
+    "backend/app/Http/Resources/TitleResource.php",
+    "backend/app/Traits/StandardizedApiResponse.php"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-1-database-backend",
+  "code_example": "```php\n// StandardizedApiResponse trait\ntrait StandardizedApiResponse {\n    protected function success($data, string $message = 'Success', int $code = 200) {\n        return response()->json([\n            'success' => true,\n            'message' => $message,\n            'data' => $data,\n            'meta' => [\n                'timestamp' => now()->toIso8601String(),\n                'request_id' => request()->header('X-Request-Id'),\n            ]\n        ], $code);\n    }\n    \n    protected function error(string $message, int $code = 400, $errors = null) {\n        return response()->json([\n            'success' => false,\n            'message' => $message,\n            'errors' => $errors,\n            'meta' => [\n                'timestamp' => now()->toIso8601String(),\n            ]\n        ], $code);\n    }\n}\n\n// Usage in controller\nreturn $this->success(new UserResource($user));\n```"
+}

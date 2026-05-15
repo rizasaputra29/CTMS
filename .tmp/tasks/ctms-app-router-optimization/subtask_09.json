@@ -1,0 +1,32 @@
+{
+  "id": "ctms-app-router-optimization-09",
+  "seq": "09",
+  "title": "Phase 3: Create data fetching utilities with React.cache",
+  "status": "pending",
+  "depends_on": ["07", "08"],
+  "parallel": false,
+  "suggested_agent": "FullStackDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md",
+    "/Users/riza/.config/opencode/context/core/standards/data-fetching.md"
+  ],
+  "reference_files": [
+    "frontend/src/lib/api.ts"
+  ],
+  "acceptance_criteria": [
+    "React.cache() used for all read-only data fetches",
+    "Parallel fetching with Promise.all for independent data",
+    "Type-safe API client with proper error handling",
+    "Cache key generation strategy documented",
+    "Revalidation strategies defined per data type"
+  ],
+  "deliverables": [
+    "frontend/src/lib/data/cache.ts",
+    "frontend/src/lib/data/api-client.ts",
+    "frontend/src/lib/data/fetchers.ts",
+    "frontend/src/lib/data/types.ts"
+  ],
+  "estimated_hours": 4,
+  "phase": "phase-3-server-components",
+  "code_example": "```typescript\n// src/lib/data/cache.ts\nimport { cache } from 'react';\n\n// Cache user data for request duration\nexport const getCachedUser = cache(async (userId: number) => {\n  const response = await fetch(`${process.env.API_URL}/api/users/${userId}`, {\n    credentials: 'include',\n  });\n  \n  if (!response.ok) {\n    throw new Error('Failed to fetch user');\n  }\n  \n  return response.json();\n});\n\n// Cache dashboard data\nexport const getCachedDashboard = cache(async (role: string, userId: number) => {\n  const response = await fetch(\n    `${process.env.API_URL}/api/${role}/dashboard`,\n    { credentials: 'include' }\n  );\n  \n  if (!response.ok) {\n    throw new Error('Failed to fetch dashboard');\n  }\n  \n  return response.json();\n});\n\n// Parallel fetching example\nexport async function getDashboardData(userId: number, role: string) {\n  const [user, dashboard, periods] = await Promise.all([\n    getCachedUser(userId),\n    getCachedDashboard(role, userId),\n    getCachedPeriods(),\n  ]);\n  \n  return { user, dashboard, periods };\n}\n```"
+}

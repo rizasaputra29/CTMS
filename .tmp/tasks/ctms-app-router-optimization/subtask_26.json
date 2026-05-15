@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-26",
+  "seq": "26",
+  "title": "Phase 6: Set up environment configuration for production",
+  "status": "pending",
+  "depends_on": ["25"],
+  "parallel": true,
+  "suggested_agent": "DevOpsEngineer",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/deployment.md",
+    "/Users/riza/.config/opencode/context/core/standards/security-patterns.md"
+  ],
+  "reference_files": [
+    "frontend/.env.example",
+    "backend/.env.example"
+  ],
+  "acceptance_criteria": [
+    "Production .env files created with secure values",
+    "Environment variables documented",
+    "Secrets management strategy (use .env.local, not in repo)",
+    "Database credentials configured for Neon PostgreSQL",
+    "API URLs and origins properly set"
+  ],
+  "deliverables": [
+    "frontend/.env.production.example",
+    "backend/.env.production.example",
+    "docs/ENVIRONMENT_SETUP.md",
+    "scripts/generate-secrets.sh"
+  ],
+  "estimated_hours": 2,
+  "phase": "phase-6-deployment",
+  "code_example": "```bash\n# frontend/.env.production.example\n# Copy to .env.production and fill in values\n\n# API Configuration\nNEXT_PUBLIC_API_URL=https://ctms.yourdomain.com/api\nAPI_URL=https://ctms.yourdomain.com/api\n\n# Authentication\nNEXTAUTH_URL=https://ctms.yourdomain.com\nNEXTAUTH_SECRET=your-generated-secret-here\n\n# App Router Configuration\nNEXT_TELEMETRY_DISABLED=1\n\n# Feature Flags\nNEXT_PUBLIC_ENABLE_ANALYTICS=true\n```\n\n```bash\n# backend/.env.production.example\n# Copy to .env and fill in values\n\nAPP_NAME=CTMS\nAPP_ENV=production\nAPP_KEY=base64:your-generated-app-key\nAPP_DEBUG=false\nAPP_URL=https://ctms.yourdomain.com\n\nLOG_CHANNEL=stack\nLOG_LEVEL=error\n\nDB_CONNECTION=pgsql\nDB_HOST=your-neon-host.neon.tech\nDB_PORT=5432\nDB_DATABASE=ctms\nDB_USERNAME=your-neon-username\nDB_PASSWORD=your-neon-password\nDB_SSLMODE=require\n\nBROADCAST_DRIVER=log\nCACHE_DRIVER=file\nQUEUE_CONNECTION=database\nSESSION_DRIVER=file\nSESSION_LIFETIME=120\n\nSANCTUM_STATEFUL_DOMAINS=ctms.yourdomain.com\nSESSION_DOMAIN=.yourdomain.com\n```"
+}

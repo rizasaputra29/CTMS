@@ -1,0 +1,33 @@
+{
+  "id": "ctms-app-router-optimization-28",
+  "seq": "28",
+  "title": "Phase 6: Create deployment documentation and runbook",
+  "status": "pending",
+  "depends_on": ["23", "24", "25", "26", "27"],
+  "parallel": true,
+  "suggested_agent": "TechnicalWriter",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/documentation.md"
+  ],
+  "reference_files": [
+    "README.md",
+    "docs/"
+  ],
+  "acceptance_criteria": [
+    "Complete deployment guide covering all steps",
+    "Troubleshooting section with common issues",
+    "Environment variable reference",
+    "Backup and restore procedures",
+    "Security checklist for production"
+  ],
+  "deliverables": [
+    "docs/DEPLOYMENT.md",
+    "docs/TROUBLESHOOTING.md",
+    "docs/SECURITY.md",
+    "docs/BACKUP_RESTORE.md",
+    "docs/OPS_RUNBOOK.md"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-6-deployment",
+  "code_example": "```markdown\n# Deployment Documentation Structure\n\n## DEPLOYMENT.md\n- Prerequisites (VPS specs, domain, SSL certs)\n- Initial server setup\n- Application installation\n- Database configuration\n- SSL certificate setup\n- First deployment\n- Verification steps\n\n## TROUBLESHOOTING.md\n- Common errors and solutions\n- How to check logs\n- How to restart services\n- Database connection issues\n- Performance issues\n\n## SECURITY.md\n- Security checklist\n- OWASP considerations\n- Cookie security\n- CORS configuration\n- Rate limiting\n- Input validation\n\n## BACKUP_RESTORE.md\n- Automated backup strategy\n- Manual backup procedures\n- Database restoration\n- File restoration\n- Disaster recovery\n\n## OPS_RUNBOOK.md\n- Daily operations\n- Monitoring checks\n- Alert response\n- Scaling procedures\n- Incident response\n```"
+}

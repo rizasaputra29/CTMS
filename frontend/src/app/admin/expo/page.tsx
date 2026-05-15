@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Loader2, Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Eye, EyeOff, Edit, Trash2 } from 'lucide-react';
+import { expoEventSchema, type ExpoEventFormData } from '@/lib/validations/expo';
 
 interface ExpoEvent {
     id: number;
@@ -63,14 +66,23 @@ export default function AdminExpoPage() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ExpoEvent | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [form, setForm] = useState({
-        period_id: '',
-        name: '',
-        date: '',
-        start_time: '',
-        end_time: '',
-        location_id: '',
-        capacity: '30',
+
+    const {
+        control,
+        handleSubmit,
+        reset,
+        formState: { errors },
+    } = useForm<ExpoEventFormData>({
+        resolver: zodResolver(expoEventSchema),
+        defaultValues: {
+            period_id: '',
+            name: '',
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            capacity: '30',
+        },
     });
 
     const [page, setPage] = useState(1);
@@ -109,7 +121,13 @@ export default function AdminExpoPage() {
         }
     }, []);
 
-    useEffect(() => { fetchData(); }, [selectedPeriod]);
+    const hasFetchedData = useRef(false);
+    useEffect(() => {
+        if (!hasFetchedData.current) {
+            hasFetchedData.current = true;
+            fetchData();
+        }
+    }, [fetchData]);
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
     useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
@@ -131,7 +149,7 @@ export default function AdminExpoPage() {
         });
 
         return result;
-    }, [events, searchQuery, sortKey, sortDir]);
+    }, [events, searchQuery, sortKey, sortDir, locations]);
 
     const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
     const safePage = Math.min(page, totalPages);
@@ -145,13 +163,21 @@ export default function AdminExpoPage() {
 
     const openCreate = () => {
         setEditing(null);
-        setForm({ period_id: periods[0]?.id.toString() || '', name: '', date: '', start_time: '', end_time: '', location_id: '', capacity: '30' });
+        reset({
+            period_id: periods[0]?.id.toString() || '',
+            name: '',
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            capacity: '30',
+        });
         setDialogOpen(true);
     };
 
     const openEdit = (evt: ExpoEvent) => {
         setEditing(evt);
-        setForm({
+        reset({
             period_id: evt.period_id.toString(),
             name: evt.name,
             date: evt.date.split('T')[0],
@@ -163,14 +189,14 @@ export default function AdminExpoPage() {
         setDialogOpen(true);
     };
 
-    const handleSubmit = async () => {
+    const onSubmit = async (data: ExpoEventFormData) => {
         setSubmitting(true);
         try {
-            const payload = { 
-                ...form, 
-                capacity: Number(form.capacity), 
-                period_id: Number(form.period_id),
-                location_id: form.location_id ? Number(form.location_id) : null
+            const payload = {
+                ...data,
+                capacity: Number(data.capacity),
+                period_id: Number(data.period_id),
+                location_id: data.location_id ? Number(data.location_id) : null
             };
             if (editing) {
                 await api.put(`/admin/expo-events/${editing.id}`, payload);
@@ -549,73 +575,124 @@ export default function AdminExpoPage() {
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{editing ? 'Edit Event' : 'Create Expo Event'}</DialogTitle>
-                        <DialogDescription>
-                            {editing ? 'Update the event details.' : 'Create a new expo event for student registration.'}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        {!editing && (
-                            <div>
-                                <Label>Period</Label>
-                                <Select value={form.period_id} onValueChange={(v) => setForm({ ...form, period_id: v })}>
-                                    <SelectTrigger><SelectValue placeholder="Select period..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {periods.filter(p => p.is_active).map((p) => (
-                                            <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-                        <div>
-                            <Label>Event Name</Label>
-                            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Expo Capstone Batch 1" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label>Date</Label>
-                                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>Location</Label>
-                                <Select value={form.location_id || undefined} onValueChange={(v) => setForm({ ...form, location_id: v })}>
-                                    <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {locations.length === 0 && (
-                                            <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                    <form onSubmit={handleSubmit(onSubmit)}>
+                        <DialogHeader>
+                            <DialogTitle>{editing ? 'Edit Event' : 'Create Expo Event'}</DialogTitle>
+                            <DialogDescription>
+                                {editing ? 'Update the event details.' : 'Create a new expo event for student registration.'}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                            {!editing && (
+                                <div>
+                                    <Label>Period</Label>
+                                    <Controller
+                                        name="period_id"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger><SelectValue placeholder="Select period..." /></SelectTrigger>
+                                                <SelectContent>
+                                                    {periods.filter(p => p.is_active).map((p) => (
+                                                        <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         )}
-                                        {locations.filter(l => l.is_active).map((loc) => (
-                                            <SelectItem key={loc.id} value={loc.id.toString()}>
-                                                {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    />
+                                    {errors.period_id && <p className="text-sm text-destructive mt-1">{errors.period_id.message}</p>}
+                                </div>
+                            )}
+                            <div>
+                                <Label>Event Name</Label>
+                                <Controller
+                                    name="name"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input {...field} placeholder="e.g. Expo Capstone Batch 1" />
+                                    )}
+                                />
+                                {errors.name && <p className="text-sm text-destructive mt-1">{errors.name.message}</p>}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label>Date</Label>
+                                    <Controller
+                                        name="date"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="date" {...field} />
+                                        )}
+                                    />
+                                    {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>Location</Label>
+                                    <Controller
+                                        name="location_id"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                                <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
+                                                <SelectContent>
+                                                    {locations.length === 0 && (
+                                                        <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                                    )}
+                                                    {locations.filter(l => l.is_active).map((loc) => (
+                                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                            {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    {errors.location_id && <p className="text-sm text-destructive mt-1">{errors.location_id.message}</p>}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <Label>Start Time</Label>
+                                    <Controller
+                                        name="start_time"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {errors.start_time && <p className="text-sm text-destructive mt-1">{errors.start_time.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>End Time</Label>
+                                    <Controller
+                                        name="end_time"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {errors.end_time && <p className="text-sm text-destructive mt-1">{errors.end_time.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>Capacity</Label>
+                                    <Controller
+                                        name="capacity"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="number" min="1" {...field} />
+                                        )}
+                                    />
+                                    {errors.capacity && <p className="text-sm text-destructive mt-1">{errors.capacity.message}</p>}
+                                </div>
                             </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-4">
-                            <div>
-                                <Label>Start Time</Label>
-                                <Input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>End Time</Label>
-                                <Input type="time" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>Capacity</Label>
-                                <Input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
-                            </div>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleSubmit} disabled={submitting || !form.name || !form.date}>
-                            {submitting ? 'Saving...' : editing ? 'Update' : 'Create'}
-                        </Button>
-                    </DialogFooter>
+                        <DialogFooter>
+                            <Button variant="outline" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                            <Button type="submit" disabled={submitting}>
+                                {submitting ? 'Saving...' : editing ? 'Update' : 'Create'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
         </div>

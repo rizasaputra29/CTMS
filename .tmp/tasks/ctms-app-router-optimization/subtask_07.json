@@ -1,0 +1,32 @@
+{
+  "id": "ctms-app-router-optimization-07",
+  "seq": "07",
+  "title": "Phase 2: Create server-side auth utilities and cookie handlers",
+  "status": "pending",
+  "depends_on": ["06"],
+  "parallel": true,
+  "suggested_agent": "FullStackDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md"
+  ],
+  "reference_files": [
+    "frontend/src/lib/api.ts",
+    "frontend/src/context/AuthContext.tsx"
+  ],
+  "acceptance_criteria": [
+    "Server-side cookie reading utility created",
+    "Token validation helper for Server Components",
+    "Auth session helper that returns user data or null",
+    "Cookie setting helper with proper flags (Secure, SameSite)",
+    "Type-safe auth state with TypeScript interfaces"
+  ],
+  "deliverables": [
+    "frontend/src/lib/auth/server-auth.ts",
+    "frontend/src/lib/auth/cookies.ts",
+    "frontend/src/types/auth.ts",
+    "frontend/src/lib/auth/verify-session.ts"
+  ],
+  "estimated_hours": 3,
+  "phase": "phase-2-frontend-infrastructure",
+  "code_example": "```typescript\n// src/lib/auth/server-auth.ts\nimport { cookies } from 'next/headers';\nimport { jwtVerify } from 'jose';\n\nconst JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET);\n\nexport async function getServerSession() {\n  const cookieStore = await cookies();\n  const accessToken = cookieStore.get('access_token')?.value;\n  \n  if (!accessToken) return null;\n  \n  try {\n    const { payload } = await jwtVerify(accessToken, JWT_SECRET);\n    return {\n      userId: payload.sub,\n      email: payload.email as string,\n      role: payload.role as string,\n      roles: payload.roles as string[],\n    };\n  } catch {\n    return null;\n  }\n}\n\n// src/lib/auth/cookies.ts\nexport async function setAuthCookies(\n  accessToken: string,\n  refreshToken: string,\n  role: string\n) {\n  const cookieStore = await cookies();\n  \n  cookieStore.set('access_token', accessToken, {\n    httpOnly: true,\n    secure: process.env.NODE_ENV === 'production',\n    sameSite: 'strict',\n    maxAge: 60 * 15, // 15 minutes\n    path: '/',\n  });\n  \n  cookieStore.set('refresh_token', refreshToken, {\n    httpOnly: true,\n    secure: process.env.NODE_ENV === 'production',\n    sameSite: 'strict',\n    maxAge: 60 * 60 * 24 * 7, // 7 days\n    path: '/',\n  });\n  \n  cookieStore.set('user_role', role, {\n    httpOnly: false, // Accessible by middleware\n    secure: process.env.NODE_ENV === 'production',\n    sameSite: 'strict',\n    maxAge: 60 * 60 * 24 * 7,\n    path: '/',\n  });\n}\n```"
+}

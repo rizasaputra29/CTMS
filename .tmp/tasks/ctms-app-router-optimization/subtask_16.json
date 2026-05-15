@@ -1,0 +1,32 @@
+{
+  "id": "ctms-app-router-optimization-16",
+  "seq": "16",
+  "title": "Phase 4: Update Client Components for Server Actions",
+  "status": "pending",
+  "depends_on": ["15"],
+  "parallel": true,
+  "suggested_agent": "OpenFrontendSpecialist",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/nextjs-app-router.md",
+    "/Users/riza/.config/opencode/context/core/standards/react-hooks.md"
+  ],
+  "reference_files": [
+    "frontend/src/components/",
+    "frontend/src/app/**/components/"
+  ],
+  "acceptance_criteria": [
+    "All form submissions use Server Actions",
+    "useFormState hook for form error handling",
+    "Optimistic updates implemented where appropriate",
+    "Loading states managed with useTransition",
+    "No direct fetch calls for mutations - only Server Actions"
+  ],
+  "deliverables": [
+    "Updated form components across all pages",
+    "frontend/src/hooks/use-server-action.ts",
+    "frontend/src/components/ui/form-status.tsx"
+  ],
+  "estimated_hours": 5,
+  "phase": "phase-4-client-optimization",
+  "code_example": "```typescript\n// components/TitlesTable.tsx (Client Component)\n'use client';\n\nimport { useTransition } from 'react';\nimport { useFormState } from 'react-dom';\nimport { deleteTitle } from '@/app/actions/titles';\n\ninterface TitleRowProps {\n  title: { id: number; title: string };\n  onDelete: () => void;\n}\n\nfunction TitleRow({ title, onDelete }: TitleRowProps) {\n  const [state, formAction] = useFormState(deleteTitle, null);\n  const [isPending, startTransition] = useTransition();\n  \n  return (\n    <tr>\n      <td>{title.title}</td>\n      <td>\n        <form action={formAction}>\n          <input type=\"hidden\" name=\"id\" value={title.id} />\n          <button\n            type=\"submit\"\n            disabled={isPending}\n            className=\"text-red-600 hover:text-red-800\"\n          >\n            {isPending ? 'Deleting...' : 'Delete'}\n          </button>\n        </form>\n        {state?.error && <p className=\"text-red-500\">{state.error}</p>}\n      </td>\n    </tr>\n  );\n}\n```"
+}

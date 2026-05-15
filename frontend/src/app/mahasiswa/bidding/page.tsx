@@ -32,6 +32,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { createBidSchema, type CreateBidFormData } from '@/lib/validations/bidding';
+import { getBidStatusBadgeVariant } from '@/lib/badge-variants';
 
 interface Lecturer {
     id: number;
@@ -283,13 +284,7 @@ export default function BiddingPage() {
         reset();
     };
 
-    const getStatusVariant = (status: string) => {
-        switch (status) {
-            case 'ACCEPTED': return 'default' as const;
-            case 'REJECTED': return 'destructive' as const;
-            default: return 'secondary' as const;
-        }
-    };
+    const getStatusVariant = (status: string) => getBidStatusBadgeVariant(status);
 
     if (loading) {
         return (

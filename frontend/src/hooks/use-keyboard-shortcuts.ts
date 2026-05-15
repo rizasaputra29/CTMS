@@ -20,11 +20,12 @@ export function useKeyboardShortcuts({
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       // Ignore if user is typing in an input/textarea
-      const target = event.target as HTMLElement;
+      const target = event.target;
       if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable)
       ) {
         // Allow Escape to close modals even when typing
         if (event.key === 'Escape') {

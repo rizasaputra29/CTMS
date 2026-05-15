@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from '@/context/AuthContext';
 import { addMemberSchema, type AddMemberFormData } from '@/lib/validations/group';
+import { getGroupStatusBadgeVariant } from '@/lib/badge-variants';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 
 interface Group {
@@ -483,19 +484,7 @@ export default function MahasiswaGroupPage() {
     const hasTitle = !!myGroup.title_id;
     const isSoloSeeker = myGroup.is_solo && ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
 
-    const getStatusBadgeVariant = (status: string) => {
-        switch (status) {
-            case 'APPROVED': return 'default' as const;
-            case 'REJECTED': return 'destructive' as const;
-            case 'PENDING': return 'secondary' as const;
-            case 'FORMING': return 'secondary' as const;
-            case 'FORMING_SOLO': return 'secondary' as const;
-            case 'READY_FOR_BIDDING': return 'outline' as const;
-            case 'READY_FOR_FINALIZATION': return 'outline' as const;
-            case 'CLOSED': return 'secondary' as const;
-            default: return 'secondary' as const;
-        }
-    };
+    const getStatusBadgeVariant = (status: string) => getGroupStatusBadgeVariant(status);
 
     const getStatusLabel = (status: string) => {
         switch (status) {

@@ -129,6 +129,52 @@ export interface Group {
   };
 }
 
+/**
+ * Type guard to check if a value is a Group
+ */
+export function isGroup(value: unknown): value is Group {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof (value as Record<string, unknown>).id === 'number' &&
+    'name' in value &&
+    typeof (value as Record<string, unknown>).name === 'string' &&
+    'members' in value &&
+    Array.isArray((value as Record<string, unknown>).members)
+  );
+}
+
+/**
+ * Type guard to check if an array is Group[]
+ */
+export function isGroupArray(value: unknown[]): value is Group[] {
+  return value.length === 0 || isGroup(value[0]);
+}
+
+/**
+ * Type guard to check if a value is a Student
+ */
+export function isStudent(value: unknown): value is Student {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof (value as Record<string, unknown>).id === 'number' &&
+    'name' in value &&
+    typeof (value as Record<string, unknown>).name === 'string' &&
+    'nim' in value &&
+    typeof (value as Record<string, unknown>).nim === 'string'
+  );
+}
+
+/**
+ * Type guard to check if an array is Student[]
+ */
+export function isStudentArray(value: unknown[]): value is Student[] {
+  return value.length === 0 || isStudent(value[0]);
+}
+
 export interface FinalizationFlow {
   can_modify: boolean;
   can_execute_finalization: boolean;
@@ -299,19 +345,21 @@ export interface FilterState {
 export interface FilterPanelState {
   supervisorStatus: 'all' | 'missing_sv1' | 'missing_sv2' | 'complete';
   memberCount: 'all' | 'under_min' | 'in_range' | 'over_max';
+  titleStatus?: 'all' | 'no_title' | 'lecturer_title' | 'marketplace_title';
 }
 
 // Type guard for supervisor status
-export function isSupervisorStatus(value: string): value is FilterState['supervisorStatus'] {
+export function isSupervisorStatus(value: string): value is FilterPanelState['supervisorStatus'] {
   return ['all', 'missing_sv1', 'missing_sv2', 'complete'].includes(value);
 }
 
 // Type guard for member count
-export function isMemberCount(value: string): value is FilterState['memberCount'] {
+export function isMemberCount(value: string): value is FilterPanelState['memberCount'] {
   return ['all', 'under_min', 'in_range', 'over_max'].includes(value);
 }
 
 // Type guard for title status
-export function isTitleStatus(value: string): value is FilterState['titleStatus'] {
+export type TitleStatus = 'all' | 'no_title' | 'lecturer_title' | 'marketplace_title';
+export function isTitleStatus(value: string): value is TitleStatus {
   return ['all', 'no_title', 'lecturer_title', 'marketplace_title'].includes(value);
 }

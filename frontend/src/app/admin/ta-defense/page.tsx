@@ -6,7 +6,6 @@ import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -18,7 +17,7 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
-import { getApiErrorMessage } from '@/lib/error-utils';
+import { getTaDefenseStatusBadgeVariant } from '@/lib/badge-variants';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -26,6 +25,10 @@ import {
     Loader2, Plus, Search, GraduationCap, AlertCircle,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock,
 } from 'lucide-react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { taDefenseSchema, type TaDefenseFormData } from '@/lib/validations/ta-defense';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 
 interface Period { id: number; name: string; is_active: boolean; }
 interface Dosen { id: number; name: string; email: string; }
@@ -96,17 +99,6 @@ export default function AdminTaDefensePage() {
 
     const [createOpen, setCreateOpen] = useState(false);
     const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
-    const [formPeriodId, setFormPeriodId] = useState('');
-    const [selectedGroupId, setSelectedGroupId] = useState('');
-    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-    const [formDate, setFormDate] = useState('');
-    const [formStartTime, setFormStartTime] = useState('');
-    const [formEndTime, setFormEndTime] = useState('');
-    const [formLocationId, setFormLocationId] = useState('');
-    const [formExaminer1, setFormExaminer1] = useState('');
-    const [formExaminer2, setFormExaminer2] = useState('');
-    const [formNotes, setFormNotes] = useState('');
-    const [submitting, setSubmitting] = useState(false);
     const [examinerError, setExaminerError] = useState('');
 
     const [cancelOpen, setCancelOpen] = useState(false);
@@ -123,6 +115,31 @@ export default function AdminTaDefensePage() {
 
     // Status filter state
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
+
+    // React Hook Form setup
+    const form = useForm<TaDefenseFormData>({
+        resolver: zodResolver(taDefenseSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            period_id: '',
+            group_id: '',
+            student_ids: [],
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            examiner_1_id: '',
+            examiner_2_id: '',
+            notes: '',
+        },
+    });
+
+    // Watch form values for conditional logic
+    const watchedGroupId = form.watch('group_id');
+    const watchedStudentIds = form.watch('student_ids');
+    const watchedPeriodId = form.watch('period_id');
+    const watchedExaminer1 = form.watch('examiner_1_id');
+    const watchedExaminer2 = form.watch('examiner_2_id');
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -188,28 +205,28 @@ export default function AdminTaDefensePage() {
     useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
     const getAvailableStudents = (): EligibleMember[] => {
-        const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
+        const group = eligibleGroups.find(g => g.id.toString() === watchedGroupId);
         return group?.members || [];
     };
 
     const getSupervisorIds = () => {
-        const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
+        const group = eligibleGroups.find(g => g.id.toString() === watchedGroupId);
         if (!group) return [];
         return group.supervisors?.map(s => s.id) || [];
     };
 
     const validateExaminers = () => {
         setExaminerError('');
-        if (formExaminer1 === formExaminer2) {
+        if (watchedExaminer1 === watchedExaminer2) {
             setExaminerError('Examiner 1 and Examiner 2 cannot be the same');
             return false;
         }
         const supervisorIds = getSupervisorIds();
-        if (supervisorIds.includes(parseInt(formExaminer1))) {
+        if (supervisorIds.includes(parseInt(watchedExaminer1))) {
             setExaminerError('Examiner 1 cannot be a supervisor of this group');
             return false;
         }
-        if (supervisorIds.includes(parseInt(formExaminer2))) {
+        if (supervisorIds.includes(parseInt(watchedExaminer2))) {
             setExaminerError('Examiner 2 cannot be a supervisor of this group');
             return false;
         }
@@ -230,33 +247,20 @@ export default function AdminTaDefensePage() {
         }
     }, []);
 
-    const handleCreate = async () => {
+    const onSubmit = async (data: TaDefenseFormData) => {
         if (!validateExaminers()) return;
-        if (!formPeriodId) {
-            toast.error('Please select a period');
-            return;
-        }
-        if (!selectedGroupId) {
-            toast.error('Please select a group');
-            return;
-        }
-        if (selectedStudentIds.length === 0) {
-            toast.error('Please select at least one student');
-            return;
-        }
         try {
-            setSubmitting(true);
             await api.post('/admin/ta-defense-schedules', {
-                student_ids: selectedStudentIds.map(id => parseInt(id)),
-                group_id: parseInt(selectedGroupId),
-                period_id: parseInt(formPeriodId),
-                examiner_1_id: parseInt(formExaminer1),
-                examiner_2_id: parseInt(formExaminer2),
-                date: formDate,
-                start_time: formStartTime,
-                end_time: formEndTime,
-                location_id: formLocationId ? parseInt(formLocationId) : null,
-                notes: formNotes || null,
+                student_ids: data.student_ids.map(id => parseInt(id)),
+                group_id: parseInt(data.group_id),
+                period_id: parseInt(data.period_id),
+                examiner_1_id: parseInt(data.examiner_1_id),
+                examiner_2_id: parseInt(data.examiner_2_id),
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                location_id: data.location_id ? parseInt(data.location_id) : null,
+                notes: data.notes || null,
             });
             toast.success('TA Defense schedule created');
             setCreateOpen(false);
@@ -268,8 +272,6 @@ export default function AdminTaDefensePage() {
                 : 'Failed to create schedule';
             toast.error(message);
             if (message.includes('supervisor')) setExaminerError(message);
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -287,16 +289,18 @@ export default function AdminTaDefensePage() {
     };
 
     const resetForm = () => {
-        setFormPeriodId('');
-        setSelectedGroupId('');
-        setSelectedStudentIds([]);
-        setFormDate('');
-        setFormStartTime('');
-        setFormEndTime('');
-        setFormLocationId('');
-        setFormExaminer1('');
-        setFormExaminer2('');
-        setFormNotes('');
+        form.reset({
+            period_id: '',
+            group_id: '',
+            student_ids: [],
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            examiner_1_id: '',
+            examiner_2_id: '',
+            notes: '',
+        });
         setExaminerError('');
         setEligibleGroups([]);
     };
@@ -335,7 +339,7 @@ export default function AdminTaDefensePage() {
         });
 
         return result;
-    }, [schedules, searchQuery, sortKey, sortDir]);
+    }, [schedules, searchQuery, sortKey, sortDir, locations]);
 
     // Filter by status
     const filteredSchedules = useMemo(() => {
@@ -389,12 +393,7 @@ export default function AdminTaDefensePage() {
         }
     };
 
-    const statusColor = (status: string) => {
-        if (status === 'SCHEDULED') return 'default' as const;
-        if (status === 'DONE') return 'default' as const;
-        if (status === 'CANCELLED') return 'secondary' as const;
-        return 'outline' as const;
-    };
+    const statusColor = (status: string) => getTaDefenseStatusBadgeVariant(status);
 
     const statusDisplay = (status: string) => {
         switch (status) {
@@ -703,7 +702,7 @@ export default function AdminTaDefensePage() {
                     <Button onClick={() => {
                         const activePeriod = periods.find(p => p.is_active);
                         const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
-                        setFormPeriodId(defaultPeriodId);
+                        form.setValue('period_id', defaultPeriodId);
                         setDialogMode('create');
                         // Fetch eligible groups for the period
                         const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
@@ -797,205 +796,313 @@ export default function AdminTaDefensePage() {
                         </Alert>
                     )}
 
-                    <div className="grid gap-4 py-4">
-                        {/* Period Selector - only in CREATE mode */}
-                        {dialogMode === 'create' && (
-                            <div className="space-y-2">
-                                <Label>Period</Label>
-                                <Select 
-                                    value={formPeriodId} 
-                                    onValueChange={(val) => {
-                                        setFormPeriodId(val);
-                                        setSelectedGroupId('');
-                                        setSelectedStudentIds([]);
-                                        setEligibleGroups([]);
-                                        fetchEligibleGroups(val);
-                                    }}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select period" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {periods.map(p => (
-                                            <SelectItem key={p.id} value={p.id.toString()}>
-                                                {p.name}
-                                                {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-
-                        <div className="space-y-2">
-                            <Label>Group</Label>
-                            <Select 
-                                value={selectedGroupId} 
-                                onValueChange={(val) => {
-                                    setSelectedGroupId(val);
-                                    setSelectedStudentIds([]);
-                                }}
-                                disabled={!formPeriodId}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder={formPeriodId ? "Select group" : "Select period first"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {eligibleGroups.map(g => (
-                                        <SelectItem key={g.id} value={g.id.toString()}>
-                                            Group {g.id} {g.code && `(${g.code})`}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        {/* Multi-Student Checkbox Selection */}
-                        {selectedGroupId && (
-                            <div className="space-y-2">
-                                <Label>Students <span className="text-muted-foreground text-xs">(select at least one)</span></Label>
-                                <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
-                                    {getAvailableStudents().length === 0 ? (
-                                        <p className="text-sm text-muted-foreground">No students in this group.</p>
-                                    ) : (
-                                        getAvailableStudents().map((m: EligibleMember) => {
-                                            const isAlreadySelected = m.is_already_selected;
-                                            const isReadyForSidang = m.is_ready_for_sidang;
-                                            const isChecked = selectedStudentIds.includes(m.student.id.toString());
-
-                                            return (
-                                                <div key={m.student.id} className="flex items-center space-x-3">
-                                                    <Checkbox
-                                                        id={`student-${m.student.id}`}
-                                                        checked={isChecked || isAlreadySelected}
-                                                        disabled={isAlreadySelected || !isReadyForSidang}
-                                                        onCheckedChange={(checked) => {
-                                                            if (isAlreadySelected) {
-                                                                toast.error('Already selected students cannot be removed');
-                                                                return;
-                                                            }
-                                                            if (checked) {
-                                                                setSelectedStudentIds(prev => [...prev, m.student.id.toString()]);
-                                                            } else {
-                                                                setSelectedStudentIds(prev => prev.filter(id => id !== m.student.id.toString()));
-                                                            }
-                                                        }}
-                                                    />
-                                                    <label
-                                                        htmlFor={`student-${m.student.id}`}
-                                                        className={`text-sm flex items-center gap-2 cursor-pointer ${!isReadyForSidang && !isAlreadySelected ? 'text-muted-foreground' : ''}`}
-                                                    >
-                                                        <span>{m.student.name}</span>
-                                                        <span className="text-xs text-muted-foreground font-mono">{m.student.nim}</span>
-                                                        {m.is_leader && (
-                                                            <Badge variant="secondary" className="text-[10px] h-4">Leader</Badge>
-                                                        )}
-                                                        {isAlreadySelected && (
-                                                            <Badge variant="default" className="text-[10px] h-4">Selected</Badge>
-                                                        )}
-                                                        {!isReadyForSidang && !isAlreadySelected && (
-                                                            <>
-                                                                <Lock className="h-3 w-3 text-muted-foreground" />
-                                                                <Badge variant="outline" className="text-[10px] h-4 text-muted-foreground" title="Not ready for sidang TA">Locked</Badge>
-                                                            </>
-                                                        )}
-                                                    </label>
-                                                </div>
-                                            );
-                                        })
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                        <div className="grid gap-4 py-4">
+                            {/* Period Selector - only in CREATE mode */}
+                            {dialogMode === 'create' && (
+                                <Controller
+                                    name="period_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Period</FieldLabel>
+                                            <Select
+                                                value={field.value}
+                                                onValueChange={(val) => {
+                                                    field.onChange(val);
+                                                    form.setValue('group_id', '');
+                                                    form.setValue('student_ids', []);
+                                                    setEligibleGroups([]);
+                                                    fetchEligibleGroups(val);
+                                                }}
+                                            >
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select period" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {periods.map(p => (
+                                                        <SelectItem key={p.id} value={p.id.toString()}>
+                                                            {p.name}
+                                                            {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
                                     )}
-                                </div>
-                                {selectedStudentIds.length > 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {selectedStudentIds.length} student{selectedStudentIds.length > 1 ? 's' : ''} selected
-                                    </p>
-                                )}
-                            </div>
-                        )}
+                                />
+                            )}
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Date</Label>
-                                <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Location</Label>
-                                <Select value={formLocationId || undefined} onValueChange={setFormLocationId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select location..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {locations.length === 0 && (
-                                            <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                            <Controller
+                                name="group_id"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field>
+                                        <FieldLabel>Group</FieldLabel>
+                                        <Select
+                                            value={field.value}
+                                            onValueChange={(val) => {
+                                                field.onChange(val);
+                                                form.setValue('student_ids', []);
+                                            }}
+                                            disabled={!watchedPeriodId}
+                                        >
+                                            <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                <SelectValue placeholder={watchedPeriodId ? "Select group" : "Select period first"} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {eligibleGroups.map(g => (
+                                                    <SelectItem key={g.id} value={g.id.toString()}>
+                                                        Group {g.id} {g.code && `(${g.code})`}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {fieldState.error && (
+                                            <FieldError>{fieldState.error.message}</FieldError>
                                         )}
-                                        {locations.filter(l => l.is_active).map((loc) => (
-                                            <SelectItem key={loc.id} value={loc.id.toString()}>
-                                                {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                    </Field>
+                                )}
+                            />
+
+                            {/* Multi-Student Checkbox Selection */}
+                            {watchedGroupId && (
+                                <Field>
+                                    <FieldLabel>Students <span className="text-muted-foreground text-xs">(select at least one)</span></FieldLabel>
+                                    <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
+                                        {getAvailableStudents().length === 0 ? (
+                                            <p className="text-sm text-muted-foreground">No students in this group.</p>
+                                        ) : (
+                                            getAvailableStudents().map((m: EligibleMember) => {
+                                                const isAlreadySelected = m.is_already_selected;
+                                                const isReadyForSidang = m.is_ready_for_sidang;
+                                                const isChecked = watchedStudentIds.includes(m.student.id.toString());
+
+                                                return (
+                                                    <div key={m.student.id} className="flex items-center space-x-3">
+                                                        <Checkbox
+                                                            id={`student-${m.student.id}`}
+                                                            checked={isChecked || isAlreadySelected}
+                                                            disabled={isAlreadySelected || !isReadyForSidang}
+                                                            onCheckedChange={(checked) => {
+                                                                if (isAlreadySelected) {
+                                                                    toast.error('Already selected students cannot be removed');
+                                                                    return;
+                                                                }
+                                                                const currentIds = form.getValues('student_ids');
+                                                                if (checked) {
+                                                                    form.setValue('student_ids', [...currentIds, m.student.id.toString()]);
+                                                                } else {
+                                                                    form.setValue('student_ids', currentIds.filter(id => id !== m.student.id.toString()));
+                                                                }
+                                                            }}
+                                                        />
+                                                        <label
+                                                            htmlFor={`student-${m.student.id}`}
+                                                            className={`text-sm flex items-center gap-2 cursor-pointer ${!isReadyForSidang && !isAlreadySelected ? 'text-muted-foreground' : ''}`}
+                                                        >
+                                                            <span>{m.student.name}</span>
+                                                            <span className="text-xs text-muted-foreground font-mono">{m.student.nim}</span>
+                                                            {m.is_leader && (
+                                                                <Badge variant="secondary" className="text-[10px] h-4">Leader</Badge>
+                                                            )}
+                                                            {isAlreadySelected && (
+                                                                <Badge variant="default" className="text-[10px] h-4">Selected</Badge>
+                                                            )}
+                                                            {!isReadyForSidang && !isAlreadySelected && (
+                                                                <>
+                                                                    <Lock className="h-3 w-3 text-muted-foreground" />
+                                                                    <Badge variant="outline" className="text-[10px] h-4 text-muted-foreground" title="Not ready for sidang TA">Locked</Badge>
+                                                                </>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                    {form.formState.errors.student_ids && (
+                                        <FieldError>{form.formState.errors.student_ids.message}</FieldError>
+                                    )}
+                                    {watchedStudentIds.length > 0 && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {watchedStudentIds.length} student{watchedStudentIds.length > 1 ? 's' : ''} selected
+                                        </p>
+                                    )}
+                                </Field>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="date"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Date</FieldLabel>
+                                            <Input
+                                                type="date"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="location_id"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Field>
+                                            <FieldLabel>Location</FieldLabel>
+                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select location..." />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {locations.length === 0 && (
+                                                        <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                                    )}
+                                                    {locations.filter(l => l.is_active).map((loc) => (
+                                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                            {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </Field>
+                                    )}
+                                />
                             </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="start_time"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Start Time</FieldLabel>
+                                            <Input
+                                                type="time"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="end_time"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>End Time</FieldLabel>
+                                            <Input
+                                                type="time"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="examiner_1_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Examiner 1</FieldLabel>
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select examiner" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {dosens.map(d => (
+                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="examiner_2_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Examiner 2</FieldLabel>
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select examiner" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {dosens.map(d => (
+                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                            </div>
+
+                            <Controller
+                                name="notes"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field>
+                                        <FieldLabel>Notes (Optional)</FieldLabel>
+                                        <Input
+                                            placeholder="Additional notes..."
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                            onBlur={field.onBlur}
+                                            className={fieldState.error ? 'border-destructive' : ''}
+                                        />
+                                        {fieldState.error && (
+                                            <FieldError>{fieldState.error.message}</FieldError>
+                                        )}
+                                    </Field>
+                                )}
+                            />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Start Time</Label>
-                                <Input type="time" value={formStartTime} onChange={(e) => setFormStartTime(e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>End Time</Label>
-                                <Input type="time" value={formEndTime} onChange={(e) => setFormEndTime(e.target.value)} />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Examiner 1</Label>
-                                <Select value={formExaminer1} onValueChange={setFormExaminer1}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Examiner 2</Label>
-                                <Select value={formExaminer2} onValueChange={setFormExaminer2}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Notes (Optional)</Label>
-                            <Input placeholder="Additional notes..." value={formNotes} onChange={(e) => setFormNotes(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => { setCreateOpen(false); resetForm(); }}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleCreate}
-                            disabled={submitting || selectedStudentIds.length === 0 || !formDate || !formStartTime || !formEndTime || !formExaminer1 || !formExaminer2}
-                        >
-                            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Create Schedule
-                        </Button>
-                    </DialogFooter>
+                        <DialogFooter>
+                            <Button variant="outline" type="button" onClick={() => { setCreateOpen(false); resetForm(); }}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={form.formState.isSubmitting || watchedStudentIds.length === 0 || !watchedPeriodId}
+                            >
+                                {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Create Schedule
+                            </Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
 

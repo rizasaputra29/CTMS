@@ -1,0 +1,31 @@
+{
+  "id": "ctms-app-router-optimization-03",
+  "seq": "03",
+  "title": "Phase 1: Create role middleware for Laravel API",
+  "status": "pending",
+  "depends_on": ["02"],
+  "parallel": true,
+  "suggested_agent": "BackendDeveloper",
+  "context_files": [
+    "/Users/riza/.config/opencode/context/core/standards/rbac-patterns.md"
+  ],
+  "reference_files": [
+    "backend/app/Http/Middleware/RoleMiddleware.php",
+    "backend/app/Models/Role.php",
+    "backend/app/Models/User.php"
+  ],
+  "acceptance_criteria": [
+    "Middleware accepts role slugs as parameters: admin, dosen, mahasiswa",
+    "Middleware reads role from HTTP-only cookie 'user_role'",
+    "Returns 403 if user doesn't have required role",
+    "Supports multiple roles: role:admin,dosen",
+    "Unit tests cover all role combinations"
+  ],
+  "deliverables": [
+    "backend/app/Http/Middleware/ApiRoleMiddleware.php",
+    "backend/tests/Unit/Middleware/ApiRoleMiddlewareTest.php"
+  ],
+  "estimated_hours": 2,
+  "phase": "phase-1-database-backend",
+  "code_example": "```php\nclass ApiRoleMiddleware {\n    public function handle(Request $request, Closure $next, ...$roles) {\n        $userRole = $request->cookie('user_role');\n        \n        if (!$userRole || !in_array($userRole, $roles)) {\n            return response()->json(['message' => 'Forbidden'], 403);\n        }\n        \n        // Check if user actually has this role in database\n        $user = Auth::user();\n        if (!$user || !$user->hasRole($userRole)) {\n            return response()->json(['message' => 'Invalid role'], 403);\n        }\n        \n        return $next($request);\n    }\n}\n\n// Routes\nRoute::middleware(['auth:sanctum', 'role:admin'])->group(function () {\n    Route::get('/admin/dashboard', [DashboardController::class, 'index']);\n});\n```"
+}
