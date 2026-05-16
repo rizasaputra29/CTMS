@@ -522,13 +522,22 @@ class ScheduleController extends Controller
         }
 
         $allSchedules = [];
+        $periodId = $request->get('period_id');
 
         // 1. BIMBINGAN schedules created by this dosen
         // OPTIMIZED: Added 'group.members.student' to eager loading to prevent N+1 queries
-        $bimbinganSchedules = Schedule::with(['group.title.lecturer', 'group.members.student'])
+        $bimbinganQuery = Schedule::with(['group.title.lecturer', 'group.members.student'])
             ->where('type', 'BIMBINGAN')
-            ->where('created_by', $user->id)
-            ->get()
+            ->where('created_by', $user->id);
+        
+        // Filter by period_id if provided
+        if ($periodId) {
+            $bimbinganQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+        
+        $bimbinganSchedules = $bimbinganQuery->get()
             ->map(function ($schedule) {
                 // Format date as ISO 8601 with time if available
                 $dateStr = $schedule->date->format('Y-m-d');
@@ -563,12 +572,20 @@ class ScheduleController extends Controller
         $allSchedules = array_merge($allSchedules, $bimbinganSchedules->toArray());
 
         // 2. SEMPRO/EXPO schedules where dosen is examiner
-        $examinerSchedules = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title'])
+        $examinerQuery = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title'])
             ->where(function ($q) use ($user) {
                 $q->where('examiner_1_id', $user->id)
                   ->orWhere('examiner_2_id', $user->id);
-            })
-            ->get()
+            });
+        
+        // Filter by period_id if provided
+        if ($periodId) {
+            $examinerQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+        
+        $examinerSchedules = $examinerQuery->get()
             ->map(function ($schedule) {
                 // Format date as ISO 8601 to ensure JavaScript can parse it
                 $dateStr = $schedule->date->format('Y-m-d');
@@ -597,13 +614,21 @@ class ScheduleController extends Controller
         $allSchedules = array_merge($allSchedules, $examinerSchedules->toArray());
 
         // 3. TA Defense schedules where dosen is examiner
-        $taDefenseSchedules = TaDefenseSchedule::with(['student', 'examiner1', 'examiner2', 'group.title'])
+        $taDefenseQuery = TaDefenseSchedule::with(['student', 'examiner1', 'examiner2', 'group.title'])
             ->where(function ($q) use ($user) {
                 $q->where('examiner_1_id', $user->id)
                   ->orWhere('examiner_2_id', $user->id);
             })
-            ->whereIn('status', ['SCHEDULED', 'DONE'])
-            ->get()
+            ->whereIn('status', ['SCHEDULED', 'DONE']);
+        
+        // Filter by period_id if provided
+        if ($periodId) {
+            $taDefenseQuery->whereHas('group', function ($q) use ($periodId) {
+                $q->where('period_id', $periodId);
+            });
+        }
+        
+        $taDefenseSchedules = $taDefenseQuery->get()
             ->map(function ($schedule) use ($user) {
                 // Format date as ISO 8601 to ensure JavaScript can parse it
                 $dateStr = $schedule->date->format('Y-m-d');

@@ -74,7 +74,12 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Only the group leader can propose a title.'], 403);
         }
 
-        $group = Group::find($membership->group_id);
+        $group = Group::with('period')->find($membership->group_id);
+
+        // Check if period is finalized - block create after finalization
+        if ($group->period && $group->period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Pengajuan judul baru tidak diperbolehkan.'], 403);
+        }
 
         // Check minimum members requirement
         // Solo Seeker (is_solo=true) can propose with any member count
@@ -368,6 +373,13 @@ class StudentProposalController extends Controller
 
         if (!$title) {
             return response()->json(['message' => 'Proposal tidak ditemukan.'], 404);
+        }
+
+        $group = Group::with('period')->find($membership->group_id);
+
+        // Check if period is finalized - block delete after finalization
+        if ($group->period && $group->period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Pembatalan proposal tidak diperbolehkan.'], 403);
         }
 
         // PENDING, REJECTED, or UNDER_REVIEW proposals can be cancelled

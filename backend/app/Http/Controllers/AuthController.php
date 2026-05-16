@@ -42,4 +42,30 @@ class AuthController extends Controller
 
         return response()->json(['message' => 'Logged out successfully']);
     }
+
+    public function me(Request $request)
+    {
+        $user = $request->user()->load('roles:id,name,slug');
+        $activeRole = null;
+
+        if ($request->hasSession()) {
+            $activeRole = $request->session()->get('active_role');
+        }
+
+        $roles = $user->roleSlugs();
+        if (! $activeRole) {
+            $activeRole = count($roles) > 0 ? $roles[0] : null;
+        }
+
+        return response()->json([
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'nip' => $user->nip,
+            'nim' => $user->nim,
+            'is_active' => $user->is_active,
+            'roles' => $roles,
+            'active_role' => $activeRole,
+        ]);
+    }
 }

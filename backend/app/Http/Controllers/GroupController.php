@@ -917,8 +917,10 @@ class GroupController extends Controller
                     ->whereIn('role', ['SUPERVISOR_1', 'SUPERVISOR_2']);
             });
 
-        if ($request->has('period_id')) {
-            $query->where('period_id', $request->period_id);
+        // Support both 'period_id' and 'period' query parameters
+        $periodId = $request->get('period_id') ?? $request->get('period');
+        if ($periodId && $periodId !== 'all') {
+            $query->where('period_id', $periodId);
         }
 
         $groups = $query->get();

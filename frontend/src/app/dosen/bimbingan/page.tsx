@@ -80,6 +80,8 @@ export default function DosenBimbinganPage() {
     const [feedback, setReviewFeedback] = useState('');
     const [reviewOpen, setReviewOpen] = useState(false);
     const [submittingReview, setSubmittingReview] = useState(false);
+    const [expandedFeedback, setExpandedFeedback] = useState<Record<number, boolean>>({});
+    const MAX_FEEDBACK_LENGTH = 500;
 
     const fetchData = useCallback(async (periodId?: string) => {
         if (periodId) setRefreshing(true);
@@ -172,11 +174,28 @@ export default function DosenBimbinganPage() {
         }
     };
 
-    const viewDocument = (filePath: string) => {
-        // Derive backend URL from API URL (remove /api suffix)
-        const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:8000';
-        const storageUrl = `${baseUrl}/storage/${filePath}`;
-        window.open(storageUrl, '_blank', 'noopener,noreferrer');
+    const viewDocument = async (docId: number) => {
+        try {
+            // Use axios api client for authenticated download
+            const response = await api.get(`/dosen/documents/${docId}/download`, {
+                responseType: 'blob',
+            });
+            
+            // Create blob URL and open it
+            const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+            window.open(url, '_blank');
+            
+            // Clean up blob URL after a delay
+            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+        } catch (error) {
+            console.error('Failed to view document:', error);
+            if (api.isAxiosError(error)) {
+                toast.error(error.response?.data?.message || 'Failed to view document');
+            } else {
+                toast.error('Failed to view document');
+            }
+        }
     };
 
     const getStatusBadge = (status: string) => {
@@ -311,7 +330,31 @@ export default function DosenBimbinganPage() {
                                                     {doc.feedback && (
                                                         <div className="mt-3 text-sm bg-orange-500/10 text-orange-700 dark:text-orange-400 p-3 rounded-md border border-orange-500/20 max-w-3xl">
                                                             <span className="font-semibold block mb-1">Latest Feedback:</span>
-                                                            <p className="whitespace-pre-wrap">{doc.feedback}</p>
+                                                            <div className="whitespace-pre-wrap">
+                                                                {doc.feedback.length > 150 && !expandedFeedback[doc.id] ? (
+                                                                    <>
+                                                                        {doc.feedback.slice(0, 150)}...
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); setExpandedFeedback(prev => ({ ...prev, [doc.id]: true })); }}
+                                                                            className="text-orange-600 hover:text-orange-800 underline ml-1 font-medium"
+                                                                        >
+                                                                            Show more
+                                                                        </button>
+                                                                    </>
+                                                                ) : (
+                                                                    <>
+                                                                        {doc.feedback}
+                                                                        {doc.feedback.length > 150 && expandedFeedback[doc.id] && (
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); setExpandedFeedback(prev => ({ ...prev, [doc.id]: false })); }}
+                                                                                className="text-orange-600 hover:text-orange-800 underline ml-1 font-medium"
+                                                                            >
+                                                                                Show less
+                                                                            </button>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -320,7 +363,7 @@ export default function DosenBimbinganPage() {
                                                         variant="outline" 
                                                         size="sm" 
                                                         className="w-full sm:w-auto"
-                                                        onClick={() => viewDocument(doc.file_path)}
+                                                        onClick={() => viewDocument(doc.id)}
                                                     >
                                                         <Eye className="mr-2 h-4 w-4" /> View
                                                     </Button>
@@ -360,12 +403,23 @@ export default function DosenBimbinganPage() {
                             </Select>
                         </div>
                         <div className="grid gap-2">
-                            <Label>Feedback</Label>
+                            <div className="flex justify-between items-center">
+                                <Label>Feedback</Label>
+                                <span className={`text-xs ${feedback.length > MAX_FEEDBACK_LENGTH ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                    {feedback.length}/{MAX_FEEDBACK_LENGTH}
+                                </span>
+                            </div>
                             <Textarea
                                 value={feedback}
-                                onChange={(e) => setReviewFeedback(e.target.value)}
+                                onChange={(e) => {
+                                    if (e.target.value.length <= MAX_FEEDBACK_LENGTH) {
+                                        setReviewFeedback(e.target.value);
+                                    }
+                                }}
                                 placeholder="Enter your feedback here..."
                                 rows={4}
+                                maxLength={MAX_FEEDBACK_LENGTH}
+                                className={feedback.length > MAX_FEEDBACK_LENGTH ? 'border-red-500 focus-visible:ring-red-500' : ''}
                             />
                         </div>
                     </div>

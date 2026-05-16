@@ -299,6 +299,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Documents
         Route::put('/documents/{id}', [DocumentController::class, 'update']);
         Route::get('/documents', [DocumentController::class, 'index']);
+        Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
 
         // Evaluations (legacy)
         Route::get('/evaluations', [EvaluationController::class, 'index']);
@@ -398,6 +399,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Documents
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/documents', [DocumentController::class, 'index']);
+        Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
         Route::get('/workflow', [DocumentController::class, 'workflow']);
 
         // Schedules (legacy)

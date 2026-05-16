@@ -283,7 +283,7 @@ class DocumentController extends Controller
 
         $request->validate([
             'status' => ['required', Rule::in(['APPROVED', 'REJECTED'])],
-            'feedback' => ['nullable', 'string'],
+            'feedback' => ['nullable', 'string', 'max:500'],
         ]);
 
         $document = Document::findOrFail($id);
@@ -498,5 +498,55 @@ class DocumentController extends Controller
     public function destroy(string $id)
     {
         //
+    }
+
+    /**
+     * Download a document file with authorization check.
+     * This provides secure access to files for authenticated users.
+     */
+    public function download(Request $request, string $id)
+    {
+        $user = Auth::user();
+        $document = Document::with('group')->findOrFail($id);
+
+        // Check authorization based on role
+        $roles = $user->roleSlugs();
+
+        if (in_array('mahasiswa', $roles, true)) {
+            // Students can only download documents from their own group
+            $groupMember = GroupMember::where('student_id', $user->id)
+                ->where('group_id', $document->group_id)
+                ->first();
+            if (!$groupMember) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+        } elseif (in_array('dosen', $roles, true)) {
+            // Dosen can download documents from groups they supervise
+            $isSupervisor = Group::where('id', $document->group_id)
+                ->whereHas('supervisions', function ($q) use ($user) {
+                    $q->where('supervisor_id', $user->id);
+                })
+                ->exists();
+            if (!$isSupervisor) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+        } elseif (in_array('admin', $roles, true)) {
+            // Admin can download any document
+        } else {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // Check if file exists
+        if (!$document->file_path || !Storage::disk('public')->exists($document->file_path)) {
+            return response()->json(['message' => 'File not found'], 404);
+        }
+
+        // Return the file with proper headers
+        $path = Storage::disk('public')->path($document->file_path);
+        $filename = basename($document->file_path);
+        
+        return response()->file($path, [
+            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+        ]);
     }
 }

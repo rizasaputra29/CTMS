@@ -216,6 +216,7 @@ export default function MahasiswaDocumentsPage() {
     const [file, setFile] = useState<File | null>(null);
     const [groupStatus, setGroupStatus] = useState<string | null>(null);
     const [hasGroup, setHasGroup] = useState(false);
+    const [expandedFeedback, setExpandedFeedback] = useState<Record<number, boolean>>({});
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -337,6 +338,28 @@ export default function MahasiswaDocumentsPage() {
             case 'REJECTED': return <Badge variant="destructive">Rejected</Badge>;
             case 'SUBMITTED': return <Badge className="bg-blue-500">Submitted</Badge>;
             default: return <Badge variant="secondary">Draft</Badge>;
+        }
+    };
+
+    const handleDownloadDocument = async (docId: number) => {
+        try {
+            const response = await api.get(`/mahasiswa/documents/${docId}/download`, {
+                responseType: 'blob',
+            });
+            
+            // Create blob URL and trigger download
+            const blob = new Blob([response.data]);
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `document-${docId}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Failed to download document:', error);
+            toast.error('Failed to download document');
         }
     };
 
@@ -893,15 +916,42 @@ export default function MahasiswaDocumentsPage() {
                                     {doc.feedback && (
                                         <div className="mt-2 p-2 bg-muted rounded text-xs">
                                             <span className="font-semibold block mb-1">Feedback:</span>
-                                            {doc.feedback}
+                                            <div className="whitespace-pre-wrap">
+                                                {doc.feedback.length > 100 && !expandedFeedback[doc.id] ? (
+                                                    <>
+                                                        {doc.feedback.slice(0, 100)}...
+                                                        <button
+                                                            onClick={() => setExpandedFeedback(prev => ({ ...prev, [doc.id]: true }))}
+                                                            className="text-primary hover:underline ml-1 font-medium"
+                                                        >
+                                                            Show more
+                                                        </button>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        {doc.feedback}
+                                                        {doc.feedback.length > 100 && expandedFeedback[doc.id] && (
+                                                            <button
+                                                                onClick={() => setExpandedFeedback(prev => ({ ...prev, [doc.id]: false }))}
+                                                                className="text-primary hover:underline ml-1 font-medium"
+                                                            >
+                                                                Show less
+                                                            </button>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
                                         </div>
                                     )}
                                 </CardContent>
                                 <CardFooter>
-                                    <Button variant="outline" size="sm" className="w-full" asChild>
-                                        <a href={`${process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')}/storage/${doc.file_path}`} target="_blank" rel="noopener noreferrer">
-                                            <Download className="mr-2 h-4 w-4" /> Download
-                                        </a>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="w-full"
+                                        onClick={() => handleDownloadDocument(doc.id)}
+                                    >
+                                        <Download className="mr-2 h-4 w-4" /> Download
                                     </Button>
                                 </CardFooter>
                             </Card>
