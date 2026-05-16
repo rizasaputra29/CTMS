@@ -26,12 +26,6 @@ const nextConfig: NextConfig = {
     tsconfigPath: "./tsconfig.json",
   },
 
-  // ESLint config
-  eslint: {
-    ignoreDuringBuilds: false,
-    dirs: ["src"],
-  },
-
   // Image optimization (keep default for dev)
   images: {
     unoptimized: process.env.NODE_ENV === "development",
