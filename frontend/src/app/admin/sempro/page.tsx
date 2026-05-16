@@ -67,7 +67,6 @@ export default function AdminSemproPage() {
     const [locations, setLocations] = useState<Location[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const selectedPeriodRef = useRef(selectedPeriod);
-    useEffect(() => { selectedPeriodRef.current = selectedPeriod; }, [selectedPeriod]);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -123,56 +122,100 @@ export default function AdminSemproPage() {
         }
     }, []);
 
-    const fetchDosens = useCallback(async () => {
-        try {
-            const res = await api.get('/admin/users');
-            const all = res.data.data || [];
-            setDosens(all.filter((u: User) => u.role === 'dosen'));
-        } catch (err) {
-            console.error(err);
-        }
-    }, []);
-
-    const fetchLocations = useCallback(async () => {
-        try {
-            const res = await api.get('/locations');
-            setLocations(res.data.data || []);
-        } catch (err) {
-            console.error(err);
-        }
-    }, []);
-
-    const fetchPeriods = useCallback(async () => {
-        try {
-            const res = await api.get('/admin/periods');
-            const perData = res.data?.data || [];
-            setPeriods(perData);
-            const active = perData.find((p: Period) => p.is_active);
-            if (active && selectedPeriodRef.current !== 'all') setSelectedPeriod(active.id.toString());
-        } catch (err) {
-            console.error(err);
-        }
-    }, []);
-
-    const hasFetchedPeriods = useRef(false);
+    // Combined data fetching with proper cleanup
     useEffect(() => {
-        if (!hasFetchedPeriods.current) {
-            hasFetchedPeriods.current = true;
-            fetchPeriods();
-        }
-    }, [fetchPeriods]);
+        let isMounted = true;
 
-    const hasFetchedSchedules = useRef(false);
+        const loadInitialData = async () => {
+            try {
+                // Fetch periods first to get active period
+                const periodsRes = await api.get('/admin/periods');
+                if (!isMounted) return;
+                const perData = periodsRes.data?.data || [];
+                setPeriods(perData);
+                const active = perData.find((p: Period) => p.is_active);
+
+                // Determine which period to use for other fetches
+                const periodToUse = active && selectedPeriod !== 'all'
+                    ? active.id.toString()
+                    : selectedPeriod;
+
+                // Fetch all data in parallel
+                const query = periodToUse !== 'all' && periodToUse ? `?period_id=${periodToUse}` : '';
+                const [semproRes, groupsRes, dosensRes, locationsRes] = await Promise.all([
+                    api.get(`/admin/sempro/schedules${query}`),
+                    api.get(`/admin/groups${query}`),
+                    api.get('/admin/users'),
+                    api.get('/locations'),
+                ]);
+
+                if (!isMounted) return;
+
+                setSchedules(semproRes.data.data || []);
+                setGroups(groupsRes.data.data || []);
+                const allUsers = dosensRes.data.data || [];
+                setDosens(allUsers.filter((u: User) => u.role === 'dosen'));
+                setLocations(locationsRes.data.data || []);
+
+                if (active && selectedPeriod !== 'all') {
+                    setSelectedPeriod(active.id.toString());
+                }
+            } catch (err) {
+                if (isMounted) {
+                    console.error(err);
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadInitialData();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []); // Initial load only
+
+    // Fetch schedules when period changes
     useEffect(() => {
-        if (!hasFetchedSchedules.current) {
-            hasFetchedSchedules.current = true;
-            fetchSchedules(selectedPeriod);
-        }
-    }, [fetchSchedules, selectedPeriod]);
-    useEffect(() => { fetchDosens(); }, [fetchDosens]);
-    useEffect(() => { fetchLocations(); }, [fetchLocations]);
+        let isMounted = true;
 
-    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+        const loadSchedules = async () => {
+            setLoading(true);
+            try {
+                const query = selectedPeriod !== 'all' && selectedPeriod ? `?period_id=${selectedPeriod}` : '';
+                const [semproRes, groupsRes] = await Promise.all([
+                    api.get(`/admin/sempro/schedules${query}`),
+                    api.get(`/admin/groups${query}`),
+                ]);
+                if (isMounted) {
+                    setSchedules(semproRes.data.data || []);
+                    setGroups(groupsRes.data.data || []);
+                }
+            } catch (err) {
+                if (isMounted) {
+                    console.error(err);
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadSchedules();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedPeriod]);
+
+    // Reset page when filters change
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, pageSize, sortKey, sortDir]);
 
     const filteredAndSorted = useMemo(() => {
         const result = schedules.filter(s => {

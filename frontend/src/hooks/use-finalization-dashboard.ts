@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import api from '@/lib/api';
 import { toast } from 'sonner';
@@ -97,52 +97,97 @@ export function useFinalizationDashboard(
   const [showPeriodSelector, setShowPeriodSelector] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | undefined>(urlParams.periodId);
 
-  // Update URL params when state changes
-  const updateUrlParams = useCallback(() => {
-    const params = new URLSearchParams();
+  // Refs for cleanup and debounce management
+  const isMountedRef = useRef(true);
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const pendingSearchRef = useRef<string | undefined>(undefined);
 
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Update URL params when state changes (excluding search which has debounce)
+  useEffect(() => {
     if (selectedPeriodId) {
-      params.set('period_id', selectedPeriodId.toString());
-    }
-    params.set('tab', activeTab);
-    if (activeTab === 'others') {
-      params.set('sub_tab', activeSubTab);
-    }
-    if (filters.search) {
-      params.set('search', filters.search);
-    }
-    if (filters.page > 1) {
-      params.set('page', filters.page.toString());
-    }
-    if (filters.perPage !== 20) {
-      params.set('per_page', filters.perPage.toString());
-    }
-    if (filters.supervisorStatus && filters.supervisorStatus !== 'all') {
-      params.set('supervisor_status', filters.supervisorStatus);
-    }
-    if (filters.memberCount && filters.memberCount !== 'all') {
-      params.set('member_count', filters.memberCount);
-    }
+      const params = new URLSearchParams();
 
-    const queryString = params.toString();
-    const newUrl = queryString ? `?${queryString}` : '';
-    router.replace(newUrl, { scroll: false });
-  }, [router, selectedPeriodId, activeTab, activeSubTab, filters]);
+      params.set('period_id', selectedPeriodId.toString());
+      params.set('tab', activeTab);
+      if (activeTab === 'others') {
+        params.set('sub_tab', activeSubTab);
+      }
+      if (filters.search) {
+        params.set('search', filters.search);
+      }
+      if (filters.page > 1) {
+        params.set('page', filters.page.toString());
+      }
+      if (filters.perPage !== 20) {
+        params.set('per_page', filters.perPage.toString());
+      }
+      if (filters.supervisorStatus && filters.supervisorStatus !== 'all') {
+        params.set('supervisor_status', filters.supervisorStatus);
+      }
+      if (filters.memberCount && filters.memberCount !== 'all') {
+        params.set('member_count', filters.memberCount);
+      }
+
+      const queryString = params.toString();
+      const newUrl = queryString ? `?${queryString}` : '';
+      router.replace(newUrl, { scroll: false });
+    }
+  }, [router, selectedPeriodId, activeTab, activeSubTab, filters.perPage, filters.page, filters.supervisorStatus, filters.memberCount, filters.search]);
 
   // Fetch active periods
   const fetchActivePeriods = useCallback(async () => {
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
       const response = await api.get<{ success: boolean; message: string; data: Period[] }>('/admin/periods', {
         params: { is_active: true },
+        signal: abortController.signal,
       });
-      setPeriods(response.data?.data || []);
+      
+      if (isMountedRef.current && !abortController.signal.aborted) {
+        setPeriods(response.data?.data || []);
+      }
     } catch (err) {
-      console.error('Failed to fetch active periods', err);
+      if (!abortController.signal.aborted && isMountedRef.current) {
+        console.error('Failed to fetch active periods', err);
+      }
+    } finally {
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   }, []);
 
   // Fetch dashboard data
   const fetchData = useCallback(async () => {
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setLoading(true);
     setError(null);
 
@@ -169,83 +214,110 @@ export function useFinalizationDashboard(
       if (filters.supervisorStatus && filters.supervisorStatus !== 'all') {
         params.supervisor_status = filters.supervisorStatus;
       }
-    if (filters.memberCount && filters.memberCount !== 'all') {
-      params.member_count = filters.memberCount;
-    }
+      if (filters.memberCount && filters.memberCount !== 'all') {
+        params.member_count = filters.memberCount;
+      }
 
       const response = await api.get<DashboardResponse>('/admin/finalization/dashboard', {
         params,
+        signal: abortController.signal,
       });
 
-      setPeriod(response.data.period);
-      setStats(response.data.stats);
-      setData(response.data.data);
-      setFlow(response.data.flow || null);
-      setShowPeriodSelector(false);
+      if (isMountedRef.current && !abortController.signal.aborted) {
+        setPeriod(response.data.period);
+        setStats(response.data.stats);
+        setData(response.data.data);
+        setFlow(response.data.flow || null);
+        setShowPeriodSelector(false);
+      }
     } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Failed to load dashboard data'
-        : 'An unexpected error occurred';
+      if (!abortController.signal.aborted && isMountedRef.current) {
+        const message = api.isAxiosError(err)
+          ? err.response?.data?.message || 'Failed to load dashboard data'
+          : 'An unexpected error occurred';
 
-      // Handle "Multiple active periods" error
-      if (message.includes('Multiple active periods exist')) {
-        setError('Multiple active periods exist. Please select a period.');
-        setShowPeriodSelector(true);
-        // Fetch available periods
-        await fetchActivePeriods();
-      } else {
-        setError(message);
-        toast.error(message);
+        // Handle "Multiple active periods" error
+        if (message.includes('Multiple active periods exist')) {
+          setError('Multiple active periods exist. Please select a period.');
+          setShowPeriodSelector(true);
+          // Fetch available periods - create new controller for this request
+          await fetchActivePeriods();
+        } else {
+          setError(message);
+          toast.error(message);
+        }
       }
     } finally {
-      setLoading(false);
+      if (isMountedRef.current && !abortController.signal.aborted) {
+        setLoading(false);
+      }
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
     }
   }, [activeTab, activeSubTab, filters, selectedPeriodId, fetchActivePeriods]);
 
-  // Fetch on mount and when dependencies change
+  // Main data fetching effect - consolidated from multiple effects
   useEffect(() => {
+    // Clear any pending debounced search
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+
     // If no period selected, show selector first
     if (!selectedPeriodId) {
       setShowPeriodSelector(true);
       fetchActivePeriods();
     } else {
-      fetchData();
-    }
-  }, [fetchData, selectedPeriodId, fetchActivePeriods]);
-
-  // Reset page when tab or subtab changes
-  useEffect(() => {
-    setFilters((prev) => ({ ...prev, page: 1 }));
-  }, [activeTab, activeSubTab]);
-
-  // Debounced search - hanya fetch kalau sudah ada period terpilih
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (filters.search !== undefined && selectedPeriodId) {
+      // Check if there's a pending search that needs debounce
+      if (pendingSearchRef.current !== undefined && pendingSearchRef.current !== filters.search) {
+        // This is a search change - use debounce
+        searchDebounceRef.current = setTimeout(() => {
+          if (isMountedRef.current) {
+            pendingSearchRef.current = filters.search;
+            fetchData();
+          }
+        }, 500);
+      } else {
+        // Non-search changes or initial load - fetch immediately
+        pendingSearchRef.current = filters.search;
         fetchData();
       }
-    }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [filters.search, selectedPeriodId, fetchData]);
-
-  // Update URL params when state changes (excluding search which has debounce)
-  useEffect(() => {
-    if (selectedPeriodId) {
-      updateUrlParams();
     }
-  }, [selectedPeriodId, activeTab, activeSubTab, filters.perPage, filters.page, filters.supervisorStatus, filters.memberCount, updateUrlParams]);
+
+    // Cleanup function
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
+  }, [fetchData, selectedPeriodId, fetchActivePeriods, filters.search, filters.page, filters.perPage, filters.supervisorStatus, filters.memberCount]);
 
   // Actions
   const handleSetActiveTab = useCallback((tab: DashboardTab) => {
     setActiveTab(tab);
+    // Reset page when tab changes - moved from separate effect
+    setFilters((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handleSetActiveSubTab = useCallback((subTab: OthersSubTab) => {
     setActiveSubTab(subTab);
+    // Reset page when subtab changes - moved from separate effect
+    setFilters((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handleSetSearch = useCallback((search: string) => {
+    // Clear any existing debounce to prevent race conditions
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    
+    // Mark search as pending for debounce handling
+    pendingSearchRef.current = search;
+    
+    // Update filters immediately - the effect will handle debounced fetch
     setFilters((prev) => ({ ...prev, search, page: 1 }));
   }, []);
 
@@ -262,16 +334,50 @@ export function useFinalizationDashboard(
   }, []);
 
   const handleRefresh = useCallback(() => {
+    // Clear any pending debounce on manual refresh
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    pendingSearchRef.current = filters.search;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, filters.search]);
 
   const handleSelectPeriod = useCallback((periodId: number) => {
+    // Clear any pending operations when selecting new period
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
     setSelectedPeriodId(periodId);
+    // Reset filters to defaults when changing period
+    setFilters((prev) => ({
+      ...prev,
+      search: '',
+      page: 1,
+      supervisorStatus: 'all',
+      memberCount: 'all',
+    }));
   }, []);
 
   const handleSetShowPeriodSelector = useCallback((show: boolean) => {
     setShowPeriodSelector(show);
     if (show) {
+      // Clear any pending operations
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+        searchDebounceRef.current = null;
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
       // Clear current selection so page shows period selector full-screen
       setPeriod(null);
       setStats(null);

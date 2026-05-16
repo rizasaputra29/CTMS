@@ -141,40 +141,6 @@ export default function AdminTaDefensePage() {
     const watchedExaminer1 = form.watch('examiner_1_id');
     const watchedExaminer2 = form.watch('examiner_2_id');
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [periodsRes, dosensRes] = await Promise.all([
-                api.get('/admin/periods'),
-                api.get('/admin/users?role=dosen'),
-            ]);
-
-            const perData: Period[] = periodsRes.data.data || [];
-            setPeriods(perData);
-            const dosensData = dosensRes.data?.data || dosensRes.data || [];
-            setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
-
-            // Only fetch eligible students if a specific period is selected
-            // For "All Periods", we don't need eligible students until dialog opens
-            if (selectedPeriod && selectedPeriod !== 'all') {
-                const eligibleRes = await api.get('/admin/ta-defense-schedules/eligible-students', {
-                    params: { period_id: selectedPeriod }
-                });
-
-                const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
-                setEligibleGroups(eligibleData);
-            } else {
-                // Clear eligible groups when "All Periods" is selected
-                setEligibleGroups([]);
-            }
-        } catch (error) {
-            console.error('Fetch data error:', error);
-            toast.error('Failed to load data');
-        } finally {
-            setLoading(false);
-        }
-    }, [selectedPeriod]);
-
     const fetchSchedules = useCallback(async () => {
         try {
             // Build params - when "all", send period_id: 'all' to get all schedules
@@ -191,18 +157,74 @@ export default function AdminTaDefensePage() {
         }
     }, [selectedPeriod]);
 
-    const fetchLocations = useCallback(async () => {
-        try {
-            const res = await api.get('/locations');
-            setLocations(res.data?.data || []);
-        } catch (err) {
-            console.error('Failed to fetch locations', err);
-        }
-    }, []);
+    // Combined data fetching with proper cleanup
+    useEffect(() => {
+        let isMounted = true;
 
-    useEffect(() => { fetchData(); }, [fetchData]);
-    useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
-    useEffect(() => { fetchLocations(); }, [fetchLocations]);
+        const loadAllData = async () => {
+            setLoading(true);
+            try {
+                // Fetch periods, dosens, and eligible students in parallel
+                const [periodsRes, dosensRes] = await Promise.all([
+                    api.get('/admin/periods'),
+                    api.get('/admin/users?role=dosen'),
+                ]);
+
+                if (!isMounted) return;
+
+                const perData: Period[] = periodsRes.data.data || [];
+                setPeriods(perData);
+                const dosensData = dosensRes.data?.data || dosensRes.data || [];
+                setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
+
+                // Fetch eligible students if a specific period is selected
+                if (selectedPeriod && selectedPeriod !== 'all') {
+                    const eligibleRes = await api.get('/admin/ta-defense-schedules/eligible-students', {
+                        params: { period_id: selectedPeriod }
+                    });
+                    if (isMounted) {
+                        const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
+                        setEligibleGroups(eligibleData);
+                    }
+                } else {
+                    if (isMounted) {
+                        setEligibleGroups([]);
+                    }
+                }
+
+                // Fetch schedules
+                const params: Record<string, string> = {};
+                if (selectedPeriod) {
+                    params.period_id = selectedPeriod;
+                }
+                const schedulesRes = await api.get('/admin/ta-defense-schedules', { params });
+                if (isMounted) {
+                    setSchedules(schedulesRes.data.data || []);
+                }
+
+                // Fetch locations
+                const locationsRes = await api.get('/locations');
+                if (isMounted) {
+                    setLocations(locationsRes.data?.data || []);
+                }
+            } catch (error) {
+                if (isMounted) {
+                    console.error('Fetch data error:', error);
+                    toast.error('Failed to load data');
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadAllData();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedPeriod]);
 
     const getAvailableStudents = (): EligibleMember[] => {
         const group = eligibleGroups.find(g => g.id.toString() === watchedGroupId);
