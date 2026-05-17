@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ interface Notification {
     related_id: number | null;
     created_at: string;
     invitation_status?: string;
+    action_url?: string | null;
 }
 
 interface PaginatedNotifications {
@@ -32,6 +34,7 @@ interface PaginatedNotifications {
 }
 
 export default function NotificationsPage() {
+    const router = useRouter();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
@@ -84,6 +87,15 @@ export default function NotificationsPage() {
             } else {
                 toast.error(`Failed to ${action} invitation`);
             }
+        }
+    };
+
+    const handleNotificationClick = (n: Notification) => {
+        if (n.action_url) {
+            router.push(n.action_url);
+        }
+        if (!n.is_read) {
+            markAsRead(n.id);
         }
     };
 
@@ -149,7 +161,7 @@ export default function NotificationsPage() {
                         <Card
                             key={n.id}
                             className={`cursor-pointer transition-all duration-200 ${!n.is_read ? 'border-primary/20 bg-primary/5 shadow-sm' : 'hover:border-primary/20 hover:bg-muted/30 shadow-none'}`}
-                            onClick={() => !n.is_read && markAsRead(n.id)}
+                            onClick={() => handleNotificationClick(n)}
                         >
                             <CardContent className="flex items-start gap-4 p-5">
                                 <div className={`shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${typeIcon(n.type)}`}>
