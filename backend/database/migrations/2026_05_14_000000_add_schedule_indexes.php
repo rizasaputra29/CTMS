@@ -13,11 +13,29 @@ return new class extends Migration
     {
         // Helper function to check if index exists
         $indexExists = function (string $table, string $indexName): bool {
-            $existingIndexes = \Illuminate\Support\Facades\DB::select("
-                SELECT indexname FROM pg_indexes WHERE tablename = ?
-            ", [$table]);
+            $driver = \Illuminate\Support\Facades\DB::getDriverName();
+
+            if ($driver === 'sqlite') {
+                $existingIndexes = \Illuminate\Support\Facades\DB::select("PRAGMA index_list('$table')");
+                $existingIndexNames = array_map(fn($idx) => $idx->name, $existingIndexes);
+                return in_array($indexName, $existingIndexNames, true);
+            }
+
+            if ($driver === 'mysql') {
+                $existingIndexes = \Illuminate\Support\Facades\DB::select(
+                    'SELECT index_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?',
+                    [$table]
+                );
+                $existingIndexNames = array_map(fn($idx) => $idx->index_name, $existingIndexes);
+                return in_array($indexName, $existingIndexNames, true);
+            }
+
+            $existingIndexes = \Illuminate\Support\Facades\DB::select(
+                'SELECT indexname FROM pg_indexes WHERE tablename = ?',
+                [$table]
+            );
             $existingIndexNames = array_map(fn($idx) => $idx->indexname, $existingIndexes);
-            return in_array($indexName, $existingIndexNames);
+            return in_array($indexName, $existingIndexNames, true);
         };
 
         // Indexes for seminar_schedules

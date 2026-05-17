@@ -70,7 +70,7 @@ class GroupStateMachine
         'SEMPRO_DONE' => ['PDC2_ACTIVE'],
         'PDC2_ACTIVE' => ['PDC2_READY_FOR_EXPO'],
         'PDC2_READY_FOR_EXPO' => ['EXPO_REGISTERED'],
-        'EXPO_REGISTERED' => ['EXPO_DONE', 'PDC2_ACTIVE'],
+        'EXPO_REGISTERED' => ['EXPO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO'],
         'EXPO_DONE' => ['READY_FOR_TA_INDIVIDUAL'],
         'READY_FOR_TA_INDIVIDUAL' => ['CLOSED'],
         'CLOSED' => [],

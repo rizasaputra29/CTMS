@@ -139,6 +139,7 @@ const navItems: Record<string, NavItem[]> = {
             icon: CalendarIcon,
             items: [
                 { title: 'My Schedule', url: '/mahasiswa/schedule', icon: ClipboardCheck },
+                { title: 'Daftar Expo', url: '/mahasiswa/expo', icon: Presentation },
             ]
         },
         {
@@ -676,7 +677,13 @@ export function AppSidebar() {
                                                     <CollapsibleContent>
                                                         <SidebarMenuSub>
                                                             {item.items.map((subItem) => {
-                                                                const subItemDisabled = disableParent;
+                                                                let subItemDisabled = disableParent;
+                                                                if (!subItemDisabled && subItem.title === 'Daftar Expo') {
+                                                                    const expoStatuses = ['PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL', 'TA_IN_PROGRESS', 'CLOSED'];
+                                                                    if (!expoStatuses.includes(groupStatus || '')) {
+                                                                        subItemDisabled = true;
+                                                                    }
+                                                                }
                                                                 return (
                                                                     <SidebarMenuSubItem key={subItem.title}>
                                                                         <SidebarMenuSubButton

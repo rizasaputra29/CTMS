@@ -362,15 +362,7 @@ class DocumentController extends Controller
         // All required types approved (or at least one if no requirements) — check additional requirements
         // PDC1: No supervisor evaluation required, transition immediately when documents approved
         
-        if ($phase === 'TA_DRAFT' && $group->status === 'PDC2_ACTIVE') {
-            // Check if both supervisors have submitted NILAI_DOSEN and MILESTONE evaluations
-            if (!$this->areAllNilaiDosenComplete($group)) {
-                return; // Wait for both supervisors to submit evaluations
-            }
-            if (!$this->areAllMilestoneComplete($group)) {
-                return; // Wait for both supervisors to submit milestone evaluations
-            }
-        }
+
 
         // All requirements met — trigger transition
         try {

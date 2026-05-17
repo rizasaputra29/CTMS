@@ -216,6 +216,7 @@ class DashboardController extends Controller
             
             // 3. EXPO events
             $expoRegistrations = ExpoRegistration::where('group_id', $groupId)
+                ->where('status', '!=', 'CANCELLED')
                 ->with(['expoEvent' => function ($query) use ($now) {
                     $query->whereRaw("CONCAT(date, ' ', start_time) > ?", [$now]);
                 }])

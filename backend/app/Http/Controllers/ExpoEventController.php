@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
 use App\Models\ExpoEvent;
+use App\Models\Location;
 use App\Services\ExpoService;
 use Illuminate\Http\Request;
 
@@ -43,10 +44,17 @@ class ExpoEventController extends Controller
             'date' => 'required|date',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
-            'room' => 'required|string|max:255',
+            'room' => 'nullable|string|max:255',
+            'location_id' => 'nullable|exists:locations,id',
             'capacity' => 'required|integer|min:1|max:200',
             'is_published' => 'boolean',
         ]);
+
+        // Resolve room name from location if location_id is provided
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $validated['room'] = $location->name;
+        }
 
         $validated['created_by'] = $request->user()->id;
 
@@ -54,7 +62,7 @@ class ExpoEventController extends Controller
 
         $event = ExpoEvent::create($validated);
 
-        return response()->json($event->load(['period', 'creator']), 201);
+        return response()->json($event->load(['period', 'creator', 'location']), 201);
     }
 
     public function show(ExpoEvent $expoEvent)
@@ -73,13 +81,20 @@ class ExpoEventController extends Controller
             'date' => 'sometimes|date',
             'start_time' => 'sometimes|date_format:H:i',
             'end_time' => 'sometimes|date_format:H:i',
-            'room' => 'sometimes|string|max:255',
+            'room' => 'nullable|string|max:255',
+            'location_id' => 'nullable|exists:locations,id',
             'capacity' => 'sometimes|integer|min:1|max:200',
         ]);
 
+        // Resolve room name from location if location_id is provided
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $validated['room'] = $location->name;
+        }
+
         $expoEvent->update($validated);
 
-        return response()->json($expoEvent->fresh()->load(['period', 'creator']));
+        return response()->json($expoEvent->fresh()->load(['period', 'creator', 'location']));
     }
 
     public function destroy(ExpoEvent $expoEvent)
@@ -128,7 +143,9 @@ class ExpoEventController extends Controller
 
         $events = ExpoEvent::where('period_id', $group->period_id)
             ->where('is_published', true)
-            ->withCount('registrations')
+            ->withCount(['registrations' => function ($query) {
+                $query->where('status', '!=', 'CANCELLED');
+            }])
             ->orderBy('date')
             ->get();
 
@@ -136,6 +153,7 @@ class ExpoEventController extends Controller
         $events->each(function ($event) use ($group) {
             $event->is_registered = $event->registrations()
                 ->where('group_id', $group->id)
+                ->where('status', '!=', 'CANCELLED')
                 ->exists();
         });
 
@@ -165,6 +183,34 @@ class ExpoEventController extends Controller
                 'message' => 'Successfully registered for expo event.',
                 'data' => $registration,
             ], 201);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Withdraw the student's group from an expo event.
+     */
+    public function withdraw(Request $request, ExpoEvent $expoEvent)
+    {
+        $user = $request->user();
+        $groupMember = \App\Models\GroupMember::where('student_id', $user->id)->first();
+
+        if (!$groupMember) {
+            return response()->json(['message' => 'You are not in a group.'], 400);
+        }
+
+        try {
+            $registration = $this->expoService->withdrawGroupFromEvent(
+                $expoEvent->id,
+                $groupMember->group_id,
+                $user->id
+            );
+
+            return response()->json([
+                'message' => 'Successfully withdrawn from expo event.',
+                'data' => $registration,
+            ]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 400);
         }

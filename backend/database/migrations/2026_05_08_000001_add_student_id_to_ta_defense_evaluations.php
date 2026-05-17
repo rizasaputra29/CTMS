@@ -13,14 +13,26 @@ return new class extends Migration {
             $table->foreignId('student_id')->nullable()->after('schedule_id')->constrained('users');
         });
 
-        // Step 2: Populate student_id from schedule's student_id (PostgreSQL syntax)
-        DB::statement('
-            UPDATE ta_defense_evaluations tde
-            SET student_id = tds.student_id
-            FROM ta_defense_schedules tds
-            WHERE tde.schedule_id = tds.id
-            AND tde.student_id IS NULL
-        ');
+        // Step 2: Populate student_id from schedule's student_id
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('
+                UPDATE ta_defense_evaluations
+                SET student_id = (
+                    SELECT tds.student_id
+                    FROM ta_defense_schedules tds
+                    WHERE tds.id = ta_defense_evaluations.schedule_id
+                )
+                WHERE student_id IS NULL
+            ');
+        } else {
+            DB::statement('
+                UPDATE ta_defense_evaluations tde
+                SET student_id = tds.student_id
+                FROM ta_defense_schedules tds
+                WHERE tde.schedule_id = tds.id
+                AND tde.student_id IS NULL
+            ');
+        }
     }
 
     public function down(): void

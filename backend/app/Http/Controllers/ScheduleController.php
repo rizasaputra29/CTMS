@@ -459,6 +459,7 @@ class ScheduleController extends Controller
 
         // 3. EXPO events from expo_events via expo_registrations
         $expoRegistrations = ExpoRegistration::where('group_id', $groupId)
+            ->where('status', '!=', 'CANCELLED')
             ->with('expoEvent')
             ->get();
 
@@ -769,6 +770,71 @@ class ScheduleController extends Controller
                 ];
             });
         $allSchedules = array_merge($allSchedules, $supervisorSeminarSchedules->toArray());
+
+        // 5. ALL EXPO events visible to every dosen (from expo_events via expo_registrations)
+        // Collect group_ids that already have EXPO cards from Parts 2 and 4 (seminar_schedules)
+        $allExpoScheduleIds = $examinerScheduleIds->merge(
+            $supervisorSeminarQuery->pluck('id')
+        )->unique()->filter()->values();
+
+        $seminarExpoGroupIds = collect();
+        if ($allExpoScheduleIds->isNotEmpty()) {
+            $seminarExpoGroupIds = SeminarSchedule::whereIn('id', $allExpoScheduleIds)
+                ->where('type', 'EXPO')
+                ->pluck('group_id')
+                ->unique()
+                ->values();
+        }
+
+        $allExpoQuery = ExpoRegistration::with(['expoEvent.period', 'group'])
+            ->where('status', '!=', 'CANCELLED')
+            ->whereHas('expoEvent', fn($q) => $q->whereNotNull('date'));
+
+        if ($seminarExpoGroupIds->isNotEmpty()) {
+            $allExpoQuery->whereNotIn('group_id', $seminarExpoGroupIds);
+        }
+
+        if ($periodId) {
+            $allExpoQuery->whereHas('expoEvent', fn($q) => $q->where('period_id', $periodId));
+        }
+
+        $allExpoEvents = $allExpoQuery->get()->map(function ($registration) {
+            $event = $registration->expoEvent;
+            if (!$event || !$event->date) return null;
+
+            $dateStr = $event->date->format('Y-m-d');
+            $timeStr = $event->start_time ? substr($event->start_time, 0, 5) : '00:00';
+            $isoDate = $dateStr . 'T' . $timeStr . ':00';
+
+            return [
+                'id' => $event->id,
+                'type' => 'EXPO',
+                'date' => $isoDate,
+                'start_time' => $event->start_time ? substr($event->start_time, 0, 5) : null,
+                'end_time' => $event->end_time ? substr($event->end_time, 0, 5) : null,
+                'room' => $event->room,
+                'location_id' => $event->location_id,
+                'mode' => null,
+                'notes' => $event->name,
+                'status' => $event->is_published ? 'SCHEDULED' : 'PENDING',
+                'group_id' => $registration->group_id,
+                'examiner1' => null,
+                'examiner2' => null,
+                'group' => [
+                    'id' => $registration->group_id,
+                    'title' => [
+                        'title' => $event->name,
+                        'lecturer' => null,
+                    ],
+                    'period' => $event->period ? [
+                        'id' => $event->period->id,
+                        'name' => $event->period->name,
+                    ] : null,
+                    'members' => [],
+                ],
+            ];
+        })->filter()->values();
+        $allSchedules = array_merge($allSchedules, $allExpoEvents->toArray());
 
         // TA_DEFENSE schedules for SUPERVISOR_1 only (exclude ones already shown as examiner)
         $taDefenseScheduleIds = $taDefenseQuery->pluck('id');

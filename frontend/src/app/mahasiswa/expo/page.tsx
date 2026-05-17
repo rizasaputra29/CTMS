@@ -26,6 +26,7 @@ export default function MahasiswaExpoPage() {
     const [events, setEvents] = useState<ExpoEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [registering, setRegistering] = useState<number | null>(null);
+    const [withdrawing, setWithdrawing] = useState<number | null>(null);
 
     const fetchEvents = useCallback(async () => {
         try {
@@ -52,6 +53,21 @@ export default function MahasiswaExpoPage() {
             else toast.error('Registration failed');
         } finally {
             setRegistering(null);
+        }
+    };
+
+    const handleWithdraw = async (eventId: number) => {
+        if (!confirm('Withdraw your group from this expo event?')) return;
+        setWithdrawing(eventId);
+        try {
+            await api.post(`/mahasiswa/expo-events/${eventId}/withdraw`);
+            toast.success('Successfully withdrawn from expo.');
+            fetchEvents();
+        } catch (error) {
+            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Withdrawal failed');
+            else toast.error('Withdrawal failed');
+        } finally {
+            setWithdrawing(null);
         }
     };
 
@@ -138,9 +154,23 @@ export default function MahasiswaExpoPage() {
                                         </Button>
                                     )}
                                     {evt.is_registered && (
-                                        <p className="text-sm text-green-600 font-medium text-center">
-                                            ✓ Your group is registered for this event
-                                        </p>
+                                        <div className="space-y-2">
+                                            <p className="text-sm text-green-600 font-medium text-center">
+                                                ✓ Your group is registered for this event
+                                            </p>
+                                            <Button
+                                                variant="outline"
+                                                className="w-full"
+                                                onClick={() => handleWithdraw(evt.id)}
+                                                disabled={withdrawing === evt.id}
+                                            >
+                                                {withdrawing === evt.id ? (
+                                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Withdrawing...</>
+                                                ) : (
+                                                    'Undurkan dari Expo'
+                                                )}
+                                            </Button>
+                                        </div>
                                     )}
                                 </CardContent>
                             </Card>

@@ -15,6 +15,7 @@ class ExpoEvent extends Model
         'date',
         'start_time',
         'end_time',
+        'location_id',
         'room',
         'capacity',
         'is_published',
@@ -32,6 +33,11 @@ class ExpoEvent extends Model
         return $this->belongsTo(Period::class);
     }
 
+    public function location()
+    {
+        return $this->belongsTo(Location::class);
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -47,7 +53,9 @@ class ExpoEvent extends Model
      */
     public function hasCapacity(): bool
     {
-        return $this->registrations()->count() < $this->capacity;
+        return $this->registrations()
+            ->where('status', '!=', 'CANCELLED')
+            ->count() < $this->capacity;
     }
 
     /**
@@ -55,6 +63,8 @@ class ExpoEvent extends Model
      */
     public function getRegisteredCountAttribute(): int
     {
-        return $this->registrations()->count();
+        return $this->registrations()
+            ->where('status', '!=', 'CANCELLED')
+            ->count();
     }
 }

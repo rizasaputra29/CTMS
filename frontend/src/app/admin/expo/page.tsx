@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
@@ -121,12 +121,8 @@ export default function AdminExpoPage() {
         }
     }, []);
 
-    const hasFetchedData = useRef(false);
     useEffect(() => {
-        if (!hasFetchedData.current) {
-            hasFetchedData.current = true;
-            fetchData();
-        }
+        fetchData();
     }, [fetchData]);
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
     useEffect(() => { fetchLocations(); }, [fetchLocations]);

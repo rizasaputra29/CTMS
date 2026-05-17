@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Loader2, FileCheck, AlertCircle, Clock, GraduationCap, Calendar, MapPin, Users, Eye, Play, Edit, User } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Loader2, FileCheck, AlertCircle, Clock, GraduationCap, Calendar, MapPin, Users, Eye, Play, Edit, User, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
@@ -58,7 +59,7 @@ interface Schedule {
     code: string;
   };
   students?: GroupMember[];
-  student: GroupMember | null; // For per-student evaluations like BIMBINGAN_TA
+  student: GroupMember | null;
   status: 'PENDING' | 'PARTIAL' | 'COMPLETED' | 'NOT_CONFIGURED';
   supervisor_role: 'SUPERVISOR_1' | 'SUPERVISOR_2';
   period: {
@@ -71,6 +72,14 @@ interface Period {
   id: number;
   name: string;
 }
+
+const EVALUATION_TYPE_LABELS: Record<string, string> = {
+  BIMBINGAN_SEMPRO: 'Bimbingan Sempro',
+  NILAI_DOSEN: 'Nilai Dosen',
+  MILESTONE: 'Milestone',
+  EXPO: 'Expo',
+  BIMBINGAN_TA: 'Bimbingan Sidang TA',
+};
 
 const getEvaluationTypeColor = (type: string) => {
   switch (type) {
@@ -128,20 +137,7 @@ const getStatusBadge = (status: string) => {
 };
 
 const getEvaluationTypeLabel = (type: string) => {
-  switch (type) {
-    case 'BIMBINGAN_SEMPRO':
-      return 'BIMBINGAN_SEMPRO';
-    case 'NILAI_DOSEN':
-      return 'NILAI_DOSEN';
-    case 'MILESTONE':
-      return 'MILESTONE';
-    case 'EXPO':
-      return 'EXPO';
-    case 'BIMBINGAN_TA':
-      return 'BIMBINGAN_TA';
-    default:
-      return type;
-  }
+  return EVALUATION_TYPE_LABELS[type] || type;
 };
 
 export default function SupervisorEvaluationPage() {
@@ -151,9 +147,14 @@ export default function SupervisorEvaluationPage() {
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('pending');
   const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Collapse state for past and unscheduled sections
+  const [pastExpanded, setPastExpanded] = useState(false);
+  const [unscheduledExpanded, setUnscheduledExpanded] = useState(false);
 
   const fetchPeriods = useCallback(async () => {
     try {
@@ -168,11 +169,16 @@ export default function SupervisorEvaluationPage() {
     try {
       setLoading(true);
       if (viewMode === 'schedule') {
-        const params = selectedPeriod !== 'all' ? { period_id: selectedPeriod } : {};
+        const params: Record<string, string> = {};
+        if (selectedPeriod !== 'all') params.period_id = selectedPeriod;
+        if (selectedType !== 'all') params.type = selectedType;
         const response = await api.get('/dosen/supervisor-evaluation/schedules', { params });
         setSchedules(response.data.data || []);
       } else {
-        const response = await api.get('/dosen/supervisor-evaluation/groups');
+        const params: Record<string, string> = {};
+        if (selectedPeriod !== 'all') params.period_id = selectedPeriod;
+        if (selectedType !== 'all') params.type = selectedType;
+        const response = await api.get('/dosen/supervisor-evaluation/groups', { params });
         setGroups(response.data.data || []);
       }
     } catch (error) {
@@ -181,33 +187,73 @@ export default function SupervisorEvaluationPage() {
     } finally {
       setLoading(false);
     }
-  }, [viewMode, selectedPeriod]);
+  }, [viewMode, selectedPeriod, selectedType]);
 
   useEffect(() => {
     fetchPeriods();
     fetchData();
   }, [fetchData, fetchPeriods]);
 
-  const filteredSchedules = schedules.filter((schedule) => {
-    if (filter === 'all') return true;
-    if (filter === 'pending') return schedule.status === 'PENDING' || schedule.status === 'PARTIAL';
-    if (filter === 'completed') return schedule.status === 'COMPLETED';
-    return true;
-  }).filter((schedule) => {
-    if (selectedType === 'all') return true;
-    return schedule.evaluation_type === selectedType;
-  });
+  const filteredSchedules = useMemo(() => {
+    let result = schedules;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((s) =>
+        s.group.code.toLowerCase().includes(q) || s.group.name.toLowerCase().includes(q)
+      );
+    }
+    result = result.filter((schedule) => {
+      if (statusFilter === 'all') return true;
+      if (statusFilter === 'pending') return schedule.status === 'PENDING' || schedule.status === 'PARTIAL';
+      if (statusFilter === 'completed') return schedule.status === 'COMPLETED';
+      return true;
+    });
+    return result;
+  }, [schedules, statusFilter, searchQuery]);
 
-  const filteredGroups = groups.filter((group) => {
-    if (filter === 'all') return true;
-    if (filter === 'pending') {
-      return Object.values(group.evaluations).some((e) => e.status === 'pending' || e.status === 'partial');
+  const filteredGroups = useMemo(() => {
+    let result = groups;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((g) =>
+        g.code.toLowerCase().includes(q) || g.name.toLowerCase().includes(q)
+      );
     }
-    if (filter === 'completed') {
-      return Object.values(group.evaluations).every((e) => e.status === 'completed');
+    result = result.filter((group) => {
+      if (statusFilter === 'all') return true;
+      if (statusFilter === 'pending') {
+        return Object.values(group.evaluations).some((e) => e.status === 'pending' || e.status === 'partial');
+      }
+      if (statusFilter === 'completed') {
+        return Object.values(group.evaluations).every((e) => e.status === 'completed');
+      }
+      return true;
+    });
+    return result;
+  }, [groups, statusFilter, searchQuery]);
+
+  // Compute counts for status tabs (pre-search, pre-status filter for accuracy)
+  const pendingCount = useMemo(() => {
+    if (viewMode === 'schedule') {
+      return schedules.filter((s) => s.status === 'PENDING' || s.status === 'PARTIAL').length;
     }
-    return true;
-  });
+    return groups.filter((g) =>
+      Object.values(g.evaluations).some((e) => e.status === 'pending' || e.status === 'partial')
+    ).length;
+  }, [viewMode, schedules, groups]);
+
+  const completedCount = useMemo(() => {
+    if (viewMode === 'schedule') {
+      return schedules.filter((s) => s.status === 'COMPLETED').length;
+    }
+    return groups.filter((g) =>
+      Object.values(g.evaluations).every((e) => e.status === 'completed')
+    ).length;
+  }, [viewMode, schedules, groups]);
+
+  const totalCount = useMemo(() => {
+    return viewMode === 'schedule' ? schedules.length : groups.length;
+  }, [viewMode, schedules, groups]);
 
   const todaySchedules = filteredSchedules.filter((s) => s.date && isToday(parseISO(s.date)));
   const upcomingSchedules = filteredSchedules.filter((s) => s.date && isFuture(parseISO(s.date)) && !isToday(parseISO(s.date)));
@@ -219,7 +265,6 @@ export default function SupervisorEvaluationPage() {
   };
 
   const handleEvaluateFromSchedule = (schedule: Schedule) => {
-    // For per-student evaluations like BIMBINGAN_TA, include student_id
     const studentParam = schedule.student ? `&student_id=${schedule.student.id}` : '';
     router.push(`/dosen/supervisor-evaluation/${schedule.group.id}?type=${schedule.evaluation_type}${studentParam}`);
   };
@@ -247,6 +292,7 @@ export default function SupervisorEvaluationPage() {
 
   return (
     <div className="container mx-auto py-6 max-w-7xl">
+      {/* Header */}
       <div className="mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-3">
           <GraduationCap className="w-8 h-8" />
@@ -257,12 +303,77 @@ export default function SupervisorEvaluationPage() {
         </p>
       </div>
 
+      {/* Shared Filters */}
+      <Card className="mb-6">
+        <CardContent className="pt-6 space-y-4">
+          {/* Search + Status Tabs */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Cari kode atau nama grup..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+              <TabsList>
+                <TabsTrigger value="all">
+                  Semua ({totalCount})
+                </TabsTrigger>
+                <TabsTrigger value="pending">
+                  Belum ({pendingCount})
+                </TabsTrigger>
+                <TabsTrigger value="completed">
+                  Sudah ({completedCount})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+
+          {/* Period + Type dropdowns */}
+          <div className="flex flex-wrap gap-4">
+            <div className="w-[200px]">
+              <label className="text-sm font-medium mb-2 block">Periode</label>
+              <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Semua Periode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Periode</SelectItem>
+                  {periods.map((p) => (
+                    <SelectItem key={p.id} value={p.id.toString()}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="w-[200px]">
+              <label className="text-sm font-medium mb-2 block">Tipe Penilaian</label>
+              <Select value={selectedType} onValueChange={setSelectedType}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Semua Tipe" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Tipe</SelectItem>
+                  {Object.entries(EVALUATION_TYPE_LABELS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* View Mode Toggle */}
       <Tabs value={viewMode} onValueChange={(v) => {
         const validatedMode = toViewMode(v, viewMode);
         setViewMode(validatedMode);
-      }} className="mb-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+      }}>
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
           <TabsTrigger value="schedule">
             <Calendar className="w-4 h-4 mr-2" />
             Berdasarkan Jadwal
@@ -274,66 +385,11 @@ export default function SupervisorEvaluationPage() {
         </TabsList>
 
         {/* Schedule View */}
-        <TabsContent value="schedule" className="mt-6">
-          {/* Filters */}
-          <Card className="mb-6">
-            <CardContent className="pt-6">
-              <div className="flex flex-wrap gap-4">
-                <div className="flex-1 min-w-[200px]">
-                  <label className="text-sm font-medium mb-2 block">Filter Status</label>
-                  <Tabs value={filter} onValueChange={setFilter}>
-                    <TabsList>
-                      <TabsTrigger value="all">Semua</TabsTrigger>
-                      <TabsTrigger value="pending">
-                        Menunggu ({filteredSchedules.filter(s => s.status === 'PENDING' || s.status === 'PARTIAL').length})
-                      </TabsTrigger>
-                      <TabsTrigger value="completed">
-                        Selesai ({filteredSchedules.filter(s => s.status === 'COMPLETED').length})
-                      </TabsTrigger>
-                    </TabsList>
-                  </Tabs>
-                </div>
-                <div className="w-[200px]">
-                  <label className="text-sm font-medium mb-2 block">Periode</label>
-                  <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Semua Periode" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Periode</SelectItem>
-                      {periods.map((p) => (
-                        <SelectItem key={p.id} value={p.id.toString()}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="w-[200px]">
-                  <label className="text-sm font-medium mb-2 block">Tipe Penilaian</label>
-                  <Select value={selectedType} onValueChange={setSelectedType}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Semua Tipe" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">Semua Tipe</SelectItem>
-                      <SelectItem value="BIMBINGAN_SEMPRO">BIMBINGAN_SEMPRO</SelectItem>
-                      <SelectItem value="NILAI_DOSEN">NILAI_DOSEN</SelectItem>
-                      <SelectItem value="MILESTONE">MILESTONE</SelectItem>
-                      <SelectItem value="EXPO">EXPO</SelectItem>
-                      <SelectItem value="BIMBINGAN_TA">BIMBINGAN_TA</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Schedule Sections */}
+        <TabsContent value="schedule">
           {filteredSchedules.length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center">
-                <Calendar className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
+                <Search className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
                   Tidak ada jadwal yang sesuai dengan filter
                 </p>
@@ -382,43 +438,55 @@ export default function SupervisorEvaluationPage() {
                 </div>
               )}
 
-              {/* Past Section */}
+              {/* Past Section — collapsible */}
               {pastSchedules.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-4 text-gray-500">
+                  <button
+                    onClick={() => setPastExpanded(!pastExpanded)}
+                    className="text-lg font-semibold mb-4 text-gray-500 flex items-center gap-2 hover:text-gray-700 transition-colors w-full text-left"
+                  >
+                    {pastExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     Sudah Lewat ({pastSchedules.length})
-                  </h3>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {pastSchedules.map((schedule) => (
-                      <ScheduleCard
-                        key={`${schedule.schedule_id}-${schedule.evaluation_type}`}
-                        schedule={schedule}
-                        onEvaluate={() => handleEvaluateFromSchedule(schedule)}
-                        isUrgent={false}
-                        isOverdue={isDeadlineOverdue(schedule.deadline) && schedule.status !== 'COMPLETED'}
-                      />
-                    ))}
-                  </div>
+                  </button>
+                  {pastExpanded && (
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {pastSchedules.map((schedule) => (
+                        <ScheduleCard
+                          key={`${schedule.schedule_id}-${schedule.evaluation_type}`}
+                          schedule={schedule}
+                          onEvaluate={() => handleEvaluateFromSchedule(schedule)}
+                          isUrgent={false}
+                          isOverdue={isDeadlineOverdue(schedule.deadline) && schedule.status !== 'COMPLETED'}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* No Schedule Section (status-based evaluations) */}
+              {/* Unscheduled Section — collapsible */}
               {unscheduledEvaluations.length > 0 && (
                 <div>
-                  <h3 className="text-lg font-semibold mb-4 text-slate-600">
+                  <button
+                    onClick={() => setUnscheduledExpanded(!unscheduledExpanded)}
+                    className="text-lg font-semibold mb-4 text-slate-600 flex items-center gap-2 hover:text-slate-800 transition-colors w-full text-left"
+                  >
+                    {unscheduledExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     Tanpa Jadwal ({unscheduledEvaluations.length})
-                  </h3>
-                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    {unscheduledEvaluations.map((schedule) => (
-                      <ScheduleCard
-                        key={`${schedule.group.id}-${schedule.evaluation_type}`}
-                        schedule={schedule}
-                        onEvaluate={() => handleEvaluateFromSchedule(schedule)}
-                        isUrgent={false}
-                        isOverdue={false}
-                      />
-                    ))}
-                  </div>
+                  </button>
+                  {unscheduledExpanded && (
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                      {unscheduledEvaluations.map((schedule) => (
+                        <ScheduleCard
+                          key={`${schedule.group.id}-${schedule.evaluation_type}`}
+                          schedule={schedule}
+                          onEvaluate={() => handleEvaluateFromSchedule(schedule)}
+                          isUrgent={false}
+                          isOverdue={false}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -426,27 +494,13 @@ export default function SupervisorEvaluationPage() {
         </TabsContent>
 
         {/* Group View */}
-        <TabsContent value="group" className="mt-6">
-          <Tabs defaultValue="all" className="mb-6" onValueChange={setFilter}>
-            <TabsList>
-              <TabsTrigger value="all">
-                Semua ({groups.length})
-              </TabsTrigger>
-              <TabsTrigger value="pending">
-                Menunggu
-              </TabsTrigger>
-              <TabsTrigger value="completed">
-                Selesai
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
+        <TabsContent value="group">
           {filteredGroups.length === 0 ? (
             <Card>
               <CardContent className="py-10 text-center">
                 <GraduationCap className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                 <p className="text-muted-foreground">
-                  {filter === 'all'
+                  {statusFilter === 'all'
                     ? 'Tidak ada kelompok bimbingan yang memerlukan penilaian'
                     : 'Tidak ada kelompok yang sesuai dengan filter'}
                 </p>
@@ -574,7 +628,7 @@ function ScheduleCard({ schedule, onEvaluate, isUrgent, isOverdue }: ScheduleCar
       <CardHeader className="pb-3">
         <div className="flex justify-between items-start">
           <Badge className={getEvaluationTypeColor(schedule.evaluation_type)}>
-            {schedule.evaluation_type}
+            {getEvaluationTypeLabel(schedule.evaluation_type)}
           </Badge>
           {getStatusBadge(schedule.status)}
         </div>
@@ -622,13 +676,11 @@ function ScheduleCard({ schedule, onEvaluate, isUrgent, isOverdue }: ScheduleCar
         <div className="pt-2 border-t">
           <p className="text-sm font-medium mb-2">Mahasiswa:</p>
           <div className="flex flex-wrap gap-1">
-            {/* For per-student evaluations (BIMBINGAN_TA), show only the specific student */}
             {schedule.student ? (
               <Badge key={schedule.student.id} variant="secondary" className="text-xs">
                 {schedule.student.name}
               </Badge>
             ) : (
-              /* For group evaluations, show all students */
               schedule.students?.map((student) => (
                 <Badge key={student.id} variant="secondary" className="text-xs">
                   {student.name}

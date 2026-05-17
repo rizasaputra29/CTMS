@@ -2,21 +2,23 @@
 
 namespace App\Services;
 
+use App\Models\AuditLog;
+use App\Models\BimbinganSemproScore;
+use App\Models\BimbinganTaScore;
+use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
+use App\Models\PhaseDocumentRequirement;
 use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
+use App\Models\SemproScore;
+use App\Models\SidangTaScore;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
-use App\Models\AuditLog;
-use App\Models\SemproScore;
-use App\Models\SidangTaScore;
-use App\Models\BimbinganSemproScore;
-use App\Models\BimbinganTaScore;
 use App\Repositories\AssessmentScoreRepository;
 use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\Cache;
@@ -108,7 +110,7 @@ class SchedulingService
         // Determine evaluation type based on seminar type
         $evaluationType = match ($schedule->type) {
             'SEMPRO' => 'BIMBINGAN_SEMPRO',
-            'EXPO' => ['BIMBINGAN_EXPO', 'MILESTONE'],
+            'EXPO' => ['BIMBINGAN_EXPO', 'MILESTONE', 'NILAI_DOSEN'],
             default => null,
         };
 
@@ -553,6 +555,29 @@ class SchedulingService
                 // Update schedule with final score
                 $schedule->update(['final_score' => $finalScore]);
 
+                $canTransitionExpoDone = true;
+                if ($schedule->type === 'EXPO' && $calculatedResult === 'PASS') {
+                    $requiredExpoDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+                        ->where('phase', 'EXPO')
+                        ->where('is_required', true)
+                        ->count();
+
+                    if ($requiredExpoDocs > 0) {
+                        $approvedExpoDocs = Document::where('group_id', $group->id)
+                            ->where('phase', 'EXPO')
+                            ->where('status', 'APPROVED')
+                            ->count();
+
+                        if ($approvedExpoDocs < $requiredExpoDocs) {
+                            $canTransitionExpoDone = false;
+                            Log::info(
+                                "EXPO completion blocked: missing approved documents for group {$group->id}. " .
+                                "Approved {$approvedExpoDocs}/{$requiredExpoDocs}."
+                            );
+                        }
+                    }
+                }
+
                 if ($schedule->type === 'SEMPRO') {
                     if ($calculatedResult === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
@@ -563,16 +588,18 @@ class SchedulingService
                     }
                 } elseif ($schedule->type === 'EXPO') {
                     if ($calculatedResult === 'PASS') {
-                        $this->stateMachine->transition($group, 'EXPO_DONE');
+                        if ($canTransitionExpoDone) {
+                            $this->stateMachine->transition($group, 'EXPO_DONE');
 
-                        // Unlock peer review for all group members
-                        try {
-                            $peerReviewService = app(\App\Services\PeerReviewService::class);
-                            $peerReviewService->unlockPeerReview($group->id);
-                            Log::info("Peer review unlocked for group {$group->id} after EXPO completion");
-                        } catch (\Exception $e) {
-                            Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
-                            // Don't throw - peer review unlock failure shouldn't break the flow
+                            // Unlock peer review for all group members
+                            try {
+                                $peerReviewService = app(\App\Services\PeerReviewService::class);
+                                $peerReviewService->unlockPeerReview($group->id);
+                                Log::info("Peer review unlocked for group {$group->id} after EXPO completion");
+                            } catch (\Exception $e) {
+                                Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
+                                // Don't throw - peer review unlock failure shouldn't break the flow
+                            }
                         }
                     } else {
                         $this->stateMachine->transition($group, 'PDC2_ACTIVE');
@@ -789,7 +816,7 @@ class SchedulingService
             }
         }
 
-        // For EXPO: only use supervisors (handled by BIMBINGAN_EXPO and MILESTONE scores)
+        // For EXPO: only use supervisors (handled by BIMBINGAN_EXPO, MILESTONE, and NILAI_DOSEN scores)
         if ($schedule->type === 'EXPO') {
             $expoScores = \App\Models\ExpoScore::where('group_id', $schedule->group_id)
                 ->get()
@@ -799,18 +826,21 @@ class SchedulingService
                 ->get()
                 ->groupBy('evaluator_id');
 
-            // Combine EXPO and MILESTONE scores per supervisor
-            $allSupervisorIds = $expoScores->keys()->merge($milestoneScores->keys())->unique();
+            $nilaiDosenScores = \App\Models\NilaiDosenScore::where('group_id', $schedule->group_id)
+                ->get()
+                ->groupBy('evaluator_id');
+
+            // Combine EXPO, MILESTONE, and NILAI_DOSEN scores per supervisor
+            $allSupervisorIds = $expoScores->keys()->merge($milestoneScores->keys())->merge($nilaiDosenScores->keys())->unique();
             foreach ($allSupervisorIds as $supervisorId) {
                 $expoAvg = $expoScores->has($supervisorId) ? $expoScores[$supervisorId]->avg('score') : null;
                 $milestoneAvg = $milestoneScores->has($supervisorId) ? $milestoneScores[$supervisorId]->avg('score') : null;
+                $nilaiDosenAvg = $nilaiDosenScores->has($supervisorId) ? $nilaiDosenScores[$supervisorId]->avg('score') : null;
 
-                if ($expoAvg !== null && $milestoneAvg !== null) {
-                    $dosenAverages[] = ($expoAvg + $milestoneAvg) / 2;
-                } elseif ($expoAvg !== null) {
-                    $dosenAverages[] = $expoAvg;
-                } elseif ($milestoneAvg !== null) {
-                    $dosenAverages[] = $milestoneAvg;
+                $parts = array_filter([$expoAvg, $milestoneAvg, $nilaiDosenAvg], fn($v) => $v !== null);
+
+                if (!empty($parts)) {
+                    $dosenAverages[] = array_sum($parts) / count($parts);
                 }
             }
         }

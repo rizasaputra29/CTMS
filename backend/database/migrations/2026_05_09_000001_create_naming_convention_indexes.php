@@ -322,8 +322,25 @@ return new class extends Migration
      */
     private function indexExists(string $table, string $index): bool
     {
-        $indexes = \DB::select("SELECT indexname FROM pg_indexes WHERE tablename = ?", [$table]);
+        $driver = DB::getDriverName();
+
+        if ($driver === 'sqlite') {
+            $indexes = DB::select("PRAGMA index_list('$table')");
+            $indexNames = array_map(fn($i) => $i->name, $indexes);
+            return in_array($index, $indexNames, true);
+        }
+
+        if ($driver === 'mysql') {
+            $indexes = DB::select(
+                'SELECT index_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ?',
+                [$table]
+            );
+            $indexNames = array_map(fn($i) => $i->index_name, $indexes);
+            return in_array($index, $indexNames, true);
+        }
+
+        $indexes = DB::select('SELECT indexname FROM pg_indexes WHERE tablename = ?', [$table]);
         $indexNames = array_map(fn($i) => $i->indexname, $indexes);
-        return in_array($index, $indexNames);
+        return in_array($index, $indexNames, true);
     }
 };

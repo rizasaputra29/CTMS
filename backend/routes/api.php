@@ -420,6 +420,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // V4: Expo events (replaces schedule-request/expo)
         Route::get('/expo-events', [ExpoEventController::class, 'studentEvents']);
         Route::post('/expo-events/{expoEvent}/register', [ExpoEventController::class, 'register']);
+        Route::post('/expo-events/{expoEvent}/withdraw', [ExpoEventController::class, 'withdraw']);
 
         // Student Proposals
         Route::get('/lecturers', [StudentProposalController::class, 'lecturers']);

@@ -33,6 +33,7 @@ class SupervisorEvaluationController extends Controller
     {
         $user = Auth::user();
         $periodId = $request->input('period_id');
+        $type = $request->input('type');
 
         // Get groups where current user is supervisor
         $supervisions = Supervision::where('supervisor_id', $user->id)
@@ -40,11 +41,16 @@ class SupervisorEvaluationController extends Controller
             ->with(['group.period', 'group.members.student'])
             ->get();
 
-        $groups = $supervisions->map(function ($supervision) use ($user) {
+        $groups = $supervisions->map(function ($supervision) use ($user, $type) {
             $group = $supervision->group;
 
             // Use canonical schedule/evaluation generator to keep group and schedule views consistent.
             $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
+
+            // Apply type filter if provided (before building evaluation cards)
+            if ($type) {
+                $groupSchedules = array_filter($groupSchedules, fn($s) => $s['evaluation_type'] === $type);
+            }
 
             // Get one card per evaluation type
             $evaluations = [];
@@ -81,7 +87,7 @@ class SupervisorEvaluationController extends Controller
             ];
         });
 
-        // Filter groups that have pending evaluations
+        // Filter groups that have evaluations (only groups with matching evaluation types if type filter is applied)
         $groupsWithEvaluations = $groups->filter(fn($g) => count($g['evaluations']) > 0)->values();
 
         return response()->json([
@@ -146,6 +152,7 @@ class SupervisorEvaluationController extends Controller
     {
         $user = Auth::user();
         $periodId = $request->input('period_id');
+        $type = $request->input('type');
 
         // Get groups where current user is supervisor
         $supervisionsQuery = Supervision::where('supervisor_id', $user->id)
@@ -171,6 +178,12 @@ class SupervisorEvaluationController extends Controller
             
             // Get detailed schedules for this group
             $groupSchedules = $this->getGroupSchedulesDetailed($group, $supervision, $user->id);
+
+            // Apply type filter if provided
+            if ($type) {
+                $groupSchedules = array_filter($groupSchedules, fn($s) => $s['evaluation_type'] === $type);
+            }
+
             $schedules = array_merge($schedules, $groupSchedules);
         }
 
@@ -206,9 +219,8 @@ class SupervisorEvaluationController extends Controller
             );
         }
         
-        // EXPO evaluation should be visible when group is ready for expo or expo is active.
-        // EXPO_ACTIVE is represented by EXPO_REGISTERED in current state machine.
-        if (in_array($group->status, ['PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED'], true)) {
+        // EXPO evaluation should be visible only when group is registered for expo.
+        if ($group->status === 'EXPO_REGISTERED') {
             $expo = SeminarSchedule::where('group_id', $group->id)
                 ->where('type', 'EXPO')
                 ->orderByDesc('id')
@@ -217,6 +229,14 @@ class SupervisorEvaluationController extends Controller
             if ($expo) {
                 $schedules[] = $this->formatSeminarScheduleForSupervisor(
                     $expo, 'SEMINAR', 'EXPO', $group, $supervision, $supervisorId
+                );
+
+                $schedules[] = $this->formatSeminarScheduleForSupervisor(
+                    $expo, 'SEMINAR', 'MILESTONE', $group, $supervision, $supervisorId
+                );
+
+                $schedules[] = $this->formatSeminarScheduleForSupervisor(
+                    $expo, 'SEMINAR', 'NILAI_DOSEN', $group, $supervision, $supervisorId
                 );
             } else {
                 $schedules[] = $this->formatStatusBasedEvaluationForSupervisor(
@@ -227,17 +247,6 @@ class SupervisorEvaluationController extends Controller
                     'EXPO'
                 );
             }
-        }
-
-        // MILESTONE should be visible for PDC2_ACTIVE groups.
-        if ($group->status === 'PDC2_ACTIVE') {
-            $schedules[] = $this->formatStatusBasedEvaluationForSupervisor(
-                $group,
-                $supervision,
-                $supervisorId,
-                'MILESTONE',
-                'PDC2'
-            );
         }
         
         // TA_DEFENSE → BIMBINGAN_TA (only if student has TA_READY_FOR_SIDANG or higher status)
@@ -255,10 +264,6 @@ class SupervisorEvaluationController extends Controller
             }
         }
 
-        // PDC2 → NILAI_DOSEN (show for active or ready-for-expo states)
-        if (in_array($group->status, ['PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO'], true)) {
-            $schedules[] = $this->formatNilaiDosenForSupervisor($group, $supervision, $supervisorId);
-        }
         
         return $schedules;
     }
@@ -530,6 +535,20 @@ class SupervisorEvaluationController extends Controller
                     'scores' => $scores,
                 ];
             });
+
+        // Require EXPO schedule for MILESTONE and NILAI_DOSEN evaluations
+        if (in_array($evaluationType, ['MILESTONE', 'NILAI_DOSEN'], true)) {
+            $expoSchedule = SeminarSchedule::where('group_id', $groupId)
+                ->where('type', 'EXPO')
+                ->orderByDesc('id')
+                ->first();
+
+            if (!$expoSchedule) {
+                return response()->json([
+                    'error' => 'EXPO schedule is required for this evaluation type.',
+                ], 400);
+            }
+        }
 
         // Get schedule info
         $scheduleInfo = $this->getScheduleForType($groupId, $evaluationType);
@@ -836,7 +855,7 @@ class SupervisorEvaluationController extends Controller
             'BIMBINGAN_TA' => 'TA_DEFENSE',
             'EXPO' => 'EXPO',
             'MILESTONE' => 'EXPO',
-            // NILAI_DOSEN has no schedule
+            'NILAI_DOSEN' => 'EXPO',
             default => null,
         };
 
@@ -879,17 +898,21 @@ class SupervisorEvaluationController extends Controller
                 ];
             }
         } elseif ($scheduleType === 'EXPO') {
-            $schedule = Schedule::where('group_id', $groupId)
+            $schedule = SeminarSchedule::where('group_id', $groupId)
                 ->where('type', 'EXPO')
-                ->latest()
+                ->orderByDesc('id')
                 ->first();
             if ($schedule) {
+                $deadline = null;
+                if ($schedule->date) {
+                    $deadline = date('Y-m-d H:i:s', strtotime($schedule->date . ' +2 days'));
+                }
                 return [
                     'id' => $schedule->id,
                     'type' => 'EXPO',
                     'date' => $schedule->date,
                     'room' => $schedule->room,
-                    'evaluation_deadline' => $schedule->evaluation_deadline,
+                    'evaluation_deadline' => $deadline,
                 ];
             }
         }
