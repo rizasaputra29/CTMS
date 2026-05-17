@@ -627,14 +627,14 @@ export default function AdminExpoPage() {
                                     {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
                                 </div>
                                 <div>
-                                    <Label>Location</Label>
+                                    <Label>Location <span className="text-destructive">*</span></Label>
                                     <Controller
                                         name="location_id"
                                         control={control}
                                         render={({ field }) => (
                                             <Select value={field.value || undefined} onValueChange={field.onChange}>
                                                 <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
-                                                <SelectContent>
+                                                <SelectContent position="popper" avoidCollisions>
                                                     {locations.length === 0 && (
                                                         <SelectItem value="no-locations" disabled>No locations available</SelectItem>
                                                     )}

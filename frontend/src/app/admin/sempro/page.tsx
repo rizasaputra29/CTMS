@@ -52,7 +52,7 @@ interface Schedule {
     examiner_student_averages?: BimbinganEval[];
 }
 
-interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[]; supervisor1?: { id: number; name: string } | null; supervisor2?: { id: number; name: string } | null; }
 interface User { id: number; name: string; email: string; role: string; }
 
 type SortKey = 'title' | 'date' | 'status';
@@ -96,6 +96,11 @@ export default function AdminSemproPage() {
         date: '', start_time: '', end_time: '', location_id: '',
         examiner_1_id: '', examiner_2_id: '',
     });
+
+    const [cancelId, setCancelId] = useState<number | null>(null);
+
+    const [editDialogOpen, setEditDialogOpen] = useState(false);
+    const [editId, setEditId] = useState<number | null>(null);
 
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
@@ -145,7 +150,7 @@ export default function AdminSemproPage() {
                 const [semproRes, groupsRes, dosensRes, locationsRes] = await Promise.all([
                     api.get(`/admin/sempro/schedules${query}`),
                     api.get(`/admin/groups${query}`),
-                    api.get('/admin/users'),
+                    api.get('/admin/users?role=dosen'),
                     api.get('/locations'),
                 ]);
 
@@ -153,8 +158,8 @@ export default function AdminSemproPage() {
 
                 setSchedules(semproRes.data.data || []);
                 setGroups(groupsRes.data.data || []);
-                const allUsers = dosensRes.data.data || [];
-                setDosens(allUsers.filter((u: User) => u.role === 'dosen'));
+                // API already filters by role=dosen, so we use all returned users
+                setDosens(dosensRes.data.data || []);
                 setLocations(locationsRes.data.data || []);
 
                 if (active && selectedPeriod !== 'all') {
@@ -378,6 +383,56 @@ export default function AdminSemproPage() {
         }
     };
 
+    const handleCancel = async () => {
+        if (!cancelId) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${cancelId}/cancel`);
+            toast.success('Schedule cancelled');
+            setCancelId(null);
+            fetchSchedules();
+        } catch {
+            toast.error('Failed to cancel schedule');
+        }
+    };
+
+    const handleEdit = (id: number, schedule: Schedule) => {
+        setEditId(id);
+        setApproveData({
+            date: schedule?.date || '',
+            start_time: schedule?.start_time || '',
+            end_time: schedule?.end_time || '',
+            location_id: schedule?.room?.toString() || '',
+            examiner_1_id: schedule?.examiner1?.id?.toString() || '',
+            examiner_2_id: schedule?.examiner2?.id?.toString() || '',
+        });
+        setEditDialogOpen(true);
+    };
+
+    const submitEdit = async () => {
+        if (!editId) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${editId}`, {
+                date: approveData.date,
+                start_time: approveData.start_time,
+                end_time: approveData.end_time,
+                location_id: Number(approveData.location_id),
+                examiner_1_id: Number(approveData.examiner_1_id),
+                examiner_2_id: Number(approveData.examiner_2_id),
+            });
+            toast.success('Schedule updated');
+            setEditDialogOpen(false);
+            setEditId(null);
+            fetchSchedules();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                const msg = error.response?.data?.message || 'Update failed';
+                toast.error(msg);
+            } else {
+                toast.error('Update failed');
+            }
+        }
+    };
+
     const statusColor = (s: string) => getSemproStatusBadgeVariant(s);
 
     const statusDisplay = (status: string) => {
@@ -400,6 +455,7 @@ export default function AdminSemproPage() {
 
     // Watch form values
     const watchedPeriodId = form.watch('period_id');
+    const watchedGroupId = form.watch('group_id');
     const watchedExaminer1Id = form.watch('examiner_1_id');
 
     // Filter eligible groups based on form period selection
@@ -412,6 +468,35 @@ export default function AdminSemproPage() {
             return g.period_id?.toString() === watchedPeriodId;
         });
     }, [groups, watchedPeriodId]);
+
+    // Get supervisors of the selected group to exclude from examiners
+    const selectedGroup = useMemo(() => {
+        if (!watchedGroupId) return null;
+        return groups.find(g => g.id.toString() === watchedGroupId);
+    }, [groups, watchedGroupId]);
+
+    const supervisorIds = useMemo(() => {
+        if (!selectedGroup) return [];
+        const ids: number[] = [];
+        // Check supervisor1 and supervisor2 - adjust based on your GroupItem interface
+        // Assuming group data structure from line 55
+        return ids;
+    }, [selectedGroup]);
+
+    // Filter dosens to exclude supervisors of selected group
+    const availableDosens = useMemo(() => {
+        if (!selectedGroup) return dosens;
+        // Get supervisor IDs from the selected group
+        const groupSupervisorIds: number[] = [];
+        if (selectedGroup.supervisor1?.id) {
+            groupSupervisorIds.push(selectedGroup.supervisor1.id);
+        }
+        if (selectedGroup.supervisor2?.id) {
+            groupSupervisorIds.push(selectedGroup.supervisor2.id);
+        }
+        // Filter out supervisors from dosens list
+        return dosens.filter(d => !groupSupervisorIds.includes(d.id));
+    }, [dosens, selectedGroup]);
 
     const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
         <TableHead
@@ -610,6 +695,26 @@ export default function AdminSemproPage() {
                                                                     onClick={() => setRejectId(s.id)}
                                                                 >
                                                                     Reject
+                                                                </Button>
+                                                            </>
+                                                        )}
+                                                        {s.status === 'SCHEDULED' && (
+                                                            <>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-7 text-[13px]"
+                                                                    onClick={() => handleEdit(s.id, s)}
+                                                                >
+                                                                    Edit
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="destructive"
+                                                                    className="h-7 text-[13px]"
+                                                                    onClick={() => setCancelId(s.id)}
+                                                                >
+                                                                    Cancel
                                                                 </Button>
                                                             </>
                                                         )}
@@ -867,7 +972,7 @@ export default function AdminSemproPage() {
                                 </div>
                             </div>
                             <div className="grid gap-1.5">
-                                <Label className="text-[13px]">Room <span className="text-muted-foreground">(optional)</span></Label>
+                                <Label className="text-[13px]">Room <span className="text-destructive">*</span></Label>
                                 <Controller
                                     name="location_id"
                                     control={form.control}
@@ -876,7 +981,7 @@ export default function AdminSemproPage() {
                                             <SelectTrigger>
                                                 <SelectValue placeholder="Select a room..." />
                                             </SelectTrigger>
-                                            <SelectContent>
+                                            <SelectContent position="popper" avoidCollisions>
                                                 {locations.length === 0 ? (
                                                     <div className="px-3 py-6 text-sm text-muted-foreground text-center">
                                                         No locations available. Add locations in system settings.
@@ -904,11 +1009,11 @@ export default function AdminSemproPage() {
                                                 <SelectTrigger>
                                                     <SelectValue placeholder="Select..." />
                                                 </SelectTrigger>
-                                                <SelectContent>
-                                                    {dosens.map(d => (
-                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                                    ))}
-                                                </SelectContent>
+                                            <SelectContent>
+                                                {availableDosens.map(d => (
+                                                    <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
                                             </Select>
                                         )}
                                     />
@@ -927,7 +1032,7 @@ export default function AdminSemproPage() {
                                                     <SelectValue placeholder="Select..." />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {dosens.filter(d => d.id.toString() !== watchedExaminer1Id).map(d => (
+                                                    {availableDosens.filter(d => d.id.toString() !== watchedExaminer1Id).map(d => (
                                                         <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
                                                     ))}
                                                 </SelectContent>
@@ -1097,6 +1202,140 @@ export default function AdminSemproPage() {
                         </Button>
                         <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim()}>
                             Reject
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Edit Dialog --- */}
+            <Dialog open={editDialogOpen} onOpenChange={(v) => { if (!v) { setEditDialogOpen(false); setEditId(null); } }}>
+                <DialogContent className="sm:max-w-[480px]">
+                    <DialogHeader>
+                        <DialogTitle>Edit SEMPRO Schedule</DialogTitle>
+                        <DialogDescription>
+                            Update schedule details.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Date <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="date"
+                                    value={approveData.date}
+                                    onChange={e => setApproveData({ ...approveData, date: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Start <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.start_time}
+                                    onChange={e => setApproveData({ ...approveData, start_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">End <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.end_time}
+                                    onChange={e => setApproveData({ ...approveData, end_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-1.5">
+                            <Label className="text-[13px]">Room <span className="text-destructive">*</span></Label>
+                            <Select 
+                                value={approveData.location_id} 
+                                onValueChange={(val) => setApproveData({ ...approveData, location_id: val })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a room..." />
+                                </SelectTrigger>
+                                <SelectContent position="popper" avoidCollisions>
+                                    {locations.length === 0 ? (
+                                        <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                            No locations available. Add locations in system settings.
+                                        </div>
+                                    ) : (
+                                        locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} (Capacity: {loc.capacity})
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 1 <span className="text-destructive">*</span></Label>
+                                <Select
+                                    value={approveData.examiner_1_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_1_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" avoidCollisions>
+                                        {dosens.map(d => (
+                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 2 <span className="text-destructive">*</span></Label>
+                                <Select
+                                    value={approveData.examiner_2_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_2_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" avoidCollisions>
+                                        {dosens
+                                            .filter(d => d.id.toString() !== approveData.examiner_1_id)
+                                            .map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditId(null); }}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={submitEdit}
+                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || !approveData.location_id || !approveData.examiner_1_id || !approveData.examiner_2_id}
+                        >
+                            Update Schedule
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Cancel Dialog --- */}
+            <Dialog open={cancelId !== null} onOpenChange={(v) => { if (!v) setCancelId(null); }}>
+                <DialogContent className="sm:max-w-[420px]">
+                    <DialogHeader>
+                        <DialogTitle>Cancel Schedule</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to cancel this SEMPRO schedule?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCancelId(null)}>
+                            Keep Schedule
+                        </Button>
+                        <Button variant="destructive" onClick={handleCancel}>
+                            Cancel Schedule
                         </Button>
                     </DialogFooter>
                 </DialogContent>

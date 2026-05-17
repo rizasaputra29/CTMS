@@ -16,6 +16,7 @@ import {
     isToday,
     addMonths,
     subMonths,
+    parseISO,
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -152,7 +153,18 @@ export default function ScheduleCalendar({
     const eventsByDate = useMemo(() => {
         const map = new Map<string, ScheduleEvent[]>();
         for (const s of schedules) {
-            const dateObj = new Date(s.date);
+            // Use parseISO for proper date parsing, fallback to new Date if that fails
+            let dateObj: Date;
+            try {
+                dateObj = parseISO(s.date);
+                if (isNaN(dateObj.getTime())) {
+                    // Try new Date as fallback for non-ISO formats
+                    dateObj = new Date(s.date);
+                }
+            } catch {
+                dateObj = new Date(s.date);
+            }
+
             if (isNaN(dateObj.getTime())) {
                 console.warn('Invalid date in schedule:', s);
                 continue;

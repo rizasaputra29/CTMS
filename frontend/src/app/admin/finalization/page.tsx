@@ -99,6 +99,8 @@ export default function FinalizationPage() {
     activeSubTab,
     filters,
     loading,
+    isLoadingPeriods,
+    periodsError,
     showPeriodSelector,
     setActiveTab,
     setActiveSubTab,
@@ -677,7 +679,30 @@ export default function FinalizationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {periods.length > 0 ? (
+            {isLoadingPeriods ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <div className="mx-auto h-10 w-10 mb-3 opacity-50 animate-pulse">
+                  <CalendarDays className="h-10 w-10" />
+                </div>
+                <p className="font-medium">Memuat daftar periode...</p>
+                <p className="text-sm mt-1">Mohon tunggu sebentar</p>
+              </div>
+            ) : periodsError ? (
+              <div className="text-center py-8 text-destructive">
+                <AlertTriangle className="mx-auto h-10 w-10 mb-3 opacity-70" />
+                <p className="font-medium">Gagal memuat periode</p>
+                <p className="text-sm mt-1 opacity-70">{periodsError}</p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => fetchActivePeriods()}
+                  className="mt-4"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Coba Lagi
+                </Button>
+              </div>
+            ) : periods.length > 0 ? (
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {periods.map((p) => (
                   <Card
@@ -709,8 +734,8 @@ export default function FinalizationPage() {
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <CalendarDays className="mx-auto h-10 w-10 mb-3 opacity-50" />
-                <p className="font-medium">Memuat daftar periode...</p>
-                <p className="text-sm mt-1">Mohon tunggu sebentar</p>
+                <p className="font-medium">Tidak ada periode aktif</p>
+                <p className="text-sm mt-1">Tidak ditemukan periode dengan status aktif saat ini.</p>
               </div>
             )}
           </CardContent>

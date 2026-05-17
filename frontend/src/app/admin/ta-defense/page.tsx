@@ -310,6 +310,59 @@ export default function AdminTaDefensePage() {
         }
     };
 
+    const handleEdit = (schedule: TaDefenseSchedule) => {
+        setDialogMode('edit');
+        form.reset({
+            period_id: schedule.period?.id?.toString() || '',
+            group_id: schedule.group?.id?.toString() || '',
+            student_ids: schedule.students?.map(s => s.id.toString()) || [schedule.student?.id.toString() || ''],
+            date: schedule.date,
+            start_time: schedule.start_time.slice(0, 5),
+            end_time: schedule.end_time.slice(0, 5),
+            location_id: schedule.location_id?.toString() || '',
+            examiner_1_id: schedule.examiner1?.id?.toString() || '',
+            examiner_2_id: schedule.examiner2?.id?.toString() || '',
+            notes: schedule.notes || '',
+        });
+        // Pre-fetch eligible groups for the period
+        if (schedule.period?.id) {
+            fetchEligibleGroups(schedule.period.id.toString());
+        }
+        setCreateOpen(true);
+    };
+
+    const handleUpdate = async (data: TaDefenseFormData) => {
+        if (!validateExaminers()) return;
+        // Find the current schedule being edited
+        const currentSchedule = schedules.find(s => 
+            s.group?.id?.toString() === data.group_id && s.status === 'SCHEDULED'
+        );
+        if (!currentSchedule) {
+            toast.error('Schedule not found');
+            return;
+        }
+        try {
+            await api.put(`/admin/ta-defense-schedules/${currentSchedule.id}`, {
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                location_id: parseInt(data.location_id),
+                examiner_1_id: parseInt(data.examiner_1_id),
+                examiner_2_id: parseInt(data.examiner_2_id),
+                notes: data.notes || null,
+            });
+            toast.success('TA Defense schedule updated');
+            setCreateOpen(false);
+            resetForm();
+            fetchSchedules();
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error)
+                ? (error.response?.data?.message as string) || 'Failed to update schedule'
+                : 'Failed to update schedule';
+            toast.error(message);
+        }
+    };
+
     const resetForm = () => {
         form.reset({
             period_id: '',
@@ -547,14 +600,24 @@ export default function AdminTaDefensePage() {
                                                         </Link>
                                                     )}
                                                     {s.status === 'SCHEDULED' && (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="ghost"
-                                                            className="text-[13px] h-7 text-destructive hover:text-destructive"
-                                                            onClick={() => { setCancelSchedule(s); setCancelOpen(true); }}
-                                                        >
-                                                            Cancel
-                                                        </Button>
+                                                        <>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-[13px] h-7"
+                                                                onClick={() => handleEdit(s)}
+                                                            >
+                                                                Edit
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="text-[13px] h-7 text-destructive hover:text-destructive"
+                                                                onClick={() => { setCancelSchedule(s); setCancelOpen(true); }}
+                                                            >
+                                                                Cancel
+                                                            </Button>
+                                                        </>
                                                     )}
                                                 </div>
                                             </TableCell>
@@ -980,14 +1043,14 @@ export default function AdminTaDefensePage() {
                                 <Controller
                                     name="location_id"
                                     control={form.control}
-                                    render={({ field }) => (
+                                    render={({ field, fieldState }) => (
                                         <Field>
-                                            <FieldLabel>Location</FieldLabel>
+                                            <FieldLabel>Location <span className="text-destructive">*</span></FieldLabel>
                                             <Select value={field.value || undefined} onValueChange={field.onChange}>
-                                                <SelectTrigger>
+                                            <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
                                                     <SelectValue placeholder="Select location..." />
                                                 </SelectTrigger>
-                                                <SelectContent>
+                                                <SelectContent position="popper" avoidCollisions>
                                                     {locations.length === 0 && (
                                                         <SelectItem value="no-locations" disabled>No locations available</SelectItem>
                                                     )}
@@ -998,6 +1061,9 @@ export default function AdminTaDefensePage() {
                                                     ))}
                                                 </SelectContent>
                                             </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
                                         </Field>
                                     )}
                                 />

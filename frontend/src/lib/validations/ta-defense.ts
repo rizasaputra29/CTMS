@@ -8,7 +8,7 @@ export const taDefenseSchema = z.object({
   date: z.string().min(1, "Date is required"),
   start_time: z.string().min(1, "Start time is required"),
   end_time: z.string().min(1, "End time is required"),
-  location_id: z.string().optional(),
+  location_id: z.string().min(1, "Location is required"),
   examiner_1_id: z.string().min(1, "Please select Examiner 1"),
   examiner_2_id: z.string().min(1, "Please select Examiner 2"),
   notes: z.string().max(500, "Notes must be at most 500 characters").optional(),

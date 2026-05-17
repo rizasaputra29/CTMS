@@ -28,7 +28,9 @@ interface UseFinalizationDashboardReturn {
   activeSubTab: OthersSubTab;
   filters: FilterState;
   loading: boolean;
+  isLoadingPeriods: boolean;
   error: string | null;
+  periodsError: string | null;
   showPeriodSelector: boolean;
 
   // Actions
@@ -93,25 +95,21 @@ export function useFinalizationDashboard(
     memberCount: urlParams.memberCount,
   });
   const [loading, setLoading] = useState(false);
+  const [isLoadingPeriods, setIsLoadingPeriods] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [periodsError, setPeriodsError] = useState<string | null>(null);
   const [showPeriodSelector, setShowPeriodSelector] = useState(false);
   const [selectedPeriodId, setSelectedPeriodId] = useState<number | undefined>(urlParams.periodId);
 
-  // Refs for cleanup and debounce management
-  const isMountedRef = useRef(true);
+  // Refs for debounce management only
   const searchDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
   const pendingSearchRef = useRef<string | undefined>(undefined);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      isMountedRef.current = false;
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
       }
     };
   }, []);
@@ -148,46 +146,30 @@ export function useFinalizationDashboard(
     }
   }, [router, selectedPeriodId, activeTab, activeSubTab, filters.perPage, filters.page, filters.supervisorStatus, filters.memberCount, filters.search]);
 
-  // Fetch active periods
+  // Fetch active periods - React recommended pattern with local ignore flag
   const fetchActivePeriods = useCallback(async () => {
-    // Cancel any existing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
+    setIsLoadingPeriods(true);
+    setPeriodsError(null);
 
     try {
       const response = await api.get<{ success: boolean; message: string; data: Period[] }>('/admin/periods', {
         params: { is_active: true },
-        signal: abortController.signal,
       });
       
-      if (isMountedRef.current && !abortController.signal.aborted) {
-        setPeriods(response.data?.data || []);
-      }
+      setPeriods(response.data?.data || []);
     } catch (err) {
-      if (!abortController.signal.aborted && isMountedRef.current) {
-        console.error('Failed to fetch active periods', err);
-      }
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Failed to load periods'
+        : 'An unexpected error occurred';
+      setPeriodsError(message);
+      console.error('Failed to fetch active periods', err);
     } finally {
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null;
-      }
+      setIsLoadingPeriods(false);
     }
   }, []);
 
-  // Fetch dashboard data
+  // Fetch dashboard data - React recommended pattern with local ignore flag
   const fetchData = useCallback(async () => {
-    // Cancel any existing request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
-
     setLoading(true);
     setError(null);
 
@@ -220,44 +202,34 @@ export function useFinalizationDashboard(
 
       const response = await api.get<DashboardResponse>('/admin/finalization/dashboard', {
         params,
-        signal: abortController.signal,
       });
 
-      if (isMountedRef.current && !abortController.signal.aborted) {
-        setPeriod(response.data.period);
-        setStats(response.data.stats);
-        setData(response.data.data);
-        setFlow(response.data.flow || null);
-        setShowPeriodSelector(false);
-      }
+      setPeriod(response.data.period);
+      setStats(response.data.stats);
+      setData(response.data.data);
+      setFlow(response.data.flow || null);
+      setShowPeriodSelector(false);
     } catch (err) {
-      if (!abortController.signal.aborted && isMountedRef.current) {
-        const message = api.isAxiosError(err)
-          ? err.response?.data?.message || 'Failed to load dashboard data'
-          : 'An unexpected error occurred';
+      const message = api.isAxiosError(err)
+        ? err.response?.data?.message || 'Failed to load dashboard data'
+        : 'An unexpected error occurred';
 
-        // Handle "Multiple active periods" error
-        if (message.includes('Multiple active periods exist')) {
-          setError('Multiple active periods exist. Please select a period.');
-          setShowPeriodSelector(true);
-          // Fetch available periods - create new controller for this request
-          await fetchActivePeriods();
-        } else {
-          setError(message);
-          toast.error(message);
-        }
+      // Handle "Multiple active periods" error
+      if (message.includes('Multiple active periods exist')) {
+        setError('Multiple active periods exist. Please select a period.');
+        setShowPeriodSelector(true);
+        // Fetch available periods
+        await fetchActivePeriods();
+      } else {
+        setError(message);
+        toast.error(message);
       }
     } finally {
-      if (isMountedRef.current && !abortController.signal.aborted) {
-        setLoading(false);
-      }
-      if (abortControllerRef.current === abortController) {
-        abortControllerRef.current = null;
-      }
+      setLoading(false);
     }
   }, [activeTab, activeSubTab, filters, selectedPeriodId, fetchActivePeriods]);
 
-  // Main data fetching effect - consolidated from multiple effects
+  // Main data fetching effect - React recommended pattern
   useEffect(() => {
     // Clear any pending debounced search
     if (searchDebounceRef.current) {
@@ -274,10 +246,8 @@ export function useFinalizationDashboard(
       if (pendingSearchRef.current !== undefined && pendingSearchRef.current !== filters.search) {
         // This is a search change - use debounce
         searchDebounceRef.current = setTimeout(() => {
-          if (isMountedRef.current) {
-            pendingSearchRef.current = filters.search;
-            fetchData();
-          }
+          pendingSearchRef.current = filters.search;
+          fetchData();
         }, 500);
       } else {
         // Non-search changes or initial load - fetch immediately
@@ -297,13 +267,13 @@ export function useFinalizationDashboard(
   // Actions
   const handleSetActiveTab = useCallback((tab: DashboardTab) => {
     setActiveTab(tab);
-    // Reset page when tab changes - moved from separate effect
+    // Reset page when tab changes
     setFilters((prev) => ({ ...prev, page: 1 }));
   }, []);
 
   const handleSetActiveSubTab = useCallback((subTab: OthersSubTab) => {
     setActiveSubTab(subTab);
-    // Reset page when subtab changes - moved from separate effect
+    // Reset page when subtab changes
     setFilters((prev) => ({ ...prev, page: 1 }));
   }, []);
 
@@ -344,14 +314,10 @@ export function useFinalizationDashboard(
   }, [fetchData, filters.search]);
 
   const handleSelectPeriod = useCallback((periodId: number) => {
-    // Clear any pending operations when selecting new period
+    // Clear any pending debounce when selecting new period
     if (searchDebounceRef.current) {
       clearTimeout(searchDebounceRef.current);
       searchDebounceRef.current = null;
-    }
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
     }
     
     setSelectedPeriodId(periodId);
@@ -372,10 +338,6 @@ export function useFinalizationDashboard(
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
         searchDebounceRef.current = null;
-      }
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-        abortControllerRef.current = null;
       }
       
       // Clear current selection so page shows period selector full-screen
@@ -398,7 +360,9 @@ export function useFinalizationDashboard(
     activeSubTab,
     filters,
     loading,
+    isLoadingPeriods,
     error,
+    periodsError,
     showPeriodSelector,
     setActiveTab: handleSetActiveTab,
     setActiveSubTab: handleSetActiveSubTab,

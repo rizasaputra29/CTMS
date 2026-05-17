@@ -138,9 +138,7 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Schedules',
             icon: CalendarIcon,
             items: [
-                { title: 'Seminar & Defense', url: '/mahasiswa/schedules', icon: ClipboardCheck },
-                { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
-                { title: 'TA Defense', url: '/mahasiswa/ta-defense', icon: GraduationCap },
+                { title: 'My Schedule', url: '/mahasiswa/schedule', icon: ClipboardCheck },
             ]
         },
         {
@@ -174,7 +172,7 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Schedule & Review',
             icon: FileCheck,
             items: [
-                { title: 'Bimbingan Schedule', url: '/dosen/schedule', icon: CalendarIcon },
+                { title: 'My Schedule', url: '/dosen/schedule', icon: CalendarIcon },
                 { title: 'Evaluate Students', url: '/dosen/evaluation', icon: GraduationCap },
                 { title: 'Supervisor Evaluation', url: '/dosen/supervisor-evaluation', icon: Star },
             ]

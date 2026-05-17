@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
@@ -15,9 +15,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Loader2, Plus } from 'lucide-react';
+import { Loader2, Plus, Calendar as CalendarIcon } from 'lucide-react';
 import { toast } from "sonner";
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import {
     Select,
     SelectContent,
@@ -27,19 +27,13 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, X, Edit, Check } from 'lucide-react';
 import { dosenScheduleSchema, type DosenScheduleFormData } from '@/lib/validations/schedule';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { toScheduleMode, toNumber } from '@/types';
+import ScheduleCalendar from '@/components/schedule/ScheduleCalendar';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Group {
     id: number;
@@ -64,17 +58,34 @@ interface Location {
 interface ScheduleEvent {
     id: number | string;
     group_id: number;
-    type: string;
+    student_id?: number;
+    type: 'SEMPRO' | 'SIDANG' | 'EXPO' | 'BIMBINGAN' | 'TA_DEFENSE';
     date: string;
     start_time?: string;
     end_time?: string;
     room: string;
     mode?: string;
     notes?: string;
+    status?: string;
+    period_name?: string;
+    student_name?: string;
+    examiner1?: { name: string } | null;
+    examiner2?: { name: string } | null;
+    examiners?: { name: string; role?: string }[];
     group?: {
         title?: { title: string };
+        members?: { student: { name: string } }[];
+        supervisor?: { name: string } | null;
     };
 }
+
+const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: string }> = {
+    BIMBINGAN: { label: 'Bimbingan', color: 'text-blue-600', bgColor: 'bg-blue-50' },
+    SEMPRO: { label: 'Sempro', color: 'text-amber-600', bgColor: 'bg-amber-50' },
+    EXPO: { label: 'Expo', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
+    TA_DEFENSE: { label: 'TA Defense', color: 'text-rose-600', bgColor: 'bg-rose-50' },
+    SIDANG: { label: 'Sidang', color: 'text-purple-600', bgColor: 'bg-purple-50' },
+};
 
 export default function DosenSchedulePage() {
     const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
@@ -87,6 +98,10 @@ export default function DosenSchedulePage() {
     const [open, setOpen] = useState(false);
     const [saving, setSaving] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
+    const [selectedEvent, setSelectedEvent] = useState<ScheduleEvent | null>(null);
+    const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [deletingId, setDeletingId] = useState<number | string | null>(null);
 
     const form = useForm<DosenScheduleFormData>({
         resolver: zodResolver(dosenScheduleSchema),
@@ -128,7 +143,7 @@ export default function DosenSchedulePage() {
 
             const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
 
-            // Use the new aggregated endpoint that includes BIMBINGAN, SEMPRO/EXPO, and TA_DEFENSE
+            // Use the aggregated endpoint that includes BIMBINGAN, SEMPRO/EXPO, and TA_DEFENSE
             const [schedulesRes, groupsRes] = await Promise.all([
                 api.get(`/dosen/all-schedules${queryParam}`),
                 api.get(`/dosen/groups/supervised${queryParam}`)
@@ -137,18 +152,7 @@ export default function DosenSchedulePage() {
             setGroups(groupsRes.data.data || []);
         } catch (error) {
             console.error('Failed to fetch data', error);
-            // Fallback to legacy endpoint
-            try {
-                const queryParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
-                const [schedulesRes, groupsRes] = await Promise.all([
-                    api.get(`/dosen/schedules${queryParam}`),
-                    api.get(`/dosen/groups/supervised${queryParam}`)
-                ]);
-                setSchedules(schedulesRes.data.data || []);
-                setGroups(groupsRes.data.data || []);
-            } catch (fallbackError) {
-                console.error('Failed to fetch fallback data', fallbackError);
-            }
+            toast.error('Failed to load schedules');
         } finally {
             setLoading(false);
             setRefreshing(false);
@@ -185,20 +189,18 @@ export default function DosenSchedulePage() {
                 end_time: data.end_time,
             };
             
-            // Only include room if it has a value
             if (data.room) {
                 payload.room = data.room;
             }
             
-            // Only include mode for BIMBINGAN
             if (data.type === 'BIMBINGAN' && data.mode) {
                 payload.mode = data.mode;
             }
             
-            // Only include notes if it has a value
             if (data.notes) {
                 payload.notes = data.notes;
             }
+            
             if (editingId) {
                 await api.put(`/schedules/${editingId}`, payload);
                 toast.success('Schedule updated successfully');
@@ -223,38 +225,63 @@ export default function DosenSchedulePage() {
         }
     };
 
-    const handleDelete = async (id: number | string) => {
-        // Find the schedule to check its type
-        const schedule = schedules.find(s => s.id === id);
-        if (schedule && schedule.type !== 'BIMBINGAN') {
-            toast.error(`${schedule.type} schedules cannot be deleted from here.`);
-            return;
-        }
-        if (!confirm('Are you sure you want to delete this schedule?')) return;
+    const handleDelete = async () => {
+        if (!deletingId) return;
+        
         try {
-            await api.delete(`/schedules/${id}`);
+            await api.delete(`/schedules/${deletingId}`);
             toast.success('Schedule deleted');
             await fetchData();
         } catch (error) {
             console.error('Failed to delete', error);
             toast.error('Failed to delete schedule');
+        } finally {
+            setDeleteDialogOpen(false);
+            setDeletingId(null);
         }
     };
 
+    const confirmDelete = (id: number | string) => {
+        const schedule = schedules.find(s => s.id === id);
+        if (schedule && schedule.type !== 'BIMBINGAN') {
+            toast.error(`${schedule.type} schedules cannot be deleted from here.`);
+            return;
+        }
+        setDeletingId(id);
+        setDeleteDialogOpen(true);
+    };
+
     const handleEdit = (schedule: ScheduleEvent) => {
-        // Only allow editing BIMBINGAN schedules
-        // SEMPRO, EXPO, and TA_DEFENSE are view-only
         if (schedule.type !== 'BIMBINGAN') {
-            toast.info(`${schedule.type} schedules are view-only. Please use the evaluation page for assessments.`);
+            toast.info(`${schedule.type} schedules are view-only.`);
             return;
         }
         const editingIdNum = toNumber(schedule.id?.toString());
         setEditingId(editingIdNum);
-        const d = new Date(schedule.date);
+        
+        // Parse date properly
+        let dateStr = '';
+        try {
+            const dateObj = parseISO(schedule.date);
+            if (!isNaN(dateObj.getTime())) {
+                dateStr = format(dateObj, 'yyyy-MM-dd');
+            } else {
+                const fallbackDate = new Date(schedule.date);
+                if (!isNaN(fallbackDate.getTime())) {
+                    dateStr = format(fallbackDate, 'yyyy-MM-dd');
+                }
+            }
+        } catch {
+            const fallbackDate = new Date(schedule.date);
+            if (!isNaN(fallbackDate.getTime())) {
+                dateStr = format(fallbackDate, 'yyyy-MM-dd');
+            }
+        }
+        
         form.reset({
             group_id: schedule.group_id.toString(),
             type: schedule.type,
-            date: format(d, 'yyyy-MM-dd'),
+            date: dateStr,
             start_time: schedule.start_time?.slice(0, 5) || '',
             end_time: schedule.end_time?.slice(0, 5) || '',
             room: schedule.room || '',
@@ -262,6 +289,11 @@ export default function DosenSchedulePage() {
             notes: schedule.notes || undefined,
         });
         setOpen(true);
+    };
+
+    const handleRowClick = (event: ScheduleEvent) => {
+        setSelectedEvent(event);
+        setDetailDialogOpen(true);
     };
 
     const resetForm = () => {
@@ -281,6 +313,25 @@ export default function DosenSchedulePage() {
     const watchMode = form.watch('mode');
     const offlineLocations = locations.filter(l => l.type === 'offline');
 
+    // Filter schedules by period if selected
+    const filteredSchedules = useMemo(() => {
+        if (selectedPeriod === 'all') return schedules;
+        return schedules.filter(s => {
+            // This would need period_id in the schedule data
+            // For now, return all
+            return true;
+        });
+    }, [schedules, selectedPeriod]);
+
+    // Group schedules by type for statistics
+    const scheduleStats = useMemo(() => {
+        const stats: Record<string, number> = {};
+        filteredSchedules.forEach(s => {
+            stats[s.type] = (stats[s.type] || 0) + 1;
+        });
+        return stats;
+    }, [filteredSchedules]);
+
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
@@ -291,14 +342,17 @@ export default function DosenSchedulePage() {
 
     return (
         <div className="space-y-6">
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Schedules</h1>
-                    <p className="text-muted-foreground">Manage bimbingan sessions for your supervised groups.</p>
+                    <h1 className="text-3xl font-bold tracking-tight">My Schedule</h1>
+                    <p className="text-muted-foreground">
+                        View all your schedules: bimbingan sessions, examinations, and events.
+                    </p>
                 </div>
                 <div className="flex items-center gap-2">
                     <Button onClick={() => { resetForm(); setOpen(true); }}>
-                        <Plus className="mr-2 h-4 w-4" /> New Schedule
+                        <Plus className="mr-2 h-4 w-4" /> New BIMBINGAN
                     </Button>
                     <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                         <SelectTrigger className="w-[200px]">
@@ -320,72 +374,33 @@ export default function DosenSchedulePage() {
                 </div>
             </div>
 
-            <div className="rounded-md border">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Date</TableHead>
-                            <TableHead>Time</TableHead>
-                            <TableHead>Group</TableHead>
-                            <TableHead>Room</TableHead>
-                            <TableHead>Mode</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {schedules.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                                    No BIMBINGAN schedules found
-                                </TableCell>
-                            </TableRow>
-                        ) : (
-                            schedules
-                                .filter(s => s.type === 'BIMBINGAN')
-                                .map((schedule) => (
-                                    <TableRow key={schedule.id}>
-                                        <TableCell>
-                                            {format(new Date(schedule.date), 'dd MMM yyyy')}
-                                        </TableCell>
-                                        <TableCell>
-                                            {schedule.start_time?.slice(0, 5) || ''} - {schedule.end_time?.slice(0, 5) || ''}
-                                        </TableCell>
-                                        <TableCell>
-                                            {schedule.group?.title?.title || `Group ${schedule.group_id}`}
-                                        </TableCell>
-                                        <TableCell>{schedule.room || '-'}</TableCell>
-                                        <TableCell>
-                                            <Badge variant={schedule.mode === 'online' ? 'default' : 'secondary'}>
-                                                {schedule.mode || 'offline'}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex justify-end gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => handleEdit(schedule)}
-                                                >
-                                                    <Pencil className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => handleDelete(schedule.id)}
-                                                    className="text-destructive"
-                                                >
-                                                    <Trash2 className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))
-                        )}
-                    </TableBody>
-                </Table>
+            {/* Stats Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {Object.entries(TYPE_CONFIG).map(([type, config]) => (
+                    <div key={type} className={`p-4 rounded-lg border ${config.bgColor}`}>
+                        <p className={`text-2xl font-bold ${config.color}`}>
+                            {scheduleStats[type] || 0}
+                        </p>
+                        <p className="text-sm text-muted-foreground">{config.label}</p>
+                    </div>
+                ))}
             </div>
 
-            {/* Schedule Dialog */}
+            {/* Calendar View */}
+            <ScheduleCalendar
+                schedules={filteredSchedules}
+                canEdit={true}
+                onAdd={(date) => {
+                    resetForm();
+                    form.setValue('date', format(date, 'yyyy-MM-dd'));
+                    setOpen(true);
+                }}
+                onEdit={handleEdit}
+                onDelete={confirmDelete}
+                onRowClick={handleRowClick}
+            />
+
+            {/* BIMBINGAN Create/Edit Dialog */}
             <Dialog open={open} onOpenChange={(val) => {
                 setOpen(val);
                 if (!val) resetForm();
@@ -393,9 +408,9 @@ export default function DosenSchedulePage() {
                 <DialogContent className="sm:max-w-[480px]">
                     <form onSubmit={form.handleSubmit(handleSubmit)}>
                         <DialogHeader>
-                            <DialogTitle>{editingId ? 'Edit Schedule' : 'New Schedule'}</DialogTitle>
+                            <DialogTitle>{editingId ? 'Edit BIMBINGAN Schedule' : 'New BIMBINGAN Schedule'}</DialogTitle>
                             <DialogDescription>
-                                {editingId ? 'Update the schedule details.' : 'Set up a new schedule for your group.'}
+                                {editingId ? 'Update the schedule details.' : 'Set up a new bimbingan session for your group.'}
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
@@ -586,6 +601,148 @@ export default function DosenSchedulePage() {
                             </Button>
                         </DialogFooter>
                     </form>
+                </DialogContent>
+            </Dialog>
+
+            {/* Schedule Detail Dialog */}
+            <Dialog open={detailDialogOpen} onOpenChange={setDetailDialogOpen}>
+                <DialogContent className="sm:max-w-[520px]">
+                    <DialogHeader>
+                        <DialogTitle>Schedule Details</DialogTitle>
+                    </DialogHeader>
+                    {selectedEvent && (
+                        <div className="py-4 space-y-4">
+                            {/* Type Badge */}
+                            <div className="flex items-center gap-2">
+                                <Badge className={TYPE_CONFIG[selectedEvent.type]?.bgColor + ' ' + TYPE_CONFIG[selectedEvent.type]?.color}>
+                                    {TYPE_CONFIG[selectedEvent.type]?.label || selectedEvent.type}
+                                </Badge>
+                                {selectedEvent.status && (
+                                    <Badge variant={
+                                        selectedEvent.status === 'SCHEDULED' || selectedEvent.status === 'APPROVED' ? 'default' :
+                                        selectedEvent.status === 'COMPLETED' ? 'secondary' :
+                                        selectedEvent.status === 'CANCELLED' ? 'destructive' :
+                                        'outline'
+                                    }>
+                                        {selectedEvent.status}
+                                    </Badge>
+                                )}
+                            </div>
+
+                            {/* Title */}
+                            <h3 className="text-lg font-semibold">
+                                {selectedEvent.group?.title?.title || 'Untitled'}
+                            </h3>
+
+                            {/* Details */}
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <p className="text-muted-foreground">Date</p>
+                                    <p className="font-medium">
+                                        {selectedEvent.date ? format(parseISO(selectedEvent.date), 'EEEE, dd MMMM yyyy') : 'Not set'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground">Time</p>
+                                    <p className="font-medium">
+                                        {selectedEvent.start_time?.slice(0, 5) || '--:--'} - {selectedEvent.end_time?.slice(0, 5) || '--:--'}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground">Location</p>
+                                    <p className="font-medium">{selectedEvent.room || '-'}</p>
+                                </div>
+                                <div>
+                                    <p className="text-muted-foreground">Mode</p>
+                                    <p className="font-medium capitalize">{selectedEvent.mode || 'Offline'}</p>
+                                </div>
+                            </div>
+
+                            {/* Student/Group Info */}
+                            {(selectedEvent.student_name || selectedEvent.group?.members) && (
+                                <div className="border-t pt-4">
+                                    <p className="text-sm text-muted-foreground mb-2">Participants</p>
+                                    {selectedEvent.student_name && (
+                                        <p className="text-sm font-medium">{selectedEvent.student_name}</p>
+                                    )}
+                                    {selectedEvent.group?.members && selectedEvent.group.members.length > 0 && (
+                                        <p className="text-sm">
+                                            {selectedEvent.group.members.map(m => m.student.name).join(', ')}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Examiners */}
+                            {(selectedEvent.examiner1 || selectedEvent.examiner2 || selectedEvent.examiners) && (
+                                <div className="border-t pt-4">
+                                    <p className="text-sm text-muted-foreground mb-2">Examiners</p>
+                                    <p className="text-sm">
+                                        {selectedEvent.examiners?.map(e => e.name).join(', ') ||
+                                         [selectedEvent.examiner1?.name, selectedEvent.examiner2?.name].filter(Boolean).join(', ') ||
+                                         '-'}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            {selectedEvent.notes && (
+                                <div className="border-t pt-4">
+                                    <p className="text-sm text-muted-foreground mb-1">Notes</p>
+                                    <p className="text-sm">{selectedEvent.notes}</p>
+                                </div>
+                            )}
+
+                            {/* Actions */}
+                            {selectedEvent.type === 'BIMBINGAN' && (
+                                <div className="border-t pt-4 flex gap-2">
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm"
+                                        onClick={() => {
+                                            setDetailDialogOpen(false);
+                                            handleEdit(selectedEvent);
+                                        }}
+                                    >
+                                        <Edit className="h-4 w-4 mr-2" />
+                                        Edit
+                                    </Button>
+                                    <Button 
+                                        variant="outline" 
+                                        size="sm" 
+                                        className="text-destructive"
+                                        onClick={() => {
+                                            setDetailDialogOpen(false);
+                                            confirmDelete(selectedEvent.id);
+                                        }}
+                                    >
+                                        <Trash2 className="h-4 w-4 mr-2" />
+                                        Delete
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+
+            {/* Delete Confirmation Dialog */}
+            <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <DialogContent className="sm:max-w-[400px]">
+                    <DialogHeader>
+                        <DialogTitle>Delete Schedule</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to delete this schedule? This action cannot be undone.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                            Cancel
+                        </Button>
+                        <Button variant="destructive" onClick={handleDelete}>
+                            Delete
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

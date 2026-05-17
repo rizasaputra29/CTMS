@@ -6,7 +6,7 @@ export const expoEventSchema = z.object({
   date: z.string().min(1, "Date is required"),
   start_time: z.string().min(1, "Start time is required"),
   end_time: z.string().min(1, "End time is required"),
-  location_id: z.string().optional(),
+  location_id: z.string().min(1, "Location is required"),
   capacity: z.string()
     .min(1, "Capacity is required")
     .refine((val) => !isNaN(Number(val)), "Capacity must be a number")

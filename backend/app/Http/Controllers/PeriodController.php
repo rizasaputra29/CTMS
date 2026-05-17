@@ -34,9 +34,17 @@ class PeriodController extends Controller
 
     private ?array $periodColumns = null;
 
-    public function index()
+    public function index(Request $request)
     {
-        $periods = Period::orderBy('created_at', 'desc')->get();
+        $query = Period::orderBy('created_at', 'desc');
+
+        // Filter by is_active if provided
+        if ($request->has('is_active')) {
+            $isActive = $request->boolean('is_active');
+            $query->where('is_active', $isActive);
+        }
+
+        $periods = $query->get();
         return $this->successResponse($periods, 'Periods retrieved successfully');
     }
 

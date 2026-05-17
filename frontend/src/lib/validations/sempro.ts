@@ -7,7 +7,7 @@ export const semproScheduleSchema = z.object({
   date: z.string().min(1, "Date is required"),
   start_time: z.string().min(1, "Start time is required"),
   end_time: z.string().min(1, "End time is required"),
-  location_id: z.string().optional(),
+  location_id: z.string().min(1, "Location is required"),
   examiner_1_id: z.string().min(1, "Examiner 1 is required"),
   examiner_2_id: z.string().min(1, "Examiner 2 is required"),
 }).refine((data) => {
