@@ -97,6 +97,31 @@ export default function GradeConfigurationPage() {
     }
   }, [fetchPeriods]);
 
+  const fetchConfig = useCallback(async () => {
+    if (!selectedPeriod) return;
+    try {
+      setLoading(true);
+      const res = await api.get(`/admin/grade-configuration/${selectedPeriod}`);
+      const config = res.data?.data || res.data;
+      if (config) {
+        _setConfig(config);
+        if (config.pdc1?.weights) setPdc1Weights(config.pdc1.weights);
+        if (config.pdc2?.weights) setPdc2Weights(config.pdc2.weights);
+        if (config.ta?.weights) setTaWeights(config.ta.weights);
+      }
+    } catch {
+      // Ignore fetch errors — defaults already set
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedPeriod]);
+
+  useEffect(() => {
+    if (selectedPeriod) {
+      fetchConfig();
+    }
+  }, [selectedPeriod, fetchConfig]);
+
   const handleSave = async () => {
     if (!selectedPeriod) return;
     

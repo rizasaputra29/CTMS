@@ -100,7 +100,7 @@ export default function AdminPeerReviewPage() {
       const res = await api.get(`/admin/periods/${periodId}`);
       const detail = normalizePeriodDetail(res.data);
       if (!detail) return;
-      setPeriods((prev) => prev.map((p) => (p.id === detail.id ? { ...p, is_finalized: detail.is_finalized } : p)));
+      setPeriods((prev) => prev.map((p) => (p.id === detail.id ? { ...p, is_finalized: !!detail.is_finalized } : p)));
     } catch {
       // ignore detail fetch errors
     }

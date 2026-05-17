@@ -95,16 +95,6 @@ const getScoreColor = (score: number | null): string => {
     return 'text-red-600';
 };
 
-const _getLetterGradeColor = (grade: string): string => {
-    switch (grade) {
-        case 'A': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-        case 'B': return 'bg-blue-100 text-blue-800 border-blue-300';
-        case 'C': return 'bg-amber-100 text-amber-800 border-amber-300';
-        case 'D': return 'bg-orange-100 text-orange-800 border-orange-300';
-        default: return 'bg-red-100 text-red-800 border-red-300';
-    }
-};
-
 export default function AdminReportsPage() {
     const router = useRouter();
     const [periods, setPeriods] = useState<Period[]>([]);

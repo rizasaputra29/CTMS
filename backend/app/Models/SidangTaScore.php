@@ -19,6 +19,7 @@ class SidangTaScore extends Model
         'student_id',
         'score',
         'notes',
+        'evaluation_type',
     ];
 
     protected $casts = [

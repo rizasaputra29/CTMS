@@ -457,8 +457,12 @@ class SeminarDashboardController extends Controller
             return collect();
         }
 
+        $idField = ($evaluationType === 'SEMPRO' || $evaluationType === 'SIDANG_TA')
+            ? 'examiner_id'
+            : 'evaluator_id';
+
         $scores = AssessmentScoreRepository::forType($evaluationType)
-            ->where('evaluator_id', $evaluatorId)
+            ->where($idField, $evaluatorId)
             ->where('group_id', $groupId)
             ->get();
 

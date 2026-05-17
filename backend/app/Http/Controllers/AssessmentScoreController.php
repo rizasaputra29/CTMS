@@ -15,6 +15,11 @@ class AssessmentScoreController extends Controller
         return Schema::hasTable('period_assessment_components');
     }
 
+    private function getEvaluatorIdField(string $type): string
+    {
+        return ($type === 'SEMPRO' || $type === 'SIDANG_TA') ? 'examiner_id' : 'evaluator_id';
+    }
+
     /**
      * Get the assessment form: components + any existing scores for a group.
      * Used by Dosen to fill evaluations.
@@ -65,8 +70,10 @@ class AssessmentScoreController extends Controller
         $hasPeriodComponentColumn = Schema::hasTable('bimbingan_sempro_scores')
             || Schema::hasTable('bimbingan_ta_scores');
 
+        $idField = $this->getEvaluatorIdField($request->type);
+
         $existingScores = AssessmentScoreRepository::forType($request->type)
-            ->where('evaluator_id', $user->id)
+            ->where($idField, $user->id)
             ->where('group_id', $group->id)
             ->get()
             ->keyBy(function ($score) use ($hasPeriodComponentColumn) {
@@ -126,9 +133,11 @@ class AssessmentScoreController extends Controller
         $scoresData = [];
         $now = now();
 
+        $idField = $this->getEvaluatorIdField($request->evaluation_type);
+
         foreach ($request->scores as $scoreData) {
             $data = [
-                'evaluator_id' => $user->id,
+                $idField => $user->id,
                 'student_id' => $scoreData['student_id'] ?? null,
                 'group_id' => $request->group_id,
                 'score' => $scoreData['score'],
@@ -152,8 +161,8 @@ class AssessmentScoreController extends Controller
         // Determine unique keys and update columns based on schema
         // Use correct unique keys based on whether using period_assessment_components or legacy schema
         $uniqueKeys = $hasPeriodComponentColumn
-            ? ['evaluator_id', 'student_id', 'period_component_id', 'group_id']
-            : ['evaluator_id', 'student_id', 'component_id', 'group_id'];
+            ? [$idField, 'student_id', 'period_component_id', 'group_id']
+            : [$idField, 'student_id', 'component_id', 'group_id'];
 
         $updateColumns = ['group_id', 'score', 'notes', 'updated_at'];
 
@@ -173,8 +182,10 @@ class AssessmentScoreController extends Controller
             'type' => 'required|string|in:SEMPRO,SIDANG_TA,EXPO,BIMBINGAN',
         ]);
 
+        $evaluatorRelation = ($request->type === 'SEMPRO' || $request->type === 'SIDANG_TA') ? 'examiner' : 'evaluator';
+
         $scores = AssessmentScoreRepository::forType($request->type)
-            ->with(['periodComponent.template', 'evaluator', 'student', 'group'])
+            ->with(['periodComponent.template', $evaluatorRelation, 'student', 'group'])
             ->whereHas('group', fn($q) => $q->where('period_id', $request->period_id))
             ->get();
 

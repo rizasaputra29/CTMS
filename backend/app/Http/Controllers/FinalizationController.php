@@ -446,6 +446,25 @@ class FinalizationController extends Controller
         $docRequirementsStatus = $this->getDocumentRequirementsStatus($period);
         $totalPdc1Active = Group::where('period_id', $period->id)->where('status', 'PDC1_ACTIVE')->count();
 
+        // Post-finalization statuses (groups that have progressed past KELOMPOK_FINAL)
+        $postFinalizationStatuses = [
+            'PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE',
+            'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED',
+            'EXPO_DONE', 'PDC2_COMPLETED', 'READY_FOR_TA_INDIVIDUAL',
+        ];
+
+        $postFinalizationGroups = Group::where('period_id', $period->id)
+            ->whereIn('status', $postFinalizationStatuses)
+            ->get();
+
+        $postFinalizationBreakdown = [];
+        foreach ($postFinalizationStatuses as $status) {
+            $count = $postFinalizationGroups->where('status', $status)->count();
+            if ($count > 0) {
+                $postFinalizationBreakdown[$status] = $count;
+            }
+        }
+
         return [
             'total_ready' => Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count(),
             'total_kelompok_final' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count(),
@@ -454,10 +473,13 @@ class FinalizationController extends Controller
             'total_no_title' => Group::where('period_id', $period->id)->whereNull('title_id')->whereNotIn('status', ['CLOSED', 'DISSOLVED'])->count(),
             // "Belum Siap" tab is intentionally limited to TITLE_APPROVED only.
             'total_not_ready' => Group::where('period_id', $period->id)->where('status', 'TITLE_APPROVED')->count(),
-            'can_finalize' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0 && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0,
+            'can_finalize' => true, // Always true — button always shows while period is not finalized
             'can_reopen_finalization' => $period->is_finalized || $totalPdc1Active > 0,
             // Document requirements integration
             'document_requirements' => $docRequirementsStatus,
+            // Post-finalization groups
+            'total_post_finalization' => $postFinalizationGroups->count(),
+            'post_finalization_breakdown' => $postFinalizationBreakdown,
         ];
     }
 
@@ -735,6 +757,188 @@ class FinalizationController extends Controller
         ];
     }
 
+    /**
+     * Get granular blockers for finalization. Tombol "Execute Final" selalu muncul,
+     * tapi tombol disabled jika ada blocker.
+     */
+    private function getFinalizationBlockers(Period $period): array
+    {
+        $blockers = [];
+
+        // ─── 1. Empty Period ───
+        $totalGroups = Group::where('period_id', $period->id)->count();
+        if ($totalGroups === 0) {
+            $blockers[] = [
+                'type' => 'EMPTY_PERIOD',
+                'message' => 'Periode tidak memiliki grup',
+                'severity' => 'error',
+                'action' => 'Pastikan ada grup yang terdaftar di periode ini',
+            ];
+        }
+
+        // ─── 2. Groups still READY_FOR_FINALIZATION ───
+        $rfCount = Group::where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION')->count();
+        if ($rfCount > 0) {
+            $blockers[] = [
+                'type' => 'GROUPS_NOT_FINALIZED',
+                'message' => "Ada {$rfCount} grup belum ditandai Kelompok Final",
+                'severity' => 'error',
+                'action' => 'Tandai sebagai Kelompok Final di tab Kelompok Final',
+            ];
+        }
+
+        // ─── 3. All students must be grouped ───
+        if ($period->require_all_students_grouped) {
+            $studentsWithoutGroups = $this->getStudentsWithoutGroupsCount($period);
+            if ($studentsWithoutGroups > 0) {
+                $blockers[] = [
+                    'type' => 'STUDENTS_NOT_GROUPED',
+                    'message' => "Ada {$studentsWithoutGroups} mahasiswa belum punya grup",
+                    'severity' => 'error',
+                    'action' => 'Pastikan semua mahasiswa terdaftar dalam grup di tab Perlu Perhatian',
+                ];
+            }
+        }
+
+        // ─── 4. Document Requirements ───
+        $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $period->id)->exists();
+        if (!$docReqExists) {
+            $blockers[] = [
+                'type' => 'DOC_REQ_MISSING',
+                'message' => 'Dokumen requirement belum dikonfigurasi',
+                'severity' => 'error',
+                'action' => 'Konfigurasi dokumen wajib di Periode \u003e Document Requirements',
+            ];
+        }
+
+        // ─── 5. Period Config ───
+        if ($period->min_group_size === null || $period->max_group_size === null) {
+            $blockers[] = [
+                'type' => 'PERIOD_CONFIG_INCOMPLETE',
+                'message' => 'Konfigurasi periode belum lengkap',
+                'severity' => 'error',
+                'action' => 'Isi min/max group size di edit periode',
+            ];
+        }
+
+        // ─── 6. Peer Review ───
+        if ($period->peerReviewIndicators()->count() === 0) {
+            $blockers[] = [
+                'type' => 'PEER_REVIEW_NOT_CONFIGURED',
+                'message' => 'Peer review belum dikonfigurasi',
+                'severity' => 'error',
+                'action' => 'Atur indikator peer review di menu Assessment',
+            ];
+        }
+
+        // ─── 7. Grade Config ───
+        if ($period->grade_configuration === null || empty($period->grade_configuration)) {
+            $blockers[] = [
+                'type' => 'GRADE_CONFIG_MISSING',
+                'message' => 'Konfigurasi nilai belum diatur',
+                'severity' => 'error',
+                'action' => 'Isi grade configuration di edit periode',
+            ];
+        }
+
+        // ─── 8. No groups eligible for finalization ───
+        // If no groups are KELOMPOK_FINAL and all groups past PDC1, allow (re-finalize scenario)
+        $kfCount = Group::where('period_id', $period->id)
+            ->where('status', 'KELOMPOK_FINAL')->count();
+        if ($kfCount === 0 && $totalGroups > 0 && $rfCount === 0) {
+            // Check if all groups are past PDC1 (re-finalize scenario)
+            $pastGroups = Group::where('period_id', $period->id)
+                ->whereIn('status', ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'PDC2_COMPLETED', 'READY_FOR_TA_INDIVIDUAL'])
+                ->count();
+            if ($pastGroups === 0) {
+                $blockers[] = [
+                    'type' => 'NO_KF_GROUPS',
+                    'message' => 'Tidak ada grup yang siap difinalisasi',
+                    'severity' => 'error',
+                    'action' => 'Pastikan setidaknya ada 1 grup dengan status Kelompok Final atau sudah melewati PDC1',
+                ];
+            }
+            // If pastGroups > 0: no blocker — re-finalize allowed
+        }
+
+        return $blockers;
+    }
+
+    /**
+     * Get prerequisites checklist for finalization.
+     */
+    private function getPrerequisites(Period $period): array
+    {
+        $totalGroups = Group::where('period_id', $period->id)->count();
+        $rfCount = Group::where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION')->count();
+        $studentsWithoutGroups = $period->require_all_students_grouped
+            ? $this->getStudentsWithoutGroupsCount($period)
+            : 0;
+        $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $period->id)->exists();
+        $peerReviewConfigured = $period->peerReviewIndicators()->count() > 0;
+        $gradeConfigConfigured = $period->grade_configuration !== null && !empty($period->grade_configuration);
+        $periodConfigComplete = $period->min_group_size !== null && $period->max_group_size !== null;
+
+        return [
+            [
+                'type' => 'PERIOD_CONFIG',
+                'label' => 'Period Config',
+                'configured' => $periodConfigComplete,
+                'severity' => $periodConfigComplete ? 'success' : 'error',
+                'message' => $periodConfigComplete ? 'Min/max group size configured' : 'Min/max group size not set',
+                'configure_url' => '/admin/periods',
+                'edit_url' => '/admin/periods',
+            ],
+            [
+                'type' => 'DOCUMENT_REQUIREMENTS',
+                'label' => 'Document Requirements',
+                'configured' => $docReqExists,
+                'severity' => $docReqExists ? 'success' : 'error',
+                'message' => $docReqExists ? 'Document requirements configured' : 'No document requirements set',
+                'configure_url' => '/admin/document-requirements',
+                'edit_url' => '/admin/document-requirements',
+            ],
+            [
+                'type' => 'PEER_REVIEW',
+                'label' => 'Peer Review',
+                'configured' => $peerReviewConfigured,
+                'severity' => $peerReviewConfigured ? 'success' : 'error',
+                'message' => $peerReviewConfigured ? 'Peer review indicators configured' : 'Peer review indicators not set',
+                'configure_url' => '/admin/peer-review',
+                'edit_url' => '/admin/peer-review',
+            ],
+            [
+                'type' => 'GRADE_CONFIG',
+                'label' => 'Grade Config',
+                'configured' => $gradeConfigConfigured,
+                'severity' => $gradeConfigConfigured ? 'success' : 'error',
+                'message' => $gradeConfigConfigured ? 'Grade configuration set' : 'Grade configuration not set',
+                'configure_url' => '/admin/evaluation-setup/grade-configuration',
+                'edit_url' => '/admin/evaluation-setup/grade-configuration',
+            ],
+            [
+                'type' => 'GROUP_ASSIGNMENTS',
+                'label' => 'Group Assignments',
+                'configured' => $studentsWithoutGroups === 0,
+                'severity' => $studentsWithoutGroups === 0 ? 'success' : 'error',
+                'message' => $studentsWithoutGroups === 0 ? 'All students grouped' : "{$studentsWithoutGroups} students without groups",
+                'configure_url' => '/admin/finalization?tab=others&sub_tab=no_group',
+                'edit_url' => '/admin/finalization?tab=others&sub_tab=no_group',
+            ],
+            [
+                'type' => 'GROUP_FINALIZATION',
+                'label' => 'Group Finalization',
+                'configured' => $rfCount === 0 && $totalGroups > 0,
+                'severity' => ($rfCount === 0 && $totalGroups > 0) ? 'success' : 'error',
+                'message' => ($rfCount === 0 && $totalGroups > 0) ? 'All groups finalized' : ($totalGroups === 0 ? 'No groups in period' : "{$rfCount} groups not finalized"),
+                'configure_url' => '/admin/finalization?tab=ready',
+                'edit_url' => '/admin/finalization?tab=ready',
+            ],
+        ];
+    }
+
     private function buildAdminFinalizationFlowPayload(Period $period, string $tab, string $subTab): array
     {
         if ($period->is_finalized) {
@@ -742,20 +946,23 @@ class FinalizationController extends Controller
                 'can_modify' => false,
                 'can_execute_finalization' => false,
                 'reason' => 'PERIOD_FINALIZED',
+                'blockers' => [],
+                'prerequisites' => [],
             ];
         }
 
-        $canExecuteFinalization = $tab === 'final'
-            ? Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count() > 0
-                && Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count() === 0
-            : false;
+        $blockers = $this->getFinalizationBlockers($period);
+        $prerequisites = $this->getPrerequisites($period);
+        $canExecuteFinalization = count($blockers) === 0;
 
         return [
             'can_modify' => true,
             'can_execute_finalization' => $canExecuteFinalization,
             'tab' => $tab,
             'sub_tab' => $subTab,
-            'reason' => null,
+            'reason' => $canExecuteFinalization ? null : 'PREREQUISITE_NOT_MET',
+            'blockers' => $blockers,
+            'prerequisites' => $prerequisites,
         ];
     }
 

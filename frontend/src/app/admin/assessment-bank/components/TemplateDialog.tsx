@@ -77,7 +77,7 @@ export function TemplateDialog({ open, onOpenChange, template, onSave }: Templat
     await onSave({
       code: data.code,
       name: data.name,
-      description: data.description,
+      description: data.description || null,
       weight: Number(data.weight),
       is_active: data.is_active,
     });
