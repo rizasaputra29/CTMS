@@ -2,444 +2,282 @@
 
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-    GraduationCap,
-    TrendingUp,
-    Award,
-    FileText,
-    ChevronDown,
-    ChevronUp,
-    Download,
-    Users,
-    BookOpen,
-    Target,
-    Star
-} from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { GraduationCap, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
-interface EvaluatorScore {
-    evaluator_name: string;
-    evaluator_role: string;
-    score: number;
+interface EvaluatorDetail {
+    name: string;
+    role: string;
+    score: number | null;
+    component: string;
 }
 
-interface ComponentBreakdown {
-    type: string;
-    label: string;
-    average_score: number;
-    evaluators: EvaluatorScore[];
-    is_complete: boolean;
+interface ComponentDetail {
+    score: number | null;
+    evaluators: EvaluatorDetail[];
 }
 
-interface GradeBreakdown {
-    pdc1: {
-        score: number;
-        components: ComponentBreakdown[];
-    };
-    pdc2: {
-        score: number;
-        components: ComponentBreakdown[];
-    };
-    final_grade: number;
-    letter_grade: string;
+interface GradeSection {
+    grade: number;
+    components: Record<string, ComponentDetail>;
+    component_count: number;
+    status: string;
 }
 
 interface GradeData {
-    student_id: number;
-    student_name: string;
-    group_id: number;
-    period_id: number;
-    grades: GradeBreakdown;
+    pdc1: GradeSection | null;
+    pdc2: GradeSection | null;
+    ta: GradeSection | null;
+}
+
+interface ApiResponse {
+    grades: GradeData | null;
+    group: { id: number; name: string };
+    period: { id: number; name: string };
+    student: { id: number; name: string; nim: string };
+}
+
+const COMPONENT_LABELS: Record<string, string> = {
+    SEMPRO: 'Seminar Proposal',
+    BIMBINGAN_SEMPRO: 'Bimbingan Sempro',
+    NILAI_DOSEN: 'Nilai Dosen',
+    MILESTONE: 'Milestone',
+    EXPO: 'Expo',
+    PEER_REVIEW: 'Peer Review',
+    BIMBINGAN_TA: 'Bimbingan TA',
+    SIDANG_TA: 'Sidang TA',
+};
+
+const ROLE_LABELS: Record<string, string> = {
+    SUPERVISOR_1: 'Pembimbing 1',
+    SUPERVISOR_2: 'Pembimbing 2',
+    EXAMINER: 'Penguji',
+    STUDENT: 'Rekan',
+    UNKNOWN: 'Evaluator',
+};
+
+function getLetter(score: number): string {
+    if (score >= 85) return 'A';
+    if (score >= 70) return 'B';
+    if (score >= 60) return 'C';
+    if (score >= 50) return 'D';
+    return 'E';
+}
+
+function gradePalette(score: number) {
+    if (score >= 85) return { text: 'text-emerald-700', bg: 'bg-emerald-100', bar: 'bg-emerald-500' };
+    if (score >= 70) return { text: 'text-sky-700', bg: 'bg-sky-100', bar: 'bg-sky-500' };
+    if (score >= 60) return { text: 'text-amber-700', bg: 'bg-amber-100', bar: 'bg-amber-500' };
+    if (score >= 50) return { text: 'text-orange-700', bg: 'bg-orange-100', bar: 'bg-orange-500' };
+    return { text: 'text-rose-700', bg: 'bg-rose-100', bar: 'bg-rose-500' };
+}
+
+interface ScoreBarProps {
+    label: string;
+    subtitle: string;
+    score: number;
+    status: string;
+}
+
+function ScoreBar({ label, subtitle, score, status }: ScoreBarProps) {
+    const letter = getLetter(score);
+    const palette = gradePalette(score);
+    const pct = Math.min(100, Math.max(0, score));
+
+    return (
+        <div className="group flex items-center gap-4 rounded-lg px-4 py-3 transition-colors hover:bg-muted/30">
+            <span
+                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-sm font-bold ${palette.bg} ${palette.text}`}
+                aria-label={`Letter grade ${letter}`}
+            >
+                {letter}
+            </span>
+
+            <div className="min-w-0 flex-1">
+                <div className="flex items-baseline justify-between gap-3">
+                    <div className="flex items-baseline gap-2 min-w-0">
+                        <span className="truncate text-sm font-semibold">{label}</span>
+                        <span className="hidden sm:inline truncate text-xs text-muted-foreground">
+                            {subtitle}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-lg font-bold tabular-nums ${palette.text}`}>
+                            {score.toFixed(1)}
+                        </span>
+                        <Badge variant={status === 'COMPLETE' ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
+                            {status}
+                        </Badge>
+                    </div>
+                </div>
+                <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                    <div
+                        className={`h-full rounded-full transition-all duration-700 ease-out-quart ${palette.bar}`}
+                        style={{ width: `${pct}%` }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function LoadingState() {
+    return (
+        <div className="space-y-8">
+            <Skeleton className="h-10 w-48" />
+            <div className="space-y-3">
+                <Skeleton className="h-[72px] w-full rounded-lg" />
+                <Skeleton className="h-[72px] w-full rounded-lg" />
+                <Skeleton className="h-[72px] w-full rounded-lg" />
+            </div>
+            <Skeleton className="h-[300px] w-full" />
+        </div>
+    );
+}
+
+function EmptyState() {
+    return (
+        <div className="space-y-10">
+            <div>
+                <h1 className="text-3xl font-bold tracking-tight">Nilai Saya</h1>
+            </div>
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-20 text-center">
+                <GraduationCap className="mb-5 h-12 w-12 text-muted-foreground/40" />
+                <h3 className="text-lg font-semibold">Belum ada nilai</h3>
+                <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">
+                    Nilai akan muncul setelah pembimbing dan penguji mengirimkan evaluasi.
+                </p>
+            </div>
+        </div>
+    );
 }
 
 export default function MahasiswaGradesPage() {
-    const [gradeData, setGradeData] = useState<GradeData | null>(null);
+    const [result, setResult] = useState<ApiResponse | null>(null);
     const [loading, setLoading] = useState(true);
-    const [showDetails, setShowDetails] = useState(false);
+    const [tab, setTab] = useState('pdc1');
 
     useEffect(() => {
-        const fetchGrades = async () => {
-            try {
-                const response = await api.get('/mahasiswa/my-grades');
-                setGradeData(response.data.data);
-            } catch (error) {
-                console.error('Failed to fetch grades', error);
-                toast.error('Failed to load grades');
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchGrades();
+        api.get('/mahasiswa/my-grades')
+            .then((res) => setResult(res.data as ApiResponse))
+            .catch(() => toast.error('Gagal memuat nilai'))
+            .finally(() => setLoading(false));
     }, []);
 
-    const getScoreColor = (score: number): string => {
-        if (score >= 85) return 'text-emerald-600';
-        if (score >= 70) return 'text-blue-600';
-        if (score >= 60) return 'text-amber-600';
-        return 'text-red-600';
-    };
+    if (loading) return <LoadingState />;
 
-    const getScoreBgColor = (score: number): string => {
-        if (score >= 85) return 'bg-emerald-50 border-emerald-200';
-        if (score >= 70) return 'bg-blue-50 border-blue-200';
-        if (score >= 60) return 'bg-amber-50 border-amber-200';
-        return 'bg-red-50 border-red-200';
-    };
+    const grades = result?.grades;
+    const periodName = result?.period?.name;
+    const hasContent = grades && (grades.pdc1 || grades.pdc2 || grades.ta);
 
-    const getLetterGradeColor = (grade: string): string => {
-        switch (grade) {
-            case 'A': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-            case 'B': return 'bg-blue-100 text-blue-800 border-blue-300';
-            case 'C': return 'bg-amber-100 text-amber-800 border-amber-300';
-            case 'D': return 'bg-orange-100 text-orange-800 border-orange-300';
-            default: return 'bg-red-100 text-red-800 border-red-300';
-        }
-    };
+    if (!hasContent) return <EmptyState />;
 
-    const handleExport = async () => {
-        try {
-            toast.info('Preparing grade slip export...');
-            // TODO: Implement PDF export endpoint
-            toast.success('Grade slip downloaded');
-        } catch {
-            toast.error('Failed to export grade slip');
-        }
-    };
+    const sections: { key: string; section: GradeSection; label: string; subtitle: string }[] = [];
 
-    if (loading) {
-        return (
-            <div className="space-y-6">
-                <Skeleton className="h-10 w-1/3" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <Skeleton className="h-48" />
-                    <Skeleton className="h-48" />
-                </div>
-                <Skeleton className="h-64" />
-            </div>
-        );
-    }
+    if (grades!.pdc1) sections.push({ key: 'pdc1', section: grades!.pdc1, label: 'PDC 1', subtitle: 'Seminar & Bimbingan' });
+    if (grades!.pdc2) sections.push({ key: 'pdc2', section: grades!.pdc2, label: 'PDC 2', subtitle: 'Expo, Milestone & Peer Review' });
+    if (grades!.ta) sections.push({ key: 'ta', section: grades!.ta, label: 'TA', subtitle: 'Bimbingan & Sidang TA' });
 
-    if (!gradeData) {
-        return (
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">My Grades</h1>
-                    <p className="text-muted-foreground">Your academic performance summary.</p>
-                </div>
-                <Card className="border-dashed">
-                    <CardContent className="py-12 text-center">
-                        <GraduationCap className="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-50" />
-                        <h3 className="text-lg font-semibold mb-2">No Grades Available</h3>
-                        <p className="text-muted-foreground max-w-md mx-auto">
-                            Your grades will appear here once your supervisors and examiners have submitted their evaluations.
-                        </p>
-                    </CardContent>
-                </Card>
-            </div>
-        );
-    }
+    const renderTabContent = (section: GradeSection) => (
+        <div className="space-y-4">
+            {Object.entries(section.components).map(([type, detail]) => {
+                const label = COMPONENT_LABELS[type] || type;
+                const hasEvaluators = detail.score !== null && detail.evaluators.length > 0;
 
-    const { grades } = gradeData;
+                return (
+                    <div key={type} className="rounded-lg border px-4 py-3">
+                        <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-medium">{label}</h4>
+                            <div className="flex items-center gap-2">
+                                {detail.score !== null && (
+                                    <span className={`text-sm font-semibold tabular-nums ${gradePalette(detail.score).text}`}>
+                                        {detail.score.toFixed(1)}
+                                    </span>
+                                )}
+                                <Badge variant={detail.score !== null ? 'default' : 'secondary'} className="text-[10px] h-5 px-1.5">
+                                    {detail.score !== null ? 'Dinilai' : 'Menunggu'}
+                                </Badge>
+                            </div>
+                        </div>
+
+                        {hasEvaluators && (
+                            <div className="mt-3 space-y-1.5">
+                                {detail.evaluators.map((e, i) => (
+                                    <div key={i} className="flex items-center justify-between rounded-md bg-muted/40 px-3 py-2">
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <Users className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                                            <span className="truncate text-sm">{e.name}</span>
+                                            <Badge variant="outline" className="text-[10px] h-5 px-1.5 shrink-0">
+                                                {ROLE_LABELS[e.role] || e.role}
+                                            </Badge>
+                                            {e.component && (
+                                                <span className="hidden sm:inline truncate text-[11px] text-muted-foreground">
+                                                    {e.component}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <span className={`ml-2 text-sm font-semibold tabular-nums shrink-0 ${e.score !== null ? gradePalette(e.score).text : 'text-muted-foreground'}`}>
+                                            {e.score !== null ? Number(e.score).toFixed(1) : '—'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {!hasEvaluators && (
+                            <p className="mt-2 text-xs text-muted-foreground italic">
+                                Belum ada evaluasi masuk.
+                            </p>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
 
     return (
-        <div className="space-y-6 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">My Grades</h1>
-                    <p className="text-muted-foreground">Your academic performance summary.</p>
-                </div>
-                <Button variant="outline" onClick={handleExport} className="w-full md:w-auto">
-                    <Download className="mr-2 h-4 w-4" />
-                    Export Grade Slip
-                </Button>
-            </div>
-
-            {/* Grade Overview Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* PDC 1 Card */}
-                <Card className={`relative overflow-hidden transition-all hover:shadow-lg ${getScoreBgColor(grades.pdc1.score)}`}>
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <BookOpen className="h-24 w-24" />
-                    </div>
-                    <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                                <Target className="h-5 w-5" />
-                                PDC 1
-                            </CardTitle>
-                            <Badge variant="outline" className="text-xs">Semester 1-2</Badge>
-                        </div>
-                        <CardDescription className="text-sm opacity-80">
-                            Seminar & Bimbingan
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-baseline gap-2">
-                            <span className={`text-5xl font-bold ${getScoreColor(grades.pdc1.score)}`}>
-                                {Number(grades.pdc1.score).toFixed(1)}
-                            </span>
-                            <span className="text-sm text-muted-foreground">/ 100</span>
-                        </div>
-                        <div className="mt-4 space-y-2">
-                                {grades.pdc1.components.map((comp) => (
-                                    <div key={comp.type} className="flex items-center justify-between text-sm">
-                                        <span className="flex items-center gap-2">
-                                            {comp.is_complete ? (
-                                                <span className="h-2 w-2 rounded-full bg-green-500" />
-                                            ) : (
-                                                <span className="h-2 w-2 rounded-full bg-gray-300" />
-                                            )}
-                                            {comp.label}
-                                        </span>
-                                        <span className={`font-semibold ${getScoreColor(comp.average_score)}`}>
-                                            {Number(comp.average_score).toFixed(1)}
-                                        </span>
-                                    </div>
-                                ))}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* PDC 2 Card */}
-                <Card className={`relative overflow-hidden transition-all hover:shadow-lg ${getScoreBgColor(grades.pdc2.score)}`}>
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <TrendingUp className="h-24 w-24" />
-                    </div>
-                    <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                                <Star className="h-5 w-5" />
-                                PDC 2
-                            </CardTitle>
-                            <Badge variant="outline" className="text-xs">Semester 3-4</Badge>
-                        </div>
-                        <CardDescription className="text-sm opacity-80">
-                            Expo, Milestone & Peer Review
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-baseline gap-2">
-                            <span className={`text-5xl font-bold ${getScoreColor(grades.pdc2.score)}`}>
-                                {Number(grades.pdc2.score).toFixed(1)}
-                            </span>
-                            <span className="text-sm text-muted-foreground">/ 100</span>
-                        </div>
-                        <div className="mt-4 space-y-2">
-                                {grades.pdc2.components.map((comp) => (
-                                    <div key={comp.type} className="flex items-center justify-between text-sm">
-                                        <span className="flex items-center gap-2">
-                                            {comp.is_complete ? (
-                                                <span className="h-2 w-2 rounded-full bg-green-500" />
-                                            ) : (
-                                                <span className="h-2 w-2 rounded-full bg-gray-300" />
-                                            )}
-                                            {comp.label}
-                                        </span>
-                                        <span className={`font-semibold ${getScoreColor(comp.average_score)}`}>
-                                            {Number(comp.average_score).toFixed(1)}
-                                        </span>
-                                    </div>
-                                ))}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                {/* Final Grade Card */}
-                <Card className={`relative overflow-hidden transition-all hover:shadow-lg ${getScoreBgColor(grades.final_grade)}`}>
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                        <Award className="h-24 w-24" />
-                    </div>
-                    <CardHeader className="pb-2">
-                        <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg font-semibold flex items-center gap-2">
-                                <Award className="h-5 w-5" />
-                                Final Grade
-                            </CardTitle>
-                            <Badge className={`${getLetterGradeColor(grades.letter_grade)}`}>
-                                {grades.letter_grade}
-                            </Badge>
-                        </div>
-                        <CardDescription className="text-sm opacity-80">
-                            Overall Performance
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex items-baseline gap-2">
-                            <span className={`text-6xl font-bold ${getScoreColor(grades.final_grade)}`}>
-                                {Number(grades.final_grade).toFixed(1)}
-                            </span>
-                            <span className="text-sm text-muted-foreground">/ 100</span>
-                        </div>
-                        <div className="mt-4 text-sm text-muted-foreground">
-                            <p>Formula: (PDC 1 + PDC 2) ÷ 2</p>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Detailed Breakdown */}
-            <Card>
-                <CardHeader 
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => setShowDetails(!showDetails)}
-                >
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <FileText className="h-5 w-5 text-primary" />
-                            <div>
-                                <CardTitle>Detailed Breakdown</CardTitle>
-                                <CardDescription>Individual evaluator scores and feedback</CardDescription>
-                            </div>
-                        </div>
-                        <Button variant="ghost" size="sm">
-                            {showDetails ? (
-                                <ChevronUp className="h-4 w-4" />
-                            ) : (
-                                <ChevronDown className="h-4 w-4" />
-                            )}
-                        </Button>
-                    </div>
-                </CardHeader>
-                
-                {showDetails && (
-                    <CardContent className="space-y-6">
-                        {/* PDC 1 Details */}
-                        <div>
-                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                <Target className="h-5 w-5 text-primary" />
-                                PDC 1 Components
-                            </h3>
-                            <div className="space-y-4">
-                                {grades.pdc1.components.map((comp) => (
-                                    <div key={comp.type} className="border rounded-lg p-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-medium">{comp.label}</h4>
-                                            <Badge variant={comp.is_complete ? 'default' : 'secondary'}>
-                                                {comp.is_complete ? 'Complete' : 'Pending'}
-                                            </Badge>
-                                        </div>
-                                        {comp.evaluators.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {comp.evaluators.map((evaluator, idx) => (
-                                                    <div 
-                                                        key={idx}
-                                                        className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-md"
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <Users className="h-4 w-4 text-muted-foreground" />
-                                                            <span className="text-sm">{evaluator.evaluator_name}</span>
-                                                            <Badge variant="outline" className="text-xs">
-                                                                {evaluator.evaluator_role}
-                                                            </Badge>
-                                                        </div>
-                                                        <span className={`font-semibold ${getScoreColor(evaluator.score)}`}>
-                                                            {Number(evaluator.score).toFixed(1)}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                                <Separator className="my-2" />
-                                                <div className="flex items-center justify-between px-3">
-                                                    <span className="font-medium">Average</span>
-                                                    <span className={`text-lg font-bold ${getScoreColor(comp.average_score)}`}>
-                                                        {Number(comp.average_score).toFixed(1)}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground italic">
-                                                No evaluations submitted yet.
-                                            </p>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        <Separator />
-
-                        {/* PDC 2 Details */}
-                        <div>
-                            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                                <Star className="h-5 w-5 text-primary" />
-                                PDC 2 Components
-                            </h3>
-                            <div className="space-y-4">
-                                {grades.pdc2.components.map((comp) => (
-                                    <div key={comp.type} className="border rounded-lg p-4">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h4 className="font-medium">{comp.label}</h4>
-                                            <Badge variant={comp.is_complete ? 'default' : 'secondary'}>
-                                                {comp.is_complete ? 'Complete' : 'Pending'}
-                                            </Badge>
-                                        </div>
-                                        {comp.evaluators.length > 0 ? (
-                                            <div className="space-y-2">
-                                                {comp.evaluators.map((evaluator, idx) => (
-                                                    <div 
-                                                        key={idx}
-                                                        className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-md"
-                                                    >
-                                                        <div className="flex items-center gap-2">
-                                                            <Users className="h-4 w-4 text-muted-foreground" />
-                                                            <span className="text-sm">{evaluator.evaluator_name}</span>
-                                                            <Badge variant="outline" className="text-xs">
-                                                                {evaluator.evaluator_role}
-                                                            </Badge>
-                                                        </div>
-                                                        <span className={`font-semibold ${getScoreColor(evaluator.score)}`}>
-                                                            {Number(evaluator.score).toFixed(1)}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                                <Separator className="my-2" />
-                                                <div className="flex items-center justify-between px-3">
-                                                    <span className="font-medium">Average</span>
-                                                    <span className={`text-lg font-bold ${getScoreColor(comp.average_score)}`}>
-                                                        {Number(comp.average_score).toFixed(1)}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <p className="text-sm text-muted-foreground italic">
-                                                No evaluations submitted yet.
-                                            </p>
-                                        )}
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    </CardContent>
+        <div className="space-y-10">
+            <div>
+                <h1 className="text-3xl font-bold tracking-tight">Nilai Saya</h1>
+                {periodName && (
+                    <p className="mt-1.5 text-sm text-muted-foreground">{periodName}</p>
                 )}
-            </Card>
+            </div>
 
-            {/* Grade Scale Reference */}
-            <Card className="bg-muted/30">
-                <CardHeader>
-                    <CardTitle className="text-base">Grade Scale Reference</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                        {[
-                            { grade: 'A', range: '85 - 100', color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
-                            { grade: 'B', range: '70 - 84', color: 'bg-blue-100 text-blue-800 border-blue-300' },
-                            { grade: 'C', range: '60 - 69', color: 'bg-amber-100 text-amber-800 border-amber-300' },
-                            { grade: 'D', range: '50 - 59', color: 'bg-orange-100 text-orange-800 border-orange-300' },
-                            { grade: 'E', range: '< 50', color: 'bg-red-100 text-red-800 border-red-300' },
-                        ].map((item) => (
-                            <div key={item.grade} className={`text-center p-3 rounded-lg border ${item.color}`}>
-                                <div className="text-2xl font-bold">{item.grade}</div>
-                                <div className="text-xs mt-1">{item.range}</div>
-                            </div>
-                        ))}
-                    </div>
-                </CardContent>
-            </Card>
+            <div className="space-y-2">
+                {sections.map(({ key, section, label, subtitle }) => (
+                    <ScoreBar
+                        key={key}
+                        label={label}
+                        subtitle={subtitle}
+                        score={section.grade}
+                        status={section.status}
+                    />
+                ))}
+            </div>
+
+            <Separator />
+
+            <Tabs value={tab} onValueChange={setTab}>
+                <TabsList>
+                    {sections.map(({ key, label }) => (
+                        <TabsTrigger key={key} value={key}>{label}</TabsTrigger>
+                    ))}
+                </TabsList>
+                {sections.map(({ key, section }) => (
+                    <TabsContent key={key} value={key} className="mt-5">
+                        {renderTabContent(section)}
+                    </TabsContent>
+                ))}
+            </Tabs>
+
+            <p className="text-[11px] text-muted-foreground">
+                Skala: A &ge; 85 &middot; B 70&ndash;84 &middot; C 60&ndash;69 &middot; D 50&ndash;59 &middot; E &lt; 50
+            </p>
         </div>
     );
 }

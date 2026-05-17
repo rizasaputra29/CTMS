@@ -526,6 +526,60 @@ class GradeCalculationService
     }
 
     /**
+     * Calculate TA grade for a student.
+     * TA = (BIMBINGAN_TA_avg + SIDANG_TA_avg) / 2
+     * Returns 0-100 scale, or null if no scores exist.
+     */
+    public function calculateTAForStudent(int $studentId, int $groupId): ?array
+    {
+        try {
+            $bimbinganTaScore = $this->getStudentEvaluationScore($studentId, $groupId, 'BIMBINGAN_TA');
+            $sidangTaScore = $this->getStudentEvaluationScore($studentId, $groupId, 'SIDANG_TA');
+
+            $hasScore = false;
+            $componentCount = 0;
+            $totalScore = 0;
+
+            if ($bimbinganTaScore !== null) {
+                $hasScore = true;
+                $componentCount++;
+                $totalScore += $bimbinganTaScore;
+            }
+
+            if ($sidangTaScore !== null) {
+                $hasScore = true;
+                $componentCount++;
+                $totalScore += $sidangTaScore;
+            }
+
+            if (!$hasScore) {
+                return null;
+            }
+
+            $average = $componentCount > 0 ? ($totalScore / $componentCount) : 0;
+
+            return [
+                'grade' => round($average, 2),
+                'components' => [
+                    'BIMBINGAN_TA' => [
+                        'score' => $bimbinganTaScore,
+                        'evaluators' => $this->getEvaluatorsForStudent($studentId, $groupId, 'BIMBINGAN_TA'),
+                    ],
+                    'SIDANG_TA' => [
+                        'score' => $sidangTaScore,
+                        'evaluators' => $this->getEvaluatorsForStudent($studentId, $groupId, 'SIDANG_TA'),
+                    ],
+                ],
+                'component_count' => $componentCount,
+                'status' => $componentCount === 2 ? 'COMPLETE' : 'PARTIAL',
+            ];
+        } catch (\Exception $e) {
+            Log::error("Failed to calculate TA for student {$studentId}: " . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Calculate final grade for a student.
      * Final = (PDC1 + PDC2) / 2
      * Returns 0-100 scale
@@ -534,8 +588,9 @@ class GradeCalculationService
     {
         $pdc1 = $this->calculatePDC1ForStudent($studentId, $groupId);
         $pdc2 = $this->calculatePDC2ForStudent($studentId, $groupId);
+        $ta = $this->calculateTAForStudent($studentId, $groupId);
 
-        if (!$pdc1 && !$pdc2) {
+        if (!$pdc1 && !$pdc2 && !$ta) {
             return null;
         }
 
@@ -553,6 +608,7 @@ class GradeCalculationService
             'letter_grade' => $this->getLetterGrade($finalGrade),
             'pdc1' => $pdc1,
             'pdc2' => $pdc2,
+            'ta' => $ta,
             'status' => ($pdc1 && $pdc2) ? 'COMPLETE' : 'PARTIAL',
         ];
     }
