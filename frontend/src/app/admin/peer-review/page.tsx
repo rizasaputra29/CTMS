@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
 import { usePeriodSelection } from '@/context/PeriodSelectionContext';
+import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Period {
   id: number;
@@ -209,8 +210,7 @@ export default function AdminPeerReviewPage() {
       });
       toast.success('Configuration saved successfully');
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to save configuration');
+      toast.error(getApiErrorMessage(error) || 'Failed to save configuration');
     } finally {
       setSaving(false);
     }
@@ -226,8 +226,7 @@ export default function AdminPeerReviewPage() {
       toast.success('Configuration copied successfully');
       fetchConfig();
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to copy configuration');
+      toast.error(getApiErrorMessage(error) || 'Failed to copy configuration');
     }
   };
 

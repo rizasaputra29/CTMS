@@ -6,7 +6,6 @@ import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -18,18 +17,29 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { toast } from 'sonner';
+import { getTaDefenseStatusBadgeVariant } from '@/lib/badge-variants';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
     Loader2, Plus, Search, GraduationCap, AlertCircle,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock,
 } from 'lucide-react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { taDefenseSchema, type TaDefenseFormData } from '@/lib/validations/ta-defense';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 
 interface Period { id: number; name: string; is_active: boolean; }
 interface Dosen { id: number; name: string; email: string; }
 interface Student { id: number; name: string; nim: string; }
+interface Location {
+    id: number;
+    name: string;
+    capacity: number;
+    type: 'physical' | 'online';
+    is_active: boolean;
+}
 
 interface TaDefenseSchedule {
     id: number;
@@ -41,6 +51,7 @@ interface TaDefenseSchedule {
     start_time: string;
     end_time: string;
     room: string | null;
+    location_id?: number;
     status: 'SCHEDULED' | 'DONE' | 'CANCELLED';
     examiner1: Dosen;
     examiner2: Dosen;
@@ -67,6 +78,15 @@ interface EligibleStudentData {
 
 type SortKey = 'name' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
+type StatusFilter = 'ALL' | 'SCHEDULED' | 'DONE' | 'CANCELLED';
+
+/**
+ * Validates if value is a valid StatusFilter
+ */
+function isStatusFilter(value: string): value is StatusFilter {
+  return ['ALL', 'SCHEDULED', 'DONE', 'CANCELLED'].includes(value);
+}
+
 const PAGE_SIZES = [10, 25, 50];
 
 export default function AdminTaDefensePage() {
@@ -79,21 +99,11 @@ export default function AdminTaDefensePage() {
 
     const [createOpen, setCreateOpen] = useState(false);
     const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
-    const [formPeriodId, setFormPeriodId] = useState('');
-    const [selectedGroupId, setSelectedGroupId] = useState('');
-    const [selectedStudentIds, setSelectedStudentIds] = useState<string[]>([]);
-    const [formDate, setFormDate] = useState('');
-    const [formStartTime, setFormStartTime] = useState('');
-    const [formEndTime, setFormEndTime] = useState('');
-    const [formRoom, setFormRoom] = useState('');
-    const [formExaminer1, setFormExaminer1] = useState('');
-    const [formExaminer2, setFormExaminer2] = useState('');
-    const [formNotes, setFormNotes] = useState('');
-    const [submitting, setSubmitting] = useState(false);
     const [examinerError, setExaminerError] = useState('');
 
     const [cancelOpen, setCancelOpen] = useState(false);
     const [cancelSchedule, setCancelSchedule] = useState<TaDefenseSchedule | null>(null);
+    const [locations, setLocations] = useState<Location[]>([]);
 
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
@@ -103,39 +113,33 @@ export default function AdminTaDefensePage() {
 
     const [eligibleGroups, setEligibleGroups] = useState<EligibleStudentData[]>([]);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        try {
-            const [periodsRes, dosensRes] = await Promise.all([
-                api.get('/admin/periods'),
-                api.get('/admin/users?role=dosen'),
-            ]);
+    // Status filter state
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
-            const perData: Period[] = periodsRes.data.data || [];
-            setPeriods(perData);
-            const dosensData = dosensRes.data?.data || dosensRes.data || [];
-            setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
+    // React Hook Form setup
+    const form = useForm<TaDefenseFormData>({
+        resolver: zodResolver(taDefenseSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            period_id: '',
+            group_id: '',
+            student_ids: [],
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            examiner_1_id: '',
+            examiner_2_id: '',
+            notes: '',
+        },
+    });
 
-            // Only fetch eligible students if a specific period is selected
-            // For "All Periods", we don't need eligible students until dialog opens
-            if (selectedPeriod && selectedPeriod !== 'all') {
-                const eligibleRes = await api.get('/admin/ta-defense-schedules/eligible-students', {
-                    params: { period_id: selectedPeriod }
-                });
-
-                const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
-                setEligibleGroups(eligibleData);
-            } else {
-                // Clear eligible groups when "All Periods" is selected
-                setEligibleGroups([]);
-            }
-        } catch (error) {
-            console.error('Fetch data error:', error);
-            toast.error('Failed to load data');
-        } finally {
-            setLoading(false);
-        }
-    }, [selectedPeriod]);
+    // Watch form values for conditional logic
+    const watchedGroupId = form.watch('group_id');
+    const watchedStudentIds = form.watch('student_ids');
+    const watchedPeriodId = form.watch('period_id');
+    const watchedExaminer1 = form.watch('examiner_1_id');
+    const watchedExaminer2 = form.watch('examiner_2_id');
 
     const fetchSchedules = useCallback(async () => {
         try {
@@ -153,33 +157,98 @@ export default function AdminTaDefensePage() {
         }
     }, [selectedPeriod]);
 
-    useEffect(() => { fetchData(); }, [fetchData]);
-    useEffect(() => { fetchSchedules(); }, [fetchSchedules]);
-    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+    // Combined data fetching with proper cleanup
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadAllData = async () => {
+            setLoading(true);
+            try {
+                // Fetch periods, dosens, and eligible students in parallel
+                const [periodsRes, dosensRes] = await Promise.all([
+                    api.get('/admin/periods'),
+                    api.get('/admin/users?role=dosen'),
+                ]);
+
+                if (!isMounted) return;
+
+                const perData: Period[] = periodsRes.data.data || [];
+                setPeriods(perData);
+                const dosensData = dosensRes.data?.data || dosensRes.data || [];
+                setDosens(Array.isArray(dosensData) ? dosensData : dosensData.data || []);
+
+                // Fetch eligible students if a specific period is selected
+                if (selectedPeriod && selectedPeriod !== 'all') {
+                    const eligibleRes = await api.get('/admin/ta-defense-schedules/eligible-students', {
+                        params: { period_id: selectedPeriod }
+                    });
+                    if (isMounted) {
+                        const eligibleData: EligibleStudentData[] = eligibleRes.data.data || [];
+                        setEligibleGroups(eligibleData);
+                    }
+                } else {
+                    if (isMounted) {
+                        setEligibleGroups([]);
+                    }
+                }
+
+                // Fetch schedules
+                const params: Record<string, string> = {};
+                if (selectedPeriod) {
+                    params.period_id = selectedPeriod;
+                }
+                const schedulesRes = await api.get('/admin/ta-defense-schedules', { params });
+                if (isMounted) {
+                    setSchedules(schedulesRes.data.data || []);
+                }
+
+                // Fetch locations
+                const locationsRes = await api.get('/locations');
+                if (isMounted) {
+                    setLocations(locationsRes.data?.data || []);
+                }
+            } catch (error) {
+                if (isMounted) {
+                    console.error('Fetch data error:', error);
+                    toast.error('Failed to load data');
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadAllData();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [selectedPeriod]);
 
     const getAvailableStudents = (): EligibleMember[] => {
-        const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
+        const group = eligibleGroups.find(g => g.id.toString() === watchedGroupId);
         return group?.members || [];
     };
 
     const getSupervisorIds = () => {
-        const group = eligibleGroups.find(g => g.id.toString() === selectedGroupId);
+        const group = eligibleGroups.find(g => g.id.toString() === watchedGroupId);
         if (!group) return [];
         return group.supervisors?.map(s => s.id) || [];
     };
 
     const validateExaminers = () => {
         setExaminerError('');
-        if (formExaminer1 === formExaminer2) {
+        if (watchedExaminer1 === watchedExaminer2) {
             setExaminerError('Examiner 1 and Examiner 2 cannot be the same');
             return false;
         }
         const supervisorIds = getSupervisorIds();
-        if (supervisorIds.includes(parseInt(formExaminer1))) {
+        if (supervisorIds.includes(parseInt(watchedExaminer1))) {
             setExaminerError('Examiner 1 cannot be a supervisor of this group');
             return false;
         }
-        if (supervisorIds.includes(parseInt(formExaminer2))) {
+        if (supervisorIds.includes(parseInt(watchedExaminer2))) {
             setExaminerError('Examiner 2 cannot be a supervisor of this group');
             return false;
         }
@@ -200,33 +269,20 @@ export default function AdminTaDefensePage() {
         }
     }, []);
 
-    const handleCreate = async () => {
+    const onSubmit = async (data: TaDefenseFormData) => {
         if (!validateExaminers()) return;
-        if (!formPeriodId) {
-            toast.error('Please select a period');
-            return;
-        }
-        if (!selectedGroupId) {
-            toast.error('Please select a group');
-            return;
-        }
-        if (selectedStudentIds.length === 0) {
-            toast.error('Please select at least one student');
-            return;
-        }
         try {
-            setSubmitting(true);
             await api.post('/admin/ta-defense-schedules', {
-                student_ids: selectedStudentIds.map(id => parseInt(id)),
-                group_id: parseInt(selectedGroupId),
-                period_id: parseInt(formPeriodId),
-                examiner_1_id: parseInt(formExaminer1),
-                examiner_2_id: parseInt(formExaminer2),
-                date: formDate,
-                start_time: formStartTime,
-                end_time: formEndTime,
-                room: formRoom,
-                notes: formNotes || null,
+                student_ids: data.student_ids.map(id => parseInt(id)),
+                group_id: parseInt(data.group_id),
+                period_id: parseInt(data.period_id),
+                examiner_1_id: parseInt(data.examiner_1_id),
+                examiner_2_id: parseInt(data.examiner_2_id),
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                location_id: data.location_id ? parseInt(data.location_id) : null,
+                notes: data.notes || null,
             });
             toast.success('TA Defense schedule created');
             setCreateOpen(false);
@@ -238,8 +294,6 @@ export default function AdminTaDefensePage() {
                 : 'Failed to create schedule';
             toast.error(message);
             if (message.includes('supervisor')) setExaminerError(message);
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -256,17 +310,72 @@ export default function AdminTaDefensePage() {
         }
     };
 
+    const handleEdit = (schedule: TaDefenseSchedule) => {
+        setDialogMode('edit');
+        form.reset({
+            period_id: schedule.period?.id?.toString() || '',
+            group_id: schedule.group?.id?.toString() || '',
+            student_ids: schedule.students?.map(s => s.id.toString()) || [schedule.student?.id.toString() || ''],
+            date: schedule.date,
+            start_time: schedule.start_time.slice(0, 5),
+            end_time: schedule.end_time.slice(0, 5),
+            location_id: schedule.location_id?.toString() || '',
+            examiner_1_id: schedule.examiner1?.id?.toString() || '',
+            examiner_2_id: schedule.examiner2?.id?.toString() || '',
+            notes: schedule.notes || '',
+        });
+        // Pre-fetch eligible groups for the period
+        if (schedule.period?.id) {
+            fetchEligibleGroups(schedule.period.id.toString());
+        }
+        setCreateOpen(true);
+    };
+
+    const handleUpdate = async (data: TaDefenseFormData) => {
+        if (!validateExaminers()) return;
+        // Find the current schedule being edited
+        const currentSchedule = schedules.find(s => 
+            s.group?.id?.toString() === data.group_id && s.status === 'SCHEDULED'
+        );
+        if (!currentSchedule) {
+            toast.error('Schedule not found');
+            return;
+        }
+        try {
+            await api.put(`/admin/ta-defense-schedules/${currentSchedule.id}`, {
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                location_id: parseInt(data.location_id),
+                examiner_1_id: parseInt(data.examiner_1_id),
+                examiner_2_id: parseInt(data.examiner_2_id),
+                notes: data.notes || null,
+            });
+            toast.success('TA Defense schedule updated');
+            setCreateOpen(false);
+            resetForm();
+            fetchSchedules();
+        } catch (error: unknown) {
+            const message = axios.isAxiosError(error)
+                ? (error.response?.data?.message as string) || 'Failed to update schedule'
+                : 'Failed to update schedule';
+            toast.error(message);
+        }
+    };
+
     const resetForm = () => {
-        setFormPeriodId('');
-        setSelectedGroupId('');
-        setSelectedStudentIds([]);
-        setFormDate('');
-        setFormStartTime('');
-        setFormEndTime('');
-        setFormRoom('');
-        setFormExaminer1('');
-        setFormExaminer2('');
-        setFormNotes('');
+        form.reset({
+            period_id: '',
+            group_id: '',
+            student_ids: [],
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            examiner_1_id: '',
+            examiner_2_id: '',
+            notes: '',
+        });
         setExaminerError('');
         setEligibleGroups([]);
     };
@@ -280,10 +389,12 @@ export default function AdminTaDefensePage() {
                 st.nim?.toLowerCase().includes(q)
             ) || s.student?.name?.toLowerCase().includes(q);
             
+            const locationName = locations.find(l => l.id === s.location_id)?.name || s.room || '';
+            
             return (
                 studentMatch ||
                 s.group?.id?.toString().includes(q) ||
-                (s.room?.toLowerCase() || '').includes(q)
+                locationName.toLowerCase().includes(q)
             );
         });
 
@@ -303,10 +414,15 @@ export default function AdminTaDefensePage() {
         });
 
         return result;
-    }, [schedules, searchQuery, sortKey, sortDir]);
+    }, [schedules, searchQuery, sortKey, sortDir, locations]);
 
-    const activeSchedules = useMemo(() => filteredAndSorted.filter(s => s.status !== 'CANCELLED'), [filteredAndSorted]);
-    const cancelledSchedules = useMemo(() => filteredAndSorted.filter(s => s.status === 'CANCELLED'), [filteredAndSorted]);
+    // Filter by status
+    const filteredSchedules = useMemo(() => {
+        if (statusFilter === 'ALL') {
+            return filteredAndSorted;
+        }
+        return filteredAndSorted.filter(s => s.status === statusFilter);
+    }, [filteredAndSorted, statusFilter]);
 
     const handleSort = (key: SortKey) => {
         if (sortKey === key) {
@@ -314,6 +430,24 @@ export default function AdminTaDefensePage() {
         } else {
             setSortKey(key);
             setSortDir('asc');
+        }
+        setPage(1); // Reset page when sort changes
+    };
+
+    const handlePageSizeChange = (size: number) => {
+        setPageSize(size);
+        setPage(1); // Reset page when page size changes
+    };
+
+    const handleSearchChange = (query: string) => {
+        setSearchQuery(query);
+        setPage(1); // Reset page when search changes
+    };
+
+    const handleStatusFilterChange = (status: string) => {
+        if (isStatusFilter(status)) {
+            setStatusFilter(status);
+            setPage(1); // Reset page when filter changes
         }
     };
 
@@ -334,12 +468,7 @@ export default function AdminTaDefensePage() {
         }
     };
 
-    const statusColor = (status: string) => {
-        if (status === 'SCHEDULED') return 'default' as const;
-        if (status === 'DONE') return 'default' as const;
-        if (status === 'CANCELLED') return 'secondary' as const;
-        return 'outline' as const;
-    };
+    const statusColor = (status: string) => getTaDefenseStatusBadgeVariant(status);
 
     const statusDisplay = (status: string) => {
         switch (status) {
@@ -383,7 +512,7 @@ export default function AdminTaDefensePage() {
                                 <TableHead className="w-[80px]">Group</TableHead>
                                 <SortHeader label="Date" sortKeyName="date" />
                                 <TableHead className="w-[120px]">Time</TableHead>
-                                <TableHead>Room</TableHead>
+                                <TableHead>Location</TableHead>
                                 <TableHead className="w-[180px]">Examiners</TableHead>
                                 <SortHeader label="Status" sortKeyName="status" />
                                 <TableHead className="w-[80px] text-right">Actions</TableHead>
@@ -446,7 +575,7 @@ export default function AdminTaDefensePage() {
                                             </TableCell>
                                             <TableCell>
                                                 <span className={`text-sm ${isCancelled ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
-                                                    {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                    {locations.find(l => l.id === s.location_id)?.name || s.room || <span className="text-muted-foreground/40">—</span>}
                                                 </span>
                                             </TableCell>
                                             <TableCell>
@@ -471,14 +600,24 @@ export default function AdminTaDefensePage() {
                                                         </Link>
                                                     )}
                                                     {s.status === 'SCHEDULED' && (
-                                                        <Button
-                                                            size="sm"
-                                                            variant="ghost"
-                                                            className="text-[13px] h-7 text-destructive hover:text-destructive"
-                                                            onClick={() => { setCancelSchedule(s); setCancelOpen(true); }}
-                                                        >
-                                                            Cancel
-                                                        </Button>
+                                                        <>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-[13px] h-7"
+                                                                onClick={() => handleEdit(s)}
+                                                            >
+                                                                Edit
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="ghost"
+                                                                className="text-[13px] h-7 text-destructive hover:text-destructive"
+                                                                onClick={() => { setCancelSchedule(s); setCancelOpen(true); }}
+                                                            >
+                                                                Cancel
+                                                            </Button>
+                                                        </>
                                                     )}
                                                 </div>
                                             </TableCell>
@@ -506,9 +645,9 @@ export default function AdminTaDefensePage() {
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between">
-                                                                    <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                    <span className="text-muted-foreground/70 text-[12px]">Location</span>
                                                                     <span className="text-[12px] text-muted-foreground">
-                                                                        {s.room || <span className="text-muted-foreground/40">—</span>}
+                                                                        {locations.find(l => l.id === s.location_id)?.name || s.room || <span className="text-muted-foreground/40">—</span>}
                                                                     </span>
                                                                 </div>
                                                                 <div className="flex items-center justify-between">
@@ -587,7 +726,7 @@ export default function AdminTaDefensePage() {
                         </p>
                         <div className="flex items-center gap-1.5">
                             <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                            <Select value={String(pageSize)} onValueChange={(v) => handlePageSizeChange(Number(v))}>
                                 <SelectTrigger className="h-7 w-[60px] text-[12px]">
                                     <SelectValue />
                                 </SelectTrigger>
@@ -644,21 +783,23 @@ export default function AdminTaDefensePage() {
                         Manage individual TA defense schedules for students.
                     </p>
                 </div>
-                <Button onClick={() => {
-                    const activePeriod = periods.find(p => p.is_active);
-                    const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
-                    setFormPeriodId(defaultPeriodId);
-                    setDialogMode('create');
-                    // Fetch eligible groups for the period
-                    const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
-                    if (periodToFetch) {
-                        fetchEligibleGroups(periodToFetch);
-                    }
-                    setCreateOpen(true);
-                }} disabled={!selectedPeriod}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Schedule TA Defense
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => {
+                        const activePeriod = periods.find(p => p.is_active);
+                        const defaultPeriodId = activePeriod ? activePeriod.id.toString() : (selectedPeriod !== 'all' ? selectedPeriod : '');
+                        form.setValue('period_id', defaultPeriodId);
+                        setDialogMode('create');
+                        // Fetch eligible groups for the period
+                        const periodToFetch = defaultPeriodId || (activePeriod ? activePeriod.id.toString() : '');
+                        if (periodToFetch) {
+                            fetchEligibleGroups(periodToFetch);
+                        }
+                        setCreateOpen(true);
+                    }} disabled={!selectedPeriod}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Schedule TA Defense
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -679,13 +820,27 @@ export default function AdminTaDefensePage() {
                         </SelectContent>
                     </Select>
                 </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
+                    <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
+                        <SelectTrigger className="w-[160px]">
+                            <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ALL">All Status</SelectItem>
+                            <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                            <SelectItem value="DONE">Done</SelectItem>
+                            <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
                 <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                     <Input
                         placeholder="Search student, NIM, group..."
                         className="pl-9"
                         value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
+                        onChange={(e) => handleSearchChange(e.target.value)}
                     />
                 </div>
             </div>
@@ -697,48 +852,17 @@ export default function AdminTaDefensePage() {
                 </div>
             )}
 
-            {selectedPeriod && filteredAndSorted.length === 0 && (
+            {selectedPeriod && filteredSchedules.length === 0 && (
                 <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
                     <GraduationCap className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
                     <p className="text-sm font-medium">No TA defense schedules found</p>
                     <p className="text-[13px] text-muted-foreground/60 mt-1">
-                        Create a new schedule to get started.
+                        {statusFilter !== 'ALL' ? `No ${statusFilter.toLowerCase()} schedules. Try changing the status filter.` : 'Create a new schedule to get started.'}
                     </p>
                 </div>
             )}
 
-            {selectedPeriod && filteredAndSorted.length > 0 && (
-                <Tabs defaultValue="active" className="space-y-6">
-                    <TabsList className="grid w-full max-w-md grid-cols-2">
-                        <TabsTrigger value="active">
-                            Active ({activeSchedules.length})
-                        </TabsTrigger>
-                        <TabsTrigger value="cancelled">
-                            Cancelled ({cancelledSchedules.length})
-                        </TabsTrigger>
-                    </TabsList>
-
-                    <TabsContent value="active" className="space-y-0">
-                        {activeSchedules.length === 0 ? (
-                            <div className="text-center py-12 border rounded-lg border-dashed">
-                                <p className="text-muted-foreground text-sm">No active schedules</p>
-                            </div>
-                        ) : (
-                            <ScheduleTable data={activeSchedules} />
-                        )}
-                    </TabsContent>
-
-                    <TabsContent value="cancelled" className="space-y-0">
-                        {cancelledSchedules.length === 0 ? (
-                            <div className="text-center py-12 border rounded-lg border-dashed">
-                                <p className="text-muted-foreground text-sm">No cancelled schedules</p>
-                            </div>
-                        ) : (
-                            <ScheduleTable data={cancelledSchedules} />
-                        )}
-                    </TabsContent>
-                </Tabs>
-            )}
+            {selectedPeriod && filteredSchedules.length > 0 && <ScheduleTable data={filteredSchedules} />}
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent className="sm:max-w-[600px]">
@@ -757,191 +881,316 @@ export default function AdminTaDefensePage() {
                         </Alert>
                     )}
 
-                    <div className="grid gap-4 py-4">
-                        {/* Period Selector - only in CREATE mode */}
-                        {dialogMode === 'create' && (
-                            <div className="space-y-2">
-                                <Label>Period</Label>
-                                <Select 
-                                    value={formPeriodId} 
-                                    onValueChange={(val) => {
-                                        setFormPeriodId(val);
-                                        setSelectedGroupId('');
-                                        setSelectedStudentIds([]);
-                                        setEligibleGroups([]);
-                                        fetchEligibleGroups(val);
-                                    }}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select period" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {periods.map(p => (
-                                            <SelectItem key={p.id} value={p.id.toString()}>
-                                                {p.name}
-                                                {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-
-                        <div className="space-y-2">
-                            <Label>Group</Label>
-                            <Select 
-                                value={selectedGroupId} 
-                                onValueChange={(val) => {
-                                    setSelectedGroupId(val);
-                                    setSelectedStudentIds([]);
-                                }}
-                                disabled={!formPeriodId}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder={formPeriodId ? "Select group" : "Select period first"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {eligibleGroups.map(g => (
-                                        <SelectItem key={g.id} value={g.id.toString()}>
-                                            Group {g.id} {g.code && `(${g.code})`}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        {/* Multi-Student Checkbox Selection */}
-                        {selectedGroupId && (
-                            <div className="space-y-2">
-                                <Label>Students <span className="text-muted-foreground text-xs">(select at least one)</span></Label>
-                                <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
-                                    {getAvailableStudents().length === 0 ? (
-                                        <p className="text-sm text-muted-foreground">No students in this group.</p>
-                                    ) : (
-                                        getAvailableStudents().map((m: EligibleMember) => {
-                                            const isAlreadySelected = m.is_already_selected;
-                                            const isReadyForSidang = m.is_ready_for_sidang;
-                                            const isChecked = selectedStudentIds.includes(m.student.id.toString());
-
-                                            return (
-                                                <div key={m.student.id} className="flex items-center space-x-3">
-                                                    <Checkbox
-                                                        id={`student-${m.student.id}`}
-                                                        checked={isChecked || isAlreadySelected}
-                                                        disabled={isAlreadySelected || !isReadyForSidang}
-                                                        onCheckedChange={(checked) => {
-                                                            if (isAlreadySelected) {
-                                                                toast.error('Already selected students cannot be removed');
-                                                                return;
-                                                            }
-                                                            if (checked) {
-                                                                setSelectedStudentIds(prev => [...prev, m.student.id.toString()]);
-                                                            } else {
-                                                                setSelectedStudentIds(prev => prev.filter(id => id !== m.student.id.toString()));
-                                                            }
-                                                        }}
-                                                    />
-                                                    <label
-                                                        htmlFor={`student-${m.student.id}`}
-                                                        className={`text-sm flex items-center gap-2 cursor-pointer ${!isReadyForSidang && !isAlreadySelected ? 'text-muted-foreground' : ''}`}
-                                                    >
-                                                        <span>{m.student.name}</span>
-                                                        <span className="text-xs text-muted-foreground font-mono">{m.student.nim}</span>
-                                                        {m.is_leader && (
-                                                            <Badge variant="secondary" className="text-[10px] h-4">Leader</Badge>
-                                                        )}
-                                                        {isAlreadySelected && (
-                                                            <Badge variant="default" className="text-[10px] h-4">Selected</Badge>
-                                                        )}
-                                                        {!isReadyForSidang && !isAlreadySelected && (
-                                                            <>
-                                                                <Lock className="h-3 w-3 text-muted-foreground" />
-                                                                <Badge variant="outline" className="text-[10px] h-4 text-muted-foreground" title="Not ready for sidang TA">Locked</Badge>
-                                                            </>
-                                                        )}
-                                                    </label>
-                                                </div>
-                                            );
-                                        })
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                        <div className="grid gap-4 py-4">
+                            {/* Period Selector - only in CREATE mode */}
+                            {dialogMode === 'create' && (
+                                <Controller
+                                    name="period_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Period</FieldLabel>
+                                            <Select
+                                                value={field.value}
+                                                onValueChange={(val) => {
+                                                    field.onChange(val);
+                                                    form.setValue('group_id', '');
+                                                    form.setValue('student_ids', []);
+                                                    setEligibleGroups([]);
+                                                    fetchEligibleGroups(val);
+                                                }}
+                                            >
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select period" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {periods.map(p => (
+                                                        <SelectItem key={p.id} value={p.id.toString()}>
+                                                            {p.name}
+                                                            {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
                                     )}
-                                </div>
-                                {selectedStudentIds.length > 0 && (
-                                    <p className="text-xs text-muted-foreground">
-                                        {selectedStudentIds.length} student{selectedStudentIds.length > 1 ? 's' : ''} selected
-                                    </p>
+                                />
+                            )}
+
+                            <Controller
+                                name="group_id"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field>
+                                        <FieldLabel>Group</FieldLabel>
+                                        <Select
+                                            value={field.value}
+                                            onValueChange={(val) => {
+                                                field.onChange(val);
+                                                form.setValue('student_ids', []);
+                                            }}
+                                            disabled={!watchedPeriodId}
+                                        >
+                                            <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                <SelectValue placeholder={watchedPeriodId ? "Select group" : "Select period first"} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {eligibleGroups.map(g => (
+                                                    <SelectItem key={g.id} value={g.id.toString()}>
+                                                        Group {g.id} {g.code && `(${g.code})`}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {fieldState.error && (
+                                            <FieldError>{fieldState.error.message}</FieldError>
+                                        )}
+                                    </Field>
                                 )}
-                            </div>
-                        )}
+                            />
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Date</Label>
-                                <Input type="date" value={formDate} onChange={(e) => setFormDate(e.target.value)} />
+                            {/* Multi-Student Checkbox Selection */}
+                            {watchedGroupId && (
+                                <Field>
+                                    <FieldLabel>Students <span className="text-muted-foreground text-xs">(select at least one)</span></FieldLabel>
+                                    <div className="border rounded-md p-3 space-y-2 max-h-48 overflow-y-auto">
+                                        {getAvailableStudents().length === 0 ? (
+                                            <p className="text-sm text-muted-foreground">No students in this group.</p>
+                                        ) : (
+                                            getAvailableStudents().map((m: EligibleMember) => {
+                                                const isAlreadySelected = m.is_already_selected;
+                                                const isReadyForSidang = m.is_ready_for_sidang;
+                                                const isChecked = watchedStudentIds.includes(m.student.id.toString());
+
+                                                return (
+                                                    <div key={m.student.id} className="flex items-center space-x-3">
+                                                        <Checkbox
+                                                            id={`student-${m.student.id}`}
+                                                            checked={isChecked || isAlreadySelected}
+                                                            disabled={isAlreadySelected || !isReadyForSidang}
+                                                            onCheckedChange={(checked) => {
+                                                                if (isAlreadySelected) {
+                                                                    toast.error('Already selected students cannot be removed');
+                                                                    return;
+                                                                }
+                                                                const currentIds = form.getValues('student_ids');
+                                                                if (checked) {
+                                                                    form.setValue('student_ids', [...currentIds, m.student.id.toString()]);
+                                                                } else {
+                                                                    form.setValue('student_ids', currentIds.filter(id => id !== m.student.id.toString()));
+                                                                }
+                                                            }}
+                                                        />
+                                                        <label
+                                                            htmlFor={`student-${m.student.id}`}
+                                                            className={`text-sm flex items-center gap-2 cursor-pointer ${!isReadyForSidang && !isAlreadySelected ? 'text-muted-foreground' : ''}`}
+                                                        >
+                                                            <span>{m.student.name}</span>
+                                                            <span className="text-xs text-muted-foreground font-mono">{m.student.nim}</span>
+                                                            {m.is_leader && (
+                                                                <Badge variant="secondary" className="text-[10px] h-4">Leader</Badge>
+                                                            )}
+                                                            {isAlreadySelected && (
+                                                                <Badge variant="default" className="text-[10px] h-4">Selected</Badge>
+                                                            )}
+                                                            {!isReadyForSidang && !isAlreadySelected && (
+                                                                <>
+                                                                    <Lock className="h-3 w-3 text-muted-foreground" />
+                                                                    <Badge variant="outline" className="text-[10px] h-4 text-muted-foreground" title="Not ready for sidang TA">Locked</Badge>
+                                                                </>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                    {form.formState.errors.student_ids && (
+                                        <FieldError>{form.formState.errors.student_ids.message}</FieldError>
+                                    )}
+                                    {watchedStudentIds.length > 0 && (
+                                        <p className="text-xs text-muted-foreground">
+                                            {watchedStudentIds.length} student{watchedStudentIds.length > 1 ? 's' : ''} selected
+                                        </p>
+                                    )}
+                                </Field>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="date"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Date</FieldLabel>
+                                            <Input
+                                                type="date"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="location_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Location <span className="text-destructive">*</span></FieldLabel>
+                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                            <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select location..." />
+                                                </SelectTrigger>
+                                                <SelectContent position="popper" avoidCollisions>
+                                                    {locations.length === 0 && (
+                                                        <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                                    )}
+                                                    {locations.filter(l => l.is_active).map((loc) => (
+                                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                            {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
                             </div>
-                            <div className="space-y-2">
-                                <Label>Room</Label>
-                                <Input placeholder="e.g., Room A, Lab 1" value={formRoom} onChange={(e) => setFormRoom(e.target.value)} />
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="start_time"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Start Time</FieldLabel>
+                                            <Input
+                                                type="time"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="end_time"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>End Time</FieldLabel>
+                                            <Input
+                                                type="time"
+                                                value={field.value}
+                                                onChange={field.onChange}
+                                                onBlur={field.onBlur}
+                                                className={fieldState.error ? 'border-destructive' : ''}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
                             </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <Controller
+                                    name="examiner_1_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Examiner 1</FieldLabel>
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select examiner" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {dosens.map(d => (
+                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="examiner_2_id"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field>
+                                            <FieldLabel>Examiner 2</FieldLabel>
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
+                                                    <SelectValue placeholder="Select examiner" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {dosens.map(d => (
+                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+                            </div>
+
+                            <Controller
+                                name="notes"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field>
+                                        <FieldLabel>Notes (Optional)</FieldLabel>
+                                        <Input
+                                            placeholder="Additional notes..."
+                                            value={field.value}
+                                            onChange={field.onChange}
+                                            onBlur={field.onBlur}
+                                            className={fieldState.error ? 'border-destructive' : ''}
+                                        />
+                                        {fieldState.error && (
+                                            <FieldError>{fieldState.error.message}</FieldError>
+                                        )}
+                                    </Field>
+                                )}
+                            />
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Start Time</Label>
-                                <Input type="time" value={formStartTime} onChange={(e) => setFormStartTime(e.target.value)} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label>End Time</Label>
-                                <Input type="time" value={formEndTime} onChange={(e) => setFormEndTime(e.target.value)} />
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label>Examiner 1</Label>
-                                <Select value={formExaminer1} onValueChange={setFormExaminer1}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="space-y-2">
-                                <Label>Examiner 2</Label>
-                                <Select value={formExaminer2} onValueChange={setFormExaminer2}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select examiner" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Notes (Optional)</Label>
-                            <Input placeholder="Additional notes..." value={formNotes} onChange={(e) => setFormNotes(e.target.value)} />
-                        </div>
-                    </div>
-
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => { setCreateOpen(false); resetForm(); }}>
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={handleCreate}
-                            disabled={submitting || selectedStudentIds.length === 0 || !formDate || !formStartTime || !formEndTime || !formExaminer1 || !formExaminer2}
-                        >
-                            {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Create Schedule
-                        </Button>
-                    </DialogFooter>
+                        <DialogFooter>
+                            <Button variant="outline" type="button" onClick={() => { setCreateOpen(false); resetForm(); }}>
+                                Cancel
+                            </Button>
+                            <Button
+                                type="submit"
+                                disabled={form.formState.isSubmitting || watchedStudentIds.length === 0 || !watchedPeriodId}
+                            >
+                                {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                Create Schedule
+                            </Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
 

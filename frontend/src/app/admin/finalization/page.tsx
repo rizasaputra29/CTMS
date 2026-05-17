@@ -79,7 +79,8 @@ import Link from 'next/link';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 
-import type { Group, Student, DashboardTab, OthersSubTab } from '@/types/finalization';
+import type { Group, DashboardTab } from '@/types/finalization';
+import { isDashboardTab, isOthersSubTab, isGroupArray, isStudentArray } from '@/types/finalization';
 
 export default function FinalizationPage() {
   const searchParams = useSearchParams();
@@ -98,6 +99,8 @@ export default function FinalizationPage() {
     activeSubTab,
     filters,
     loading,
+    isLoadingPeriods,
+    periodsError,
     showPeriodSelector,
     setActiveTab,
     setActiveSubTab,
@@ -273,7 +276,7 @@ export default function FinalizationPage() {
 
   const kelompokFinalGroups = useMemo(() => {
     if (activeTab !== 'final' || !isPaginatedData) return [];
-    return data.data as Group[];
+    return isGroupArray(data.data) ? data.data : [];
   }, [activeTab, data, isPaginatedData]);
 
   // Per-row supervisor set handler
@@ -287,7 +290,7 @@ export default function FinalizationPage() {
           mark_final: false,
         };
         // We need to keep existing values. Find the group in tableData
-        const group = (tableData as Group[]).find((g) => g.id === groupId);
+        const group = isGroupArray(tableData) ? tableData.find((g) => g.id === groupId) : undefined;
         if (role === 'supervisor_1_id') {
           payload.supervisor_1_id = supervisorId;
           payload.supervisor_2_id = group?.supervisor_2_id;
@@ -317,7 +320,7 @@ export default function FinalizationPage() {
       if (isPeriodFinalized || !canModifyByFlow) return;
       setSettingRow(groupId);
       try {
-        const group = (tableData as Group[]).find((g) => g.id === groupId);
+        const group = isGroupArray(tableData) ? tableData.find((g) => g.id === groupId) : undefined;
         
         const sv1 = group?.supervisor_1_id || group?.title?.lecturer?.id;
         
@@ -388,7 +391,7 @@ export default function FinalizationPage() {
   }, []);
 
   const selectAllRows = useCallback(() => {
-    const allIds = (tableData as Group[]).map((g) => g.id);
+    const allIds = isGroupArray(tableData) ? tableData.map((g) => g.id) : [];
     setSelectedRows(new Set(allIds));
   }, [tableData]);
 
@@ -421,7 +424,7 @@ export default function FinalizationPage() {
   };
 
   const handleExportSelected = useCallback(() => {
-    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    const selectedGroups = isGroupArray(tableData) ? tableData.filter((g) => selectedRows.has(g.id)) : [];
     if (selectedGroups.length === 0) {
       toast.error('Tidak ada grup yang dipilih');
       return;
@@ -481,7 +484,7 @@ export default function FinalizationPage() {
   const handleBulkMarkFinal = useCallback(async () => {
     if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
 
-    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    const selectedGroups = isGroupArray(tableData) ? tableData.filter((g) => selectedRows.has(g.id)) : [];
     const valid: Group[] = [];
     const invalid: { group: Group; reason: string }[] = [];
 
@@ -545,7 +548,7 @@ export default function FinalizationPage() {
   const handleBulkCancelFinal = useCallback(async (reason?: string) => {
     if (!period || isPeriodFinalized || !canModifyByFlow || selectedRows.size === 0) return;
 
-    const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+    const selectedGroups = isGroupArray(tableData) ? tableData.filter((g) => selectedRows.has(g.id)) : [];
     
     try {
       await Promise.all(
@@ -676,7 +679,30 @@ export default function FinalizationPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {periods.length > 0 ? (
+            {isLoadingPeriods ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <div className="mx-auto h-10 w-10 mb-3 opacity-50 animate-pulse">
+                  <CalendarDays className="h-10 w-10" />
+                </div>
+                <p className="font-medium">Memuat daftar periode...</p>
+                <p className="text-sm mt-1">Mohon tunggu sebentar</p>
+              </div>
+            ) : periodsError ? (
+              <div className="text-center py-8 text-destructive">
+                <AlertTriangle className="mx-auto h-10 w-10 mb-3 opacity-70" />
+                <p className="font-medium">Gagal memuat periode</p>
+                <p className="text-sm mt-1 opacity-70">{periodsError}</p>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => fetchActivePeriods()}
+                  className="mt-4"
+                >
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Coba Lagi
+                </Button>
+              </div>
+            ) : periods.length > 0 ? (
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                 {periods.map((p) => (
                   <Card
@@ -708,8 +734,8 @@ export default function FinalizationPage() {
             ) : (
               <div className="text-center py-8 text-muted-foreground">
                 <CalendarDays className="mx-auto h-10 w-10 mb-3 opacity-50" />
-                <p className="font-medium">Memuat daftar periode...</p>
-                <p className="text-sm mt-1">Mohon tunggu sebentar</p>
+                <p className="font-medium">Tidak ada periode aktif</p>
+                <p className="text-sm mt-1">Tidak ditemukan periode dengan status aktif saat ini.</p>
               </div>
             )}
           </CardContent>
@@ -1006,7 +1032,7 @@ export default function FinalizationPage() {
       )}
 
       {/* Main Tabs */}
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as DashboardTab)}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(isDashboardTab(v) ? v : activeTab)}>
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="ready" className="relative">
             Siap Finalisasi
@@ -1134,8 +1160,8 @@ export default function FinalizationPage() {
                           Tidak ada grup dengan status READY_FOR_FINALIZATION
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      (tableData as Group[]).map((group) => {
+                    ) : isGroupArray(tableData) ? (
+                      tableData.map((group) => {
                         const actionReason = group.allowed_actions?.reason
                           ? actionReasonMap[group.allowed_actions.reason] || 'Aksi belum tersedia untuk grup ini.'
                           : null;
@@ -1247,20 +1273,27 @@ export default function FinalizationPage() {
                                 </>
                               )}
                             </Button>
-                          </TableCell>
-                        </TableRow>
-                      );})
+                           </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          Data tidak valid
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {renderPagination()}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ═══════════ Tab 2: Kelompok Final (KELOMPOK_FINAL) ═══════════ */}
+                    </TableBody>
+                 </Table>
+               </div>
+ 
+               {renderPagination()}
+             </CardContent>
+           </Card>
+         </TabsContent>
+ 
+         {/* ═══════════ Tab 2: Kelompok Final (KELOMPOK_FINAL) ═══════════ */}
         <TabsContent value="final" className="space-y-4">
           <Card>
             <CardHeader>
@@ -1357,8 +1390,8 @@ export default function FinalizationPage() {
                           Belum ada kelompok final. Set supervisor di tab &quot;Siap Finalisasi&quot; terlebih dahulu.
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      (tableData as Group[]).map((group) => (
+                    ) : isGroupArray(tableData) ? (
+                      tableData.map((group) => (
                         <TableRow key={group.id}>
                           <TableCell>
                             <Checkbox
@@ -1422,7 +1455,7 @@ export default function FinalizationPage() {
                           </TableCell>
                         </TableRow>
                       ))
-                    )}
+                    ) : null}
                   </TableBody>
                 </Table>
               </div>
@@ -1445,7 +1478,7 @@ export default function FinalizationPage() {
               {/* Sub Tabs */}
               <Tabs
                 value={activeSubTab}
-                onValueChange={(v) => setActiveSubTab(v as OthersSubTab)}
+                onValueChange={(v) => setActiveSubTab(isOthersSubTab(v) ? v : activeSubTab)}
               >
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="no_group">
@@ -1517,15 +1550,15 @@ export default function FinalizationPage() {
                               Semua mahasiswa sudah memiliki kelompok
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          (tableData as Student[]).map((student) => (
+                        ) : isStudentArray(tableData) ? (
+                          tableData.map((student) => (
                             <TableRow key={student.id}>
                               <TableCell className="font-medium">{student.name}</TableCell>
                               <TableCell>{student.nim}</TableCell>
                               <TableCell>{student.email}</TableCell>
                             </TableRow>
                           ))
-                        )}
+                        ) : null}
                       </TableBody>
                     </Table>
                   </div>
@@ -1587,8 +1620,8 @@ export default function FinalizationPage() {
                               Semua grup sudah memiliki judul
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          (tableData as Group[]).map((group) => (
+                        ) : isGroupArray(tableData) ? (
+                          tableData.map((group) => (
                             <TableRow key={group.id}>
                               <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                               <TableCell>
@@ -1606,7 +1639,7 @@ export default function FinalizationPage() {
                               <TableCell>{getStatusBadge(group.status, group.status_label)}</TableCell>
                             </TableRow>
                           ))
-                        )}
+                        ) : null}
                       </TableBody>
                     </Table>
                   </div>
@@ -1657,8 +1690,8 @@ export default function FinalizationPage() {
                               Tidak ada grup TITLE_APPROVED
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          (tableData as Group[]).map((group) => (
+                        ) : isGroupArray(tableData) ? (
+                          tableData.map((group) => (
                             <TableRow key={group.id}>
                               <TableCell className="font-medium">{group.code || `Group ${group.id}`}</TableCell>
                               <TableCell>
@@ -1718,7 +1751,7 @@ export default function FinalizationPage() {
                               </TableCell>
                             </TableRow>
                           ))
-                        )}
+                        ) : null}
                       </TableBody>
                     </Table>
                   </div>
@@ -1744,7 +1777,7 @@ export default function FinalizationPage() {
       <ManualGroupingDialog
         open={showGroupingDialog}
         onOpenChange={handleOpenGroupingDialog}
-        studentsWithoutGroup={activeTab === 'others' && activeSubTab === 'no_group' ? (tableData as Student[]) : []}
+        studentsWithoutGroup={activeTab === 'others' && activeSubTab === 'no_group' ? (isStudentArray(tableData) ? tableData : []) : []}
         existingGroups={availableGroups}
         availableTitles={availableTitles}
         lecturers={manualGroupingLecturers}
@@ -1865,7 +1898,7 @@ export default function FinalizationPage() {
           </DialogHeader>
           <div className="space-y-4 py-4 max-h-[400px] overflow-y-auto">
             {(() => {
-              const selectedGroups = (tableData as Group[]).filter((g) => selectedRows.has(g.id));
+              const selectedGroups = isGroupArray(tableData) ? tableData.filter((g) => selectedRows.has(g.id)) : [];
               const valid: Group[] = [];
               const invalid: { group: Group; reason: string }[] = [];
 

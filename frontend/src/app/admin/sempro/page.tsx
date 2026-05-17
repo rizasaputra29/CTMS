@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { semproScheduleSchema, type SemproScheduleFormData } from '@/lib/validations/sempro';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -17,14 +20,17 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { getSemproStatusBadgeVariant } from '@/lib/badge-variants';
 import { format } from 'date-fns';
 import {
     Loader2, Plus, Search, FileText, ClipboardCheck,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
 } from 'lucide-react';
 
+
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
 interface Dosen { id: number; name: string; email: string; }
+interface Location { id: number; name: string; capacity: number; type: 'physical' | 'online'; is_active: boolean; }
 interface BimbinganEval {
     student: { id: number; name: string };
     average_score: number;
@@ -46,7 +52,7 @@ interface Schedule {
     examiner_student_averages?: BimbinganEval[];
 }
 
-interface GroupItem { id: number; code?: string; status: string; title?: { title: string }; members: { student: { id: number; name: string } }[] }
+interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[]; supervisor1?: { id: number; name: string } | null; supervisor2?: { id: number; name: string } | null; }
 interface User { id: number; name: string; email: string; role: string; }
 
 type SortKey = 'title' | 'date' | 'status';
@@ -58,28 +64,43 @@ export default function AdminSemproPage() {
     const [groups, setGroups] = useState<GroupItem[]>([]);
     const [dosens, setDosens] = useState<Dosen[]>([]);
     const [periods, setPeriods] = useState<Period[]>([]);
+    const [locations, setLocations] = useState<Location[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const selectedPeriodRef = useRef(selectedPeriod);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
     const [scheduleOpen, setScheduleOpen] = useState(false);
-    const [formGroupId, setFormGroupId] = useState('');
-    const [formDate, setFormDate] = useState('');
-    const [formStartTime, setFormStartTime] = useState('');
-    const [formEndTime, setFormEndTime] = useState('');
-    const [formRoom, setFormRoom] = useState('');
-    const [formExaminer1, setFormExaminer1] = useState('');
-    const [formExaminer2, setFormExaminer2] = useState('');
-    const [submitting, setSubmitting] = useState(false);
+
+    // React Hook Form for schedule dialog
+    const form = useForm<SemproScheduleFormData>({
+        resolver: zodResolver(semproScheduleSchema),
+        defaultValues: {
+            period_id: '',
+            group_id: '',
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            examiner_1_id: '',
+            examiner_2_id: '',
+        },
+    });
+
     const [rejectId, setRejectId] = useState<number | null>(null);
     const [rejectReason, setRejectReason] = useState('');
 
     const [approveDialogOpen, setApproveDialogOpen] = useState(false);
     const [approveId, setApproveId] = useState<number | null>(null);
     const [approveData, setApproveData] = useState({
-        date: '', start_time: '', end_time: '', room: '',
+        date: '', start_time: '', end_time: '', location_id: '',
         examiner_1_id: '', examiner_2_id: '',
     });
+
+    const [cancelId, setCancelId] = useState<number | null>(null);
+
+    const [editDialogOpen, setEditDialogOpen] = useState(false);
+    const [editId, setEditId] = useState<number | null>(null);
 
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
@@ -87,8 +108,9 @@ export default function AdminSemproPage() {
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
 
+
     const fetchSchedules = useCallback(async (periodId?: string) => {
-        const currentPeriod = periodId !== undefined ? periodId : selectedPeriod;
+        const currentPeriod = periodId !== undefined ? periodId : selectedPeriodRef.current;
         setLoading(true);
         try {
             const query = currentPeriod !== 'all' && currentPeriod ? `?period_id=${currentPeriod}` : '';
@@ -105,33 +127,100 @@ export default function AdminSemproPage() {
         }
     }, []);
 
-    const fetchDosens = useCallback(async () => {
-        try {
-            const res = await api.get('/admin/users');
-            const all = res.data.data || [];
-            setDosens(all.filter((u: User) => u.role === 'dosen'));
-        } catch (err) {
-            console.error(err);
-        }
-    }, []);
+    // Combined data fetching with proper cleanup
+    useEffect(() => {
+        let isMounted = true;
 
-    const fetchPeriods = useCallback(async () => {
-        try {
-            const res = await api.get('/admin/periods');
-            const perData = res.data?.data || [];
-            setPeriods(perData);
-            const active = perData.find((p: Period) => p.is_active);
-            if (active && selectedPeriod !== 'all') setSelectedPeriod(active.id.toString());
-        } catch (err) {
-            console.error(err);
-        }
+        const loadInitialData = async () => {
+            try {
+                // Fetch periods first to get active period
+                const periodsRes = await api.get('/admin/periods');
+                if (!isMounted) return;
+                const perData = periodsRes.data?.data || [];
+                setPeriods(perData);
+                const active = perData.find((p: Period) => p.is_active);
+
+                // Determine which period to use for other fetches
+                const periodToUse = active && selectedPeriod !== 'all'
+                    ? active.id.toString()
+                    : selectedPeriod;
+
+                // Fetch all data in parallel
+                const query = periodToUse !== 'all' && periodToUse ? `?period_id=${periodToUse}` : '';
+                const [semproRes, groupsRes, dosensRes, locationsRes] = await Promise.all([
+                    api.get(`/admin/sempro/schedules${query}`),
+                    api.get(`/admin/groups${query}`),
+                    api.get('/admin/users?role=dosen'),
+                    api.get('/locations'),
+                ]);
+
+                if (!isMounted) return;
+
+                setSchedules(semproRes.data.data || []);
+                setGroups(groupsRes.data.data || []);
+                // API already filters by role=dosen, so we use all returned users
+                setDosens(dosensRes.data.data || []);
+                setLocations(locationsRes.data.data || []);
+
+                if (active && selectedPeriod !== 'all') {
+                    setSelectedPeriod(active.id.toString());
+                }
+            } catch (err) {
+                if (isMounted) {
+                    console.error(err);
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadInitialData();
+
+        return () => {
+            isMounted = false;
+        };
+    }, []); // Initial load only
+
+    // Fetch schedules when period changes
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadSchedules = async () => {
+            setLoading(true);
+            try {
+                const query = selectedPeriod !== 'all' && selectedPeriod ? `?period_id=${selectedPeriod}` : '';
+                const [semproRes, groupsRes] = await Promise.all([
+                    api.get(`/admin/sempro/schedules${query}`),
+                    api.get(`/admin/groups${query}`),
+                ]);
+                if (isMounted) {
+                    setSchedules(semproRes.data.data || []);
+                    setGroups(groupsRes.data.data || []);
+                }
+            } catch (err) {
+                if (isMounted) {
+                    console.error(err);
+                }
+            } finally {
+                if (isMounted) {
+                    setLoading(false);
+                }
+            }
+        };
+
+        loadSchedules();
+
+        return () => {
+            isMounted = false;
+        };
     }, [selectedPeriod]);
 
-    useEffect(() => { fetchPeriods(); }, []);
-    useEffect(() => { fetchSchedules(selectedPeriod); }, [selectedPeriod]);
-    useEffect(() => { fetchDosens(); }, [fetchDosens]);
-
-    useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+    // Reset page when filters change
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, pageSize, sortKey, sortDir]);
 
     const filteredAndSorted = useMemo(() => {
         const result = schedules.filter(s => {
@@ -172,9 +261,7 @@ export default function AdminSemproPage() {
     const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
 
     const resetForm = () => {
-        setFormGroupId(''); setFormDate('');
-        setFormStartTime(''); setFormEndTime(''); setFormRoom('');
-        setFormExaminer1(''); setFormExaminer2('');
+        form.reset();
     };
 
     const handleSort = (key: SortKey) => {
@@ -195,17 +282,29 @@ export default function AdminSemproPage() {
         });
     };
 
-    const handleSchedule = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setSubmitting(true);
+    const handleSchedule = async (data: SemproScheduleFormData) => {
         try {
-            await api.post('/admin/sempro/schedule', {
-                group_id: Number(formGroupId),
-                date: formDate, start_time: formStartTime, end_time: formEndTime,
-                room: formRoom || null,
-                examiner_1_id: Number(formExaminer1),
-                examiner_2_id: Number(formExaminer2),
-            });
+            interface SchedulePayload {
+                group_id: number;
+                date: string;
+                start_time: string;
+                end_time: string;
+                examiner_1_id: number;
+                examiner_2_id: number;
+                location_id?: number;
+            }
+            const payload: SchedulePayload = {
+                group_id: Number(data.group_id),
+                date: data.date,
+                start_time: data.start_time,
+                end_time: data.end_time,
+                examiner_1_id: Number(data.examiner_1_id),
+                examiner_2_id: Number(data.examiner_2_id),
+            };
+            if (data.location_id) {
+                payload.location_id = Number(data.location_id);
+            }
+            await api.post('/admin/sempro/schedule', payload);
             toast.success('SEMPRO schedule created');
             setScheduleOpen(false);
             resetForm();
@@ -218,8 +317,6 @@ export default function AdminSemproPage() {
             } else {
                 toast.error('Scheduling failed');
             }
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -229,7 +326,7 @@ export default function AdminSemproPage() {
             date: schedule?.date || '',
             start_time: schedule?.start_time || '',
             end_time: schedule?.end_time || '',
-            room: schedule?.room || '',
+            location_id: schedule?.room?.toString() || '', // Keep room as string, will look up location later
             examiner_1_id: schedule?.examiner1?.id?.toString() || '',
             examiner_2_id: schedule?.examiner2?.id?.toString() || '',
         });
@@ -239,14 +336,25 @@ export default function AdminSemproPage() {
     const submitApprove = async () => {
         if (!approveId) return;
         try {
-            await api.put(`/admin/sempro/schedules/${approveId}/approve`, {
+            interface ApprovePayload {
+                date: string;
+                start_time: string;
+                end_time: string;
+                examiner_1_id: number;
+                examiner_2_id: number;
+                location_id?: number;
+            }
+            const payload: ApprovePayload = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
-                room: approveData.room,
                 examiner_1_id: Number(approveData.examiner_1_id),
                 examiner_2_id: Number(approveData.examiner_2_id),
-            });
+            };
+            if (approveData.location_id) {
+                payload.location_id = Number(approveData.location_id);
+            }
+            await api.put(`/admin/sempro/schedules/${approveId}/approve`, payload);
             toast.success('Schedule approved');
             setApproveDialogOpen(false);
             setApproveId(null);
@@ -275,13 +383,57 @@ export default function AdminSemproPage() {
         }
     };
 
-    const statusColor = (s: string) => {
-        if (s === 'COMPLETED') return 'default' as const;
-        if (s === 'CANCELLED') return 'destructive' as const;
-        if (s === 'PENDING_APPROVAL') return 'secondary' as const;
-        if (s === 'APPROVED') return 'default' as const;
-        return 'secondary' as const;
+    const handleCancel = async () => {
+        if (!cancelId) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${cancelId}/cancel`);
+            toast.success('Schedule cancelled');
+            setCancelId(null);
+            fetchSchedules();
+        } catch {
+            toast.error('Failed to cancel schedule');
+        }
     };
+
+    const handleEdit = (id: number, schedule: Schedule) => {
+        setEditId(id);
+        setApproveData({
+            date: schedule?.date || '',
+            start_time: schedule?.start_time || '',
+            end_time: schedule?.end_time || '',
+            location_id: schedule?.room?.toString() || '',
+            examiner_1_id: schedule?.examiner1?.id?.toString() || '',
+            examiner_2_id: schedule?.examiner2?.id?.toString() || '',
+        });
+        setEditDialogOpen(true);
+    };
+
+    const submitEdit = async () => {
+        if (!editId) return;
+        try {
+            await api.put(`/admin/sempro/schedules/${editId}`, {
+                date: approveData.date,
+                start_time: approveData.start_time,
+                end_time: approveData.end_time,
+                location_id: Number(approveData.location_id),
+                examiner_1_id: Number(approveData.examiner_1_id),
+                examiner_2_id: Number(approveData.examiner_2_id),
+            });
+            toast.success('Schedule updated');
+            setEditDialogOpen(false);
+            setEditId(null);
+            fetchSchedules();
+        } catch (error) {
+            if (api.isAxiosError(error)) {
+                const msg = error.response?.data?.message || 'Update failed';
+                toast.error(msg);
+            } else {
+                toast.error('Update failed');
+            }
+        }
+    };
+
+    const statusColor = (s: string) => getSemproStatusBadgeVariant(s);
 
     const statusDisplay = (status: string) => {
         switch (status) {
@@ -301,7 +453,50 @@ export default function AdminSemproPage() {
         }
     };
 
-    const eligibleGroups = groups.filter(g => g.status === 'READY_FOR_SEMPRO');
+    // Watch form values
+    const watchedPeriodId = form.watch('period_id');
+    const watchedGroupId = form.watch('group_id');
+    const watchedExaminer1Id = form.watch('examiner_1_id');
+
+    // Filter eligible groups based on form period selection
+    const eligibleGroups = useMemo(() => {
+        return groups.filter(g => {
+            if (g.status !== 'READY_FOR_SEMPRO') return false;
+            // If no period selected in form, show all ready groups
+            if (!watchedPeriodId) return true;
+            // Filter by selected period
+            return g.period_id?.toString() === watchedPeriodId;
+        });
+    }, [groups, watchedPeriodId]);
+
+    // Get supervisors of the selected group to exclude from examiners
+    const selectedGroup = useMemo(() => {
+        if (!watchedGroupId) return null;
+        return groups.find(g => g.id.toString() === watchedGroupId);
+    }, [groups, watchedGroupId]);
+
+    const supervisorIds = useMemo(() => {
+        if (!selectedGroup) return [];
+        const ids: number[] = [];
+        // Check supervisor1 and supervisor2 - adjust based on your GroupItem interface
+        // Assuming group data structure from line 55
+        return ids;
+    }, [selectedGroup]);
+
+    // Filter dosens to exclude supervisors of selected group
+    const availableDosens = useMemo(() => {
+        if (!selectedGroup) return dosens;
+        // Get supervisor IDs from the selected group
+        const groupSupervisorIds: number[] = [];
+        if (selectedGroup.supervisor1?.id) {
+            groupSupervisorIds.push(selectedGroup.supervisor1.id);
+        }
+        if (selectedGroup.supervisor2?.id) {
+            groupSupervisorIds.push(selectedGroup.supervisor2.id);
+        }
+        // Filter out supervisors from dosens list
+        return dosens.filter(d => !groupSupervisorIds.includes(d.id));
+    }, [dosens, selectedGroup]);
 
     const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
         <TableHead
@@ -322,9 +517,11 @@ export default function AdminSemproPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">Sidang Proposal</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">Schedule and manage SEMPRO sessions.</p>
                 </div>
-                <Button onClick={() => setScheduleOpen(true)} disabled={!selectedPeriod}>
-                    <Plus className="mr-2 h-4 w-4" /> New Schedule
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={() => setScheduleOpen(true)} disabled={!selectedPeriod}>
+                        <Plus className="mr-2 h-4 w-4" /> New Schedule
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -501,6 +698,26 @@ export default function AdminSemproPage() {
                                                                 </Button>
                                                             </>
                                                         )}
+                                                        {s.status === 'SCHEDULED' && (
+                                                            <>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline"
+                                                                    className="h-7 text-[13px]"
+                                                                    onClick={() => handleEdit(s.id, s)}
+                                                                >
+                                                                    Edit
+                                                                </Button>
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="destructive"
+                                                                    className="h-7 text-[13px]"
+                                                                    onClick={() => setCancelId(s.id)}
+                                                                >
+                                                                    Cancel
+                                                                </Button>
+                                                            </>
+                                                        )}
                                                     </div>
                                                 </TableCell>
                                             </TableRow>
@@ -644,7 +861,7 @@ export default function AdminSemproPage() {
             {/* --- Create Schedule Dialog --- */}
             <Dialog open={scheduleOpen} onOpenChange={(v) => { setScheduleOpen(v); if (!v) resetForm(); }}>
                 <DialogContent className="sm:max-w-[480px]">
-                    <form onSubmit={handleSchedule}>
+                    <form onSubmit={form.handleSubmit(handleSchedule)}>
                         <DialogHeader>
                             <DialogTitle>New SEMPRO Schedule</DialogTitle>
                             <DialogDescription>
@@ -653,74 +870,178 @@ export default function AdminSemproPage() {
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
                             <div className="grid gap-2">
-                                <Label>Group</Label>
-                                <Select value={formGroupId} onValueChange={setFormGroupId}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a group..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {eligibleGroups.length === 0 ? (
-                                            <div className="px-3 py-6 text-sm text-muted-foreground text-center">
-                                                No groups ready for SEMPRO
-                                            </div>
-                                        ) : (
-                                            eligibleGroups.map(g => (
-                                                <SelectItem key={g.id} value={g.id.toString()}>
-                                                    {g.title?.title || g.code || `Group ${g.id}`}
-                                                </SelectItem>
-                                            ))
-                                        )}
-                                    </SelectContent>
-                                </Select>
+                                <Label>Period <span className="text-destructive">*</span></Label>
+                                <Controller
+                                    name="period_id"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Select value={field.value} onValueChange={field.onChange}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select a period..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {periods.length === 0 ? (
+                                                    <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                        No periods available
+                                                    </div>
+                                                ) : (
+                                                    periods.map(p => (
+                                                        <SelectItem key={p.id} value={p.id.toString()}>
+                                                            {p.name}
+                                                            {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                />
+                                {form.formState.errors.period_id && (
+                                    <p className="text-sm text-destructive">{form.formState.errors.period_id.message}</p>
+                                )}
+                            </div>
+                            <div className="grid gap-2">
+                                <Label>Group <span className="text-destructive">*</span></Label>
+                                <Controller
+                                    name="group_id"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Select value={field.value} onValueChange={field.onChange} disabled={!watchedPeriodId}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder={watchedPeriodId ? "Select a group..." : "Select a period first..."} />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {eligibleGroups.length === 0 ? (
+                                                    <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                        {watchedPeriodId ? "No groups ready for SEMPRO in this period" : "Select a period to see available groups"}
+                                                    </div>
+                                                ) : (
+                                                    eligibleGroups.map(g => (
+                                                        <SelectItem key={g.id} value={g.id.toString()}>
+                                                            {g.title?.title || `Group ${g.id}`}
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                />
+                                {form.formState.errors.group_id && (
+                                    <p className="text-sm text-destructive">{form.formState.errors.group_id.message}</p>
+                                )}
                             </div>
                             <div className="grid grid-cols-3 gap-3">
                                 <div className="grid gap-1.5">
-                                    <Label className="text-[13px]">Date</Label>
-                                    <Input type="date" value={formDate} onChange={e => setFormDate(e.target.value)} required />
+                                    <Label className="text-[13px]">Date <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="date"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Input type="date" {...field} />
+                                        )}
+                                    />
+                                    {form.formState.errors.date && (
+                                        <p className="text-xs text-destructive">{form.formState.errors.date.message}</p>
+                                    )}
                                 </div>
                                 <div className="grid gap-1.5">
-                                    <Label className="text-[13px]">Start</Label>
-                                    <Input type="time" value={formStartTime} onChange={e => setFormStartTime(e.target.value)} required />
+                                    <Label className="text-[13px]">Start <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="start_time"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {form.formState.errors.start_time && (
+                                        <p className="text-xs text-destructive">{form.formState.errors.start_time.message}</p>
+                                    )}
                                 </div>
                                 <div className="grid gap-1.5">
-                                    <Label className="text-[13px]">End</Label>
-                                    <Input type="time" value={formEndTime} onChange={e => setFormEndTime(e.target.value)} required />
+                                    <Label className="text-[13px]">End <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="end_time"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {form.formState.errors.end_time && (
+                                        <p className="text-xs text-destructive">{form.formState.errors.end_time.message}</p>
+                                    )}
                                 </div>
                             </div>
                             <div className="grid gap-1.5">
-                                <Label className="text-[13px]">Room</Label>
-                                <Input
-                                    value={formRoom}
-                                    onChange={e => setFormRoom(e.target.value)}
-                                    placeholder="e.g. Lab 301"
+                                <Label className="text-[13px]">Room <span className="text-destructive">*</span></Label>
+                                <Controller
+                                    name="location_id"
+                                    control={form.control}
+                                    render={({ field }) => (
+                                        <Select value={field.value} onValueChange={field.onChange}>
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select a room..." />
+                                            </SelectTrigger>
+                                            <SelectContent position="popper" avoidCollisions>
+                                                {locations.length === 0 ? (
+                                                    <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                                        No locations available. Add locations in system settings.
+                                                    </div>
+                                                ) : (
+                                                    locations.map(loc => (
+                                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                            {loc.name} (Capacity: {loc.capacity})
+                                                        </SelectItem>
+                                                    ))
+                                                )}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
                                 />
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <div className="grid gap-1.5">
-                                    <Label className="text-[13px]">Penguji 1</Label>
-                                    <Select value={formExaminer1} onValueChange={setFormExaminer1}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {dosens.map(d => (
-                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-[13px]">Penguji 1 <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="examiner_1_id"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select..." />
+                                                </SelectTrigger>
+                                            <SelectContent>
+                                                {availableDosens.map(d => (
+                                                    <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    {form.formState.errors.examiner_1_id && (
+                                        <p className="text-xs text-destructive">{form.formState.errors.examiner_1_id.message}</p>
+                                    )}
                                 </div>
                                 <div className="grid gap-1.5">
-                                    <Label className="text-[13px]">Penguji 2</Label>
-                                    <Select value={formExaminer2} onValueChange={setFormExaminer2}>
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {dosens.filter(d => d.id.toString() !== formExaminer1).map(d => (
-                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label className="text-[13px]">Penguji 2 <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="examiner_2_id"
+                                        control={form.control}
+                                        render={({ field }) => (
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select..." />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {availableDosens.filter(d => d.id.toString() !== watchedExaminer1Id).map(d => (
+                                                        <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    {form.formState.errors.examiner_2_id && (
+                                        <p className="text-xs text-destructive">{form.formState.errors.examiner_2_id.message}</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -728,8 +1049,8 @@ export default function AdminSemproPage() {
                             <Button type="button" variant="outline" onClick={() => { setScheduleOpen(false); resetForm(); }}>
                                 Cancel
                             </Button>
-                            <Button type="submit" disabled={submitting}>
-                                {submitting ? (
+                            <Button type="submit" disabled={form.formState.isSubmitting}>
+                                {form.formState.isSubmitting ? (
                                     <>
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         Scheduling...
@@ -783,12 +1104,28 @@ export default function AdminSemproPage() {
                             </div>
                         </div>
                         <div className="grid gap-1.5">
-                            <Label className="text-[13px]">Room</Label>
-                            <Input
-                                value={approveData.room}
-                                onChange={e => setApproveData({ ...approveData, room: e.target.value })}
-                                placeholder="e.g. Lab 301"
-                            />
+                            <Label className="text-[13px]">Room <span className="text-muted-foreground">(optional)</span></Label>
+                            <Select 
+                                value={approveData.location_id} 
+                                onValueChange={(val) => setApproveData({ ...approveData, location_id: val })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a room..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {locations.length === 0 ? (
+                                        <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                            No locations available. Add locations in system settings.
+                                        </div>
+                                    ) : (
+                                        locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} (Capacity: {loc.capacity})
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
                             <div className="grid gap-1.5">
@@ -865,6 +1202,140 @@ export default function AdminSemproPage() {
                         </Button>
                         <Button variant="destructive" onClick={handleReject} disabled={!rejectReason.trim()}>
                             Reject
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Edit Dialog --- */}
+            <Dialog open={editDialogOpen} onOpenChange={(v) => { if (!v) { setEditDialogOpen(false); setEditId(null); } }}>
+                <DialogContent className="sm:max-w-[480px]">
+                    <DialogHeader>
+                        <DialogTitle>Edit SEMPRO Schedule</DialogTitle>
+                        <DialogDescription>
+                            Update schedule details.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-4 py-4">
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Date <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="date"
+                                    value={approveData.date}
+                                    onChange={e => setApproveData({ ...approveData, date: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Start <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.start_time}
+                                    onChange={e => setApproveData({ ...approveData, start_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">End <span className="text-destructive">*</span></Label>
+                                <Input
+                                    type="time"
+                                    value={approveData.end_time}
+                                    onChange={e => setApproveData({ ...approveData, end_time: e.target.value })}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-1.5">
+                            <Label className="text-[13px]">Room <span className="text-destructive">*</span></Label>
+                            <Select 
+                                value={approveData.location_id} 
+                                onValueChange={(val) => setApproveData({ ...approveData, location_id: val })}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select a room..." />
+                                </SelectTrigger>
+                                <SelectContent position="popper" avoidCollisions>
+                                    {locations.length === 0 ? (
+                                        <div className="px-3 py-6 text-sm text-muted-foreground text-center">
+                                            No locations available. Add locations in system settings.
+                                        </div>
+                                    ) : (
+                                        locations.map(loc => (
+                                            <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                {loc.name} (Capacity: {loc.capacity})
+                                            </SelectItem>
+                                        ))
+                                    )}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 1 <span className="text-destructive">*</span></Label>
+                                <Select
+                                    value={approveData.examiner_1_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_1_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" avoidCollisions>
+                                        {dosens.map(d => (
+                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-1.5">
+                                <Label className="text-[13px]">Penguji 2 <span className="text-destructive">*</span></Label>
+                                <Select
+                                    value={approveData.examiner_2_id}
+                                    onValueChange={(val) => setApproveData({ ...approveData, examiner_2_id: val })}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select..." />
+                                    </SelectTrigger>
+                                    <SelectContent position="popper" avoidCollisions>
+                                        {dosens
+                                            .filter(d => d.id.toString() !== approveData.examiner_1_id)
+                                            .map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditId(null); }}>
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={submitEdit}
+                            disabled={!approveData.date || !approveData.start_time || !approveData.end_time || !approveData.location_id || !approveData.examiner_1_id || !approveData.examiner_2_id}
+                        >
+                            Update Schedule
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* --- Cancel Dialog --- */}
+            <Dialog open={cancelId !== null} onOpenChange={(v) => { if (!v) setCancelId(null); }}>
+                <DialogContent className="sm:max-w-[420px]">
+                    <DialogHeader>
+                        <DialogTitle>Cancel Schedule</DialogTitle>
+                        <DialogDescription>
+                            Are you sure you want to cancel this SEMPRO schedule?
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setCancelId(null)}>
+                            Keep Schedule
+                        </Button>
+                        <Button variant="destructive" onClick={handleCancel}>
+                            Cancel Schedule
                         </Button>
                     </DialogFooter>
                 </DialogContent>

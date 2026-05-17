@@ -208,7 +208,7 @@ class TaSubmissionController extends Controller
     {
         $request->validate([
             'result' => 'required|in:APPROVE,REVISE',
-            'feedback' => 'nullable|string',
+            'feedback' => 'nullable|string|max:500',
         ]);
 
         $user = $request->user();
@@ -567,7 +567,7 @@ class TaSubmissionController extends Controller
     {
         $request->validate([
             'action' => 'required|in:APPROVE,REJECT',
-            'feedback' => 'nullable|string',
+            'feedback' => 'nullable|string|max:500',
         ]);
 
         $user = $request->user();

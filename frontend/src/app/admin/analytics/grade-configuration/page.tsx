@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -57,44 +57,19 @@ interface Period {
 export default function GradeConfigurationPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [, setConfig] = useState<GradeConfig | null>(null);
+  const [, _setConfig] = useState<GradeConfig | null>(null);
   const [pdc1Weights, setPdc1Weights] = useState({ SEMPRO: 50, BIMBINGAN_SEMPRO: 50 });
   const [pdc2Weights, setPdc2Weights] = useState({ NILAI_DOSEN: 25, MILESTONE: 25, EXPO: 25, PEER_REVIEW: 25 });
   const [taWeights, setTaWeights] = useState({ BIMBINGAN_TA: 50, SIDANG_TA: 50 });
   const [periods, setPeriods] = useState<Period[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState<string>('');
 
+  const selectedPeriodRef = useRef(selectedPeriod);
   useEffect(() => {
-    fetchPeriods();
-  }, []);
-
-  const fetchConfig = useCallback(async () => {
-    if (!selectedPeriod) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      const res = await api.get(`/admin/grade-configuration/${selectedPeriod}`);
-      setConfig(res.data);
-      // Backend returns { pdc1: { weights: {...} }, pdc2: { weights: {...} }, ta: { weights: {...} } }
-      setPdc1Weights(res.data.pdc1?.weights || { SEMPRO: 50, BIMBINGAN_SEMPRO: 50 });
-      setPdc2Weights(res.data.pdc2?.weights || { NILAI_DOSEN: 25, MILESTONE: 25, EXPO: 25, PEER_REVIEW: 25 });
-      setTaWeights(res.data.ta?.weights || { BIMBINGAN_TA: 50, SIDANG_TA: 50 });
-    } catch {
-      toast.error('Failed to load grade configuration');
-    } finally {
-      setLoading(false);
-    }
+    selectedPeriodRef.current = selectedPeriod;
   }, [selectedPeriod]);
 
-  useEffect(() => {
-    if (selectedPeriod) {
-      fetchConfig();
-    }
-  }, [selectedPeriod, fetchConfig]);
-
-  const fetchPeriods = async () => {
+  const fetchPeriods = useCallback(async () => {
     try {
       setLoading(true);
       const res = await api.get('/admin/periods');
@@ -103,7 +78,7 @@ export default function GradeConfigurationPage() {
       setPeriods(periodsData);
       // Auto-select active period if none selected
       const active = periodsData.find((p: Period) => p.is_active);
-      if (active && !selectedPeriod) {
+      if (active && !selectedPeriodRef.current) {
         setSelectedPeriod(active.id.toString());
       }
     } catch {
@@ -111,7 +86,16 @@ export default function GradeConfigurationPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  const hasFetchedPeriods = useRef(false);
+
+  useEffect(() => {
+    if (!hasFetchedPeriods.current) {
+      hasFetchedPeriods.current = true;
+      fetchPeriods();
+    }
+  }, [fetchPeriods]);
 
   const handleSave = async () => {
     if (!selectedPeriod) return;

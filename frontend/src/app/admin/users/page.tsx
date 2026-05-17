@@ -1,11 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import axios from 'axios';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import {
     Dialog,
     DialogContent,
@@ -27,6 +30,9 @@ import {
 } from "@/components/ui/table"
 import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2, ChevronLeft, ChevronRight, UserX } from 'lucide-react';
 import { toast } from "sonner";
+import { isRoleTab, type RoleTab } from "@/types/guards";
+import { userSchema, type UserFormData } from "@/lib/validations/user";
+import { z } from "zod";
 
 interface Role {
     id: number;
@@ -54,7 +60,6 @@ interface User {
 
 type SortKey = 'name' | 'email' | 'created_at' | 'nim' | 'nip';
 type SortDir = 'asc' | 'desc';
-type RoleTab = 'all' | 'mahasiswa' | 'dosen' | 'admin';
 
 interface PaginationData {
     current_page: number;
@@ -70,23 +75,50 @@ export default function AdminUsersPage() {
     const [activeTab, setActiveTab] = useState<RoleTab>('all');
     const [sortKey, setSortKey] = useState<SortKey>('name');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    const [pagination, setPagination] = useState<PaginationData>({
+    const [pagination, setPagination] = useState<PaginationData>(({
         current_page: 1,
         last_page: 1,
         per_page: 20,
         total: 0,
-    });
+    }));
     const [kickingUserId, setKickingUserId] = useState<number | null>(null);
 
     // Create/Edit State
     const [open, setOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
-    const [formData, setFormData] = useState({
-        name: '',
-        email: '',
-        password: '',
-        roles: ['mahasiswa'],
+
+    // Create dynamic schema based on whether editing or creating
+    const getSchema = () => {
+        if (editingUser) {
+            // For editing: password is optional
+            return userSchema;
+        }
+        // For creating: password is required with min 8 chars
+        return userSchema.extend({
+            password: z.string().min(8, "Password must be at least 8 characters"),
+        });
+    };
+
+    const {
+        control,
+        handleSubmit,
+        reset,
+        watch,
+        formState: { isSubmitting },
+    } = useForm<UserFormData>({
+        resolver: zodResolver(getSchema()),
+        mode: 'onBlur',
+        defaultValues: {
+            name: '',
+            email: '',
+            password: '',
+            roles: ['mahasiswa'],
+            nim: '',
+        },
     });
+
+    // Watch roles to conditionally validate NIM
+    const watchedRoles = watch('roles');
 
     const fetchUsers = useCallback(async (page: number = 1) => {
         setLoading(true);
@@ -106,12 +138,12 @@ export default function AdminUsersPage() {
 
             const response = await api.get('/admin/users', { params });
             setUsers(response.data.data);
-            setPagination({
+            setPagination(({
                 current_page: response.data.current_page,
                 last_page: response.data.last_page,
                 per_page: response.data.per_page,
                 total: response.data.total,
-            });
+            }));
         } catch (error) {
             console.error('Failed to fetch users', error);
             toast.error('Failed to load users');
@@ -154,33 +186,52 @@ export default function AdminUsersPage() {
         }
     };
 
-    const handleRoleToggle = (roleSlug: string, checked: boolean) => {
-        let roles = [...formData.roles];
-
+    const handleRoleToggle = (roles: string[], roleSlug: string, checked: boolean) => {
         if (checked) {
             if (roleSlug === 'mahasiswa') {
-                roles = ['mahasiswa'];
+                return ['mahasiswa'];
             } else {
-                roles = roles.filter((role) => role !== 'mahasiswa');
-                if (!roles.includes(roleSlug)) {
-                    roles.push(roleSlug);
+                const filtered = roles.filter((role) => role !== 'mahasiswa');
+                if (!filtered.includes(roleSlug)) {
+                    filtered.push(roleSlug);
                 }
+                return filtered;
             }
         } else {
-            roles = roles.filter((role) => role !== roleSlug);
+            return roles.filter((role) => role !== roleSlug);
         }
-
-        setFormData({ ...formData, roles });
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const onSubmit = async (data: UserFormData) => {
         try {
+            // Validate NIM for mahasiswa role
+            if (data.roles.includes('mahasiswa') && (!data.nim || data.nim.length < 8)) {
+                toast.error('NIM is required for mahasiswa role and must be at least 8 characters');
+                return;
+            }
+
+            // Prepare payload
+            const payload: Record<string, unknown> = {
+                name: data.name,
+                email: data.email,
+                roles: data.roles,
+            };
+            
+            // Only include password if provided
+            if (data.password) {
+                payload.password = data.password;
+            }
+
+            // Include nim for mahasiswa
+            if (data.roles.includes('mahasiswa') && data.nim) {
+                payload.nim = data.nim;
+            }
+
             if (editingUser) {
-                await api.put(`/admin/users/${editingUser.id}`, formData);
+                await api.put(`/admin/users/${editingUser.id}`, payload);
                 toast.success('User updated successfully');
             } else {
-                await api.post('/admin/users', formData);
+                await api.post('/admin/users', payload);
                 toast.success('User created successfully');
             }
             setOpen(false);
@@ -243,22 +294,24 @@ export default function AdminUsersPage() {
 
     const startEdit = (user: User) => {
         setEditingUser(user);
-        setFormData({
+        reset({
             name: user.name,
             email: user.email,
             password: '',
             roles: user.roles?.map(r => r.slug) || [user.role],
+            nim: user.nim || '',
         });
         setOpen(true);
     };
 
     const resetForm = () => {
         setEditingUser(null);
-        setFormData({
+        reset({
             name: '',
             email: '',
             password: '',
             roles: ['mahasiswa'],
+            nim: '',
         });
     };
 
@@ -422,6 +475,9 @@ export default function AdminUsersPage() {
         }
     };
 
+    // Check if mahasiswa role is selected
+    const isMahasiswaSelected = watchedRoles?.includes('mahasiswa');
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -439,7 +495,7 @@ export default function AdminUsersPage() {
                         </Button>
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[500px]">
-                        <form onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit(onSubmit)}>
                             <DialogHeader>
                                 <DialogTitle>{editingUser ? 'Edit User' : 'Add New User'}</DialogTitle>
                                 <DialogDescription>
@@ -447,61 +503,141 @@ export default function AdminUsersPage() {
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="name">Full Name</Label>
-                                    <Input
-                                        id="name"
-                                        value={formData.name}
-                                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                                        required
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="email">Email</Label>
-                                    <Input
-                                        id="email"
-                                        type="email"
-                                        value={formData.email}
-                                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                                        required
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="password">Password {editingUser && '(Leave blank to keep current)'}</Label>
-                                    <Input
-                                        id="password"
-                                        type="password"
-                                        value={formData.password}
-                                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                        required={!editingUser}
-                                        minLength={8}
-                                    />
-                                </div>
-                                <div className="grid gap-2">
-                                    <Label>Roles</Label>
-                                    <div className="flex flex-wrap gap-4 mt-2">
-                                        {['admin', 'dosen', 'mahasiswa'].map((roleSlug) => (
-                                            <div key={roleSlug} className="flex items-center space-x-2">
-                                                <input
-                                                    type="checkbox"
-                                                    id={`role-${roleSlug}`}
-                                                    className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
-                                                    checked={formData.roles.includes(roleSlug)}
-                                                    onChange={(e) => handleRoleToggle(roleSlug, e.target.checked)}
-                                                />
-                                                <Label htmlFor={`role-${roleSlug}`} className="capitalize cursor-pointer">
-                                                    {roleSlug}
-                                                </Label>
+                                {/* Name Field */}
+                                <Controller
+                                    name="name"
+                                    control={control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor="name">Full Name</FieldLabel>
+                                            <Input
+                                                {...field}
+                                                id="name"
+                                                placeholder="Enter full name"
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+
+                                {/* Email Field */}
+                                <Controller
+                                    name="email"
+                                    control={control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor="email">Email</FieldLabel>
+                                            <Input
+                                                {...field}
+                                                id="email"
+                                                type="email"
+                                                placeholder="Enter email address"
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+
+                                {/* Password Field */}
+                                <Controller
+                                    name="password"
+                                    control={control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor="password">
+                                                Password {editingUser && '(Leave blank to keep current)'}
+                                            </FieldLabel>
+                                            <Input
+                                                {...field}
+                                                id="password"
+                                                type="password"
+                                                placeholder={editingUser ? "Enter new password (optional)" : "Enter password"}
+                                                aria-invalid={fieldState.invalid}
+                                            />
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                        </Field>
+                                    )}
+                                />
+
+                                {/* Roles Field */}
+                                <Controller
+                                    name="roles"
+                                    control={control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel>Roles</FieldLabel>
+                                            <div className="flex flex-wrap gap-4 mt-2">
+                                                {['admin', 'dosen', 'mahasiswa'].map((roleSlug) => (
+                                                    <div key={roleSlug} className="flex items-center space-x-2">
+                                                        <Checkbox
+                                                            id={`role-${roleSlug}`}
+                                                            checked={field.value?.includes(roleSlug)}
+                                                            onCheckedChange={(checked) => {
+                                                                const newRoles = handleRoleToggle(field.value || [], roleSlug, checked as boolean);
+                                                                field.onChange(newRoles);
+                                                            }}
+                                                            aria-invalid={fieldState.invalid}
+                                                        />
+                                                        <FieldLabel htmlFor={`role-${roleSlug}`} className="capitalize cursor-pointer">
+                                                            {roleSlug}
+                                                        </FieldLabel>
+                                                    </div>
+                                                ))}
                                             </div>
-                                        ))}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground">
-                                        Role mahasiswa harus berdiri sendiri (tidak bisa digabung dengan admin/dosen).
-                                    </p>
-                                </div>
+                                            {fieldState.error && (
+                                                <FieldError>{fieldState.error.message}</FieldError>
+                                            )}
+                                            <p className="text-xs text-muted-foreground mt-1">
+                                                Role mahasiswa harus berdiri sendiri (tidak bisa digabung dengan admin/dosen).
+                                            </p>
+                                        </Field>
+                                    )}
+                                />
+
+                                {/* NIM Field - Conditional for Mahasiswa role */}
+                                {isMahasiswaSelected && (
+                                    <Controller
+                                        name="nim"
+                                        control={control}
+                                        render={({ field, fieldState }) => (
+                                            <Field data-invalid={fieldState.invalid}>
+                                                <FieldLabel htmlFor="nim">NIM</FieldLabel>
+                                                <Input
+                                                    {...field}
+                                                    id="nim"
+                                                    placeholder="Enter NIM (min 8 characters)"
+                                                    aria-invalid={fieldState.invalid}
+                                                />
+                                                {fieldState.error && (
+                                                    <FieldError>{fieldState.error.message}</FieldError>
+                                                )}
+                                                {!fieldState.error && field.value && field.value.length > 0 && field.value.length < 8 && (
+                                                    <FieldError>NIM must be at least 8 characters</FieldError>
+                                                )}
+                                            </Field>
+                                        )}
+                                    />
+                                )}
                             </div>
                             <DialogFooter>
-                                <Button type="submit">{editingUser ? 'Save Changes' : 'Create User'}</Button>
+                                <Button type="submit" disabled={isSubmitting}>
+                                    {isSubmitting ? (
+                                        <>
+                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            {editingUser ? 'Saving...' : 'Creating...'}
+                                        </>
+                                    ) : (
+                                        editingUser ? 'Save Changes' : 'Create User'
+                                    )}
+                                </Button>
                             </DialogFooter>
                         </form>
                     </DialogContent>
@@ -519,7 +655,11 @@ export default function AdminUsersPage() {
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </div>
-                <Tabs value={activeTab} onValueChange={(v) => handleTabChange(v as RoleTab)}>
+                <Tabs value={activeTab} onValueChange={(v) => {
+                    if (isRoleTab(v)) {
+                        handleTabChange(v);
+                    }
+                }}>
                     <TabsList>
                         <TabsTrigger value="all">All</TabsTrigger>
                         <TabsTrigger value="mahasiswa">Mahasiswa</TabsTrigger>

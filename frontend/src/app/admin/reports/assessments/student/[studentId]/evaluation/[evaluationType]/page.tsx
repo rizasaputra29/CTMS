@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams, useParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -13,7 +13,6 @@ import {
     Loader2, 
     Download,
     GraduationCap,
-    ClipboardCheck,
     Calculator,
     CheckCircle2,
     AlertCircle,
@@ -30,6 +29,7 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { useStringParam } from '@/hooks/use-params';
 
 interface ComponentData {
     component_id: number;
@@ -158,7 +158,6 @@ const getScoreColor = (score: number | null): string => {
 function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; index: number }) {
     const [isOpen, setIsOpen] = useState(true);
     const statusConfig = getStatusConfig(evaluator.status);
-    const StatusIcon = statusConfig.icon;
     const progressPercent = evaluator.total_components > 0 
         ? (evaluator.scored_components / evaluator.total_components) * 100 
         : 0;
@@ -345,10 +344,9 @@ function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; inde
 
 export default function EvaluationDetailPage() {
     const searchParams = useSearchParams();
-    const params = useParams();
     const periodId = searchParams.get('period_id');
-    const studentId = params.studentId as string;
-    const evaluationType = params.evaluationType as string;
+    const studentId = useStringParam('studentId');
+    const evaluationType = useStringParam('evaluationType');
     
     const [data, setData] = useState<EvaluationDetail | null>(null);
     const [loading, setLoading] = useState(true);
@@ -375,7 +373,7 @@ export default function EvaluationDetailPage() {
     }, [periodId, studentId, evaluationType]);
 
     const handleExport = () => {
-        if (!data) return;
+        if (!data || !evaluationType) return;
         
         const studentName = data.student.name.replace(/\s+/g, '_');
         const evalLabel = (EVALUATION_LABELS[evaluationType] || evaluationType).replace(/\s+/g, '_');
@@ -387,7 +385,7 @@ export default function EvaluationDetailPage() {
         csvRows.push(['Student', data.student.name]);
         csvRows.push(['NIM', data.student.nim]);
         csvRows.push(['Group', data.student.group_name]);
-        csvRows.push(['Evaluation Type', EVALUATION_LABELS[evaluationType] || evaluationType]);
+        csvRows.push(['Evaluation Type', evaluationType ? EVALUATION_LABELS[evaluationType] || evaluationType : 'Unknown']);
         csvRows.push(['Overall Score', data.overall.score?.toString() || 'N/A']);
         csvRows.push(['Status', data.overall.status]);
         csvRows.push([]);
@@ -519,7 +517,7 @@ export default function EvaluationDetailPage() {
                     {data.student.name}
                 </Link>
                 <span>/</span>
-                <span className="text-foreground">{EVALUATION_LABELS[evaluationType] || evaluationType}</span>
+                <span className="text-foreground">{evaluationType ? EVALUATION_LABELS[evaluationType] || evaluationType : 'Unknown'}</span>
             </div>
 
             {/* Header */}
@@ -531,7 +529,7 @@ export default function EvaluationDetailPage() {
                         </Button>
                     </Link>
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">{EVALUATION_LABELS[evaluationType] || evaluationType}</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">{evaluationType ? EVALUATION_LABELS[evaluationType] || evaluationType : 'Unknown'}</h1>
                         <p className="text-muted-foreground flex items-center gap-2">
                             <User className="h-4 w-4" />
                             {data.student.name} • {data.student.nim}

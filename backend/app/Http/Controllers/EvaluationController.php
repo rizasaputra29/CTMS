@@ -50,7 +50,7 @@ class EvaluationController extends Controller
             'student_id' => 'required|exists:users,id', // Evaluate individual student
             'type' => ['required', Rule::in(['bimbingan', 'proposal', 'skripsi'])], // Using lowercase to match migration or enum? Migration said string.
             'score' => 'required|numeric|min:0|max:100',
-            'feedback' => 'nullable|string',
+            'feedback' => 'nullable|string|max:500',
         ]);
 
         $evaluation = Evaluation::updateOrCreate(

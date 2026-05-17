@@ -1,43 +1,57 @@
 'use client';
 
-import { useState } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field } from '@/components/ui/field';
+import { FieldLabel } from '@/components/ui/field-label';
+import { FieldError } from '@/components/ui/field-error';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 import Link from 'next/link';
 import Image from 'next/image';
 import { toast } from 'sonner';
+import { loginSchema, type LoginFormData } from '@/lib/validations/auth';
 
 export default function LoginPage() {
     const { login } = useAuth();
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
+    
+    const {
+        control,
+        handleSubmit,
+        formState: { errors, isSubmitting },
+        setError,
+    } = useForm<LoginFormData>({
+        resolver: zodResolver(loginSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            email: '',
+            password: '',
+        },
+    });
 
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        setLoading(true);
-        setError('');
-
+    const onSubmit = async (data: LoginFormData) => {
         try {
             await api.get('/sanctum/csrf-cookie', { baseURL: 'http://localhost:8000' });
-            const res = await api.post('/login', { email, password });
+            const res = await api.post('/login', data);
             
             // Login for all users (single and multi-role) - no role selection dialog
             login(res.data.access_token, res.data.user, res.data.roles);
             toast.success('Login successful');
         } catch (err: unknown) {
             if (api.isAxiosError(err)) {
-                setError(err.response?.data?.message || 'Login failed');
+                setError('root', {
+                    type: 'manual',
+                    message: err.response?.data?.message || 'Login failed',
+                });
             } else {
-                setError('An unexpected error occurred');
+                setError('root', {
+                    type: 'manual',
+                    message: 'An unexpected error occurred',
+                });
             }
-        } finally {
-            setLoading(false);
         }
     };
 
@@ -75,41 +89,63 @@ export default function LoginPage() {
                             </p>
                         </div>
 
-                        {/* Error */}
-                        {error && (
+                        {/* Root Error */}
+                        {errors.root && (
                             <div className="p-3 text-sm text-red-600 bg-red-50 dark:bg-red-950/20 rounded-lg border border-red-200 dark:border-red-800">
-                                {error}
+                                {errors.root.message}
                             </div>
                         )}
 
                         {/* Form */}
-                        <form onSubmit={handleSubmit} className="space-y-5">
-                            <div className="grid gap-2">
-                                <Label htmlFor="email">Email</Label>
-                                <Input
-                                    id="email"
-                                    type="email"
-                                    placeholder="Enter your email"
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    required
-                                    className="h-11"
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="password">Password</Label>
-                                <Input
-                                    id="password"
-                                    type="password"
-                                    placeholder="Enter your password"
-                                    value={password}
-                                    onChange={(e) => setPassword(e.target.value)}
-                                    required
-                                    className="h-11"
-                                />
-                            </div>
-                            <Button type="submit" className="w-full h-11 text-sm font-medium" disabled={loading}>
-                                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                            <Controller
+                                name="email"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Email</FieldLabel>
+                                        <Input
+                                            {...field}
+                                            id={field.name}
+                                            type="email"
+                                            placeholder="Enter your email"
+                                            aria-invalid={fieldState.invalid}
+                                            className="h-11"
+                                        />
+                                        {fieldState.invalid && (
+                                            <FieldError errors={[fieldState.error]} />
+                                        )}
+                                    </Field>
+                                )}
+                            />
+                            
+                            <Controller
+                                name="password"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Password</FieldLabel>
+                                        <Input
+                                            {...field}
+                                            id={field.name}
+                                            type="password"
+                                            placeholder="Enter your password"
+                                            aria-invalid={fieldState.invalid}
+                                            className="h-11"
+                                        />
+                                        {fieldState.invalid && (
+                                            <FieldError errors={[fieldState.error]} />
+                                        )}
+                                    </Field>
+                                )}
+                            />
+                            
+                            <Button 
+                                type="submit" 
+                                className="w-full h-11 text-sm font-medium" 
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                                 Sign In
                             </Button>
                         </form>

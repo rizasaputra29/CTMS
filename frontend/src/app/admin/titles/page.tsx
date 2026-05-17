@@ -30,7 +30,7 @@ interface Group {
 }
 
 export default function AdminTitlesPage() {
-    const [periods, setPeriods] = useState<Period[]>([]);
+    const [periods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [searchQuery, setSearchQuery] = useState('');
     const [groups, setGroups] = useState<Group[]>([]);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams, useParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
@@ -21,6 +21,8 @@ import {
     ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useStringParam } from '@/hooks/use-params';
+import { getEvaluationData } from '@/types/guards';
 
 interface EvaluationStatus {
     score: number | null;
@@ -93,10 +95,9 @@ const getScoreColor = (score: number | null): string => {
 
 export default function StudentAssessmentDetailPage() {
     const searchParams = useSearchParams();
-    const params = useParams();
     const router = useRouter();
     const periodId = searchParams.get('period_id');
-    const studentId = params.studentId as string;
+    const studentId = useStringParam('studentId');
     
     const [data, setData] = useState<StudentEvaluations | null>(null);
     const [loading, setLoading] = useState(true);
@@ -175,10 +176,10 @@ export default function StudentAssessmentDetailPage() {
         // Build CSV content
         const headers = ['Evaluation Type', 'Score', 'Status', 'Components'];
         const rows = EVALUATION_CONFIG.map(config => {
-            const evalData = data.evaluations[config.key as keyof typeof data.evaluations];
+            const evalData = getEvaluationData(data.evaluations, config.key);
             return [
                 config.label,
-                evalData?.score !== null ? evalData.score.toString() : 'N/A',
+            evalData?.score != null ? evalData.score.toString() : 'N/A',
                 evalData?.status || 'NOT_STARTED',
                 `${evalData?.scored_components || 0}/${evalData?.total_components || 0}`
             ];
@@ -306,11 +307,11 @@ export default function StudentAssessmentDetailPage() {
             {/* Evaluation Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {EVALUATION_CONFIG.map((config) => {
-                    const evalData = data.evaluations[config.key as keyof typeof data.evaluations];
-                    const statusConfig = getStatusConfig(evalData?.status);
+                    const evalData = getEvaluationData(data.evaluations, config.key);
+                    const statusConfig = getStatusConfig(evalData?.status ?? 'NOT_STARTED');
                     const Icon = statusConfig.icon;
-                    const progressPercent = evalData?.total_components > 0 
-                        ? (evalData.scored_components / evalData.total_components) * 100 
+                    const progressPercent = (evalData?.total_components ?? 0) > 0
+                        ? ((evalData?.scored_components ?? 0) / (evalData?.total_components ?? 1)) * 100
                         : 0;
                     
                     return (
@@ -342,8 +343,8 @@ export default function StudentAssessmentDetailPage() {
                             
                             <CardContent className="space-y-4">
                                 <div className="flex items-baseline gap-2">
-                                    <span className={`text-4xl font-bold ${getScoreColor(evalData?.score)}`}>
-                                        {evalData?.score !== null ? Math.round(evalData.score) : '–'}
+                                    <span className={`text-4xl font-bold ${getScoreColor(evalData?.score ?? null)}`}>
+                                        {evalData?.score != null ? Math.round(evalData.score) : '–'}
                                     </span>
                                     <span className="text-sm text-muted-foreground">
                                         / 100

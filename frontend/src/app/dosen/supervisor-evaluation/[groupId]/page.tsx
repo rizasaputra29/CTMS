@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,8 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { useStringParam } from '@/hooks/use-params';
+import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Component {
   id: number;
@@ -66,10 +68,9 @@ interface Group {
 }
 
 export default function SupervisorEvaluationDetailPage() {
-  const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const groupId = params.groupId as string;
+  const groupId = useStringParam('groupId');
   const evaluationType = searchParams.get('type') || 'BIMBINGAN_SEMPRO';
   const studentId = searchParams.get('student_id');
 
@@ -115,10 +116,10 @@ export default function SupervisorEvaluationDetailPage() {
       setNotes(initialNotes);
       setIsViewOnly(hasExistingScores);
     } catch (error) {
-      const err = error as { response?: { data?: { error?: string }; status?: number } };
       console.error('Error fetching evaluation form:', error);
-      toast.error(err.response?.data?.error || 'Gagal memuat form penilaian');
-      if (err.response?.status === 400) {
+      toast.error(getApiErrorMessage(error) || 'Gagal memuat form penilaian');
+      // Check if it's a 400 error
+      if (api.isAxiosError(error) && error.response?.status === 400) {
         router.push('/dosen/supervisor-evaluation');
       }
     } finally {
@@ -180,7 +181,7 @@ export default function SupervisorEvaluationDetailPage() {
       );
 
       await api.post('/dosen/supervisor-evaluation', {
-        group_id: parseInt(groupId),
+        group_id: groupId ? parseInt(groupId) : null,
         evaluation_type: evaluationType,
         scores: scorePayload,
       });
@@ -188,9 +189,8 @@ export default function SupervisorEvaluationDetailPage() {
       toast.success('Penilaian berhasil disimpan');
       router.push('/dosen/supervisor-evaluation');
     } catch (error) {
-      const err = error as { response?: { data?: { error?: string } } };
       console.error('Error saving evaluation:', error);
-      toast.error(err.response?.data?.error || 'Gagal menyimpan penilaian');
+      toast.error(getApiErrorMessage(error) || 'Gagal menyimpan penilaian');
     } finally {
       setSaving(false);
     }

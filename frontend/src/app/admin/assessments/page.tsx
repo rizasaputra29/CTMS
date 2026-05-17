@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -64,17 +64,24 @@ export default function AssessmentsPage() {
   const [components, setComponents] = useState<Component[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const selectedPeriodRef = useRef(selectedPeriod);
+  useEffect(() => {
+    selectedPeriodRef.current = selectedPeriod;
+  }, [selectedPeriod]);
+
   const fetchPeriods = useCallback(async () => {
     try {
       const res = await api.get('/admin/periods');
       const periodsData = res.data?.data || [];
       setPeriods(periodsData);
       const active = periodsData.find((p: Period) => p.is_active);
-      if (active && !selectedPeriod) setSelectedPeriod(active.id.toString());
+      if (active && !selectedPeriodRef.current) setSelectedPeriod(active.id.toString());
     } catch {
       toast.error('Failed to load periods');
     }
   }, []);
+
+  const hasFetchedPeriods = useRef(false);
 
   const fetchComponents = useCallback(async () => {
     if (!selectedPeriod || !selectedType) return;
@@ -93,7 +100,10 @@ export default function AssessmentsPage() {
   }, [selectedPeriod, selectedType]);
 
   useEffect(() => {
-    fetchPeriods();
+    if (!hasFetchedPeriods.current) {
+      hasFetchedPeriods.current = true;
+      fetchPeriods();
+    }
   }, [fetchPeriods]);
 
   useEffect(() => {

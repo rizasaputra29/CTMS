@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
+import { toViewMode } from '@/types/guards';
 
 interface Evaluation {
     id: number;
@@ -262,24 +263,39 @@ export default function DosenExaminerPage() {
     const [filter, setFilter] = useState('all');
     const [viewMode, setViewMode] = useState<'schedule' | 'group'>('schedule');
 
+    // Combined data fetching with proper cleanup
     useEffect(() => {
-        const fetchPeriods = async () => {
-            try {
-                const res = await api.get('/periods-list');
-                setPeriods(res.data?.data || []);
-            } catch (err) {
-                console.error('Failed to fetch periods', err);
-            }
-        };
-        fetchPeriods();
-    }, []);
+        let isMounted = true;
+        const abortController = new AbortController();
 
-    useEffect(() => {
-        const fetchEvaluations = async () => {
-            setLoading(true);
+        const loadData = async () => {
+            // Fetch periods
+            try {
+                const res = await api.get('/periods-list', {
+                    signal: abortController.signal
+                });
+                if (isMounted) {
+                    setPeriods(res.data?.data || []);
+                }
+            } catch (err) {
+                if (isMounted && !abortController.signal.aborted) {
+                    console.error('Failed to fetch periods', err);
+                }
+            }
+
+            // Fetch evaluations
+            if (isMounted) {
+                setLoading(true);
+            }
+            
             try {
                 const periodParam = selectedPeriod !== 'all' ? `?period_id=${selectedPeriod}` : '';
-                const res = await api.get(`/dosen/seminar-schedules/examiner${periodParam}`);
+                const res = await api.get(`/dosen/seminar-schedules/examiner${periodParam}`, {
+                    signal: abortController.signal
+                });
+                
+                if (!isMounted) return;
+                
                 const seminars: SeminarData[] = res.data.data?.seminars || [];
                 const taDefenses: SeminarData[] = res.data.data?.ta_defenses || [];
 
@@ -332,14 +348,26 @@ export default function DosenExaminerPage() {
                     });
                 });
 
-                setEvaluations(mapped);
+                if (isMounted) {
+                    setEvaluations(mapped);
+                }
             } catch (err) {
-                console.error('Failed to fetch evaluations', err);
+                if (isMounted && !abortController.signal.aborted) {
+                    console.error('Failed to fetch evaluations', err);
+                }
             } finally {
-                setLoading(false);
+                if (isMounted) {
+                    setLoading(false);
+                }
             }
         };
-        fetchEvaluations();
+
+        loadData();
+
+        return () => {
+            isMounted = false;
+            abortController.abort();
+        };
     }, [selectedPeriod]);
 
     const filteredEvaluations = useMemo(() => {
@@ -424,7 +452,10 @@ export default function DosenExaminerPage() {
             </div>
 
             {/* View Mode Toggle */}
-            <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'schedule' | 'group')} className="mb-6">
+            <Tabs value={viewMode} onValueChange={(v) => {
+                const validatedMode = toViewMode(v, viewMode);
+                setViewMode(validatedMode);
+            }} className="mb-6">
                 <TabsList className="grid w-full max-w-md grid-cols-2">
                     <TabsTrigger value="schedule">
                         <Calendar className="w-4 h-4 mr-2" />

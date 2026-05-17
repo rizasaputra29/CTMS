@@ -14,6 +14,8 @@ import { useRouter } from 'next/navigation';
 import { usePeriodSelection } from '@/context/PeriodSelectionContext';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
+import { normalizePeriodList, normalizePeriodDetail } from '@/lib/normalizers';
+import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Period {
   id: number;
@@ -51,27 +53,7 @@ const EVALUATION_TYPES = [
   { value: 'MILESTONE', label: 'MILESTONE', description: 'Penilaian Milestone' },
 ];
 
-const normalizePeriodList = (payload: unknown): Period[] => {
-  if (Array.isArray(payload)) return payload as Period[];
-  if (payload && typeof payload === 'object') {
-    const data = (payload as { data?: unknown }).data;
-    if (Array.isArray(data)) return data as Period[];
-    if (data && typeof data === 'object') {
-      const nested = (data as { data?: unknown }).data;
-      if (Array.isArray(nested)) return nested as Period[];
-    }
-  }
-  return [];
-};
 
-const normalizePeriodDetail = (payload: unknown): Period | null => {
-  if (payload && typeof payload === 'object') {
-    const data = (payload as { data?: unknown }).data;
-    if (data && typeof data === 'object' && !Array.isArray(data)) return data as Period;
-    if ('id' in (payload as Record<string, unknown>)) return payload as Period;
-  }
-  return null;
-};
 
 export default function PeriodAssessmentConfigPage() {
   const router = useRouter();
@@ -189,8 +171,7 @@ export default function PeriodAssessmentConfigPage() {
       });
       toast.success('Configuration saved successfully');
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to save configuration');
+      toast.error(getApiErrorMessage(error) || 'Failed to save configuration');
     } finally {
       setSaving(false);
     }
@@ -206,8 +187,7 @@ export default function PeriodAssessmentConfigPage() {
       toast.success('Configuration copied successfully');
       fetchConfig();
     } catch (error) {
-      const err = error as { response?: { data?: { message?: string } } };
-      toast.error(err.response?.data?.message || 'Failed to copy configuration');
+      toast.error(getApiErrorMessage(error) || 'Failed to copy configuration');
     }
   };
 

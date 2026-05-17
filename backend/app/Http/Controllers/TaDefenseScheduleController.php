@@ -7,11 +7,14 @@ use App\Models\TaDefenseEvaluation;
 use App\Models\TaSubmission;
 use App\Models\Group;
 use App\Models\User;
+use App\Models\Location;
 use App\Models\Notification;
+use App\Models\Period;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Validator;
@@ -27,6 +30,7 @@ class TaDefenseScheduleController extends Controller
 
     /**
      * List all TA defense schedules for admin
+     * Cross-period: Fetches schedules from all active and finalized periods by default.
      */
     public function index(Request $request): JsonResponse
     {
@@ -41,12 +45,24 @@ class TaDefenseScheduleController extends Controller
             $with[] = 'period';
         }
 
+        // Get active and finalized period IDs for cross-period fetching
+        $periodIds = $this->getActiveAndFinalizedPeriodIds();
+        $hasPeriodColumn = $this->hasPeriodColumn();
+
         $query = TaDefenseSchedule::with($with)
+            ->whereHas('group', function ($q) use ($periodIds) {
+                // Filter by active/finalized periods by default
+                $q->whereIn('period_id', $periodIds);
+            })
             ->orderBy('date', 'asc');
 
-        // Handle period_id filter including 'all'
-        if ($request->has('period_id') && $request->period_id !== 'all') {
-            if ($this->hasPeriodColumn()) {
+        // Handle period_id filter including 'all' (all removes the period filter for viewing historical data)
+        if ($request->has('period_id')) {
+            if ($request->period_id === 'all') {
+                // Remove the whereHas constraint by requerying without it
+                $query = TaDefenseSchedule::with($with)
+                    ->orderBy('date', 'asc');
+            } elseif ($hasPeriodColumn) {
                 $query->where('period_id', $request->period_id);
             } else {
                 $query->whereHas('group', function ($q) use ($request) {
@@ -76,6 +92,19 @@ class TaDefenseScheduleController extends Controller
     }
 
     /**
+     * Get cached active and finalized period IDs.
+     */
+    private function getActiveAndFinalizedPeriodIds(): array
+    {
+        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
+            return Period::where('is_active', true)
+                ->orWhere('is_finalized', true)
+                ->pluck('id')
+                ->toArray();
+        });
+    }
+
+    /**
      * Create new TA defense schedule with multi-student support
      */
     public function store(Request $request): JsonResponse
@@ -99,6 +128,7 @@ class TaDefenseScheduleController extends Controller
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i|after:start_time',
             'room' => 'required|string|max:100',
+            'location_id' => 'nullable|exists:locations,id',
             'notes' => 'nullable|string|max:1000',
         ]);
 
@@ -175,12 +205,20 @@ class TaDefenseScheduleController extends Controller
 
         // Validate scheduling conflicts
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        
+        // Determine room/location for conflict checking
+        $room = $request->room;
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $room = $location->name;
+        }
+        
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
             $request->date,
             $request->start_time,
             $request->end_time,
-            $request->room
+            $room
         );
 
         if (!empty($conflicts)) {
@@ -203,7 +241,8 @@ class TaDefenseScheduleController extends Controller
                 'date' => $request->date,
                 'start_time' => $request->start_time,
                 'end_time' => $request->end_time,
-                'room' => $request->room,
+                'room' => $room,
+                'location_id' => $request->location_id,
                 'status' => 'SCHEDULED',
                 'evaluation_deadline' => $evaluationDeadline,
                 'notes' => $request->notes,
@@ -293,6 +332,7 @@ class TaDefenseScheduleController extends Controller
             'start_time' => 'sometimes|date_format:H:i',
             'end_time' => 'sometimes|date_format:H:i|after:start_time',
             'room' => 'sometimes|string|max:100',
+            'location_id' => 'nullable|exists:locations,id',
             'notes' => 'nullable|string|max:1000',
             'status' => 'sometimes|in:SCHEDULED,CANCELLED',
             'student_ids' => 'sometimes|array|min:1',
@@ -380,11 +420,18 @@ class TaDefenseScheduleController extends Controller
             }
 
             // Validate scheduling conflicts
-            if ($request->has('date') || $request->has('start_time') || $request->has('end_time') || $request->has('room')) {
+            if ($request->has('date') || $request->has('start_time') || $request->has('end_time') || $request->has('room') || $request->has('location_id')) {
                 $examDate = $request->date ?? $schedule->date;
                 $examStartTime = $request->start_time ?? $schedule->start_time;
                 $examEndTime = $request->end_time ?? $schedule->end_time;
+                
+                // Determine room/location for conflict checking
                 $examRoom = $request->room ?? $schedule->room;
+                $locationId = $request->location_id ?? $schedule->location_id;
+                if ($locationId && !$request->has('room')) {
+                    $location = Location::find($locationId);
+                    $examRoom = $location->name;
+                }
 
                 $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
                 $conflicts = $this->schedulingService->validateScheduleConflicts(
@@ -406,7 +453,7 @@ class TaDefenseScheduleController extends Controller
             }
 
             $schedule->update($request->only([
-                'date', 'start_time', 'end_time', 'room', 'notes', 'status'
+                'date', 'start_time', 'end_time', 'room', 'location_id', 'notes', 'status'
             ]));
 
             // Notify all students of update

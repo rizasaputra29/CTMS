@@ -150,8 +150,134 @@ class UserController extends Controller
             return response()->json(['message' => 'Super admin account cannot be deleted.'], 403);
         }
 
-        $user->delete();
-        return response()->json(['message' => 'User deleted']);
+        DB::beginTransaction();
+        try {
+            // If user is a student, handle group cleanup
+            if ($user->hasRole('mahasiswa')) {
+                $this->cleanupStudentGroups($user);
+            }
+
+            $user->delete();
+            DB::commit();
+            return response()->json(['message' => 'User deleted']);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('user.delete.failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to delete user: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Cleanup student groups when student is deleted.
+     * - Solo group: Delete entire group and related data
+     * - Multi-member group: Remove student and auto-assign new leader if leader deleted
+     */
+    private function cleanupStudentGroups(User $student): void
+    {
+        $memberships = GroupMember::where('student_id', $student->id)->get();
+
+        foreach ($memberships as $membership) {
+            $group = Group::with(['members', 'period'])->find($membership->group_id);
+            if (!$group) {
+                continue;
+            }
+
+            $memberCount = $group->members->count();
+            $isSoloGroup = $group->is_solo;
+            $isLeader = $membership->is_leader;
+
+            if ($isSoloGroup) {
+                // Solo group: Delete entire group and all related data
+                $this->deleteGroupCompletely($group);
+            } else {
+                // Multi-member group
+                if ($memberCount <= 1) {
+                    // Last member leaving: delete group
+                    $this->deleteGroupCompletely($group);
+                } else {
+                    // Multiple members: remove student and handle leadership
+                    if ($isLeader) {
+                        // Auto-assign new leader (oldest member)
+                        $newLeader = GroupMember::where('group_id', $group->id)
+                            ->where('student_id', '!=', $student->id)
+                            ->orderBy('created_at', 'asc')
+                            ->first();
+                        
+                        if ($newLeader) {
+                            $newLeader->update(['is_leader' => true]);
+                            
+                            // Notify new leader
+                            Notification::create([
+                                'user_id' => $newLeader->student_id,
+                                'type' => 'LEADER_ASSIGNED',
+                                'title' => 'Anda Menjadi Ketua Kelompok',
+                                'message' => "Anda otomatis ditunjuk sebagai ketua kelompok {$group->id} karena ketua sebelumnya telah dihapus.",
+                                'related_type' => 'Group',
+                                'related_id' => $group->id,
+                            ]);
+                        }
+                    }
+                    
+                    // Delete the membership
+                    $membership->delete();
+                }
+            }
+        }
+    }
+
+    /**
+     * Completely delete a group and all its related data.
+     */
+    private function deleteGroupCompletely(Group $group): void
+    {
+        $groupId = $group->id;
+
+        // Delete related data in order
+        // Documents
+        \App\Models\Document::where('group_id', $groupId)->delete();
+        
+        // Bids
+        \App\Models\Bid::where('group_id', $groupId)->delete();
+        
+        // Student proposals (titles)
+        \App\Models\Title::where('proposed_by_group_id', $groupId)->delete();
+        
+        // Group memberships
+        GroupMember::where('group_id', $groupId)->delete();
+        
+        // Supervisions
+        \App\Models\Supervision::where('group_id', $groupId)->delete();
+        
+        // Schedules
+        \App\Models\Schedule::where('group_id', $groupId)->delete();
+        
+        // Seminar schedules
+        \App\Models\SeminarSchedule::where('group_id', $groupId)->delete();
+        
+        // TA defense schedules
+        \App\Models\TaDefenseSchedule::where('group_id', $groupId)->delete();
+        
+        // TA submissions
+        \App\Models\TaSubmission::where('group_id', $groupId)->delete();
+        
+        // Evaluations
+        \App\Models\Evaluation::where('group_id', $groupId)->delete();
+        
+        // Join requests
+        \App\Models\JoinRequest::where('group_id', $groupId)->delete();
+        
+        // Group invitations
+        \App\Models\GroupInvitation::where('group_id', $groupId)->delete();
+        
+        // Notifications related to group
+        \App\Models\Notification::where('related_type', 'Group')
+            ->where('related_id', $groupId)
+            ->delete();
+
+        // Finally delete the group
+        $group->delete();
+        
+        Log::info('group.deleted.completely', ['group_id' => $groupId]);
     }
 
     /**

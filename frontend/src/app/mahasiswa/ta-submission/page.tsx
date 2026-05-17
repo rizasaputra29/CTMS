@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { getApiErrorMessage } from '@/lib/error-utils';
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -180,8 +181,7 @@ export default function TaSubmissionPage() {
       setStatusData(response.data);
     } catch (err: unknown) {
       console.error('Failed to fetch TA data', err);
-      const axiosError = err as { response?: { status?: number } };
-      if (axiosError.response?.status === 400) {
+      if (api.isAxiosError(err) && err.response?.status === 400) {
         setStatusData({
           can_access: false,
           status: 'TA_LOCKED',
@@ -285,8 +285,7 @@ export default function TaSubmissionPage() {
       setSelectedDocType('');
       fetchData();
     } catch (error: unknown) {
-      const axiosError = error as { response?: { data?: { message?: string } } };
-      toast.error(axiosError.response?.data?.message || 'Upload failed');
+      toast.error(getApiErrorMessage(error) || 'Upload failed');
     } finally {
       setUploading(false);
       setUploadProgress(0);

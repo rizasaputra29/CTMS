@@ -1,6 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +20,7 @@ import {
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Loader2, Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Eye, EyeOff, Edit, Trash2 } from 'lucide-react';
+import { expoEventSchema, type ExpoEventFormData } from '@/lib/validations/expo';
 
 interface ExpoEvent {
     id: number;
@@ -27,6 +30,7 @@ interface ExpoEvent {
     start_time: string;
     end_time: string;
     room: string;
+    location_id?: number;
     capacity: number;
     is_published: boolean;
     registrations_count: number;
@@ -37,6 +41,14 @@ interface ExpoEvent {
 interface Period {
     id: number;
     name: string;
+    is_active: boolean;
+}
+
+interface Location {
+    id: number;
+    name: string;
+    capacity: number;
+    type: 'physical' | 'online';
     is_active: boolean;
 }
 
@@ -54,14 +66,23 @@ export default function AdminExpoPage() {
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ExpoEvent | null>(null);
     const [submitting, setSubmitting] = useState(false);
-    const [form, setForm] = useState({
-        period_id: '',
-        name: '',
-        date: '',
-        start_time: '',
-        end_time: '',
-        room: '',
-        capacity: '30',
+
+    const {
+        control,
+        handleSubmit,
+        reset,
+        formState: { errors },
+    } = useForm<ExpoEventFormData>({
+        resolver: zodResolver(expoEventSchema),
+        defaultValues: {
+            period_id: '',
+            name: '',
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            capacity: '30',
+        },
     });
 
     const [page, setPage] = useState(1);
@@ -69,6 +90,7 @@ export default function AdminExpoPage() {
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+    const [locations, setLocations] = useState<Location[]>([]);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -90,13 +112,30 @@ export default function AdminExpoPage() {
         }
     }, [selectedPeriod]);
 
-    useEffect(() => { fetchData(); }, [selectedPeriod]);
+    const fetchLocations = useCallback(async () => {
+        try {
+            const res = await api.get('/locations');
+            setLocations(res.data?.data || []);
+        } catch (err) {
+            console.error('Failed to fetch locations', err);
+        }
+    }, []);
+
+    const hasFetchedData = useRef(false);
+    useEffect(() => {
+        if (!hasFetchedData.current) {
+            hasFetchedData.current = true;
+            fetchData();
+        }
+    }, [fetchData]);
     useEffect(() => { setPage(1); }, [searchQuery, pageSize, sortKey, sortDir]);
+    useEffect(() => { fetchLocations(); }, [fetchLocations]);
 
     const filteredAndSorted = useMemo(() => {
         const result = events.filter(evt => {
             const q = searchQuery.toLowerCase();
-            return evt.name.toLowerCase().includes(q) || evt.room.toLowerCase().includes(q);
+            const locationName = locations.find(l => l.id === evt.location_id)?.name || evt.room || '';
+            return evt.name.toLowerCase().includes(q) || locationName.toLowerCase().includes(q);
         });
 
         result.sort((a, b) => {
@@ -110,7 +149,7 @@ export default function AdminExpoPage() {
         });
 
         return result;
-    }, [events, searchQuery, sortKey, sortDir]);
+    }, [events, searchQuery, sortKey, sortDir, locations]);
 
     const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
     const safePage = Math.min(page, totalPages);
@@ -124,28 +163,41 @@ export default function AdminExpoPage() {
 
     const openCreate = () => {
         setEditing(null);
-        setForm({ period_id: periods[0]?.id.toString() || '', name: '', date: '', start_time: '', end_time: '', room: '', capacity: '30' });
+        reset({
+            period_id: periods[0]?.id.toString() || '',
+            name: '',
+            date: '',
+            start_time: '',
+            end_time: '',
+            location_id: '',
+            capacity: '30',
+        });
         setDialogOpen(true);
     };
 
     const openEdit = (evt: ExpoEvent) => {
         setEditing(evt);
-        setForm({
+        reset({
             period_id: evt.period_id.toString(),
             name: evt.name,
             date: evt.date.split('T')[0],
             start_time: evt.start_time.slice(0, 5),
             end_time: evt.end_time.slice(0, 5),
-            room: evt.room,
+            location_id: evt.location_id?.toString() || '',
             capacity: evt.capacity.toString(),
         });
         setDialogOpen(true);
     };
 
-    const handleSubmit = async () => {
+    const onSubmit = async (data: ExpoEventFormData) => {
         setSubmitting(true);
         try {
-            const payload = { ...form, capacity: Number(form.capacity), period_id: Number(form.period_id) };
+            const payload = {
+                ...data,
+                capacity: Number(data.capacity),
+                period_id: Number(data.period_id),
+                location_id: data.location_id ? Number(data.location_id) : null
+            };
             if (editing) {
                 await api.put(`/admin/expo-events/${editing.id}`, payload);
                 toast.success('Event updated');
@@ -226,9 +278,11 @@ export default function AdminExpoPage() {
                     <h1 className="text-2xl font-semibold tracking-tight">Expo Events</h1>
                     <p className="text-muted-foreground text-sm mt-0.5">Create and manage expo events for student groups.</p>
                 </div>
-                <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> New Event
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button onClick={openCreate}>
+                        <Plus className="mr-2 h-4 w-4" /> New Event
+                    </Button>
+                </div>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
@@ -285,8 +339,8 @@ export default function AdminExpoPage() {
                                     <TableHead className="w-10" />
                                     <SortHeader label="Event" sortKeyName="name" />
                                     <SortHeader label="Date" sortKeyName="date" />
-                                    <TableHead className="w-[120px]">Time</TableHead>
-                                    <TableHead>Room</TableHead>
+                                            <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead>Location</TableHead>
                                     <TableHead className="w-[160px]">Registrations</TableHead>
                                     <TableHead className="w-[110px]">Status</TableHead>
                                     <TableHead className="w-[200px] text-right">Actions</TableHead>
@@ -337,7 +391,7 @@ export default function AdminExpoPage() {
                                                 </TableCell>
                                                 <TableCell>
                                                     <span className="text-sm text-muted-foreground">
-                                                        {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                        {locations.find(l => l.id === evt.location_id)?.name || evt.room || <span className="text-muted-foreground/40">—</span>}
                                                     </span>
                                                 </TableCell>
                                                 <TableCell>
@@ -420,9 +474,9 @@ export default function AdminExpoPage() {
                                                                         </span>
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-muted-foreground/70 text-[12px]">Room</span>
+                                                                        <span className="text-muted-foreground/70 text-[12px]">Location</span>
                                                                         <span className="text-[12px] text-muted-foreground">
-                                                                            {evt.room || <span className="text-muted-foreground/40">—</span>}
+                                                                            {locations.find(l => l.id === evt.location_id)?.name || evt.room || <span className="text-muted-foreground/40">—</span>}
                                                                         </span>
                                                                     </div>
                                                                     <div className="flex items-center justify-between">
@@ -521,61 +575,124 @@ export default function AdminExpoPage() {
 
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
                 <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{editing ? 'Edit Event' : 'Create Expo Event'}</DialogTitle>
-                        <DialogDescription>
-                            {editing ? 'Update the event details.' : 'Create a new expo event for student registration.'}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-4 py-2">
-                        {!editing && (
+                    <form onSubmit={handleSubmit(onSubmit)}>
+                        <DialogHeader>
+                            <DialogTitle>{editing ? 'Edit Event' : 'Create Expo Event'}</DialogTitle>
+                            <DialogDescription>
+                                {editing ? 'Update the event details.' : 'Create a new expo event for student registration.'}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                            {!editing && (
+                                <div>
+                                    <Label>Period</Label>
+                                    <Controller
+                                        name="period_id"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select value={field.value} onValueChange={field.onChange}>
+                                                <SelectTrigger><SelectValue placeholder="Select period..." /></SelectTrigger>
+                                                <SelectContent>
+                                                    {periods.filter(p => p.is_active).map((p) => (
+                                                        <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    {errors.period_id && <p className="text-sm text-destructive mt-1">{errors.period_id.message}</p>}
+                                </div>
+                            )}
                             <div>
-                                <Label>Period</Label>
-                                <Select value={form.period_id} onValueChange={(v) => setForm({ ...form, period_id: v })}>
-                                    <SelectTrigger><SelectValue placeholder="Select period..." /></SelectTrigger>
-                                    <SelectContent>
-                                        {periods.filter(p => p.is_active).map((p) => (
-                                            <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                                <Label>Event Name</Label>
+                                <Controller
+                                    name="name"
+                                    control={control}
+                                    render={({ field }) => (
+                                        <Input {...field} placeholder="e.g. Expo Capstone Batch 1" />
+                                    )}
+                                />
+                                {errors.name && <p className="text-sm text-destructive mt-1">{errors.name.message}</p>}
                             </div>
-                        )}
-                        <div>
-                            <Label>Event Name</Label>
-                            <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Expo Capstone Batch 1" />
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label>Date</Label>
+                                    <Controller
+                                        name="date"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="date" {...field} />
+                                        )}
+                                    />
+                                    {errors.date && <p className="text-sm text-destructive mt-1">{errors.date.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>Location <span className="text-destructive">*</span></Label>
+                                    <Controller
+                                        name="location_id"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                                <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
+                                                <SelectContent position="popper" avoidCollisions>
+                                                    {locations.length === 0 && (
+                                                        <SelectItem value="no-locations" disabled>No locations available</SelectItem>
+                                                    )}
+                                                    {locations.filter(l => l.is_active).map((loc) => (
+                                                        <SelectItem key={loc.id} value={loc.id.toString()}>
+                                                            {loc.name} {loc.capacity ? `(Cap: ${loc.capacity})` : ''}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
+                                    />
+                                    {errors.location_id && <p className="text-sm text-destructive mt-1">{errors.location_id.message}</p>}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-4">
+                                <div>
+                                    <Label>Start Time</Label>
+                                    <Controller
+                                        name="start_time"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {errors.start_time && <p className="text-sm text-destructive mt-1">{errors.start_time.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>End Time</Label>
+                                    <Controller
+                                        name="end_time"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="time" {...field} />
+                                        )}
+                                    />
+                                    {errors.end_time && <p className="text-sm text-destructive mt-1">{errors.end_time.message}</p>}
+                                </div>
+                                <div>
+                                    <Label>Capacity</Label>
+                                    <Controller
+                                        name="capacity"
+                                        control={control}
+                                        render={({ field }) => (
+                                            <Input type="number" min="1" {...field} />
+                                        )}
+                                    />
+                                    {errors.capacity && <p className="text-sm text-destructive mt-1">{errors.capacity.message}</p>}
+                                </div>
+                            </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label>Date</Label>
-                                <Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>Room</Label>
-                                <Input value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} placeholder="e.g. Lab IF-101" />
-                            </div>
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                            <div>
-                                <Label>Start Time</Label>
-                                <Input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>End Time</Label>
-                                <Input type="time" value={form.end_time} onChange={(e) => setForm({ ...form, end_time: e.target.value })} />
-                            </div>
-                            <div>
-                                <Label>Capacity</Label>
-                                <Input type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
-                            </div>
-                        </div>
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleSubmit} disabled={submitting || !form.name || !form.date}>
-                            {submitting ? 'Saving...' : editing ? 'Update' : 'Create'}
-                        </Button>
-                    </DialogFooter>
+                        <DialogFooter>
+                            <Button variant="outline" type="button" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                            <Button type="submit" disabled={submitting}>
+                                {submitting ? 'Saving...' : editing ? 'Update' : 'Create'}
+                            </Button>
+                        </DialogFooter>
+                    </form>
                 </DialogContent>
             </Dialog>
         </div>

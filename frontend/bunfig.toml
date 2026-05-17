@@ -1,0 +1,5 @@
+[test]
+preload = ["./tests/setup.ts"]
+coverage = true
+
+timeout = "30s"

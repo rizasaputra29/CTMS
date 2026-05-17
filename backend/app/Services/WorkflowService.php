@@ -152,7 +152,17 @@ class WorkflowService
         }
 
         $currentPhase = null;
+        $isPeriodFinalized = $group->period && $group->period->is_finalized;
+        $isPostFinalizationStatus = in_array($group->status, ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL']);
+        
         foreach ($phases as $p) {
+            // For groups in post-finalization status, PDC1 should always be shown as current/completed
+            // This ensures phase labels are correct after reopen/re-finalize cycles
+            if ($isPostFinalizationStatus && $p['phase'] === 'PDC1' && $p['status'] === 'locked') {
+                // Force PDC1 to be completed if group has progressed past finalization
+                $p['status'] = 'completed';
+            }
+            
             if ($p['status'] !== 'completed') {
                 $currentPhase = $p['phase'];
                 break;

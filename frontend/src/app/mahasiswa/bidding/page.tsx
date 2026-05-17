@@ -2,12 +2,17 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Gavel, Trash2, UserCheck, Lock, AlertTriangle, ArrowUp, ArrowDown, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Field } from '@/components/ui/field';
+import { FieldLabel } from '@/components/ui/field-label';
+import { FieldError } from '@/components/ui/field-error';
+import { FieldContent } from '@/components/ui/field-content';
 import {
     Select,
     SelectContent,
@@ -26,6 +31,8 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
+import { createBidSchema, type CreateBidFormData } from '@/lib/validations/bidding';
+import { getBidStatusBadgeVariant } from '@/lib/badge-variants';
 
 interface Lecturer {
     id: number;
@@ -80,15 +87,30 @@ export default function BiddingPage() {
     const [dosens, setDosens] = useState<Lecturer[]>([]);
     const [loading, setLoading] = useState(true);
     const [addOpen, setAddOpen] = useState(false);
-    const [selectedTitle, setSelectedTitle] = useState('');
-    const [supervisor1, setSupervisor1] = useState('');
-    const [supervisor2, setSupervisor2] = useState('');
-    const [submitting, setSubmitting] = useState(false);
     const [group, setGroup] = useState<GroupInfo | null>(null);
     const [proposals, setProposals] = useState<ProposalItem[]>([]);
     const [reorderedBids, setReorderedBids] = useState<Bid[]>([]);
     const [hasChanges, setHasChanges] = useState(false);
     const [biddingFlow, setBiddingFlow] = useState<BiddingFlow | null>(null);
+
+    const {
+        control,
+        handleSubmit,
+        reset,
+        watch,
+        formState: { errors, isSubmitting },
+        setError: setFormError,
+    } = useForm<CreateBidFormData>({
+        resolver: zodResolver(createBidSchema),
+        mode: 'onBlur',
+        defaultValues: {
+            title_id: '',
+            proposed_supervisor_1_id: '',
+            proposed_supervisor_2_id: '',
+        },
+    });
+
+    const supervisor1Id = watch('proposed_supervisor_1_id');
 
     const fetchGroup = useCallback(async () => {
         try {
@@ -154,7 +176,6 @@ export default function BiddingPage() {
     const isLeader = group?.members.some(m => m.is_leader && m.student.id === user?.id) ?? false;
     const MAX_TITLES = 3;
     
-    // Since rejected bids are deleted immediately, all bids are active
     const totalUsed = bids.length + proposals.length;
     const slotsRemaining = MAX_TITLES - totalUsed;
     const hasActiveProposal = proposals.length > 0;
@@ -176,7 +197,6 @@ export default function BiddingPage() {
         TITLE_LIMIT_REACHED: 'Maksimal 3 slot judul (bidding + proposal) sudah tercapai.',
     };
 
-    // Priority reorder functions
     const movePriority = (bidId: number, direction: 'up' | 'down') => {
         setReorderedBids(prev => {
             const newBids = [...prev].sort((a, b) => a.priority - b.priority);
@@ -186,7 +206,6 @@ export default function BiddingPage() {
             const targetIndex = direction === 'up' ? index - 1 : index + 1;
             if (targetIndex < 0 || targetIndex >= newBids.length) return prev;
 
-            // Swap priorities
             const currentBid = newBids[index];
             const targetBid = newBids[targetIndex];
             
@@ -217,34 +236,26 @@ export default function BiddingPage() {
         }
     };
 
-    const handleSubmitBid = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!supervisor1) {
-            toast.error('Proposed Supervisor 1 is required.');
-            return;
-        }
-        setSubmitting(true);
+    const onSubmit = async (data: CreateBidFormData) => {
         try {
             await api.post('/mahasiswa/bids', {
-                title_id: Number(selectedTitle),
-                // Priority auto-assigned by backend
-                proposed_supervisor_1_id: Number(supervisor1),
-                proposed_supervisor_2_id: supervisor2 ? Number(supervisor2) : null,
+                title_id: Number(data.title_id),
+                proposed_supervisor_1_id: Number(data.proposed_supervisor_1_id),
+                proposed_supervisor_2_id: data.proposed_supervisor_2_id ? Number(data.proposed_supervisor_2_id) : null,
             });
             toast.success('Bid submitted successfully!');
             setAddOpen(false);
-            setSelectedTitle('');
-            setSupervisor1('');
-            setSupervisor2('');
+            reset();
             fetchBids();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to submit bid');
+                const message = error.response?.data?.message || 'Failed to submit bid';
+                setFormError('root', { type: 'manual', message });
+                toast.error(message);
             } else {
+                setFormError('root', { type: 'manual', message: 'Failed to submit bid' });
                 toast.error('Failed to submit bid');
             }
-        } finally {
-            setSubmitting(false);
         }
     };
 
@@ -263,13 +274,17 @@ export default function BiddingPage() {
         }
     };
 
-    const getStatusVariant = (status: string) => {
-        switch (status) {
-            case 'ACCEPTED': return 'default' as const;
-            case 'REJECTED': return 'destructive' as const;
-            default: return 'secondary' as const;
-        }
+    const handleOpenDialog = () => {
+        reset();
+        setAddOpen(true);
     };
+
+    const handleCloseDialog = () => {
+        setAddOpen(false);
+        reset();
+    };
+
+    const getStatusVariant = (status: string) => getBidStatusBadgeVariant(status);
 
     if (loading) {
         return (
@@ -281,9 +296,8 @@ export default function BiddingPage() {
 
     const bidTitleIds = bids.map(b => b.title_id);
     const availableTitles = titles.filter(t => !bidTitleIds.includes(t.id));
-    const availableSup2 = dosens.filter(d => d.id.toString() !== supervisor1);
+    const availableSup2 = dosens.filter(d => d.id.toString() !== supervisor1Id);
 
-    // Non-leader: show access denied
     if (!isLeader) {
         return (
             <div className="space-y-6">
@@ -308,7 +322,6 @@ export default function BiddingPage() {
                         </AlertDescription>
                     </Alert>
                 ) : null}
-                {/* Still show existing bids as read-only */}
                 {bids.length > 0 && (
                     <div className="grid gap-4">
                         <h2 className="text-lg font-semibold">Current Bids</h2>
@@ -348,7 +361,7 @@ export default function BiddingPage() {
                         {totalUsed}/{MAX_TITLES} slots used
                     </Badge>
                     <Button
-                        onClick={() => setAddOpen(true)}
+                        onClick={handleOpenDialog}
                         disabled={!canSubmitBid || availableTitles.length === 0}
                         variant={canSubmitBid ? 'default' : 'outline'}
                     >
@@ -369,6 +382,14 @@ export default function BiddingPage() {
                     <AlertDescription>
                         {flowReasonMap[biddingFlow.reason] || 'Bidding tidak tersedia untuk kondisi kelompok saat ini.'}
                     </AlertDescription>
+                </Alert>
+            )}
+
+            {errors.root && (
+                <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{errors.root.message}</AlertDescription>
                 </Alert>
             )}
 
@@ -403,7 +424,6 @@ export default function BiddingPage() {
                 </div>
             ) : (
                 <div className="space-y-6">
-                    {/* Proposals Section */}
                     {proposals.length > 0 && (
                         <div>
                             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -433,7 +453,6 @@ export default function BiddingPage() {
                         </div>
                     )}
 
-                    {/* Bids Section */}
                     {bids.length > 0 && (
                         <div>
                             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -521,7 +540,7 @@ export default function BiddingPage() {
             {/* New Bid Dialog */}
             <Dialog open={addOpen} onOpenChange={setAddOpen}>
                 <DialogContent className="sm:max-w-[520px]">
-                    <form onSubmit={handleSubmitBid}>
+                    <form onSubmit={handleSubmit(onSubmit)}>
                         <DialogHeader>
                             <DialogTitle>Submit a New Bid</DialogTitle>
                             <DialogDescription>
@@ -531,23 +550,42 @@ export default function BiddingPage() {
                             </DialogDescription>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="title">Title</Label>
-                                <Select value={selectedTitle} onValueChange={setSelectedTitle}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select a title..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {availableTitles.map(t => (
-                                            <SelectItem key={t.id} value={t.id.toString()}>
-                                                {t.title} — {t.lecturer.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Priority</Label>
+                            {errors.root && (
+                                <Alert variant="destructive">
+                                    <AlertTriangle className="h-4 w-4" />
+                                    <AlertDescription>{errors.root.message}</AlertDescription>
+                                </Alert>
+                            )}
+
+                            <Controller
+                                name="title_id"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Title <span className="text-destructive">*</span></FieldLabel>
+                                        <Select
+                                            name={field.name}
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                                                <SelectValue placeholder="Select a title..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {availableTitles.map(t => (
+                                                    <SelectItem key={t.id} value={t.id.toString()}>
+                                                        {t.title} — {t.lecturer.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Field>
+                                <FieldLabel>Priority</FieldLabel>
                                 <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md border">
                                     <Badge variant="outline" className="bg-background">Auto</Badge>
                                     <span className="font-semibold text-lg">#{bids.length + 1}</span>
@@ -555,39 +593,68 @@ export default function BiddingPage() {
                                         (akan menjadi prioritas ke-{bids.length + 1})
                                     </span>
                                 </div>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Proposed Pembimbing 1 <span className="text-destructive">*</span></Label>
-                                <Select value={supervisor1} onValueChange={setSupervisor1}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select supervisor..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Proposed Pembimbing 2 <span className="text-muted-foreground text-xs">(optional)</span></Label>
-                                <Select value={supervisor2} onValueChange={setSupervisor2}>
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select supervisor (optional)..." />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="none">— None —</SelectItem>
-                                        {availableSup2.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
+                            </Field>
+
+                            <Controller
+                                name="proposed_supervisor_1_id"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>
+                                            Proposed Pembimbing 1 <span className="text-destructive">*</span>
+                                        </FieldLabel>
+                                        <Select
+                                            name={field.name}
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                                                <SelectValue placeholder="Select supervisor..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {dosens.map(d => (
+                                                    <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        {fieldState.invalid && <FieldError errors={[fieldState.error]} />}
+                                    </Field>
+                                )}
+                            />
+
+                            <Controller
+                                name="proposed_supervisor_2_id"
+                                control={control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldContent>
+                                            <FieldLabel htmlFor={field.name}>
+                                                Proposed Pembimbing 2 <span className="text-muted-foreground text-xs">(optional)</span>
+                                            </FieldLabel>
+                                        </FieldContent>
+                                        <Select
+                                            name={field.name}
+                                            value={field.value}
+                                            onValueChange={field.onChange}
+                                        >
+                                            <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                                                <SelectValue placeholder="Select supervisor (optional)..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="">— None —</SelectItem>
+                                                {availableSup2.map(d => (
+                                                    <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </Field>
+                                )}
+                            />
                         </div>
                         <DialogFooter>
-                            <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
-                            <Button type="submit" disabled={submitting || !selectedTitle || !supervisor1}>
-                                {submitting ? 'Submitting...' : 'Submit Bid'}
+                            <Button type="button" variant="outline" onClick={handleCloseDialog}>Cancel</Button>
+                            <Button type="submit" disabled={isSubmitting}>
+                                {isSubmitting ? 'Submitting...' : 'Submit Bid'}
                             </Button>
                         </DialogFooter>
                     </form>

@@ -151,6 +151,15 @@ export default function DosenSupervisedGroupsPage() {
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
+                                     <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <p className="text-sm font-medium">Period</p>
+                                            <Badge variant="outline" className="text-xs">
+                                                {group.period?.name || 'Unknown Period'}
+                                            </Badge>
+                                        </div>
+                                    </div>
+
                                     <div>
                                         <p className="text-sm font-medium mb-1">Title</p>
                                         <p className="text-sm text-muted-foreground line-clamp-2">

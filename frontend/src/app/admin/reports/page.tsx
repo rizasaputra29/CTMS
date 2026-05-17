@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -18,8 +18,6 @@ import {
     Award, 
     FileSpreadsheet,
 
-    AlertTriangle,
-    CheckCircle2,
     Eye
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -97,7 +95,7 @@ const getScoreColor = (score: number | null): string => {
     return 'text-red-600';
 };
 
-const getLetterGradeColor = (grade: string): string => {
+const _getLetterGradeColor = (grade: string): string => {
     switch (grade) {
         case 'A': return 'bg-emerald-100 text-emerald-800 border-emerald-300';
         case 'B': return 'bg-blue-100 text-blue-800 border-blue-300';
@@ -108,11 +106,18 @@ const getLetterGradeColor = (grade: string): string => {
 };
 
 export default function AdminReportsPage() {
+    const router = useRouter();
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
+    const selectedPeriodRef = useRef(selectedPeriod);
     const [summary, setSummary] = useState<ReportSummary | null>(null);
     const [loading, setLoading] = useState(true);
     const [downloading, setDownloading] = useState<string | null>(null);
+
+    // Keep ref in sync with state
+    useEffect(() => {
+        selectedPeriodRef.current = selectedPeriod;
+    }, [selectedPeriod]);
 
     const fetchPeriods = useCallback(async () => {
         try {
@@ -120,7 +125,7 @@ export default function AdminReportsPage() {
             const periodsData = res.data?.data || [];
             setPeriods(periodsData);
             const active = periodsData.find((p: Period) => p.is_active);
-            if (active && !selectedPeriod) setSelectedPeriod(active.id.toString());
+            if (active && !selectedPeriodRef.current) setSelectedPeriod(active.id.toString());
         } catch { /* ignore */ }
     }, []);
 

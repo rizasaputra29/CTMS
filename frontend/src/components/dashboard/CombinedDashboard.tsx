@@ -17,12 +17,13 @@ import { QuickActions } from '@/components/dashboard/QuickActions';
 import { SectionHeader } from '@/components/dashboard/SectionHeader';
 import { useAuth } from '@/context/AuthContext';
 import api from '@/lib/api';
+import type { AxiosResponse } from 'axios';
 import {
   Users, BookOpen, Calendar, GraduationCap,
   FileText, ClipboardCheck, Gavel, Star,
 } from 'lucide-react';
 
-interface ApiResponse<T> {
+interface ApiResponseData<T = unknown> {
   data?: T;
   [key: string]: unknown;
 }
@@ -68,7 +69,7 @@ export default function CombinedDashboard() {
           api.get('/dosen/supervisor-evaluation/pending-count'),
         ]);
 
-        const getData = (result: PromiseSettledResult<ApiResponse<unknown>>) =>
+        const getData = (result: PromiseSettledResult<AxiosResponse<ApiResponseData>>) =>
           result.status === 'fulfilled' ? result.value.data : null;
 
         const periodsData = getData(periodsRes);
@@ -121,7 +122,7 @@ export default function CombinedDashboard() {
           },
           dosen: {
             supervisedGroups: Array.isArray(supervised) ? supervised.length : 0,
-            pendingEvaluations: evalCountData?.count || 0,
+            pendingEvaluations: (evalCountData as { count?: number } | null)?.count || 0,
             pendingBids: 0, // Could fetch separately
             upcomingSchedules: 0, // Could fetch separately
             recentSubmissions,

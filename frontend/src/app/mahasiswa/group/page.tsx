@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +12,6 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogContent,
@@ -21,6 +22,9 @@ import {
 } from "@/components/ui/dialog"
 import { toast } from "sonner";
 import { useAuth } from '@/context/AuthContext';
+import { addMemberSchema, type AddMemberFormData } from '@/lib/validations/group';
+import { getGroupStatusBadgeVariant } from '@/lib/badge-variants';
+import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 
 interface Group {
     id: number;
@@ -66,8 +70,13 @@ export default function MahasiswaGroupPage() {
     const [myGroup, setMyGroup] = useState<Group | null>(null);
     const [loading, setLoading] = useState(true);
     const [addOpen, setAddOpen] = useState(false);
-    const [email, setEmail] = useState('');
     const [submitting, setSubmitting] = useState(false);
+    const [formError, setFormError] = useState<string | null>(null);
+
+    const addMemberForm = useForm<AddMemberFormData>({
+        resolver: zodResolver(addMemberSchema),
+        mode: 'onBlur',
+    });
     const [creating, setCreating] = useState(false);
     const [creatingSolo, setCreatingSolo] = useState(false);
     const [deleting, setDeleting] = useState(false);
@@ -317,20 +326,21 @@ export default function MahasiswaGroupPage() {
         }
     };
 
-    const handleAddMember = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleAddMember = async (data: AddMemberFormData) => {
         setSubmitting(true);
+        setFormError(null);
         try {
-            await api.post('/mahasiswa/group/add-member', { email });
+            await api.post('/mahasiswa/group/add-member', { email: data.email });
             toast.success('Member added successfully!');
             setAddOpen(false);
-            setEmail('');
+            addMemberForm.reset();
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to add member');
+                const message = error.response?.data?.message || 'Failed to add member';
+                setFormError(message);
             } else {
-                toast.error('Failed to add member');
+                setFormError('Failed to add member');
             }
         } finally {
             setSubmitting(false);
@@ -474,19 +484,7 @@ export default function MahasiswaGroupPage() {
     const hasTitle = !!myGroup.title_id;
     const isSoloSeeker = myGroup.is_solo && ['FORMING_SOLO', 'FORMING', 'TITLE_APPROVED'].includes(myGroup.status);
 
-    const getStatusBadgeVariant = (status: string) => {
-        switch (status) {
-            case 'APPROVED': return 'default' as const;
-            case 'REJECTED': return 'destructive' as const;
-            case 'PENDING': return 'secondary' as const;
-            case 'FORMING': return 'secondary' as const;
-            case 'FORMING_SOLO': return 'secondary' as const;
-            case 'READY_FOR_BIDDING': return 'outline' as const;
-            case 'READY_FOR_FINALIZATION': return 'outline' as const;
-            case 'CLOSED': return 'secondary' as const;
-            default: return 'secondary' as const;
-        }
-    };
+    const getStatusBadgeVariant = (status: string) => getGroupStatusBadgeVariant(status);
 
     const getStatusLabel = (status: string) => {
         switch (status) {
@@ -690,7 +688,13 @@ export default function MahasiswaGroupPage() {
             </Card>
 
             {/* Add Member Dialog */}
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
+            <Dialog open={addOpen} onOpenChange={(open) => {
+                setAddOpen(open);
+                if (!open) {
+                    addMemberForm.reset();
+                    setFormError(null);
+                }
+            }}>
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle>Add Member</DialogTitle>
@@ -698,17 +702,33 @@ export default function MahasiswaGroupPage() {
                             Enter the email address of the student you want to invite.
                         </DialogDescription>
                     </DialogHeader>
-                    <form onSubmit={handleAddMember}>
-                        <div className="py-4">
-                            <Label htmlFor="email">Email</Label>
-                            <Input 
-                                id="email" 
-                                type="email" 
-                                placeholder="student@example.com" 
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                required
-                            />
+                    <form onSubmit={addMemberForm.handleSubmit(handleAddMember)}>
+                        <div className="py-4 space-y-4">
+                            {formError && (
+                                <Alert variant="destructive">
+                                    <AlertDescription>{formError}</AlertDescription>
+                                </Alert>
+                            )}
+                            <Field>
+                                <FieldLabel htmlFor="email">Email</FieldLabel>
+                                <Controller
+                                    name="email"
+                                    control={addMemberForm.control}
+                                    render={({ field, fieldState }) => (
+                                        <Input 
+                                            id="email" 
+                                            type="email" 
+                                            placeholder="student@example.com" 
+                                            {...field}
+                                            data-invalid={fieldState.error ? '' : undefined}
+                                            aria-invalid={fieldState.error ? 'true' : 'false'}
+                                        />
+                                    )}
+                                />
+                                <FieldError>
+                                    {addMemberForm.formState.errors.email?.message}
+                                </FieldError>
+                            </Field>
                         </div>
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>

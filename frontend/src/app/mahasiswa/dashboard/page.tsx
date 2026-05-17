@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
     ArrowRight, Calendar, CheckCircle, BookOpen,
-    Clock, Upload, Check, XCircle, Lock, GraduationCap, Zap,
+    Clock, Upload, Check, Lock, GraduationCap, Zap,
     AlertCircle, FileText, Circle, ChevronUp, ChevronDown,
     AlertTriangle
 } from 'lucide-react';
@@ -16,6 +16,13 @@ import { cn } from '@/lib/utils';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { isFinalReadyEvaluationSection } from '@/types/guards';
+import type { 
+    SupervisorInEvaluation, 
+    EvaluationWithSupervisors,
+    LatestDocument,
+    NextPhaseSeminarSchedule
+} from '@/types';
 
 interface Schedule {
     id: string | number;
@@ -33,7 +40,7 @@ interface WorkflowPhase {
     documents: Array<{
         type: string;
         status: 'missing' | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
-        latest_document: any;
+        latest_document?: LatestDocument | null;
     }>;
     required_types: string[];
     document_count: number;
@@ -54,21 +61,9 @@ interface NextPhaseRequirements {
         approved_count: number;
         pending_types: string[];
     };
-    supervisor_evaluation?: any;
-    supervisor_evaluations?: any[];
-    seminar_schedule?: {
-        exists: boolean;
-        date?: string;
-        room?: string;
-        start_time?: string;
-        end_time?: string;
-        examiners?: Array<{id: number; name: string}>;
-        status?: string;
-        examiner_evaluations?: any;
-        supervisor_bimbingan?: any;
-        is_ready_for_pdc2?: boolean;
-        message?: string;
-    };
+    supervisor_evaluation?: EvaluationWithSupervisors | null;
+    supervisor_evaluations?: EvaluationWithSupervisors[];
+    seminar_schedule?: NextPhaseSeminarSchedule;
 }
 
 interface FinalReadyStatus {
@@ -97,14 +92,14 @@ interface FinalReadyStatus {
         configured: boolean;
         completed: boolean;
         component_count: number;
-        supervisors: any[];
+        supervisors: SupervisorInEvaluation[];
     };
     expo_evaluation: {
         required: boolean;
         configured: boolean;
         completed: boolean;
         component_count: number;
-        supervisors: any[];
+        supervisors: SupervisorInEvaluation[];
     };
     peer_review: {
         required: boolean;
@@ -734,7 +729,7 @@ export default function MahasiswaDashboard() {
                                                         <div className="space-y-1">
                                                             <div className="text-xs font-medium">Supervisor Bimbingan</div>
                                                             <div className="flex gap-2 flex-wrap">
-                                                                {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan.supervisors.map((sup: any) => (
+                                                                {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan.supervisors.map((sup: SupervisorInEvaluation) => (
                                                                     <Badge 
                                                                         key={sup.id} 
                                                                         variant={sup.status === 'completed' ? 'default' : 'outline'}
@@ -755,11 +750,11 @@ export default function MahasiswaDashboard() {
                                     {stats.next_phase_requirements.supervisor_evaluations && stats.next_phase_requirements.supervisor_evaluations.length > 0 && (
                                         <div className="space-y-2 border-t pt-3">
                                             <div className="text-sm font-medium">Supervisor Evaluations</div>
-                                            {stats.next_phase_requirements.supervisor_evaluations.map((evalStatus: any) => (
+                                            {stats.next_phase_requirements.supervisor_evaluations.map((evalStatus: EvaluationWithSupervisors) => (
                                                 <div key={evalStatus.evaluation_type} className="space-y-1">
                                                     <div className="text-xs font-medium">{evalStatus.evaluation_type}</div>
                                                     <div className="flex gap-2 flex-wrap">
-                                                        {evalStatus.supervisors.map((sup: any) => (
+                                                        {evalStatus.supervisors.map((sup: SupervisorInEvaluation) => (
                                                             <Badge 
                                                                 key={sup.id} 
                                                                 variant={sup.status === 'completed' ? 'default' : 'outline'}
@@ -816,7 +811,10 @@ export default function MahasiswaDashboard() {
                                 { key: 'milestone', label: 'Milestone' },
                                 { key: 'expo_evaluation', label: 'Expo Evaluation' }
                             ].map(({ key, label }) => {
-                                const status = (stats.final_ready_for_ta_individual as any)[key];
+                                if (!stats.final_ready_for_ta_individual) return null;
+                                // Use type-safe property access with validation
+                                const status = stats.final_ready_for_ta_individual[key as keyof FinalReadyStatus];
+                                if (!isFinalReadyEvaluationSection(status)) return null;
                                 if (!status?.configured) return null;
                                 return (
                                     <div key={key} className="flex items-center justify-between text-sm">
@@ -825,7 +823,7 @@ export default function MahasiswaDashboard() {
                                             <Check className="h-4 w-4 text-green-600" />
                                         ) : (
                                             <span className="text-xs text-muted-foreground">
-                                                {status.supervisors?.filter((s: any) => s.status === 'completed').length || 0}/
+                                                {status.supervisors?.filter((s) => s.status === 'completed').length || 0}/
                                                 {status.supervisors?.length || 0}
                                             </span>
                                         )}

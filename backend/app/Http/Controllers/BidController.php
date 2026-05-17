@@ -30,11 +30,15 @@ class BidController extends Controller
     {
         $user = $request->user();
         
-        // Get active period
-        $activePeriod = \App\Models\Period::where('is_active', true)->first();
+        // Get all active period IDs
+        $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
         
+        // Find user's group membership in any active period
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('period_id', $activePeriod?->id)
+            ->whereHas('group', function ($q) use ($activePeriodIds) {
+                $q->whereIn('period_id', $activePeriodIds)
+                  ->where('status', '!=', 'REJECTED');
+            })
             ->first();
 
         if (!$membership) {
@@ -69,14 +73,19 @@ class BidController extends Controller
 
         $user = $request->user();
 
-        // Get active period
-        $activePeriod = \App\Models\Period::where('is_active', true)->first();
+        // Get all active period IDs
+        $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
         
+        // Find user's group membership in any active period
         $membership = GroupMember::where('student_id', $user->id)
-            ->where('period_id', $activePeriod?->id)
+            ->where('is_leader', true)
+            ->whereHas('group', function ($q) use ($activePeriodIds) {
+                $q->whereIn('period_id', $activePeriodIds)
+                  ->where('status', '!=', 'REJECTED');
+            })
             ->first();
 
-        if (!$membership || !$membership->is_leader) {
+        if (!$membership) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengajukan bidding.'], 403);
         }
 

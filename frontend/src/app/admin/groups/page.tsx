@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { 
     Users, Search, Filter, 
     Loader2, MoreHorizontal, Eye, Settings, Calendar, ShieldCheck, Crown,
-    ChevronDown, ChevronUp, Mail
+    ChevronDown, ChevronUp, Mail, Trash2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
@@ -34,7 +34,18 @@ import {
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuTrigger,
+    DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import Link from 'next/link';
 
 interface GroupMember {
@@ -71,6 +82,9 @@ export default function AdminGroupsPage() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [groupToDelete, setGroupToDelete] = useState<Group | null>(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -111,6 +125,39 @@ export default function AdminGroupsPage() {
             }
             return newSet;
         });
+    };
+
+    const canDeleteGroup = (group: Group): boolean => {
+        // Can delete if period is inactive or group is in early formation stages
+        const period = periods.find(p => p.id === group.period_id);
+        if (!period) return true; // No period - allow deletion
+        if (!period.is_active) return true; // Inactive period - allow deletion
+        if (['FORMING', 'FORMING_SOLO'].includes(group.status)) return true; // Early stage in active period
+        return false;
+    };
+
+    const handleDeleteClick = (group: Group) => {
+        setGroupToDelete(group);
+        setDeleteDialogOpen(true);
+    };
+
+    const handleDeleteConfirm = async () => {
+        if (!groupToDelete) return;
+
+        setDeleteLoading(true);
+        try {
+            await api.delete(`/admin/groups/${groupToDelete.id}/force-delete`);
+            // Remove from local state
+            setGroups(prev => prev.filter(g => g.id !== groupToDelete.id));
+            setDeleteDialogOpen(false);
+            setGroupToDelete(null);
+        } catch (error: unknown) {
+            console.error('Failed to delete group', error);
+            const errorMessage = error instanceof Error ? error.message : 'Failed to delete group';
+            alert(errorMessage);
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const getStatusBadge = (status: string, statusLabel?: string) => {
@@ -322,6 +369,21 @@ export default function AdminGroupsPage() {
                                                                     View Schedule
                                                                 </Link>
                                                             </DropdownMenuItem>
+                                                            <DropdownMenuSeparator />
+                                                            {canDeleteGroup(group) ? (
+                                                                <DropdownMenuItem 
+                                                                    onClick={() => handleDeleteClick(group)}
+                                                                    className="text-destructive focus:text-destructive"
+                                                                >
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                    Delete Group
+                                                                </DropdownMenuItem>
+                                                            ) : (
+                                                                <DropdownMenuItem disabled>
+                                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                                    Delete Group (locked)
+                                                                </DropdownMenuItem>
+                                                            )}
                                                         </DropdownMenuContent>
                                                     </DropdownMenu>
                                                 </TableCell>
@@ -385,6 +447,36 @@ export default function AdminGroupsPage() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* Delete Confirmation Dialog */}
+            <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Group</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete Group #{groupToDelete?.id}? This action cannot be undone.
+                            <br /><br />
+                            This will:
+                            <ul className="list-disc ml-5 mt-2 text-sm text-muted-foreground">
+                                <li>Remove all {groupToDelete?.members?.length || 0} member(s) from the group</li>
+                                <li>Delete all bids, proposals, and documents</li>
+                                <li>Remove supervisor assignments</li>
+                                <li>Allow students to register for new periods</li>
+                            </ul>
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setGroupToDelete(null)}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction 
+                            onClick={handleDeleteConfirm}
+                            disabled={deleteLoading}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {deleteLoading ? 'Deleting...' : 'Delete Group'}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

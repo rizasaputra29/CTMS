@@ -35,13 +35,14 @@ import {
     BookOpen, Calendar as CalendarIcon, ChevronUp, Users, Settings,
     GraduationCap, LayoutDashboard, FileText, User, LogOut, PenLine,
     ClipboardCheck, Gavel, ShieldCheck, FileCheck, Bell, Presentation,
-    ListChecks, BarChart3, GitCompare, Star, ChevronRight, TrendingUp,
+    ListChecks, BarChart3, Star, ChevronRight, TrendingUp, MapPin,
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import api from '@/lib/api';
+import { toNavRoleKey } from '@/types/guards';
 
 const SIDEBAR_STATE_KEY = 'sidebar_sections';
 
@@ -76,6 +77,8 @@ const navItems: Record<string, NavItem[]> = {
             items: [
                 { title: 'Periods', url: '/admin/periods', icon: CalendarIcon },
                 { title: 'Users', url: '/admin/users', icon: Users },
+                { title: 'Groups', url: '/admin/groups', icon: Users },
+                { title: 'Locations', url: '/admin/locations', icon: MapPin },
                 { title: 'Document Requirements', url: '/admin/document-requirements', icon: FileText },
             ]
         },
@@ -94,7 +97,6 @@ const navItems: Record<string, NavItem[]> = {
             icon: Settings,
             items: [
                 { title: 'Finalization', url: '/admin/finalization', icon: ShieldCheck },
-                { title: 'Groups', url: '/admin/groups', icon: Users },
                 { title: 'Schedule', url: '/admin/schedule', icon: CalendarIcon },
                 { title: 'Sidang Proposal', url: '/admin/sempro', icon: ClipboardCheck },
                 { title: 'Expo Events', url: '/admin/expo', icon: Presentation },
@@ -136,9 +138,7 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Schedules',
             icon: CalendarIcon,
             items: [
-                { title: 'Seminar & Defense', url: '/mahasiswa/schedules', icon: ClipboardCheck },
-                { title: 'Expo', url: '/mahasiswa/expo', icon: Presentation },
-                { title: 'TA Defense', url: '/mahasiswa/ta-defense', icon: GraduationCap },
+                { title: 'My Schedule', url: '/mahasiswa/schedule', icon: ClipboardCheck },
             ]
         },
         {
@@ -172,8 +172,7 @@ const navItems: Record<string, NavItem[]> = {
             title: 'Schedule & Review',
             icon: FileCheck,
             items: [
-                { title: 'Bimbingan Schedule', url: '/dosen/schedule', icon: CalendarIcon },
-                { title: 'TA Review', url: '/dosen/ta-review', icon: FileCheck },
+                { title: 'My Schedule', url: '/dosen/schedule', icon: CalendarIcon },
                 { title: 'Evaluate Students', url: '/dosen/evaluation', icon: GraduationCap },
                 { title: 'Supervisor Evaluation', url: '/dosen/supervisor-evaluation', icon: Star },
             ]
@@ -601,7 +600,8 @@ export function AppSidebar() {
     // ─── Render single-role sidebar (existing behavior) ─────
     const renderSingleRoleSidebar = () => {
         const currentRole = activeRole || user?.role || 'mahasiswa';
-        const roleItems = navItems[currentRole as keyof typeof navItems] || [];
+        const safeRoleKey = toNavRoleKey(currentRole);
+        const roleItems = navItems[safeRoleKey] || [];
 
         const items: NavItem[] = roleItems.map(item => {
             if (currentRole === 'mahasiswa' && item.title === 'Evaluations' && item.items) {

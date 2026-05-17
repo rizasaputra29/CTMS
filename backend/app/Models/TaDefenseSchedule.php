@@ -19,6 +19,7 @@ class TaDefenseSchedule extends Model
         'start_time',
         'end_time',
         'room',
+        'location_id',
         'status',
         'evaluation_deadline',
         'notes',
@@ -77,6 +78,11 @@ class TaDefenseSchedule extends Model
     public function evaluations(): HasMany
     {
         return $this->hasMany(TaDefenseEvaluation::class, 'schedule_id');
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
     }
 
     /**

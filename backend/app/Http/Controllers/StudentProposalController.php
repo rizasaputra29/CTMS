@@ -74,7 +74,12 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Only the group leader can propose a title.'], 403);
         }
 
-        $group = Group::find($membership->group_id);
+        $group = Group::with('period')->find($membership->group_id);
+
+        // Check if period is finalized - block create after finalization
+        if ($group->period && $group->period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Pengajuan judul baru tidak diperbolehkan.'], 403);
+        }
 
         // Check minimum members requirement
         // Solo Seeker (is_solo=true) can propose with any member count
@@ -232,7 +237,7 @@ class StudentProposalController extends Controller
     }
 
     /**
-     * Edit & resubmit a rejected proposal.
+     * Edit & resubmit a proposal (REJECTED or PENDING).
      */
     public function update(Request $request)
     {
@@ -256,41 +261,52 @@ class StudentProposalController extends Controller
             ->first();
 
         if (!$membership || !$membership->is_leader) {
-            return response()->json(['message' => 'Unauthorized. Only group leader can resubmit.'], 403);
+            return response()->json(['message' => 'Unauthorized. Only group leader can edit proposal.'], 403);
         }
 
+        // Allow editing REJECTED or PENDING proposals
+        // Allow editing PENDING, REJECTED, or UNDER_REVIEW proposals
         $title = Title::where('id', $validated['title_id'])
             ->where('proposed_by_group_id', $membership->group_id)
-            ->where('supervisor_approval_status', 'REJECTED')
+            ->whereIn('supervisor_approval_status', ['PENDING', 'REJECTED', 'UNDER_REVIEW'])
             ->first();
 
         if (!$title) {
-            return response()->json(['message' => 'No rejected proposal found to resubmit.'], 404);
+            return response()->json(['message' => 'No editable proposal found. Only PENDING, REJECTED, or UNDER_REVIEW proposals can be edited.'], 404);
         }
 
-        // Check no other pending proposal
-        $pendingExists = Title::where('proposed_by_group_id', $membership->group_id)
-            ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
-            ->exists();
+        // For REJECTED proposals, check no other pending proposal exists
+        if ($title->supervisor_approval_status === 'REJECTED') {
+            $pendingExists = Title::where('proposed_by_group_id', $membership->group_id)
+                ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
+                ->exists();
 
-        if ($pendingExists) {
-            return response()->json(['message' => 'You already have a pending proposal.'], 400);
+            if ($pendingExists) {
+                return response()->json(['message' => 'You already have a pending proposal.'], 400);
+            }
         }
 
         DB::beginTransaction();
         try {
             $supervisorId = $validated['proposed_supervisor_id'] ?? $title->proposed_supervisor_id;
 
-            $title->update([
+            // Reset to PENDING status when edited
+            $updateData = [
                 'title' => $validated['title'],
                 'description' => $validated['description'],
                 'problem_statement' => $validated['problem_statement'],
                 'scope' => $validated['scope'],
                 'proposed_supervisor_id' => $supervisorId,
                 'lecturer_id' => $supervisorId,
-                'supervisor_approval_status' => 'PENDING',
                 'rejection_reason' => null,
-            ]);
+            ];
+
+            // If was REJECTED, reset to PENDING
+            if ($title->supervisor_approval_status === 'REJECTED') {
+                $updateData['supervisor_approval_status'] = 'PENDING';
+            }
+
+            $title->update($updateData);
 
             if (array_key_exists('stakeholder_ids', $validated)) {
                 $title->stakeholders()->sync($validated['stakeholder_ids'] ?? []);
@@ -303,11 +319,13 @@ class StudentProposalController extends Controller
             $group->update(['has_active_proposal' => true]);
 
             // Notify supervisor
+            $notificationType = $title->supervisor_approval_status === 'REJECTED' ? 'PROPOSAL_RESUBMITTED' : 'PROPOSAL_UPDATED';
+            $notificationTitle = $title->supervisor_approval_status === 'REJECTED' ? 'Resubmitted Title Proposal' : 'Updated Title Proposal';
             Notification::create([
                 'user_id' => $supervisorId,
-                'type' => 'PROPOSAL_RESUBMITTED',
-                'title' => 'Resubmitted Title Proposal',
-                'message' => "Resubmitted title proposal from group #{$group->id}: \"{$validated['title']}\"",
+                'type' => $notificationType,
+                'title' => $notificationTitle,
+                'message' => "Updated title proposal from group #{$group->id}: \"{$validated['title']}\"",
                 'related_type' => 'Title',
                 'related_id' => $title->id,
             ]);
@@ -315,12 +333,12 @@ class StudentProposalController extends Controller
             DB::commit();
 
             return response()->json([
-                'message' => 'Proposal resubmitted successfully.',
+                'message' => 'Proposal updated successfully.',
                 'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to resubmit: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Failed to update: ' . $e->getMessage()], 500);
         }
     }
 
@@ -331,15 +349,14 @@ class StudentProposalController extends Controller
     {
         $user = $request->user();
 
-        // Get active period
-        $activePeriod = \App\Models\Period::where('is_active', true)->first();
+        // Get all active period IDs
+        $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
         
-        // Check if user is leader in current period
+        // Check if user is leader in any active period
         $membership = GroupMember::where('student_id', $user->id)
             ->where('is_leader', true)
-            ->where('period_id', $activePeriod?->id)
-            ->whereHas('group', function ($q) use ($activePeriod) {
-                $q->where('period_id', $activePeriod?->id)
+            ->whereHas('group', function ($q) use ($activePeriodIds) {
+                $q->whereIn('period_id', $activePeriodIds)
                   ->where('status', '!=', 'REJECTED');
             })
             ->first();
@@ -358,8 +375,15 @@ class StudentProposalController extends Controller
             return response()->json(['message' => 'Proposal tidak ditemukan.'], 404);
         }
 
-        // Only PENDING or REJECTED proposals can be cancelled
-        if (!in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED'])) {
+        $group = Group::with('period')->find($membership->group_id);
+
+        // Check if period is finalized - block delete after finalization
+        if ($group->period && $group->period->is_finalized) {
+            return response()->json(['message' => 'Periode sudah difinalisasi. Pembatalan proposal tidak diperbolehkan.'], 403);
+        }
+
+        // PENDING, REJECTED, or UNDER_REVIEW proposals can be cancelled
+        if (!in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED', 'UNDER_REVIEW'])) {
             return response()->json(['message' => 'Proposal sudah disetujui dan tidak dapat dibatalkan. Hubungi admin jika ada kebutuhan khusus.'], 400);
         }
 
