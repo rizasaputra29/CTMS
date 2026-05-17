@@ -221,7 +221,6 @@ class TaDefenseController extends Controller
         $request->validate([
             'rubric_json' => 'required|array',
             'score' => 'required|numeric|min:0|max:100',
-            'result' => 'required|in:PASS,FAIL',
         ]);
 
         $user = $request->user();
@@ -245,19 +244,22 @@ class TaDefenseController extends Controller
         }
 
         try {
-            $result = $this->schedulingService->submitTaDefenseEvaluation(
+            // Calculate result based on score threshold (60)
+            $result = $request->score >= 60 ? 'PASS' : 'FAIL';
+            
+            $evaluationResult = $this->schedulingService->submitTaDefenseEvaluation(
                 $evaluation->id,
                 $request->rubric_json,
                 $request->score,
-                $request->result,
+                $result,
                 $user->id
             );
 
             return response()->json([
-                'message' => $result['all_submitted']
-                    ? "All evaluations submitted. TA defense result: {$result['result']}"
+                'message' => $evaluationResult['all_submitted']
+                    ? "All evaluations submitted. TA defense result: {$evaluationResult['result']}"
                     : 'Evaluation submitted. Waiting for other evaluators.',
-                'data' => $result,
+                'data' => $evaluationResult,
             ]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 400);

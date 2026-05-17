@@ -261,7 +261,6 @@ class SemproController extends Controller
         $request->validate([
             'rubric_json' => 'required|array',
             'score' => 'required|numeric|min:0|max:100',
-            'result' => 'required|in:PASS,FAIL',
         ]);
 
         $user = $request->user();
@@ -280,11 +279,14 @@ class SemproController extends Controller
         $deadlinePassed = $schedule && $schedule->evaluation_deadline && now() > $schedule->evaluation_deadline;
 
         try {
-            $result = $this->schedulingService->submitSeminarEvaluation(
+            // Calculate result based on score threshold (60)
+            $result = $request->score >= 60 ? 'PASS' : 'FAIL';
+            
+            $evaluationResult = $this->schedulingService->submitSeminarEvaluation(
                 $evaluation->id,
                 $request->rubric_json,
                 $request->score,
-                $request->result,
+                $result,
                 $user->id
             );
 
@@ -310,10 +312,10 @@ class SemproController extends Controller
             }
 
             return response()->json([
-                'message' => $result['all_submitted']
-                    ? "All evaluations submitted. SEMPRO result: {$result['result']}"
+                'message' => $evaluationResult['all_submitted']
+                    ? "All evaluations submitted. SEMPRO result: {$evaluationResult['result']}"
                     : 'Evaluation submitted. Waiting for other examiner.',
-                'data' => $result,
+                'data' => $evaluationResult,
             ]);
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 400);
