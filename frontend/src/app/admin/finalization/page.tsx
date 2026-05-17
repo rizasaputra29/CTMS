@@ -109,6 +109,7 @@ export default function FinalizationPage() {
     setFilters,
     refresh,
     selectPeriod,
+    fetchActivePeriods,
   } = useFinalizationDashboard(periodId);
 
   const { lecturers: supervisorLecturers } = useSupervisorLoad(period?.id);
@@ -207,8 +208,8 @@ export default function FinalizationPage() {
       studentIds,
       periodId: period.id,
       option,
-      titleId,
-      newTitle,
+      ...(titleId !== undefined ? { titleId } : {}),
+      ...(newTitle !== undefined ? { newTitle } : {}),
     });
     
     if (success) {
@@ -367,7 +368,7 @@ export default function FinalizationPage() {
       const success = await cancelKelompokFinal({
         period_id: group.period_id,
         group_id: group.id,
-        reason: reason || undefined,
+        ...(reason ? { reason } : {}),
       });
       
       if (success) {
@@ -556,7 +557,7 @@ export default function FinalizationPage() {
           cancelKelompokFinal({
             period_id: period.id,
             group_id: group.id,
-            reason: reason || undefined,
+            ...(reason ? { reason } : {}),
           })
         )
       );
@@ -641,6 +642,22 @@ export default function FinalizationPage() {
     );
   };
 
+  // Status label helper for descriptions
+  const getStatusDescription = (status: string): string => {
+    const descriptions: Record<string, string> = {
+      PDC1_ACTIVE: 'Grup aktif di fase PDC1 (Semester 5-6)',
+      READY_FOR_SEMPRO: 'Siap untuk Sidang Proposal',
+      SEMPRO_DONE: 'Sidang Proposal selesai',
+      PDC2_ACTIVE: 'Grup aktif di fase PDC2 (Semester 7-8)',
+      PDC2_READY_FOR_EXPO: 'Siap untuk EXPO',
+      EXPO_REGISTERED: 'Terdaftar di EXPO',
+      EXPO_DONE: 'EXPO selesai',
+      PDC2_COMPLETED: 'PDC2 selesai',
+      READY_FOR_TA_INDIVIDUAL: 'Siap untuk Tugas Akhir individu',
+    };
+    return descriptions[status] || `Status: ${status}`;
+  };
+
   const flowReasonMap: Record<string, string> = {
     PERIOD_FINALIZED: 'Periode sudah difinalisasi. Dashboard berada dalam mode read-only.',
   };
@@ -715,15 +732,27 @@ export default function FinalizationPage() {
                         <CardTitle className="text-base group-hover:text-primary transition-colors">
                           {p.name}
                         </CardTitle>
-                        <Badge variant="default" className="bg-green-600 text-xs">
-                          Aktif
-                        </Badge>
+                        {p.is_finalized ? (
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-800 text-xs">
+                            <CheckCircle className="mr-1 h-3 w-3" />
+                            Finalized
+                          </Badge>
+                        ) : (
+                          <Badge variant="default" className="bg-green-600 text-xs">
+                            Aktif
+                          </Badge>
+                        )}
                       </div>
                     </CardHeader>
                     <CardContent className="pt-0">
                       <p className="text-xs text-muted-foreground">
                         Max Beban: {p.max_supervisor_load || 8} grup
                       </p>
+                      {p.is_finalized && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Periode sudah difinalisasi — mode read-only
+                        </p>
+                      )}
                       <div className="flex items-center gap-1 mt-2 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                         Pilih periode ini <ArrowRight className="h-3 w-3" />
                       </div>
@@ -977,53 +1006,141 @@ export default function FinalizationPage() {
         </div>
       )}
 
-      {/* Document Requirements Status */}
-      {stats?.document_requirements && (
-        <Card className={stats.document_requirements.all_configured ? 'border-green-200 bg-green-50/30' : 'border-yellow-200 bg-yellow-50/30'}>
+      {/* ════════════════════════════════════════════
+          PREREQUISITES STATUS
+          ════════════════════════════════════════════ */}
+      {flow?.prerequisites && flow.prerequisites.length > 0 && (
+        <Card className={flow.prerequisites.every(p => p.configured) ? 'border-green-200 bg-green-50/30' : 'border-yellow-200 bg-yellow-50/30'}>
           <CardHeader className="pb-3">
             <div className="flex justify-between items-center">
               <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-muted-foreground" />
-                <CardTitle className="text-sm font-medium">Document Requirements Status</CardTitle>
+                <Settings className="h-5 w-5 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Prerequisites Status</CardTitle>
               </div>
-              <Link href="/admin/document-requirements">
-                <Button variant="outline" size="sm">
-                  <Settings className="mr-2 h-3 w-3" />
-                  Configure
-                </Button>
-              </Link>
             </div>
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2 mb-3">
-              {stats.document_requirements.all_configured ? (
+              {flow.prerequisites.every(p => p.configured) ? (
                 <>
                   <CheckCircle className="h-5 w-5 text-green-600" />
-                  <span className="text-sm font-medium text-green-700">All phases configured</span>
+                  <span className="text-sm font-medium text-green-700">All prerequisites met</span>
                 </>
               ) : (
                 <>
                   <AlertTriangle className="h-5 w-5 text-yellow-600" />
                   <span className="text-sm font-medium text-yellow-700">
-                    {stats.document_requirements.configured_phases} of {stats.document_requirements.total_phases} phases configured
+                    {flow.prerequisites.filter(p => p.configured).length} of {flow.prerequisites.length} prerequisites configured
                   </span>
                 </>
               )}
             </div>
             <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
-              {Object.entries(stats.document_requirements.phases).map(([phase, status]) => (
-                <div 
-                  key={phase} 
+              {flow.prerequisites.map((prereq) => (
+                <div
+                  key={prereq.type}
                   className={`p-2 rounded text-center text-xs ${
-                    status.configured 
-                      ? 'bg-green-100 text-green-700 border border-green-200' 
-                      : 'bg-gray-100 text-gray-500 border border-gray-200'
+                    prereq.configured
+                      ? 'bg-green-100 text-green-700 border border-green-200'
+                      : 'bg-red-100 text-red-700 border border-red-200'
                   }`}
                 >
-                  <div className="font-medium">{phase}</div>
-                  <div className="text-[10px]">
-                    {status.configured ? `${status.count} docs` : 'Not set'}
+                  <div className="font-medium">{prereq.label}</div>
+                  <div className="text-[10px] mt-0.5">{prereq.configured ? 'Done' : 'Not set'}</div>
+                  <div className="mt-1.5">
+                    <Link href={prereq.configured ? prereq.edit_url : prereq.configure_url}>
+                      <Button variant="ghost" size="sm" className={`text-[10px] h-5 px-1.5 py-0 ${prereq.configured ? 'text-green-700 hover:text-green-800 hover:bg-green-200' : 'text-red-700 hover:text-red-800 hover:bg-red-200'}`}>
+                        {prereq.configured ? 'Edit' : 'Configure'}
+                      </Button>
+                    </Link>
                   </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Document Requirements Detail */}
+            {stats?.document_requirements && (
+              <div className="mt-4 pt-4 border-t border-dashed border-border">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Document Requirements</span>
+                  </div>
+                  <Link href="/admin/document-requirements">
+                    <Button variant="outline" size="sm" className="h-6 text-xs px-2">
+                      <Settings className="mr-1 h-3 w-3" />
+                      {stats.document_requirements.all_configured ? 'Edit' : 'Configure'}
+                    </Button>
+                  </Link>
+                </div>
+                <div className="flex items-center gap-2 mb-3">
+                  {stats.document_requirements.all_configured ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-xs font-medium text-green-700">All phases configured</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                      <span className="text-xs font-medium text-yellow-700">
+                        {stats.document_requirements.configured_phases} of {stats.document_requirements.total_phases} phases configured
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+                  {Object.entries(stats.document_requirements.phases).map(([phase, status]) => (
+                    <div
+                      key={phase}
+                      className={`p-2 rounded text-center text-xs ${
+                        status.configured
+                          ? 'bg-green-100 text-green-700 border border-green-200'
+                          : 'bg-gray-100 text-gray-500 border border-gray-200'
+                      }`}
+                    >
+                      <div className="font-medium">{phase}</div>
+                      <div className="text-[10px]">
+                        {status.configured ? `${status.count} docs` : 'Not set'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ════════════════════════════════════════════
+          GRUP PASCA FINALISASI
+          ════════════════════════════════════════════ */}
+      {stats?.total_post_finalization && stats.total_post_finalization > 0 && (
+        <Card className="border-purple-200 bg-purple-50/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center gap-2">
+              <ArrowRight className="h-5 w-5 text-purple-600" />
+              <CardTitle className="text-sm font-medium text-purple-800">
+                Grup Pasca Finalisasi ({stats.total_post_finalization} grup)
+              </CardTitle>
+            </div>
+            <CardDescription className="text-purple-700">
+              Grup yang sudah melewati tahap finalisasi dan sedang aktif di fase PDC1, PDC2, EXPO, atau TA.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {Object.entries(stats.post_finalization_breakdown || {}).map(([status, count]) => (
+                <div
+                  key={status}
+                  className="p-3 rounded-lg border bg-white/60 border-purple-100"
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    {getStatusBadge(status)}
+                    <span className="text-lg font-bold text-purple-700">{count}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {getStatusDescription(status)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -1201,7 +1318,7 @@ export default function FinalizationPage() {
                           {/* Supervisor 1 Dropdown */}
                           <TableCell>
                             <Select
-                              value={group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString() ?? undefined}
+                              value={group.supervisor_1_id?.toString() ?? group.title?.lecturer?.id?.toString() ?? ''}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_1_id')}
                               disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
@@ -1229,7 +1346,7 @@ export default function FinalizationPage() {
                           {/* Supervisor 2 Dropdown */}
                           <TableCell>
                             <Select
-                              value={group.supervisor_2_id?.toString() ?? undefined}
+                              value={group.supervisor_2_id?.toString() ?? ''}
                               onValueChange={(val) => handleSetSupervisorForGroup(group.id, parseInt(val), 'supervisor_2_id')}
                               disabled={settingRow === group.id || isPeriodFinalized || !canModifyByFlow || !(group.allowed_actions?.can_set_supervisor ?? true)}
                             >
@@ -1304,11 +1421,36 @@ export default function FinalizationPage() {
                     Grup yang sudah di-set supervisor dan ditandai KELOMPOK_FINAL. Siap untuk eksekusi finalisasi.
                   </CardDescription>
                 </div>
-                {canExecuteByFlow && !isPeriodFinalized && canModifyByFlow && (
-                  <Button onClick={() => setShowExecuteDialog(true)} variant="default">
-                    <Shield className="mr-2 h-4 w-4" />
-                    Eksekusi Finalisasi
-                  </Button>
+                {!isPeriodFinalized && (
+                  <div className="flex flex-col items-end">
+                    <Button 
+                      onClick={() => setShowExecuteDialog(true)} 
+                      variant="default"
+                      disabled={!canExecuteByFlow}
+                    >
+                      <Shield className="mr-2 h-4 w-4" />
+                      Eksekusi Finalisasi
+                    </Button>
+                    {flow?.blockers && flow.blockers.length > 0 && (
+                      <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md max-w-md">
+                        <p className="text-sm font-semibold text-red-800 mb-2">
+                          Finalisasi tidak dapat dilakukan:
+                        </p>
+                        <ul className="space-y-2">
+                          {flow.blockers.map((blocker) => (
+                            <li key={blocker.type} className="text-sm text-red-700">
+                              <span className="font-medium">{blocker.message}</span>
+                              {blocker.action && (
+                                <p className="text-xs text-red-500 mt-0.5 ml-0">
+                                  Action: {blocker.action}
+                                </p>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
             </CardHeader>

@@ -632,7 +632,7 @@ export default function AdminExpoPage() {
                                         name="location_id"
                                         control={control}
                                         render={({ field }) => (
-                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                            <Select value={field.value || ''} onValueChange={field.onChange}>
                                                 <SelectTrigger><SelectValue placeholder="Select location..." /></SelectTrigger>
                                                 <SelectContent position="popper" avoidCollisions>
                                                     {locations.length === 0 && (

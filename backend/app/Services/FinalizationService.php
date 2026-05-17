@@ -476,6 +476,36 @@ class FinalizationService
      */
     public function validatePeriodReadiness(int $periodId): void
     {
+        // ─── Pre-check period-level blockers ───
+        $period = \App\Models\Period::findOrFail($periodId);
+        
+        // Check document requirements
+        $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $periodId)->exists();
+        if (!$docReqExists) {
+            throw new InvalidArgumentException("Dokumen requirement belum dikonfigurasi untuk periode ini. Konfigurasi di Periode > Document Requirements.");
+        }
+
+        // Check period config
+        if ($period->min_group_size === null || $period->max_group_size === null) {
+            throw new InvalidArgumentException("Konfigurasi periode belum lengkap. Isi min/max group size di edit periode.");
+        }
+
+        // Check peer review
+        if ($period->peerReviewIndicators()->count() === 0) {
+            throw new InvalidArgumentException("Peer review belum dikonfigurasi. Atur indikator peer review di menu Assessment.");
+        }
+
+        // Check grade config
+        if ($period->grade_configuration === null || empty($period->grade_configuration)) {
+            throw new InvalidArgumentException("Konfigurasi nilai belum diatur. Isi grade configuration di edit periode.");
+        }
+
+        // Check for groups ready for finalization
+        $rfCount = Group::where('period_id', $periodId)->where('status', 'READY_FOR_FINALIZATION')->count();
+        if ($rfCount > 0) {
+            throw new InvalidArgumentException("Ada {$rfCount} grup belum ditandai Kelompok Final. Tandai semua grup sebagai Kelompok Final terlebih dahulu.");
+        }
+
         $blockers = $this->collectPeriodReadinessBlockers($periodId);
 
         if (!$blockers['has_blockers']) {

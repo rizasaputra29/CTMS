@@ -68,6 +68,17 @@ const nextConfig: NextConfig = {
       : [];
   },
 
+  // Redirect old URLs to new paths
+  async redirects() {
+    return [
+      {
+        source: "/admin/analytics/grade-configuration",
+        destination: "/admin/evaluation-setup/grade-configuration",
+        permanent: true,
+      },
+    ];
+  },
+
   // Webpack custom config (only used when not using Turbopack)
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {
