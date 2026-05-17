@@ -19,15 +19,6 @@ return new class extends Migration
             if (!Schema::hasIndex('groups', 'idx_groups_period_id')) {
                 $table->index('period_id', 'idx_groups_period_id');
             }
-            if (!Schema::hasIndex('groups', 'idx_groups_is_finalized')) {
-                $table->index('is_finalized', 'idx_groups_is_finalized');
-            }
-            if (!Schema::hasIndex('groups', 'idx_groups_supervisor1_id')) {
-                $table->index('supervisor1_id', 'idx_groups_supervisor1_id');
-            }
-            if (!Schema::hasIndex('groups', 'idx_groups_supervisor2_id')) {
-                $table->index('supervisor2_id', 'idx_groups_supervisor2_id');
-            }
         });
 
         // Group members indexes
@@ -35,8 +26,8 @@ return new class extends Migration
             if (!Schema::hasIndex('group_members', 'idx_group_members_group_id')) {
                 $table->index('group_id', 'idx_group_members_group_id');
             }
-            if (!Schema::hasIndex('group_members', 'idx_group_members_user_id')) {
-                $table->index('user_id', 'idx_group_members_user_id');
+            if (!Schema::hasIndex('group_members', 'idx_group_members_student_id')) {
+                $table->index('student_id', 'idx_group_members_student_id');
             }
         });
 
@@ -119,14 +110,11 @@ return new class extends Migration
         Schema::table('groups', function (Blueprint $table) {
             $table->dropIndex(['idx_groups_status']);
             $table->dropIndex(['idx_groups_period_id']);
-            $table->dropIndex(['idx_groups_is_finalized']);
-            $table->dropIndex(['idx_groups_supervisor1_id']);
-            $table->dropIndex(['idx_groups_supervisor2_id']);
         });
 
         Schema::table('group_members', function (Blueprint $table) {
             $table->dropIndex(['idx_group_members_group_id']);
-            $table->dropIndex(['idx_group_members_user_id']);
+            $table->dropIndex(['idx_group_members_student_id']);
         });
 
         Schema::table('schedules', function (Blueprint $table) {

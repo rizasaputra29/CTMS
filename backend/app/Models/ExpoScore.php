@@ -42,6 +42,7 @@ class ExpoScore extends Model
         'student_id',
         'score',
         'notes',
+        'evaluation_type',
     ];
 
     /**
