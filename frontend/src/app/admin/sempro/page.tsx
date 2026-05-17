@@ -43,6 +43,7 @@ interface Schedule {
     start_time: string;
     end_time: string;
     room: string | null;
+    location_id: number | null;
     status: string;
     examiner1: Dosen;
     examiner2: Dosen;
@@ -93,7 +94,7 @@ export default function AdminSemproPage() {
     const [approveDialogOpen, setApproveDialogOpen] = useState(false);
     const [approveId, setApproveId] = useState<number | null>(null);
     const [approveData, setApproveData] = useState({
-        date: '', start_time: '', end_time: '', location_id: '',
+        date: '', start_time: '', end_time: '', location_id: '', room: '',
         examiner_1_id: '', examiner_2_id: '',
     });
 
@@ -324,9 +325,10 @@ export default function AdminSemproPage() {
         setApproveId(id);
         setApproveData({
             date: schedule?.date || '',
-            start_time: schedule?.start_time || '',
-            end_time: schedule?.end_time || '',
-            location_id: schedule?.room?.toString() || '', // Keep room as string, will look up location later
+            start_time: schedule?.start_time?.substring(0, 5) || '',
+            end_time: schedule?.end_time?.substring(0, 5) || '',
+            location_id: schedule?.location_id?.toString() || '',
+            room: schedule?.room || '',
             examiner_1_id: schedule?.examiner1?.id?.toString() || '',
             examiner_2_id: schedule?.examiner2?.id?.toString() || '',
         });
@@ -395,13 +397,17 @@ export default function AdminSemproPage() {
         }
     };
 
+    const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
+
     const handleEdit = (id: number, schedule: Schedule) => {
         setEditId(id);
+        setEditingSchedule(schedule);
         setApproveData({
             date: schedule?.date || '',
-            start_time: schedule?.start_time || '',
-            end_time: schedule?.end_time || '',
-            location_id: schedule?.room?.toString() || '',
+            start_time: schedule?.start_time?.substring(0, 5) || '',
+            end_time: schedule?.end_time?.substring(0, 5) || '',
+            location_id: schedule?.location_id?.toString() || '',
+            room: schedule?.room || '',
             examiner_1_id: schedule?.examiner1?.id?.toString() || '',
             examiner_2_id: schedule?.examiner2?.id?.toString() || '',
         });
@@ -411,17 +417,31 @@ export default function AdminSemproPage() {
     const submitEdit = async () => {
         if (!editId) return;
         try {
-            await api.put(`/admin/sempro/schedules/${editId}`, {
+            const payload: any = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
-                location_id: Number(approveData.location_id),
                 examiner_1_id: Number(approveData.examiner_1_id),
                 examiner_2_id: Number(approveData.examiner_2_id),
-            });
+            };
+            
+            // Only include location_id if it has a value, otherwise send null
+            if (approveData.location_id && approveData.location_id !== '') {
+                payload.location_id = Number(approveData.location_id);
+            } else {
+                payload.location_id = null;
+            }
+            
+            // Include room if location_id is not set or if room has value
+            if (approveData.room && approveData.room !== '') {
+                payload.room = approveData.room;
+            }
+            
+            await api.put(`/admin/sempro/schedules/${editId}`, payload);
             toast.success('Schedule updated');
             setEditDialogOpen(false);
             setEditId(null);
+            setEditingSchedule(null);
             fetchSchedules();
         } catch (error) {
             if (api.isAxiosError(error)) {
@@ -1270,7 +1290,7 @@ export default function AdminSemproPage() {
                                 </SelectContent>
                             </Select>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-2 gap-3">
                             <div className="grid gap-1.5">
                                 <Label className="text-[13px]">Penguji 1 <span className="text-destructive">*</span></Label>
                                 <Select
@@ -1281,9 +1301,14 @@ export default function AdminSemproPage() {
                                         <SelectValue placeholder="Select..." />
                                     </SelectTrigger>
                                     <SelectContent position="popper" avoidCollisions>
-                                        {dosens.map(d => (
-                                            <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
-                                        ))}
+                                        {dosens
+                                            .filter(d => 
+                                                d.id !== editingSchedule?.group?.supervisor1?.id && 
+                                                d.id !== editingSchedule?.group?.supervisor2?.id
+                                            )
+                                            .map(d => (
+                                                <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
+                                            ))}
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -1298,7 +1323,11 @@ export default function AdminSemproPage() {
                                     </SelectTrigger>
                                     <SelectContent position="popper" avoidCollisions>
                                         {dosens
-                                            .filter(d => d.id.toString() !== approveData.examiner_1_id)
+                                            .filter(d => 
+                                                d.id.toString() !== approveData.examiner_1_id &&
+                                                d.id !== editingSchedule?.group?.supervisor1?.id && 
+                                                d.id !== editingSchedule?.group?.supervisor2?.id
+                                            )
                                             .map(d => (
                                                 <SelectItem key={d.id} value={d.id.toString()}>{d.name}</SelectItem>
                                             ))}
@@ -1308,7 +1337,7 @@ export default function AdminSemproPage() {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditId(null); }}>
+                        <Button variant="outline" onClick={() => { setEditDialogOpen(false); setEditId(null); setEditingSchedule(null); }}>
                             Cancel
                         </Button>
                         <Button

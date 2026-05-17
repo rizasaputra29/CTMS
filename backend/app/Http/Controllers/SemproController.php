@@ -14,6 +14,7 @@ use App\Services\SchedulingService;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SemproController extends Controller
@@ -36,7 +37,7 @@ class SemproController extends Controller
         // Get active and finalized period IDs for cross-period fetching
         $periodIds = $this->getActiveAndFinalizedPeriodIds();
 
-        $query = SeminarSchedule::with(['group.title', 'group.supervisor1', 'group.supervisor2', 'group.members.student', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner'])
+        $query = SeminarSchedule::with(['group.title', 'group.supervisor1', 'group.supervisor2', 'group.members.student', 'group.period', 'examiner1', 'examiner2', 'evaluations.examiner', 'location'])
             ->where('type', 'SEMPRO')
             ->whereHas('group', function ($q) use ($periodIds, $request) {
                 // Filter by active/finalized periods
@@ -167,13 +168,18 @@ class SemproController extends Controller
             return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
         }
 
-        // Check existing SEMPRO schedule
+        // Check existing SEMPRO schedule - use lock to prevent race conditions
         $existing = SeminarSchedule::where('group_id', $group->id)
             ->where('type', 'SEMPRO')
-            ->where('status', '!=', 'CANCELLED')
+            ->whereIn('status', ['SCHEDULED', 'PENDING_APPROVAL', 'APPROVED', 'COMPLETED'])
+            ->lockForUpdate()
             ->first();
         if ($existing) {
-            return response()->json(['message' => 'Group already has a SEMPRO schedule.'], 400);
+            return response()->json([
+                'message' => 'Group already has an active SEMPRO schedule.',
+                'existing_schedule_id' => $existing->id,
+                'existing_status' => $existing->status
+            ], 400);
         }
 
         // Validate examiner constraints (including examiner ≠ supervisor)
@@ -203,18 +209,28 @@ class SemproController extends Controller
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
-        $schedule = SeminarSchedule::create([
-            'group_id' => $group->id,
-            'type' => 'SEMPRO',
-            'date' => $request->date,
-            'start_time' => $request->start_time,
-            'end_time' => $request->end_time,
-            'room' => $room,
-            'location_id' => $request->location_id,
-            'examiner_1_id' => $request->examiner_1_id,
-            'examiner_2_id' => $request->examiner_2_id,
-            'status' => 'SCHEDULED',
-        ]);
+        // Use updateOrCreate to handle the unique constraint - update existing or create new
+        $schedule = SeminarSchedule::updateOrCreate(
+            [
+                'group_id' => $group->id,
+                'type' => 'SEMPRO',
+            ],
+            [
+                'date' => $request->date,
+                'start_time' => $request->start_time,
+                'end_time' => $request->end_time,
+                'room' => $room,
+                'location_id' => $request->location_id,
+                'examiner_1_id' => $request->examiner_1_id,
+                'examiner_2_id' => $request->examiner_2_id,
+                'status' => 'SCHEDULED',
+            ]
+        );
+
+        // If schedule was reactivated (was CANCELLED or other status), clear old evaluations
+        if (!$schedule->wasRecentlyCreated) {
+            SeminarEvaluation::where('schedule_id', $schedule->id)->delete();
+        }
 
         // Auto-generate evaluation rows
         $this->schedulingService->autoGenerateSeminarEvaluations($schedule);
@@ -250,6 +266,167 @@ class SemproController extends Controller
         return response()->json([
             'message' => 'SEMPRO scheduled.',
             'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
+        ]);
+    }
+
+    /**
+     * Update an existing SEMPRO schedule (admin only).
+     */
+    public function update(Request $request, $id)
+    {
+        $request->validate([
+            'date' => 'required|date',
+            'start_time' => 'required|date_format:H:i',
+            'end_time' => 'required|date_format:H:i|after:start_time',
+            'room' => 'nullable|string',
+            'location_id' => 'nullable|exists:locations,id',
+            'examiner_1_id' => 'required|exists:users,id',
+            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+        ]);
+
+        $schedule = SeminarSchedule::with('group')->findOrFail($id);
+
+        if ($schedule->type !== 'SEMPRO') {
+            return response()->json(['message' => 'This endpoint only updates SEMPRO schedules.'], 400);
+        }
+
+        $group = $schedule->group;
+
+        // Validate examiner cannot be supervisor
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+
+        if (in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+        }
+
+        // Determine room/location
+        $room = null;
+        if ($request->location_id) {
+            $location = Location::find($request->location_id);
+            $room = $location ? $location->name : null;
+        } elseif ($request->room) {
+            // Use room string directly if no location_id provided
+            $room = $request->room;
+        }
+
+        // Validate examiner constraints (including examiner ≠ supervisor)
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
+        if ($constraintError) {
+            return response()->json(['message' => $constraintError], 400);
+        }
+
+        // Double-booking & room conflict check
+        $conflicts = $this->schedulingService->validateScheduleConflicts(
+            $examinerIds,
+            $request->date,
+            $request->start_time,
+            $request->end_time,
+            $room
+        );
+
+        if (!empty($conflicts)) {
+            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+        }
+
+        // Update the schedule
+        $schedule->update([
+            'date' => $request->date,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'room' => $room,
+            'location_id' => $request->location_id,
+            'examiner_1_id' => $request->examiner_1_id,
+            'examiner_2_id' => $request->examiner_2_id,
+        ]);
+
+        // Update examiner evaluations - remove old ones if examiner changed, add new ones
+        $currentExaminerIds = [$schedule->examiner_1_id, $schedule->examiner_2_id];
+        $newExaminerIds = [$request->examiner_1_id, $request->examiner_2_id];
+
+        // Remove evaluations for removed examiners
+        SeminarEvaluation::where('schedule_id', $schedule->id)
+            ->whereNotIn('examiner_id', $newExaminerIds)
+            ->delete();
+
+        // Create evaluations for new examiners
+        foreach ($newExaminerIds as $examinerId) {
+            $exists = SeminarEvaluation::where('schedule_id', $schedule->id)
+                ->where('examiner_id', $examinerId)
+                ->exists();
+
+            if (!$exists) {
+                SeminarEvaluation::create([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $examinerId,
+                    'rubric_json' => null,
+                    'score' => null,
+                    'result' => null,
+                    'status' => 'PENDING',
+                ]);
+            }
+        }
+
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => 'SEMPRO_SCHEDULE_UPDATED',
+            'target_type' => 'SeminarSchedule',
+            'target_id' => $schedule->id,
+            'payload' => ['group_id' => $group->id],
+        ]);
+
+        return response()->json([
+            'message' => 'SEMPRO schedule updated.',
+            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
+        ]);
+    }
+
+    /**
+     * Cancel a SEMPRO schedule (admin only).
+     */
+    public function cancel(Request $request, $id)
+    {
+        $schedule = SeminarSchedule::with('group')->findOrFail($id);
+
+        if ($schedule->type !== 'SEMPRO') {
+            return response()->json(['message' => 'This endpoint only cancels SEMPRO schedules.'], 400);
+        }
+
+        if ($schedule->status === 'COMPLETED') {
+            return response()->json(['message' => 'Cannot cancel completed SEMPRO schedule.'], 400);
+        }
+
+        if ($schedule->status === 'CANCELLED') {
+            return response()->json(['message' => 'Schedule is already cancelled.'], 400);
+        }
+
+        $group = $schedule->group;
+
+        // Update schedule status
+        $schedule->update(['status' => 'CANCELLED']);
+
+        // Delete pending evaluations
+        SeminarEvaluation::where('schedule_id', $schedule->id)
+            ->where('status', 'PENDING')
+            ->delete();
+
+        AuditLog::create([
+            'user_id' => $request->user()->id,
+            'action' => 'SEMPRO_SCHEDULE_CANCELLED',
+            'target_type' => 'SeminarSchedule',
+            'target_id' => $schedule->id,
+            'payload' => ['group_id' => $group->id],
+        ]);
+
+        return response()->json([
+            'message' => 'SEMPRO schedule cancelled.',
         ]);
     }
 

@@ -54,14 +54,15 @@ interface ApiSchedule {
 interface ApiTaDefenseSchedule {
     id: number;
     student: { id: number; name: string };
-    group: { id: number; title?: { title: string } };
+    group: { id: number; title?: { title: string }; period?: { id: number; name: string } };
     period?: { id: number; name: string };
     date: string;
     start_time: string;
     end_time: string;
     room: string | null;
     status: string;
-    examiners: { examiner: Dosen; role: string }[];
+    examiner1?: Dosen;
+    examiner2?: Dosen;
     evaluations: { id: number; examiner: Dosen; status: string; score: number | null }[];
 }
 
@@ -114,9 +115,10 @@ export default function AdminSchedulePage() {
             // Validate date and time before constructing
             if (!s.date) continue; // Skip schedules without dates
             
+            const dateOnly = s.date.split('T')[0];
             const dateStr = s.start_time 
-                ? `${s.date}T${s.start_time}` 
-                : `${s.date}T00:00:00`;
+                ? `${dateOnly}T${s.start_time}` 
+                : `${dateOnly}T00:00:00`;
                 
             mapped.push({
                 id: s.id,
@@ -143,9 +145,10 @@ export default function AdminSchedulePage() {
             // Validate date and time before constructing
             if (!s.date) continue; // Skip schedules without dates
             
+            const dateOnly = s.date.split('T')[0];
             const dateStr = s.start_time 
-                ? `${s.date}T${s.start_time}` 
-                : `${s.date}T00:00:00`;
+                ? `${dateOnly}T${s.start_time}` 
+                : `${dateOnly}T00:00:00`;
                 
             mapped.push({
                 id: `ta_${s.id}`,
@@ -157,10 +160,10 @@ export default function AdminSchedulePage() {
                 status: s.status,
                 start_time: s.start_time || '',
                 end_time: s.end_time || '',
-                period_name: s.period?.name || '',
+                period_name: s.group?.period?.name || '',
                 student_name: s.student?.name,
-                examiner1: s.examiners?.[0]?.examiner ? { name: s.examiners[0].examiner.name } : null,
-                examiner2: s.examiners?.[1]?.examiner ? { name: s.examiners[1].examiner.name } : null,
+                examiner1: s.examiner1 ? { name: s.examiner1.name } : null,
+                examiner2: s.examiner2 ? { name: s.examiner2.name } : null,
                 group: {
                     title: s.group?.title ? { title: s.group.title.title } : null,
                 },
@@ -230,8 +233,8 @@ export default function AdminSchedulePage() {
                     start_time: (rawSchedule as ApiTaDefenseSchedule).start_time,
                     end_time: (rawSchedule as ApiTaDefenseSchedule).end_time,
                     room: (rawSchedule as ApiTaDefenseSchedule).room,
-                    examiner_1_id: (rawSchedule as ApiTaDefenseSchedule).examiners?.[0]?.examiner?.id,
-                    examiner_2_id: (rawSchedule as ApiTaDefenseSchedule).examiners?.[1]?.examiner?.id,
+                    examiner_1_id: (rawSchedule as ApiTaDefenseSchedule).examiner1?.id,
+                    examiner_2_id: (rawSchedule as ApiTaDefenseSchedule).examiner2?.id,
                 });
             } else {
                 await api.put(endpoint, {

@@ -142,6 +142,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::post('/sempro/schedule', [SemproController::class, 'schedule']);
         Route::put('/sempro/schedules/{id}/approve', [SemproController::class, 'approve']);
         Route::put('/sempro/schedules/{id}/reject', [SemproController::class, 'reject']);
+        Route::put('/sempro/schedules/{id}/cancel', [SemproController::class, 'cancel']);
+        Route::put('/sempro/schedules/{id}', [SemproController::class, 'update']);
 
         // Expo scheduling (legacy — kept for backward compat)
         Route::get('/expo/schedules', [ExpoController::class, 'index']);
