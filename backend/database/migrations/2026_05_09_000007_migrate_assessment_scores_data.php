@@ -38,7 +38,6 @@ return new class extends Migration
         
         foreach ($records as $record) {
             $data = [
-                'id' => $record->id,
                 'component_id' => $record->component_id,
                 'period_component_id' => $record->period_component_id ?? null,
                 'evaluator_id' => $record->evaluator_id,

@@ -883,4 +883,13 @@ class GradeCalculationService
 
         return $this->calculateWeightedAverageFromScores($scores);
     }
+
+    public function recalculateAndNotify(int $groupId, string $evaluationType): ?array
+    {
+        return match ($evaluationType) {
+            'BIMBINGAN_SEMPRO' => $this->calculatePDC1($groupId),
+            'NILAI_DOSEN', 'EXPO', 'MILESTONE' => $this->calculatePDC2($groupId),
+            default => null,
+        };
+    }
 }

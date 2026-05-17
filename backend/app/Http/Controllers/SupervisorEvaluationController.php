@@ -573,7 +573,7 @@ class SupervisorEvaluationController extends Controller
             'evaluation_type' => 'required|in:BIMBINGAN_SEMPRO,NILAI_DOSEN,EXPO,MILESTONE,BIMBINGAN_TA',
             'scores' => 'required|array',
             'scores.*.student_id' => 'required|exists:users,id',
-            'scores.*.score' => 'required|numeric|min:0|max:100',
+            'scores.*.score' => 'required|numeric|min:1|max:100',
             'scores.*.notes' => 'nullable|string',
             // Include both component ID fields so they survive validation
             'scores.*.period_component_id' => "nullable|integer|exists:{$componentTable},id",
