@@ -102,6 +102,7 @@ export interface GroupMember {
 // Group type with supervisors
 export interface Group {
   id: number;
+  code?: string;
   name: string;
   status: GroupStatus;
   period_id: number;
@@ -175,12 +176,31 @@ export function isStudentArray(value: unknown[]): value is Student[] {
   return value.length === 0 || isStudent(value[0]);
 }
 
+export interface FinalizationBlocker {
+  type: string;
+  message: string;
+  severity: 'error' | 'warning';
+  action?: string;
+}
+
+export interface PrerequisiteItem {
+  type: string;
+  label: string;
+  configured: boolean;
+  severity: 'success' | 'error' | 'warning';
+  message: string;
+  configure_url: string;
+  edit_url: string;
+}
+
 export interface FinalizationFlow {
   can_modify: boolean;
   can_execute_finalization: boolean;
   reason: string | null;
   tab?: DashboardTab;
   sub_tab?: OthersSubTab;
+  blockers: FinalizationBlocker[];
+  prerequisites?: PrerequisiteItem[];
 }
 
 // Lecturer with load information
@@ -246,6 +266,9 @@ export interface DashboardStats {
   can_finalize: boolean;
   can_reopen_finalization?: boolean;
   document_requirements?: DocumentRequirementsStatus;
+  // Post-finalization groups
+  total_post_finalization?: number;
+  post_finalization_breakdown?: Record<string, number>;
 }
 
 // Dashboard response

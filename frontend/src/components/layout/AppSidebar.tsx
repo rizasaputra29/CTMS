@@ -90,6 +90,7 @@ const navItems: Record<string, NavItem[]> = {
                 { title: 'Active Components', url: '/admin/assessments', icon: ListChecks },
                 { title: 'Period Config', url: '/admin/period-assessment-config', icon: Settings },
                 { title: 'Peer Review', url: '/admin/peer-review', icon: Star },
+                { title: 'Grade Config', url: '/admin/evaluation-setup/grade-configuration', icon: GraduationCap },
             ]
         },
         {
@@ -108,7 +109,6 @@ const navItems: Record<string, NavItem[]> = {
             icon: BarChart3,
             items: [
                 { title: 'Progress', url: '/admin/analytics/progress', icon: TrendingUp },
-                { title: 'Grade Config', url: '/admin/analytics/grade-configuration', icon: GraduationCap },
                 { title: 'Peer Review Dashboard', url: '/admin/peer-review-dashboard', icon: Users },
                 { title: 'Reports', url: '/admin/reports', icon: BarChart3 },
             ]

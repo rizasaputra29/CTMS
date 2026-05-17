@@ -49,6 +49,7 @@ interface Document {
 
 interface Group {
     id: number;
+    code?: string;
     title: {
         title: string;
     };
@@ -250,7 +251,7 @@ export default function DosenBimbinganPage() {
                             <SelectItem value="all">All Groups</SelectItem>
                             {groups.map((group) => (
                                 <SelectItem key={group.id} value={group.id.toString()}>
-                                    {group.title?.title || `Group ${group.id}`}
+                                    {group.title?.title || group.code || `Group ${group.id}`}
                                 </SelectItem>
                             ))}
                         </SelectContent>

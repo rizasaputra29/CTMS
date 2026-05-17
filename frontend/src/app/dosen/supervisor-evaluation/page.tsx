@@ -459,7 +459,7 @@ export default function SupervisorEvaluationPage() {
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
-                        <CardTitle className="text-lg">Group {group.id}</CardTitle>
+                        <CardTitle className="text-lg">{group.code || `Group ${group.id}`}</CardTitle>
                       </div>
                       <Badge variant="outline">
                         {group.supervisor_role === 'SUPERVISOR_1'
@@ -578,7 +578,7 @@ function ScheduleCard({ schedule, onEvaluate, isUrgent, isOverdue }: ScheduleCar
           </Badge>
           {getStatusBadge(schedule.status)}
         </div>
-        <CardTitle className="text-lg mt-2">Group {schedule.group.id}</CardTitle>
+        <CardTitle className="text-lg mt-2">{schedule.group.code || `Group ${schedule.group.id}`}</CardTitle>
       </CardHeader>
       
       <CardContent className="space-y-3">

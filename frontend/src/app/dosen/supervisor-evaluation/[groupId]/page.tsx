@@ -296,7 +296,7 @@ export default function SupervisorEvaluationDetailPage() {
                 <Separator className="bg-primary/10" />
                 <div className="space-y-1">
                   <Label className="text-xs text-muted-foreground uppercase font-semibold">Group</Label>
-                  <p className="font-medium">Group {group.id}</p>
+                  <p className="font-medium">{group.code || `Group ${group.id}`}</p>
                 </div>
                 <Separator className="bg-primary/10" />
                 <div className="space-y-2">

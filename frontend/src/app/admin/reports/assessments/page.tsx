@@ -31,6 +31,12 @@ import {
 import { toast } from 'sonner';
 import { getEvaluationData } from '@/types/guards';
 
+interface Period {
+    id: number;
+    name: string;
+    is_active: boolean;
+}
+
 interface EvaluationStatus {
     score: number | null;
     status: 'COMPLETE' | 'PARTIAL' | 'NOT_STARTED';
@@ -95,12 +101,16 @@ const getScoreColor = (score: number | null): string => {
 export default function AssessmentsReportPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const periodId = searchParams.get('period_id');
+    const initialPeriodId = searchParams.get('period_id');
     
     const [students, setStudents] = useState<StudentEvaluation[]>([]);
     const [meta, setMeta] = useState<Meta | null>(null);
     const [loading, setLoading] = useState(true);
     const [downloading, setDownloading] = useState(false);
+    
+    // Period filter
+    const [periods, setPeriods] = useState<Period[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>(initialPeriodId || '');
     
     // Filters
     const [studentSearch, setStudentSearch] = useState('');
@@ -109,12 +119,12 @@ export default function AssessmentsReportPage() {
     const [perPage, setPerPage] = useState(50);
 
     const fetchData = useCallback(async () => {
-        if (!periodId) return;
+        if (!selectedPeriod) return;
         
         setLoading(true);
         try {
             const params: Record<string, string | number> = {
-                period_id: periodId,
+                period_id: selectedPeriod,
                 page,
                 per_page: perPage,
                 sort_by: sortBy,
@@ -133,18 +143,42 @@ export default function AssessmentsReportPage() {
         } finally {
             setLoading(false);
         }
-    }, [periodId, studentSearch, sortBy, page, perPage]);
+    }, [selectedPeriod, studentSearch, sortBy, page, perPage]);
+
+    // Fetch available periods on mount
+    useEffect(() => {
+        const fetchPeriods = async () => {
+            try {
+                const res = await api.get('/periods');
+                const periodsData = res.data.data || res.data || [];
+                setPeriods(periodsData);
+                
+                // Auto-select first active period if none selected
+                if (!selectedPeriod && periodsData.length > 0) {
+                    const activePeriod = periodsData.find((p: Period) => p.is_active);
+                    if (activePeriod) {
+                        setSelectedPeriod(activePeriod.id.toString());
+                    } else {
+                        setSelectedPeriod(periodsData[0].id.toString());
+                    }
+                }
+            } catch {
+                toast.error('Failed to load periods');
+            }
+        };
+        fetchPeriods();
+    }, []);
 
     useEffect(() => {
         fetchData();
     }, [fetchData]);
 
     const handleExport = async () => {
-        if (!periodId) return;
+        if (!selectedPeriod) return;
         setDownloading(true);
         try {
             const params: Record<string, string> = {
-                period_id: periodId,
+                period_id: selectedPeriod,
                 sort_by: sortBy,
             };
             
@@ -160,7 +194,7 @@ export default function AssessmentsReportPage() {
             const url = window.URL.createObjectURL(new Blob([res.data]));
             const a = document.createElement('a');
             a.href = url;
-            a.download = `student_evaluations_summary_period_${periodId}.csv`;
+            a.download = `student_evaluations_summary_period_${selectedPeriod}.csv`;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -174,10 +208,10 @@ export default function AssessmentsReportPage() {
     };
 
     const handleRowClick = (studentId: number) => {
-        router.push(`/admin/reports/assessments/student/${studentId}?period_id=${periodId}`);
+        router.push(`/admin/reports/assessments/student/${studentId}?period_id=${selectedPeriod}`);
     };
 
-    if (!periodId) {
+    if (!selectedPeriod) {
         return (
             <div className="space-y-6">
                 <Link href="/admin/reports">
@@ -234,7 +268,26 @@ export default function AssessmentsReportPage() {
                     </CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                        <div className="space-y-2">
+                            <Label>Period</Label>
+                            <Select value={selectedPeriod} onValueChange={(val) => {
+                                setSelectedPeriod(val);
+                                setPage(1);
+                            }}>
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select period" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {periods.map((period) => (
+                                        <SelectItem key={period.id} value={period.id.toString()}>
+                                            {period.name} {period.is_active && '(Active)'}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        
                         <div className="space-y-2">
                             <Label>Search Student</Label>
                             <div className="relative">

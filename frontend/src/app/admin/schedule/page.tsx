@@ -5,7 +5,7 @@ import api from '@/lib/api';
 import { Loader2, CalendarPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
-import ScheduleCalendar, { ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
+import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
 import { ViewToggle } from '@/components/schedule/ViewToggle';
 import { PeriodFilter } from '@/components/schedule/PeriodFilter';
 import { ScheduleExport } from '@/components/schedule/ScheduleExport';
@@ -134,8 +134,8 @@ export default function AdminSchedulePage() {
                     title: s.group?.title ? { title: s.group.title.title } : null,
                     members: [],
                 },
-                online_link: s.online_link,
-                notes: s.notes,
+                online_link: s.online_link ?? null,
+                notes: s.notes ?? null,
             });
         }
 

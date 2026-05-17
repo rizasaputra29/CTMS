@@ -16,6 +16,7 @@ import Link from 'next/link';
 
 interface GroupDetail {
     id: number;
+    code?: string;
     status: string;
     group_mode: string;
     period_id: number;
@@ -113,7 +114,7 @@ export default function GroupDetailPage() {
                     <div>
                         <h1 className="text-2xl font-bold tracking-tight">Group Details</h1>
                         <p className="text-muted-foreground text-sm">
-                            Group {group.id} • {group.period.name}
+                            {group.code || `Group ${group.id}`} • {group.period.name}
                         </p>
                     </div>
                 </div>
@@ -259,7 +260,7 @@ export default function GroupDetailPage() {
                             <div className="space-y-3 text-sm">
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Group ID</span>
-                                    <span className="font-mono">#{group.id}</span>
+                                    <span className="font-mono">{group.code || `#${group.id}`}</span>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Period</span>

@@ -269,7 +269,7 @@ class ReportDetailController extends Controller
 
             $students[] = [
                 'group_id' => $group->id,
-                'group_name' => $group->title->title ?? "Group {$group->id}",
+                'group_name' => $group->code ?? "Group {$group->id}",
                 'student_id' => $student->id,
                 'student_name' => $student->name,
                 'student_nim' => $student->nim ?? '',
@@ -398,7 +398,7 @@ class ReportDetailController extends Controller
 
                 $students[] = [
                     'group_id' => $group->id,
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'student_id' => $student->id,
                     'student_name' => $student->name,
                     'pdc1_score' => round($pdc1Score, 2),
@@ -731,7 +731,7 @@ class ReportDetailController extends Controller
                     'student_name' => $student->name,
                     'student_nim' => $student->nim ?? '',
                     'group_id' => $group->id,
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'evaluations' => $evaluations,
                 ];
             }
@@ -1010,7 +1010,7 @@ class ReportDetailController extends Controller
                 'name' => $student->name,
                 'nim' => $student->nim ?? '',
                 'group_id' => $group->id,
-                'group_name' => $group->title->title ?? "Group {$group->id}",
+                'group_name' => $group->code ?? "Group {$group->id}",
             ],
             'evaluation_type' => $evaluationType,
             'overall' => [
@@ -1083,7 +1083,7 @@ class ReportDetailController extends Controller
                     'student_id' => $student->id,
                     'student_name' => $student->name,
                     'student_nim' => $student->nim ?? '',
-                    'group_name' => $group->title->title ?? "Group {$group->id}",
+                    'group_name' => $group->code ?? "Group {$group->id}",
                     'evaluations' => $evaluations,
                 ];
             }

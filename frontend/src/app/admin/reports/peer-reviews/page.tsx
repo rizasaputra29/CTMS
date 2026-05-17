@@ -43,6 +43,7 @@ interface PeerReview {
     };
     group: {
         id: number;
+        code?: string;
         title: {
             title: string;
         };
@@ -90,7 +91,7 @@ export default function PeerReviewsReportPage() {
     const [studentSearch, setStudentSearch] = useState('');
     const [page, setPage] = useState(1);
     const [perPage, setPerPage] = useState(50);
-    const [groups, setGroups] = useState<{id: number, title: {title: string}}[]>([]);
+    const [groups, setGroups] = useState<{id: number, code?: string, title: {title: string}}[]>([]);
 
     const fetchGroups = useCallback(async () => {
         if (!periodId) return;
@@ -249,7 +250,7 @@ export default function PeerReviewsReportPage() {
                                     <SelectItem value="all">All Groups</SelectItem>
                                     {groups.map(group => (
                                         <SelectItem key={group.id} value={group.id.toString()}>
-                                            {group.title?.title || `Group ${group.id}`}
+                                            {group.title?.title || group.code || `Group ${group.id}`}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
@@ -329,7 +330,7 @@ export default function PeerReviewsReportPage() {
                                                     {new Date(review.created_at).toLocaleDateString('id-ID')}
                                                 </TableCell>
                                                 <TableCell className="font-medium">
-                                                    {review.group?.title?.title || `Group ${review.group?.id}`}
+                                                    {review.group?.title?.title || review.group?.code || `Group ${review.group?.id}`}
                                                 </TableCell>
                                                 <TableCell>{review.reviewer?.name || 'N/A'}</TableCell>
                                                 <TableCell>{review.reviewee?.name || 'N/A'}</TableCell>

@@ -67,6 +67,7 @@ interface ProgressPhase {
 
 interface GroupProgress {
     id: number;
+    code?: string;
     name: string | null;
     status: string;
     period_id: number;
@@ -631,7 +632,7 @@ export default function ProgressPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="font-medium">
-                                                            Group {group.id}
+                                                            {group.code || `Group ${group.id}`}
                                                         </div>
                                                         <div className="text-sm text-muted-foreground truncate max-w-[200px]">
                                                             {group.title?.title || 'No title assigned'}

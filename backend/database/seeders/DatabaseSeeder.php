@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             RoleSeeder::class,
             PeriodSeeder::class,
             UserSeeder::class,
+            DosenHomebaseSeeder::class,
             TitleSeeder::class,
             GroupSeeder::class,
         ]);

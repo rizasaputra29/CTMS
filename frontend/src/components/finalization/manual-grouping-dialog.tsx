@@ -468,7 +468,7 @@ export function ManualGroupingDialog({
                         onClick={() => setSelectedGroupId(group.id)}
                       >
                         <div>
-                          <p className="font-medium text-sm">Group {group.id}</p>
+                          <p className="font-medium text-sm">{group.code || `Group ${group.id}`}</p>
                           <p className="text-xs text-muted-foreground">
                             {group.title?.title || 'Belum ada judul'} • {group.status}
                           </p>

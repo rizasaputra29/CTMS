@@ -218,7 +218,7 @@ export default function TaEvaluationPage() {
                     </div>
                     <div className="flex items-center text-sm">
                         <BookOpen className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>Group {schedule.group.id}</span>
+                        <span>{schedule.group.code || `Group ${schedule.group.id}`}</span>
                     </div>
                     <div className="flex items-center text-sm">
                         <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />

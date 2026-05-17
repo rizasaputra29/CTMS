@@ -558,7 +558,7 @@ export default function AdminTaDefensePage() {
                                             </TableCell>
                                             <TableCell>
                                                 <span className={`text-sm tabular-nums ${isCancelled ? 'text-muted-foreground/50' : 'text-muted-foreground'}`}>
-                                                    #{s.group.id}
+                                                    {s.group.code || `#${s.group.id}`}
                                                 </span>
                                             </TableCell>
                                             <TableCell>

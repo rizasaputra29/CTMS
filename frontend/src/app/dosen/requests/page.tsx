@@ -29,6 +29,7 @@ import { toast } from "sonner";
 
 interface Group {
     id: number;
+    code?: string;
     title: {
         title: string;
         quota: number;
@@ -163,7 +164,7 @@ export default function DosenRequestsPage() {
                         <TableBody>
                             {filteredRequests.map(group => (
                                 <TableRow key={group.id}>
-                                    <TableCell className="font-medium">#{group.id}</TableCell>
+                                    <TableCell className="font-medium">{group.code || `#${group.id}`}</TableCell>
                                     <TableCell className="max-w-[250px]">
                                         <div className="line-clamp-2 font-medium">{group.title?.title || 'No title'}</div>
                                     </TableCell>

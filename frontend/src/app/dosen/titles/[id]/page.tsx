@@ -20,7 +20,7 @@ interface TitleDetail {
     status: string;
     title_source: string | null;
     lecturer?: { id: number; name: string; email: string };
-    groups?: { id: number; status: string; members: { id: number; student_id: number; is_leader: boolean; student: { id: number; name: string; email: string } }[] }[];
+    groups?: { id: number; code?: string; status: string; members: { id: number; student_id: number; is_leader: boolean; student: { id: number; name: string; email: string } }[] }[];
 }
 
 export default function DosenTitleDetailPage() {
@@ -128,7 +128,7 @@ export default function DosenTitleDetailPage() {
                             {activeGroups.map(group => (
                                 <div key={group.id} className="border rounded-lg p-4">
                                     <div className="flex items-center justify-between mb-2">
-                                        <span className="font-medium text-sm">Group {group.id}</span>
+                                        <span className="font-medium text-sm">{group.code || `Group ${group.id}`}</span>
                                         <Badge variant={group.status === 'APPROVED' ? 'default' : 'secondary'}>{group.status}</Badge>
                                     </div>
                                     <div className="flex flex-wrap gap-2">

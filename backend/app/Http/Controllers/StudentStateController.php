@@ -173,7 +173,7 @@ class StudentStateController extends Controller
 
         return response()->json([
             'group_id' => $groupId,
-            'group_name' => $members->first()?->group?->name,
+            'group_name' => $members->first()?->group?->code,
             'students' => $students
         ]);
     }
