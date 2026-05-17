@@ -86,7 +86,6 @@ export default function EvaluationDetailPage() {
     const [context, setContext] = useState<EvaluationContext | null>(null)
     const [scores, setScores] = useState<Record<string, number>>({})
     const [notes, setNotes] = useState<Record<string, string>>({})
-    const [overallResult, setOverallResult] = useState<'PASS' | 'FAIL'>('PASS')
     const [isViewOnly, setIsViewOnly] = useState(false)
 
     const fetchContext = useCallback(async () => {
@@ -209,8 +208,7 @@ export default function EvaluationDetailPage() {
 
             await axios.post(finalizeEndpoint, {
                 rubric_json: { scores, notes },
-                score: avgScore,
-                result: overallResult
+                score: avgScore
             })
 
             toast.success('Penilaian berhasil disimpan')
@@ -352,44 +350,6 @@ export default function EvaluationDetailPage() {
                             </div>
                         </CardContent>
                     </Card>
-
-                    {/* Overall Result - Only show when not in view mode */}
-                    {!isViewOnly && (
-                        <Card className="border-primary/10 shadow-md">
-                            <CardHeader>
-                                <CardTitle className="text-lg">Keputusan Akhir</CardTitle>
-                                <CardDescription>Keputusan akhir untuk presentasi ini</CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <Button 
-                                        type="button"
-                                        variant={overallResult === 'PASS' ? 'default' : 'outline'}
-                                        className={overallResult === 'PASS' ? 'bg-green-600 hover:bg-green-700' : ''}
-                                        onClick={() => setOverallResult('PASS')}
-                                    >
-                                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                                        LULUS
-                                    </Button>
-                                    <Button 
-                                        type="button"
-                                        variant={overallResult === 'FAIL' ? 'destructive' : 'outline'}
-                                        onClick={() => setOverallResult('FAIL')}
-                                    >
-                                        <AlertCircle className="mr-2 h-4 w-4" />
-                                        GAGAL
-                                    </Button>
-                                </div>
-                                
-                                <Alert className="bg-yellow-500/10 border-yellow-500/20 text-yellow-700 dark:text-yellow-400">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <AlertDescription className="text-xs">
-                                        Keputusan Anda akan digabungkan dengan penguji lain untuk menentukan hasil akhir.
-                                    </AlertDescription>
-                                </Alert>
-                            </CardContent>
-                        </Card>
-                    )}
 
                     {/* Info Card */}
                     <Card className="border-primary/10 shadow-md">

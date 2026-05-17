@@ -417,7 +417,7 @@ class ScheduleController extends Controller
         $allSchedules = array_merge($allSchedules, $bimbinganSchedules->toArray());
 
         // 2. SEMPRO schedules from seminar_schedules table
-        $semproSchedules = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title'])
+        $semproSchedules = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title', 'group.period'])
             ->where('group_id', $groupId)
             ->where('type', 'SEMPRO')
             ->get()
@@ -427,27 +427,33 @@ class ScheduleController extends Controller
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 return [
-                    'id' => 'sempro_' . $schedule->id,
+                    'id' => $schedule->id,
                     'type' => 'SEMPRO',
                     'date' => $isoDate,
                     'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
                     'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
+                    'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => null,
                     'status' => $schedule->status,
                     'period_name' => $periodName,
                     'group_id' => $schedule->group_id,
+                    'status' => $schedule->status,
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
                     'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
                     'group' => [
+                        'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
                             'lecturer' => null,
                         ] : null,
-                        'members' => $groupMembers,
-                        'supervisor' => $supervisor ? ['name' => $supervisor->name] : null,
-                    ],
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
+                        ] : null,
+                        'members' => []
+                    ]
                 ];
             });
         $allSchedules = array_merge($allSchedules, $semproSchedules->toArray());
@@ -465,31 +471,34 @@ class ScheduleController extends Controller
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 $allSchedules[] = [
-                    'id' => 'expo_' . $event->id,
+                    'id' => $event->id,
                     'type' => 'EXPO',
                     'date' => $isoDate,
                     'start_time' => $event->start_time ? substr($event->start_time, 0, 5) : null,
                     'end_time' => $event->end_time ? substr($event->end_time, 0, 5) : null,
                     'room' => $event->room,
+                    'location_id' => $event->location_id,
                     'mode' => null,
                     'notes' => $event->name,
                     'status' => 'SCHEDULED',
                     'period_name' => $periodName,
                     'group_id' => $groupId,
+                    'status' => 'SCHEDULED',
                     'group' => [
+                        'id' => $groupId,
                         'title' => [
                             'title' => $event->name,
                             'lecturer' => null,
                         ],
-                        'members' => $groupMembers,
-                        'supervisor' => $supervisor ? ['name' => $supervisor->name] : null,
-                    ],
+                        'period' => null,
+                        'members' => []
+                    ]
                 ];
             }
         }
 
         // 4. TA Defense schedules for the individual student
-        $taDefenseSchedules = TaDefenseSchedule::with(['examiner1', 'examiner2', 'group.title', 'group.members.student', 'group.period', 'group.supervisions.supervisor'])
+        $taDefenseSchedules = TaDefenseSchedule::with(['examiner1', 'examiner2', 'group.title', 'group.period'])
             ->where('student_id', $user->id)
             ->whereIn('status', ['SCHEDULED', 'DONE'])
             ->get()
@@ -501,12 +510,13 @@ class ScheduleController extends Controller
                 $tdSupervisor = $schedule->group->supervisions->first()?->supervisor;
 
                 return [
-                    'id' => 'ta_defense_' . $schedule->id,
+                    'id' => $schedule->id,
                     'type' => 'TA_DEFENSE',
                     'date' => $isoDate,
                     'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
                     'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
+                    'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => $schedule->notes,
                     'status' => $schedule->status,
@@ -516,13 +526,17 @@ class ScheduleController extends Controller
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
                     'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
                     'group' => [
+                        'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
                             'lecturer' => null,
                         ] : null,
-                        'members' => $schedule->group->members->map(fn($m) => ['student' => ['name' => $m->student->name]]),
-                        'supervisor' => $tdSupervisor ? ['name' => $tdSupervisor->name] : null,
-                    ],
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
+                        ] : null,
+                        'members' => []
+                    ]
                 ];
             });
         $allSchedules = array_merge($allSchedules, $taDefenseSchedules->toArray());
@@ -597,7 +611,7 @@ class ScheduleController extends Controller
         $allSchedules = array_merge($allSchedules, $bimbinganSchedules->toArray());
 
         // 2. SEMPRO/EXPO schedules where dosen is examiner
-        $examinerQuery = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title'])
+        $examinerQuery = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title', 'group.period'])
             ->where(function ($q) use ($user) {
                 $q->where('examiner_1_id', $user->id)
                   ->orWhere('examiner_2_id', $user->id);
@@ -618,19 +632,28 @@ class ScheduleController extends Controller
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 return [
-                    'id' => 'sempro_' . $schedule->id,
+                    'id' => $schedule->id,
                     'type' => $schedule->type,
                     'date' => $isoDate,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
+                    'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => null,
+                    'status' => $schedule->status,
                     'group_id' => $schedule->group_id,
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
                     'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
                     'group' => [
+                        'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
                             'lecturer' => null
+                        ] : null,
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
                         ] : null,
                         'members' => []
                     ]
@@ -639,7 +662,7 @@ class ScheduleController extends Controller
         $allSchedules = array_merge($allSchedules, $examinerSchedules->toArray());
 
         // 3. TA Defense schedules where dosen is examiner
-        $taDefenseQuery = TaDefenseSchedule::with(['student', 'examiner1', 'examiner2', 'group.title'])
+        $taDefenseQuery = TaDefenseSchedule::with(['student', 'examiner1', 'examiner2', 'group.title', 'group.period'])
             ->where(function ($q) use ($user) {
                 $q->where('examiner_1_id', $user->id)
                   ->orWhere('examiner_2_id', $user->id);
@@ -664,6 +687,8 @@ class ScheduleController extends Controller
                     'id' => 'ta_defense_' . $schedule->id,
                     'type' => 'TA_DEFENSE',
                     'date' => $isoDate,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
                     'mode' => null,
                     'notes' => $schedule->notes,
@@ -683,6 +708,111 @@ class ScheduleController extends Controller
                 ];
             });
         $allSchedules = array_merge($allSchedules, $taDefenseSchedules->toArray());
+
+        // 4. SEMPRO/EXPO schedules where dosen is SUPERVISOR (not examiner)
+        // Get groups where dosen is supervisor with their roles
+        $supervisions = \App\Models\Supervision::where('supervisor_id', $user->id)
+            ->select('group_id', 'role')
+            ->get();
+
+        // SEPARATE: SEMPRO only visible to SUPERVISOR_2 (Dosbing 2)
+        $supervisor2GroupIds = $supervisions->where('role', 'SUPERVISOR_2')->pluck('group_id');
+        // TA_DEFENSE only visible to SUPERVISOR_1 (Dosbing 1)
+        $supervisor1GroupIds = $supervisions->where('role', 'SUPERVISOR_1')->pluck('group_id');
+
+        // SEMPRO/EXPO schedules for SUPERVISOR_2 only (exclude ones already shown as examiner)
+        $examinerScheduleIds = $examinerQuery->pluck('id');
+        $supervisorSeminarQuery = SeminarSchedule::with(['examiner1', 'examiner2', 'group.title', 'group.period'])
+            ->whereIn('group_id', $supervisor2GroupIds);
+
+        if ($examinerScheduleIds->isNotEmpty()) {
+            $supervisorSeminarQuery->whereNotIn('id', $examinerScheduleIds);
+        }
+
+        $supervisorSeminarSchedules = $supervisorSeminarQuery->get()
+            ->map(function ($schedule) {
+                // Format date as ISO 8601 to ensure JavaScript can parse it
+                $dateStr = $schedule->date->format('Y-m-d');
+                $timeStr = substr($schedule->start_time, 0, 5); // Get HH:MM
+                $isoDate = $dateStr . 'T' . $timeStr . ':00';
+
+                return [
+                    'id' => $schedule->id,
+                    'type' => $schedule->type,
+                    'date' => $isoDate,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
+                    'room' => $schedule->room,
+                    'mode' => null,
+                    'notes' => null,
+                    'group_id' => $schedule->group_id,
+                    'is_supervisor' => true, // Flag to identify supervisor view
+                    'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
+                    'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
+                    'group' => [
+                        'id' => $schedule->group->id,
+                        'title' => $schedule->group->title ? [
+                            'title' => $schedule->group->title->title,
+                            'lecturer' => null
+                        ] : null,
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
+                        ] : null,
+                        'members' => []
+                    ]
+                ];
+            });
+        $allSchedules = array_merge($allSchedules, $supervisorSeminarSchedules->toArray());
+
+        // TA_DEFENSE schedules for SUPERVISOR_1 only (exclude ones already shown as examiner)
+        $taDefenseScheduleIds = $taDefenseQuery->pluck('id');
+        $supervisorTaDefenseQuery = TaDefenseSchedule::with(['student', 'examiner1', 'examiner2', 'group.title', 'group.period'])
+            ->whereIn('group_id', $supervisor1GroupIds)  // Only SUPERVISOR_1 (Dosbing 1)
+            ->whereIn('status', ['SCHEDULED', 'DONE']);
+
+        if ($taDefenseScheduleIds->isNotEmpty()) {
+            $supervisorTaDefenseQuery->whereNotIn('id', $taDefenseScheduleIds);
+        }
+
+        $supervisorTaDefenseSchedules = $supervisorTaDefenseQuery->get()
+            ->map(function ($schedule) {
+                // Format date as ISO 8601 to ensure JavaScript can parse it
+                $dateStr = $schedule->date->format('Y-m-d');
+                $timeStr = substr($schedule->start_time, 0, 5); // Get HH:MM
+                $isoDate = $dateStr . 'T' . $timeStr . ':00';
+
+                return [
+                    'id' => $schedule->id,
+                    'type' => 'TA_DEFENSE',
+                    'date' => $isoDate,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
+                    'room' => $schedule->room,
+                    'mode' => null,
+                    'notes' => $schedule->notes,
+                    'group_id' => $schedule->group_id,
+                    'student_id' => $schedule->student_id,
+                    'student_name' => $schedule->student ? $schedule->student->name : null,
+                    'is_supervisor' => true, // Flag to identify supervisor view
+                    'is_examiner' => false,
+                    'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
+                    'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
+                    'group' => [
+                        'id' => $schedule->group->id,
+                        'title' => $schedule->group->title ? [
+                            'title' => $schedule->group->title->title,
+                            'lecturer' => null
+                        ] : null,
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
+                        ] : null,
+                        'members' => []
+                    ]
+                ];
+            });
+        $allSchedules = array_merge($allSchedules, $supervisorTaDefenseSchedules->toArray());
 
         // Sort by date
         usort($allSchedules, function ($a, $b) {

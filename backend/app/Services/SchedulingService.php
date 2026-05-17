@@ -13,6 +13,10 @@ use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
 use App\Models\AuditLog;
+use App\Models\SemproScore;
+use App\Models\SidangTaScore;
+use App\Models\BimbinganSemproScore;
+use App\Models\BimbinganTaScore;
 use App\Repositories\AssessmentScoreRepository;
 use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\Cache;
@@ -544,8 +548,15 @@ class SchedulingService
 
                 $this->ensurePeriodIsActive($group);
 
+                // Calculate final score from examiners AND supervisors
+                $finalScore = $this->calculateFinalSeminarScore($schedule);
+                $calculatedResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
+
+                // Update schedule with final score
+                $schedule->update(['final_score' => $finalScore]);
+
                 if ($schedule->type === 'SEMPRO') {
-                    if ($result === 'PASS') {
+                    if ($calculatedResult === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
                         // Auto-transition to PDC2_ACTIVE after SEMPRO completion
                         $this->stateMachine->transition($group, 'PDC2_ACTIVE');
@@ -553,7 +564,7 @@ class SchedulingService
                         $this->stateMachine->transition($group, 'PDC1_ACTIVE');
                     }
                 } elseif ($schedule->type === 'EXPO') {
-                    if ($result === 'PASS') {
+                    if ($calculatedResult === 'PASS') {
                         $this->stateMachine->transition($group, 'EXPO_DONE');
 
                         // Unlock peer review for all group members
@@ -572,12 +583,13 @@ class SchedulingService
 
                 AuditLog::create([
                     'user_id' => $userId,
-                    'action' => "{$schedule->type}_{$result}",
+                    'action' => "{$schedule->type}_{$calculatedResult}",
                     'target_type' => 'SeminarSchedule',
                     'target_id' => $schedule->id,
                     'payload' => [
                         'group_id' => $group->id,
-                        'avg_score' => SeminarEvaluation::where('schedule_id', $schedule->id)->avg('score'),
+                        'final_score' => $finalScore,
+                        'calculated_result' => $calculatedResult,
                     ],
                 ]);
             }
@@ -636,7 +648,14 @@ class SchedulingService
                 $group = Group::findOrFail($schedule->group_id);
                 $this->ensurePeriodIsActive($group);
 
-                if ($result === 'PASS') {
+                // Calculate final score from examiners AND supervisors
+                $finalScore = $this->calculateFinalTaDefenseScore($schedule);
+                $calculatedResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
+
+                // Update schedule with final score
+                $schedule->update(['final_score' => $finalScore]);
+
+                if ($calculatedResult === 'PASS') {
                     $taSubmission->update(['status' => 'TA_DEFENDED']);
 
                     // Check if ALL active group members have defended → group CLOSED
@@ -655,12 +674,13 @@ class SchedulingService
 
                 AuditLog::create([
                     'user_id' => $userId,
-                    'action' => "TA_DEFENSE_{$result}",
+                    'action' => "TA_DEFENSE_{$calculatedResult}",
                     'target_type' => 'TaDefenseSchedule',
                     'target_id' => $schedule->id,
                     'payload' => [
                         'student_id' => $schedule->student_id,
-                        'avg_score' => TaDefenseEvaluation::where('schedule_id', $schedule->id)->avg('score'),
+                        'final_score' => $finalScore,
+                        'calculated_result' => $calculatedResult,
                     ],
                 ]);
             }
@@ -780,5 +800,130 @@ class SchedulingService
             'examiner_id' => $examinerId,
             'count' => count($scores),
         ]);
+    }
+
+    /**
+     * Calculate final seminar score from examiners AND supervisors
+     * Formula: Average of (per-dosen averages) from both examiners and supervisors
+     *
+     * @param SeminarSchedule $schedule
+     * @return float
+     */
+    private function calculateFinalSeminarScore(SeminarSchedule $schedule): float
+    {
+        $dosenAverages = [];
+
+        // Get examiner scores from sempro_scores table
+        $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
+        if (!empty($examinerIds)) {
+            $examinerScores = SemproScore::where('group_id', $schedule->group_id)
+                ->whereIn('examiner_id', $examinerIds)
+                ->get()
+                ->groupBy('examiner_id');
+
+            foreach ($examinerScores as $examinerId => $scores) {
+                $dosenAverages[] = $scores->avg('score');
+            }
+        }
+
+        // Get supervisor scores from bimbingan_sempro_scores table
+        $group = Group::find($schedule->group_id);
+        if ($group) {
+            $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
+            if (!empty($supervisorIds)) {
+                $supervisorScores = BimbinganSemproScore::where('group_id', $schedule->group_id)
+                    ->whereIn('evaluator_id', $supervisorIds)
+                    ->get()
+                    ->groupBy('evaluator_id');
+
+                foreach ($supervisorScores as $supervisorId => $scores) {
+                    $dosenAverages[] = $scores->avg('score');
+                }
+            }
+        }
+
+        // For EXPO: only use supervisors (handled by BIMBINGAN_EXPO and MILESTONE scores)
+        if ($schedule->type === 'EXPO') {
+            $expoScores = \App\Models\ExpoScore::where('group_id', $schedule->group_id)
+                ->get()
+                ->groupBy('evaluator_id');
+
+            $milestoneScores = \App\Models\MilestoneScore::where('group_id', $schedule->group_id)
+                ->get()
+                ->groupBy('evaluator_id');
+
+            // Combine EXPO and MILESTONE scores per supervisor
+            $allSupervisorIds = $expoScores->keys()->merge($milestoneScores->keys())->unique();
+            foreach ($allSupervisorIds as $supervisorId) {
+                $expoAvg = $expoScores->has($supervisorId) ? $expoScores[$supervisorId]->avg('score') : null;
+                $milestoneAvg = $milestoneScores->has($supervisorId) ? $milestoneScores[$supervisorId]->avg('score') : null;
+
+                if ($expoAvg !== null && $milestoneAvg !== null) {
+                    $dosenAverages[] = ($expoAvg + $milestoneAvg) / 2;
+                } elseif ($expoAvg !== null) {
+                    $dosenAverages[] = $expoAvg;
+                } elseif ($milestoneAvg !== null) {
+                    $dosenAverages[] = $milestoneAvg;
+                }
+            }
+        }
+
+        // Calculate final score (average of all dosen averages)
+        if (count($dosenAverages) > 0) {
+            return round(array_sum($dosenAverages) / count($dosenAverages), 2);
+        }
+
+        return 0;
+    }
+
+    /**
+     * Calculate final TA defense score from examiners AND supervisors
+     * Formula: Average of (per-dosen averages) from both examiners and supervisors
+     *
+     * @param TaDefenseSchedule $schedule
+     * @return float
+     */
+    private function calculateFinalTaDefenseScore(TaDefenseSchedule $schedule): float
+    {
+        $dosenAverages = [];
+
+        // Get examiner scores from sidang_ta_scores table
+        $examiners = TaDefenseExaminer::where('schedule_id', $schedule->id)
+            ->whereIn('role', ['EXAMINER_1', 'EXAMINER_2'])
+            ->pluck('examiner_id');
+
+        if ($examiners->isNotEmpty()) {
+            $examinerScores = SidangTaScore::where('group_id', $schedule->group_id)
+                ->whereIn('examiner_id', $examiners)
+                ->get()
+                ->groupBy('examiner_id');
+
+            foreach ($examinerScores as $examinerId => $scores) {
+                $dosenAverages[] = $scores->avg('score');
+            }
+        }
+
+        // Get supervisor scores from bimbingan_ta_scores table
+        $group = Group::find($schedule->group_id);
+        if ($group) {
+            $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
+            if (!empty($supervisorIds)) {
+                $supervisorScores = BimbinganTaScore::where('group_id', $schedule->group_id)
+                    ->whereIn('evaluator_id', $supervisorIds)
+                    ->get()
+                    ->groupBy('evaluator_id');
+
+                foreach ($supervisorScores as $supervisorId => $scores) {
+                    $dosenAverages[] = $scores->avg('score');
+                }
+            }
+        }
+
+        // Calculate final score (average of all dosen averages)
+        if (count($dosenAverages) > 0) {
+            return round(array_sum($dosenAverages) / count($dosenAverages), 2);
+        }
+
+        return 0;
     }
 }

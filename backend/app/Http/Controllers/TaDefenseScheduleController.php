@@ -40,7 +40,7 @@ class TaDefenseScheduleController extends Controller
             return response()->json(['error' => 'Unauthorized'], 403);
         }
 
-        $with = ['students', 'group', 'examiner1', 'examiner2'];
+        $with = ['students', 'group.title', 'group.period', 'examiner1', 'examiner2'];
         if ($this->hasPeriodColumn()) {
             $with[] = 'period';
         }
@@ -125,8 +125,8 @@ class TaDefenseScheduleController extends Controller
             'examiner_1_id' => 'required|exists:users,id',
             'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
             'date' => 'required|date|after_or_equal:today',
-            'start_time' => 'required|date_format:H:i',
-            'end_time' => 'required|date_format:H:i|after:start_time',
+            'start_time' => 'required|date_format:H:i,H:i:s',
+            'end_time' => 'required|date_format:H:i,H:i:s|after:start_time',
             'room' => 'required|string|max:100',
             'location_id' => 'nullable|exists:locations,id',
             'notes' => 'nullable|string|max:1000',
@@ -208,7 +208,7 @@ class TaDefenseScheduleController extends Controller
         
         // Determine room/location for conflict checking
         $room = $request->room;
-        if ($request->location_id) {
+        if ($request->location_id && empty($room)) {
             $location = Location::find($request->location_id);
             $room = $location->name;
         }
@@ -271,7 +271,7 @@ class TaDefenseScheduleController extends Controller
 
             return response()->json([
                 'message' => 'TA defense scheduled successfully',
-                'data' => $schedule->load(['students', 'group', 'examiner1', 'examiner2'])
+                'data' => $schedule->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2'])
             ], 201);
 
         } catch (\Exception $e) {
@@ -288,7 +288,7 @@ class TaDefenseScheduleController extends Controller
     public function show($id): JsonResponse
     {
         $user = Auth::user();
-        $with = ['students', 'group', 'examiner1', 'examiner2', 'evaluations'];
+        $with = ['students', 'group.title', 'group.period', 'examiner1', 'examiner2', 'evaluations'];
         if ($this->hasPeriodColumn()) {
             $with[] = 'period';
         }
@@ -329,8 +329,8 @@ class TaDefenseScheduleController extends Controller
 
         $validator = Validator::make($request->all(), [
             'date' => 'sometimes|date|after_or_equal:today',
-            'start_time' => 'sometimes|date_format:H:i',
-            'end_time' => 'sometimes|date_format:H:i|after:start_time',
+            'start_time' => 'sometimes|date_format:H:i,H:i:s',
+            'end_time' => 'sometimes|date_format:H:i,H:i:s|after:start_time',
             'room' => 'sometimes|string|max:100',
             'location_id' => 'nullable|exists:locations,id',
             'notes' => 'nullable|string|max:1000',
@@ -464,7 +464,7 @@ class TaDefenseScheduleController extends Controller
 
             return response()->json([
                 'message' => 'Schedule updated successfully',
-                'data' => $schedule->fresh()->load(['students', 'group', 'examiner1', 'examiner2'])
+                'data' => $schedule->fresh()->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2'])
             ]);
 
         } catch (\Exception $e) {

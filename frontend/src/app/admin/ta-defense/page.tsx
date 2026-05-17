@@ -312,13 +312,18 @@ export default function AdminTaDefensePage() {
 
     const handleEdit = (schedule: TaDefenseSchedule) => {
         setDialogMode('edit');
+        // Format date/time properly - extract just the date part and HH:MM for time
+        const formattedDate = schedule.date ? schedule.date.split('T')[0] : '';
+        const formattedStartTime = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
+        const formattedEndTime = schedule.end_time ? schedule.end_time.substring(0, 5) : '';
+        
         form.reset({
             period_id: schedule.period?.id?.toString() || '',
             group_id: schedule.group?.id?.toString() || '',
             student_ids: schedule.students?.map(s => s.id.toString()) || [schedule.student?.id.toString() || ''],
-            date: schedule.date,
-            start_time: schedule.start_time.slice(0, 5),
-            end_time: schedule.end_time.slice(0, 5),
+            date: formattedDate,
+            start_time: formattedStartTime,
+            end_time: formattedEndTime,
             location_id: schedule.location_id?.toString() || '',
             examiner_1_id: schedule.examiner1?.id?.toString() || '',
             examiner_2_id: schedule.examiner2?.id?.toString() || '',
@@ -343,6 +348,7 @@ export default function AdminTaDefensePage() {
         }
         try {
             await api.put(`/admin/ta-defense-schedules/${currentSchedule.id}`, {
+                period_id: currentSchedule.period?.id, // Include period_id from existing schedule
                 date: data.date,
                 start_time: data.start_time,
                 end_time: data.end_time,
@@ -881,7 +887,7 @@ export default function AdminTaDefensePage() {
                         </Alert>
                     )}
 
-                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                    <form onSubmit={form.handleSubmit(dialogMode === 'create' ? onSubmit : handleUpdate)}>
                         <div className="grid gap-4 py-4">
                             {/* Period Selector - only in CREATE mode */}
                             {dialogMode === 'create' && (
@@ -1184,10 +1190,10 @@ export default function AdminTaDefensePage() {
                             </Button>
                             <Button
                                 type="submit"
-                                disabled={form.formState.isSubmitting || watchedStudentIds.length === 0 || !watchedPeriodId}
+                                disabled={form.formState.isSubmitting || watchedStudentIds.length === 0 || (dialogMode === 'create' && !watchedPeriodId)}
                             >
                                 {form.formState.isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                Create Schedule
+                                {dialogMode === 'create' ? 'Create Schedule' : 'Update Schedule'}
                             </Button>
                         </DialogFooter>
                     </form>

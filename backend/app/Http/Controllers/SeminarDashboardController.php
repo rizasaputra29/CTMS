@@ -13,9 +13,14 @@ use App\Models\Supervision;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
+use App\Models\SemproScore;
+use App\Models\SidangTaScore;
+use App\Models\BimbinganSemproScore;
+use App\Models\BimbinganTaScore;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 class SeminarDashboardController extends Controller
 {
@@ -116,16 +121,42 @@ class SeminarDashboardController extends Controller
                     $overallStatus = 'IN_PROGRESS';
                 }
 
-                // Get final result if all complete
+                // Get final result if all complete - calculate from examiner AND supervisor scores
                 $finalResult = null;
+                $finalScore = null;
                 if ($overallStatus === 'COMPLETE') {
-                    $submittedEvaluations = $seminar->evaluations->where('status', 'SUBMITTED');
-                    if ($submittedEvaluations->count() === $seminar->evaluations->count()) {
-                        // All examiner evaluations submitted - check if at least one is PASS
-                        $hasPass = $submittedEvaluations->contains(function ($eval) {
-                            return ($eval->rubric_json['result'] ?? 'FAIL') === 'PASS';
-                        });
-                        $finalResult = $hasPass ? 'PASS' : 'FAIL';
+                    // Calculate final score from examiner scores (sempro_scores table)
+                    $examinerScores = SemproScore::where('group_id', $group->id)
+                        ->whereIn('examiner_id', [$seminar->examiner_1_id, $seminar->examiner_2_id])
+                        ->get();
+                    
+                    // Calculate final score from supervisor scores (bimbingan_sempro_scores table)
+                    $supervisorScores = BimbinganSemproScore::where('group_id', $group->id)
+                        ->whereIn('evaluator_id', $supervisorIds)
+                        ->get();
+                    
+                    // Calculate per-dosen averages
+                    $dosenAverages = [];
+                    
+                    // Group examiner scores by examiner
+                    $examinerScoresByDosen = $examinerScores->groupBy('examiner_id');
+                    foreach ($examinerScoresByDosen as $examinerId => $scores) {
+                        $dosenAverages[] = $scores->avg('score');
+                    }
+                    
+                    // Group supervisor scores by supervisor
+                    $supervisorScoresByDosen = $supervisorScores->groupBy('evaluator_id');
+                    foreach ($supervisorScoresByDosen as $supervisorId => $scores) {
+                        $dosenAverages[] = $scores->avg('score');
+                    }
+                    
+                    // Calculate final score (average of all dosen averages)
+                    if (count($dosenAverages) > 0) {
+                        $finalScore = round(array_sum($dosenAverages) / count($dosenAverages), 2);
+                        $finalResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
+                        
+                        // Store final score in database
+                        $seminar->update(['final_score' => $finalScore]);
                     }
                 }
 
@@ -137,6 +168,7 @@ class SeminarDashboardController extends Controller
                     'end_time' => $seminar->end_time,
                     'room' => $seminar->room,
                     'status' => $seminar->status,
+                    'final_score' => $finalScore,
                     'supervisors' => $supervisors,
                     'examiners' => $examiners,
                     'progress' => [
@@ -466,15 +498,16 @@ class SeminarDashboardController extends Controller
             ->where('group_id', $groupId)
             ->get();
 
-        $hasPeriodComponentColumn = Schema::hasTable('assessment_scores')
-            && Schema::hasColumn('assessment_scores', 'period_component_id');
-
-        return $scores->keyBy(function ($score) use ($hasPeriodComponentColumn) {
-            $componentId = $hasPeriodComponentColumn
-                ? ($score->period_component_id ?? $score->component_id)
-                : $score->component_id;
+        return $scores->keyBy(function ($score) {
+            // Use period_component_id if available, otherwise fall back to component_id
+            $componentId = $score->period_component_id ?? $score->component_id;
 
             return $componentId . '_' . $score->student_id;
+        })->map(function ($score) {
+            return [
+                'score' => (string) $score->score,
+                'notes' => $score->notes ?? ''
+            ];
         });
     }
 }
