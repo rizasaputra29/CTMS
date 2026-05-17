@@ -517,8 +517,6 @@ class SchedulingService
 
             $schedule = SeminarSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
 
-            // Store component scores into sempro_scores table
-            $this->storeComponentScores($rubricJson, $schedule->group_id, $evaluation->examiner_id, $schedule->type);
             $totalEvals = SeminarEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = SeminarEvaluation::where('schedule_id', $schedule->id)
                 ->where('status', 'SUBMITTED')
@@ -628,8 +626,6 @@ class SchedulingService
 
             $schedule = TaDefenseSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
 
-            // Store component scores into sidang_ta_scores table
-            $this->storeComponentScores($rubricJson, $schedule->group_id, $evaluation->examiner_id, 'SIDANG_TA', $evaluation->student_id);
             $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
             $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
                 ->where('status', 'SUBMITTED')
@@ -750,55 +746,6 @@ class SchedulingService
             'examiner_1' => $schedule->examiner_1_id,
             'examiner_2' => $schedule->examiner_2_id,
             'date' => $schedule->date,
-        ]);
-    }
-
-    private function storeComponentScores(array $rubricJson, int $groupId, int $examinerId, string $type, ?int $studentId = null): void
-    {
-        $scores = $rubricJson['scores'] ?? [];
-
-        if (empty($scores)) {
-            return;
-        }
-
-        $now = now();
-
-        foreach ($scores as $key => $scoreValue) {
-            $parts = explode('_', (string) $key);
-            $periodComponentId = (int) ($parts[0] ?? 0);
-            $sid = (int) ($parts[1] ?? 0);
-
-            if ($periodComponentId <= 0) {
-                continue;
-            }
-
-            $data = [
-                'period_component_id' => $periodComponentId,
-                'examiner_id' => $examinerId,
-                'group_id' => $groupId,
-                'student_id' => $sid > 0 ? $sid : ($studentId ?? null),
-                'score' => (float) $scoreValue,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-
-            DB::table($type === 'SIDANG_TA' ? 'sidang_ta_scores' : 'sempro_scores')
-                ->updateOrInsert(
-                    [
-                        'period_component_id' => $periodComponentId,
-                        'examiner_id' => $examinerId,
-                        'group_id' => $groupId,
-                        'student_id' => $data['student_id'],
-                    ],
-                    $data
-                );
-        }
-
-        Log::info("Stored component scores", [
-            'type' => $type,
-            'group_id' => $groupId,
-            'examiner_id' => $examinerId,
-            'count' => count($scores),
         ]);
     }
 

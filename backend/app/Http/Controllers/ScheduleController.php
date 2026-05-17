@@ -439,7 +439,6 @@ class ScheduleController extends Controller
                     'status' => $schedule->status,
                     'period_name' => $periodName,
                     'group_id' => $schedule->group_id,
-                    'status' => $schedule->status,
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
                     'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
                     'group' => [
@@ -483,7 +482,6 @@ class ScheduleController extends Controller
                     'status' => 'SCHEDULED',
                     'period_name' => $periodName,
                     'group_id' => $groupId,
-                    'status' => 'SCHEDULED',
                     'group' => [
                         'id' => $groupId,
                         'title' => [
@@ -684,14 +682,16 @@ class ScheduleController extends Controller
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 return [
-                    'id' => 'ta_defense_' . $schedule->id,
+                    'id' => $schedule->id,
                     'type' => 'TA_DEFENSE',
                     'date' => $isoDate,
-                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
                     'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
+                    'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => $schedule->notes,
+                    'status' => $schedule->status,
                     'group_id' => $schedule->group_id,
                     'student_id' => $schedule->student_id,
                     'student_name' => $schedule->student ? $schedule->student->name : null,
@@ -699,9 +699,14 @@ class ScheduleController extends Controller
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
                     'examiner2' => $schedule->examiner2 ? ['name' => $schedule->examiner2->name] : null,
                     'group' => [
+                        'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
                             'lecturer' => null
+                        ] : null,
+                        'period' => $schedule->group->period ? [
+                            'id' => $schedule->group->period->id,
+                            'name' => $schedule->group->period->name
                         ] : null,
                         'members' => []
                     ]

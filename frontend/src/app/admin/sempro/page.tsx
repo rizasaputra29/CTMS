@@ -389,11 +389,11 @@ export default function AdminSemproPage() {
         if (!cancelId) return;
         try {
             await api.put(`/admin/sempro/schedules/${cancelId}/cancel`);
-            toast.success('Schedule cancelled');
+            toast.success('Schedule deleted');
             setCancelId(null);
             fetchSchedules();
         } catch {
-            toast.error('Failed to cancel schedule');
+            toast.error('Failed to delete schedule');
         }
     };
 
@@ -1350,13 +1350,13 @@ export default function AdminSemproPage() {
                 </DialogContent>
             </Dialog>
 
-            {/* --- Cancel Dialog --- */}
+            {/* --- Cancel/Delete Dialog --- */}
             <Dialog open={cancelId !== null} onOpenChange={(v) => { if (!v) setCancelId(null); }}>
                 <DialogContent className="sm:max-w-[420px]">
                     <DialogHeader>
-                        <DialogTitle>Cancel Schedule</DialogTitle>
+                        <DialogTitle>Delete Schedule</DialogTitle>
                         <DialogDescription>
-                            Are you sure you want to cancel this SEMPRO schedule?
+                            Are you sure you want to delete this SEMPRO schedule? The schedule can be recreated later.
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
@@ -1364,7 +1364,7 @@ export default function AdminSemproPage() {
                             Keep Schedule
                         </Button>
                         <Button variant="destructive" onClick={handleCancel}>
-                            Cancel Schedule
+                            Delete Schedule
                         </Button>
                     </DialogFooter>
                 </DialogContent>

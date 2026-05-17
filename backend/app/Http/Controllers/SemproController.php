@@ -182,6 +182,18 @@ class SemproController extends Controller
             ], 400);
         }
 
+        // Check for and restore soft-deleted schedule, clean up old scores
+        $trashed = SeminarSchedule::onlyTrashed()
+            ->where('group_id', $group->id)
+            ->where('type', 'SEMPRO')
+            ->first();
+        if ($trashed) {
+            $trashed->restore();
+            DB::table('sempro_scores')->where('group_id', $group->id)->delete();
+            DB::table('bimbingan_sempro_scores')->where('group_id', $group->id)->delete();
+            SeminarEvaluation::where('schedule_id', $trashed->id)->delete();
+        }
+
         // Validate examiner constraints (including examiner ≠ supervisor)
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
@@ -389,7 +401,7 @@ class SemproController extends Controller
     }
 
     /**
-     * Cancel a SEMPRO schedule (admin only).
+     * Cancel a SEMPRO schedule (admin only) — soft delete.
      */
     public function cancel(Request $request, $id)
     {
@@ -403,30 +415,30 @@ class SemproController extends Controller
             return response()->json(['message' => 'Cannot cancel completed SEMPRO schedule.'], 400);
         }
 
-        if ($schedule->status === 'CANCELLED') {
-            return response()->json(['message' => 'Schedule is already cancelled.'], 400);
-        }
-
         $group = $schedule->group;
 
-        // Update schedule status
-        $schedule->update(['status' => 'CANCELLED']);
+        // Delete all evaluations (cascade FK doesn't trigger on soft delete)
+        SeminarEvaluation::where('schedule_id', $schedule->id)->delete();
 
-        // Delete pending evaluations
-        SeminarEvaluation::where('schedule_id', $schedule->id)
-            ->where('status', 'PENDING')
-            ->delete();
+        // Soft-delete schedule
+        $schedule->delete();
+
+        // Ensure group stays at READY_FOR_SEMPRO
+        if ($group && $group->status !== 'READY_FOR_SEMPRO') {
+            $stateMachine = app(GroupStateMachine::class);
+            $stateMachine->transition($group, 'READY_FOR_SEMPRO');
+        }
 
         AuditLog::create([
             'user_id' => $request->user()->id,
-            'action' => 'SEMPRO_SCHEDULE_CANCELLED',
+            'action' => 'SEMPRO_SCHEDULE_DELETED',
             'target_type' => 'SeminarSchedule',
             'target_id' => $schedule->id,
             'payload' => ['group_id' => $group->id],
         ]);
 
         return response()->json([
-            'message' => 'SEMPRO schedule cancelled.',
+            'message' => 'SEMPRO schedule deleted.',
         ]);
     }
 
