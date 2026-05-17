@@ -364,18 +364,28 @@ class ScheduleController extends Controller
         $groupId = $groupMember->group_id;
         $periodId = $groupMember->group->period_id;
 
+        // Fetch group with all relations once to avoid N+1 queries
+        $group = Group::with(['title.lecturer', 'members.student', 'period', 'supervisions.supervisor'])
+            ->find($groupId);
+
+        if (!$group) {
+            return response()->json(['data' => []]);
+        }
+
+        $periodName = $group->period->name ?? null;
+        $supervisor = $group->supervisions->first()?->supervisor;
+        $groupMembers = $group->members->map(fn($m) => ['student' => ['name' => $m->student->name]])->toArray();
+
         $allSchedules = [];
 
         // 1. BIMBINGAN schedules from schedules table
-        // OPTIMIZED: Added 'group.members.student' to eager loading to prevent N+1 queries
         $bimbinganSchedules = Schedule::with(['group.title.lecturer', 'group.members.student'])
             ->where('group_id', $groupId)
             ->where('type', 'BIMBINGAN')
             ->get()
-            ->map(function ($schedule) {
-                // Format date as ISO 8601 with time if available
+            ->map(function ($schedule) use ($periodName, $supervisor) {
                 $dateStr = $schedule->date->format('Y-m-d');
-                $startTimeStr = $schedule->start_time ? substr($schedule->start_time, 0, 5) : null;
+                $startTimeStr = $schedule->start_time ? $schedule->start_time->format('H:i') : null;
                 $isoDate = $startTimeStr 
                     ? $dateStr . 'T' . $startTimeStr . ':00'
                     : $schedule->date;
@@ -384,23 +394,24 @@ class ScheduleController extends Controller
                     'id' => $schedule->id,
                     'type' => 'BIMBINGAN',
                     'date' => $isoDate,
-                    'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
-                    'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
+                    'start_time' => $schedule->start_time ? $schedule->start_time->format('H:i') : null,
+                    'end_time' => $schedule->end_time ? $schedule->end_time->format('H:i') : null,
                     'room' => $schedule->room,
                     'mode' => $schedule->mode,
                     'notes' => $schedule->notes,
+                    'status' => 'SCHEDULED',
+                    'period_name' => $periodName,
                     'group_id' => $schedule->group_id,
                     'group' => [
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
                             'lecturer' => $schedule->group->title->lecturer ? [
-                                'name' => $schedule->group->title->lecturer->name
-                            ] : null
+                                'name' => $schedule->group->title->lecturer->name,
+                            ] : null,
                         ] : null,
-                        'members' => $schedule->group->members->map(function ($member) {
-                            return ['student' => ['name' => $member->student->name]];
-                        })
-                    ]
+                        'members' => $schedule->group->members->map(fn($m) => ['student' => ['name' => $m->student->name]]),
+                        'supervisor' => $supervisor ? ['name' => $supervisor->name] : null,
+                    ],
                 ];
             });
         $allSchedules = array_merge($allSchedules, $bimbinganSchedules->toArray());
@@ -410,22 +421,23 @@ class ScheduleController extends Controller
             ->where('group_id', $groupId)
             ->where('type', 'SEMPRO')
             ->get()
-            ->map(function ($schedule) {
-                // Format date as ISO 8601 to ensure JavaScript can parse it
+            ->map(function ($schedule) use ($periodName, $groupMembers, $supervisor) {
                 $dateStr = $schedule->date->format('Y-m-d');
-                $timeStr = substr($schedule->start_time, 0, 5); // Get HH:MM
+                $timeStr = substr($schedule->start_time, 0, 5);
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 return [
                     'id' => $schedule->id,
                     'type' => 'SEMPRO',
                     'date' => $isoDate,
-                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
                     'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
                     'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => null,
+                    'status' => $schedule->status,
+                    'period_name' => $periodName,
                     'group_id' => $schedule->group_id,
                     'status' => $schedule->status,
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
@@ -434,7 +446,7 @@ class ScheduleController extends Controller
                         'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
-                            'lecturer' => null
+                            'lecturer' => null,
                         ] : null,
                         'period' => $schedule->group->period ? [
                             'id' => $schedule->group->period->id,
@@ -454,28 +466,29 @@ class ScheduleController extends Controller
         foreach ($expoRegistrations as $registration) {
             $event = $registration->expoEvent;
             if ($event) {
-                // Format date as ISO 8601 to ensure JavaScript can parse it
                 $dateStr = $event->date->format('Y-m-d');
-                $timeStr = substr($event->start_time, 0, 5); // Get HH:MM
+                $timeStr = substr($event->start_time, 0, 5);
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
                 $allSchedules[] = [
                     'id' => $event->id,
                     'type' => 'EXPO',
                     'date' => $isoDate,
-                    'start_time' => substr($event->start_time, 0, 5),
+                    'start_time' => $event->start_time ? substr($event->start_time, 0, 5) : null,
                     'end_time' => $event->end_time ? substr($event->end_time, 0, 5) : null,
                     'room' => $event->room,
                     'location_id' => $event->location_id,
                     'mode' => null,
                     'notes' => $event->name,
+                    'status' => 'SCHEDULED',
+                    'period_name' => $periodName,
                     'group_id' => $groupId,
                     'status' => 'SCHEDULED',
                     'group' => [
                         'id' => $groupId,
                         'title' => [
                             'title' => $event->name,
-                            'lecturer' => null
+                            'lecturer' => null,
                         ],
                         'period' => null,
                         'members' => []
@@ -490,22 +503,24 @@ class ScheduleController extends Controller
             ->whereIn('status', ['SCHEDULED', 'DONE'])
             ->get()
             ->map(function ($schedule) {
-                // Format date as ISO 8601 to ensure JavaScript can parse it
                 $dateStr = $schedule->date->format('Y-m-d');
-                $timeStr = substr($schedule->start_time, 0, 5); // Get HH:MM
+                $timeStr = substr($schedule->start_time, 0, 5);
                 $isoDate = $dateStr . 'T' . $timeStr . ':00';
                 
+                $tdSupervisor = $schedule->group->supervisions->first()?->supervisor;
+
                 return [
                     'id' => $schedule->id,
                     'type' => 'TA_DEFENSE',
                     'date' => $isoDate,
-                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'start_time' => $schedule->start_time ? substr($schedule->start_time, 0, 5) : null,
                     'end_time' => $schedule->end_time ? substr($schedule->end_time, 0, 5) : null,
                     'room' => $schedule->room,
                     'location_id' => $schedule->location_id,
                     'mode' => null,
                     'notes' => $schedule->notes,
                     'status' => $schedule->status,
+                    'period_name' => $schedule->group->period->name ?? null,
                     'group_id' => $schedule->group_id,
                     'student_id' => $schedule->student_id,
                     'examiner1' => $schedule->examiner1 ? ['name' => $schedule->examiner1->name] : null,
@@ -514,7 +529,7 @@ class ScheduleController extends Controller
                         'id' => $schedule->group->id,
                         'title' => $schedule->group->title ? [
                             'title' => $schedule->group->title->title,
-                            'lecturer' => null
+                            'lecturer' => null,
                         ] : null,
                         'period' => $schedule->group->period ? [
                             'id' => $schedule->group->period->id,

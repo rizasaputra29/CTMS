@@ -57,9 +57,13 @@ class DashboardController extends Controller
         $user = Auth::user();
         $periodId = $request->query('period_id');
 
-        if (! $periodId) {
-            $currentPeriod = Period::getActive('period:active:latest');
-            $periodId = $currentPeriod ? $currentPeriod->id : null;
+        $isAllMode = ! $periodId || $periodId === 'all';
+
+        if ($isAllMode) {
+            $periodId = null; // no period scoping = show all periods
+            $selectedPeriodId = 'all';
+        } else {
+            $selectedPeriodId = (int) $periodId;
         }
 
         $totalTitles = Title::where('lecturer_id', $user->id)->count();
@@ -101,7 +105,7 @@ class DashboardController extends Controller
             'pending_proposals' => $pendingProposals,
             'pending_assignments_count' => $pendingAssignmentsCount,
             'available_periods' => $availablePeriods,
-            'selected_period_id' => $periodId,
+            'selected_period_id' => $selectedPeriodId,
         ]);
     }
 

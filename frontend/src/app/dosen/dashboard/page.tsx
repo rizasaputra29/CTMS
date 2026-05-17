@@ -2,270 +2,204 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import api from '@/lib/api';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { 
-    BookOpen, Users, FileText, AlertCircle, 
-    ArrowRight, CheckSquare, MessageSquare 
-} from 'lucide-react';
-import Link from 'next/link';
-import { cn } from '@/lib/utils';
-import { 
-    PieChart, Pie, Cell, ResponsiveContainer, Tooltip, 
-    BarChart, Bar, XAxis, YAxis
-} from 'recharts';
+import { StatsCard } from '@/components/dashboard/StatsCard';
+import { RecentList } from '@/components/dashboard/RecentList';
+import { QuickActions } from '@/components/dashboard/QuickActions';
+import { SectionHeader } from '@/components/dashboard/SectionHeader';
+import { useAuth } from '@/context/AuthContext';
 import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select"
-import { Loader2 } from 'lucide-react';
+  Select, SelectContent, SelectGroup, SelectItem,
+  SelectLabel, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Users, Calendar, FileText, Star, Gavel, BookOpen, Loader2 } from 'lucide-react';
 
-interface DosenStats {
-    total_titles: number;
-    active_groups: number;
-    pending_bimbingan: number;
-    pending_proposals: number;
-    available_periods: { id: number; name: string; is_active: boolean }[];
-    selected_period_id: number | null;
+interface Period {
+  id: number;
+  name: string;
+  is_active: boolean;
 }
 
-import { useAuth } from '@/context/AuthContext';
+interface SupervisedGroup {
+  id: number;
+  code?: string;
+  status?: string;
+  period?: { name?: string };
+}
+
+interface DashboardData {
+  supervisedGroups: number;
+  pendingEvaluations: number;
+  pendingProposals: number;
+  availablePeriods: number;
+  recentSubmissions: Array<{
+    id: number;
+    label: string;
+    subtitle: string;
+    status: { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' };
+    href: string;
+  }>;
+}
+
+const dosenQuickActions = [
+  { label: 'Review TA', href: '/dosen/ta-review', icon: FileText, description: 'Review submissions' },
+  { label: 'Evaluate', href: '/dosen/supervisor-evaluation', icon: Star, description: 'Score students' },
+  { label: 'My Titles', href: '/dosen/titles', icon: BookOpen, description: 'Manage titles' },
+  { label: 'Bids', href: '/dosen/bids', icon: Gavel, description: 'Review bids' },
+];
 
 export default function DosenDashboard() {
-    const { user } = useAuth();
-    const [stats, setStats] = useState<DosenStats | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-    const [refreshing, setRefreshing] = useState(false);
+  const { user } = useAuth();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+  const [refreshing, setRefreshing] = useState(false);
+  const [periods, setPeriods] = useState<Period[]>([]);
 
-    const fetchStats = useCallback(async (periodId?: string) => {
-        if (periodId) setRefreshing(true);
-        else setLoading(true);
+  const fetchData = useCallback(async (periodId?: string) => {
+    const isRefresh = !!periodId;
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
 
-        try {
-            const url = periodId ? `/dosen/dashboard?period_id=${periodId}` : '/dosen/dashboard';
-            const response = await api.get(url);
-            const data = response.data;
-            setStats(data);
-            if (!selectedPeriod && data.selected_period_id) {
-                setSelectedPeriod(data.selected_period_id.toString());
-            }
-        } catch (error) {
-            console.error('Failed to fetch dashboard stats', error);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [selectedPeriod]);
+    try {
+      const periodParams = periodId ? { params: { period_id: periodId } } : undefined;
+      const [dashRes, supervisedRes, evalCountRes] = await Promise.allSettled([
+        api.get('/dosen/dashboard', periodParams),
+        api.get('/dosen/groups/supervised', periodParams),
+        api.get('/dosen/supervisor-evaluation/pending-count'),
+      ]);
 
-    useEffect(() => {
-        fetchStats();
-    }, [fetchStats]);
+      const getData = <T,>(r: PromiseSettledResult<{ data: T }>) =>
+        r.status === 'fulfilled' ? r.value.data : null;
 
-    const handlePeriodChange = (value: string) => {
-        setSelectedPeriod(value);
-        fetchStats(value);
-    };
+      const dashboardData = getData(dashRes) as Record<string, unknown> | null;
+      const supervisedResolved = getData(supervisedRes) as { data?: SupervisedGroup[] } | Record<string, unknown> | null;
+      const evaluated = getData(evalCountRes) as { count?: number } | null;
 
-    if (loading) {
-         return <div className="p-4 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+      const supervisedArr: SupervisedGroup[] =
+        (supervisedResolved as { data?: SupervisedGroup[] })?.data ??
+        (Array.isArray(supervisedResolved) ? (supervisedResolved as unknown as SupervisedGroup[]) : []);
+
+      const allPeriods = (dashboardData?.available_periods as Period[]) || [];
+      setPeriods(allPeriods);
+
+      const recentSubmissions = supervisedArr.slice(0, 5).map((g) => ({
+        id: g.id,
+        label: g.code || `Group ${g.id}`,
+        subtitle: `Period: ${g.period?.name || 'N/A'}`,
+        status: {
+          label: g.status || 'Active',
+          variant: 'outline' as const,
+        },
+        href: '/dosen/supervised-groups',
+      }));
+
+      setData({
+        supervisedGroups: (dashboardData?.active_groups as number) ?? 0,
+        pendingEvaluations: evaluated?.count ?? 0,
+        pendingProposals: (dashboardData?.pending_proposals as number) ?? 0,
+        availablePeriods: allPeriods.length,
+        recentSubmissions,
+      });
+    } catch {
+      // Dashboard is non-critical
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
+  }, [selectedPeriod]);
 
-    if (!stats) {
-        return <div className="p-4">Failed to load dashboard data.</div>;
-    }
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-    const guidanceData = [
-        { name: 'Active Groups', value: stats.active_groups, fill: 'var(--chart-1)' },
-        { name: 'Pending Requests', value: stats.pending_bimbingan, fill: 'var(--chart-5)' },
-    ];
+  const handlePeriodChange = (value: string) => {
+    setSelectedPeriod(value);
+    fetchData(value);
+  };
 
-    // Mock data for titles status (since we only have total_titles)
-    const titleData = [
-        { name: 'Available', value: Math.floor(stats.total_titles * 0.4) || 2, fill: 'var(--chart-2)' },
-        { name: 'Taken', value: Math.ceil(stats.total_titles * 0.6) || 3, fill: 'var(--muted)' },
-    ];
-
+  if (loading) {
     return (
-        <div className="space-y-4 p-4 lg:p-8">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div className="text-2xl font-bold tracking-tight">
-                    Welcome to {user?.name || 'User'}&apos;s Dashboard
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground whitespace-nowrap">View Period:</span>
-                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
-                        <SelectTrigger className="w-[200px] h-8 text-xs">
-                            <SelectValue placeholder="Select Period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectGroup>
-                                <SelectLabel>Available Periods</SelectLabel>
-                                {stats.available_periods.map(p => (
-                                    <SelectItem key={p.id} value={p.id.toString()}>
-                                        {p.name} {p.is_active && "(Active)"}
-                                    </SelectItem>
-                                ))}
-                            </SelectGroup>
-                        </SelectContent>
-                    </Select>
-                    {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                
-                {/* 1. Guidance Status Donut */}
-                <div className="col-span-1 md:col-span-1 row-span-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 flex flex-col justify-between min-h-[300px] relative overflow-hidden">
-                     <div className="flex flex-row items-center justify-between pb-2 z-10">
-                        <h3 className="text-sm font-medium text-muted-foreground">Guidance Workload</h3>
-                        <Users className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="flex-1 min-h-0 flex flex-col items-center justify-center relative z-10">
-                        <div className="absolute top-0 left-0 w-full h-full flex flex-col items-center justify-center pointer-events-none">
-                             <span className="text-3xl font-bold">{stats.active_groups + stats.pending_bimbingan}</span>
-                             <span className="text-[10px] text-muted-foreground uppercase tracking-widest">Students</span>
-                        </div>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={guidanceData}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={60}
-                                    outerRadius={80}
-                                    paddingAngle={5}
-                                    dataKey="value"
-                                    cornerRadius={4}
-                                >
-                                    {guidanceData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                                    ))}
-                                </Pie>
-                                <Tooltip 
-                                    contentStyle={{ background: 'var(--background)', borderColor: 'var(--border)', borderRadius: 'var(--radius)' }}
-                                    itemStyle={{ color: 'var(--foreground)' }}
-                                />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="flex justify-center gap-4 mt-2 z-10">
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <div className="w-2 h-2 rounded-full bg-chart-1" />
-                            <span>Active</span>
-                        </div>
-                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <div className="w-2 h-2 rounded-full bg-chart-5" />
-                            <span>Pending</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* 2. Titles Status (Bar Chart Mockup) */}
-                 <div className="col-span-1 md:col-span-1 row-span-1 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 flex flex-col justify-between min-h-[300px] group">
-                    <div className="flex flex-row items-center justify-between pb-2">
-                        <h3 className="text-sm font-medium text-muted-foreground">My Titles</h3>
-                        <BookOpen className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                     <div className="flex items-end gap-2 mb-4">
-                         <div className="text-4xl font-bold tracking-tight">{stats.total_titles}</div>
-                         <div className="text-sm text-muted-foreground mb-1">submitted titles</div>
-                    </div>
-                    <div className="flex-1 min-h-0">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={titleData} layout="vertical" margin={{ left: 0, right: 0, top: 0, bottom: 0 }}>
-                                <XAxis type="number" hide />
-                                <YAxis dataKey="name" type="category" width={60} tick={{fontSize: 10, fill: 'var(--muted-foreground)'}} axisLine={false} tickLine={false} />
-                                <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ background: 'var(--background)', borderColor: 'var(--border)', borderRadius: 'var(--radius)' }} />
-                                <Bar dataKey="value" fill="var(--primary)" radius={[0, 4, 4, 0]} barSize={20} background={{ fill: 'var(--muted)', opacity: 0.1 }} >
-                                     {titleData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
-                    <div className="mt-2 text-right">
-                         <Button variant="link" className="p-0 h-auto text-xs text-primary" asChild>
-                            <Link href="/dosen/titles" className="flex items-center justify-end">
-                                Manage Titles <ArrowRight className="ml-1 w-3 h-3" />
-                            </Link>
-                        </Button>
-                    </div>
-                </div>
-
-                 {/* 3. Pending Guidance - Alert Style */}
-                 <div className={cn(
-                     "col-span-1 md:col-span-1 row-span-1 flex flex-col justify-between border rounded-xl p-6 relative overflow-hidden transition-colors min-h-[200px]",
-                     stats.pending_bimbingan > 0 
-                        ? "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800" 
-                        : "bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800"
-                 )}>
-                    <div>
-                        <div className="flex justify-between items-start">
-                             <div className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-                                <FileText className="w-4 h-4" /> Action Required
-                             </div>
-                             {stats.pending_proposals > 0 && <AlertCircle className="w-4 h-4 text-orange-500 animate-pulse" />}
-                        </div>
-                        <div className="text-4xl font-bold mt-2 tracking-tight">{stats.pending_proposals}</div>
-                        <p className="text-xs text-muted-foreground mt-1">Pending student proposals for this period.</p>
-                    </div>
-                    
-                    <div className="flex items-center justify-between mt-4">
-                         <div className="text-xs font-medium">
-                            {stats.pending_bimbingan > 0 ? (
-                                <span className="text-orange-600 dark:text-orange-400">Needs attention</span>
-                            ) : (
-                                <span className="text-zinc-500">All caught up</span>
-                            )}
-                         </div>
-                         <Button variant={stats.pending_bimbingan > 0 ? "default" : "outline"} size="sm" className="h-8 text-xs" asChild>
-                            <Link href="/dosen/bimbingan">
-                                Review <ArrowRight className="ml-1 w-3 h-3" />
-                            </Link>
-                        </Button>
-                    </div>
-                </div>
-
-                {/* 4. Quick Actions - Wide */}
-                 <Card className="col-span-1 md:col-span-3 row-span-1 border-zinc-200 dark:border-zinc-800 shadow-sm flex flex-col justify-center bg-white dark:bg-zinc-900">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium">Quick Actions</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                         <Button variant="outline" className="h-full py-4 flex flex-col gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-800" asChild>
-                            <Link href="/dosen/requests">
-                                <CheckSquare className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-                                <span className="text-xs font-medium">Approve Groups</span>
-                            </Link>
-                         </Button>
-                         <Button variant="outline" className="h-full py-4 flex flex-col gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-800" asChild>
-                             <Link href="/dosen/bimbingan">
-                                <MessageSquare className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-                                <span className="text-xs font-medium">Guidance</span>
-                             </Link>
-                         </Button>
-                         <Button variant="outline" className="h-full py-4 flex flex-col gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-800" asChild>
-                             <Link href="/dosen/titles">
-                                <BookOpen className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-                                <span className="text-xs font-medium">Manage Titles</span>
-                             </Link>
-                         </Button>
-                         <Button variant="outline" className="h-full py-4 flex flex-col gap-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 border-zinc-200 dark:border-zinc-800" asChild>
-                             <Link href="/dosen/evaluation">
-                                <FileText className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-                                <span className="text-xs font-medium">Input Grades</span>
-                             </Link>
-                         </Button>
-                    </CardContent>
-                </Card>
-
-            </div>
-        </div>
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
     );
+  }
+
+  if (!data) {
+    return <div className="py-20 text-center text-muted-foreground">Failed to load dashboard data.</div>;
+  }
+
+  return (
+    <>
+      <div className="mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">
+            Welcome back, {user?.name?.split(' ')[0] || 'User'}!
+          </h1>
+          <p className="text-muted-foreground">
+            Here&apos;s an overview of your mentoring dashboard.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">View Period:</span>
+          <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+            <SelectTrigger className="w-[200px] h-8 text-xs">
+              <SelectValue placeholder="Select Period" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Available Periods</SelectLabel>
+                <SelectItem value="all">All Periods</SelectItem>
+                {periods.map((p) => (
+                  <SelectItem key={p.id} value={p.id.toString()}>
+                    {p.name} {p.is_active && '(Active)'}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        </div>
+      </div>
+
+      <section className="space-y-4">
+        <SectionHeader title="Dosen Overview" description="Teaching & mentoring activities" />
+
+        <div className="grid grid-cols-2 gap-3">
+          <StatsCard
+            title="Supervised Groups"
+            value={data.supervisedGroups}
+            icon={Users}
+            variant="primary"
+          />
+          <StatsCard
+            title="Pending Evaluations"
+            value={data.pendingEvaluations}
+            icon={Star}
+            variant={data.pendingEvaluations ? 'warning' : 'default'}
+          />
+          <StatsCard
+            title="Pending Proposals"
+            value={data.pendingProposals}
+            icon={FileText}
+            variant={data.pendingProposals ? 'warning' : 'default'}
+          />
+          <StatsCard
+            title="Available Periods"
+            value={data.availablePeriods}
+            icon={Calendar}
+          />
+        </div>
+
+        <RecentList
+          title="Supervised Groups"
+          items={data.recentSubmissions}
+          viewAllHref="/dosen/supervised-groups"
+          emptyMessage="No supervised groups yet"
+        />
+
+        <QuickActions actions={dosenQuickActions} />
+      </section>
+    </>
+  );
 }

@@ -65,7 +65,7 @@ export default function CombinedDashboard() {
         ] = await Promise.allSettled([
           api.get('/admin/periods'),
           api.get('/admin/groups', { params: { per_page: 5 } }),
-          api.get('/dosen/supervised-groups'),
+          api.get('/dosen/groups/supervised'),
           api.get('/dosen/supervisor-evaluation/pending-count'),
         ]);
 

@@ -5,11 +5,12 @@ import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
 import {
-    ArrowRight, Calendar, CheckCircle, BookOpen,
-    Clock, Upload, Check, Lock, GraduationCap, Zap,
-    AlertCircle, FileText, Circle, ChevronUp, ChevronDown,
-    AlertTriangle
+    ArrowRight, Calendar, Clock, Upload, Check,
+    Lock, GraduationCap, AlertCircle, FileText,
+    ChevronUp, ChevronDown, AlertTriangle, Circle,
+    Users, FileCheck, Mic
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -17,14 +18,14 @@ import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 import { isFinalReadyEvaluationSection } from '@/types/guards';
-import type { 
-    SupervisorInEvaluation, 
+import type {
+    MahasiswaStats,
+    WorkflowPhase,
+    SupervisorInEvaluation,
     EvaluationWithSupervisors,
-    LatestDocument,
-    NextPhaseSeminarSchedule
 } from '@/types';
 
-interface Schedule {
+interface ScheduleItem {
     id: string | number;
     type: 'BIMBINGAN' | 'SEMPRO' | 'EXPO' | 'TA_DEFENSE';
     date: string;
@@ -34,178 +35,64 @@ interface Schedule {
     time_until: string;
 }
 
-interface WorkflowPhase {
-    phase: string;
-    status: 'locked' | 'unlocked' | 'submitted' | 'draft' | 'revision' | 'completed';
-    documents: Array<{
-        type: string;
-        status: 'missing' | 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
-        latest_document?: LatestDocument | null;
-    }>;
-    required_types: string[];
-    document_count: number;
-}
-
-interface WorkflowData {
-    phases: WorkflowPhase[];
-    current_phase: string | null;
-    is_graduated: boolean;
-}
-
-interface NextPhaseRequirements {
-    current_phase: string;
-    next_phase: string;
-    documents: {
-        completed: boolean;
-        total_required: number;
-        approved_count: number;
-        pending_types: string[];
-    };
-    supervisor_evaluation?: EvaluationWithSupervisors | null;
-    supervisor_evaluations?: EvaluationWithSupervisors[];
-    seminar_schedule?: NextPhaseSeminarSchedule;
-}
-
-interface FinalReadyStatus {
-    ready: boolean;
-    expo_documents: {
-        completed: boolean;
-        pending_types: string[];
-        total_required: number;
-        approved_count: number;
-    };
-    nilai_dosen: {
-        required: boolean;
-        configured: boolean;
-        completed: boolean;
-        component_count: number;
-        supervisors: Array<{
-            id: number;
-            name: string;
-            status: string;
-            submitted_components: number;
-            total_components: number;
-        }>;
-    };
-    milestone: {
-        required: boolean;
-        configured: boolean;
-        completed: boolean;
-        component_count: number;
-        supervisors: SupervisorInEvaluation[];
-    };
-    expo_evaluation: {
-        required: boolean;
-        configured: boolean;
-        completed: boolean;
-        component_count: number;
-        supervisors: SupervisorInEvaluation[];
-    };
-    peer_review: {
-        required: boolean;
-        configured: boolean;
-        completed: boolean;
-        indicator_count: number;
-        total_members: number;
-        completed_members: number;
-    };
-}
-
-interface MahasiswaStats {
-    has_group: boolean;
-    group_status: string | null;
-    title: string | null;
-    group_period: { name: string } | null;
-    active_periods: { id: number; name: string }[];
-    steps: Record<string, boolean>;
-    is_graduated: boolean;
-    upcoming_schedules?: Schedule[];
-    workflow?: WorkflowData;
-    next_phase_requirements?: NextPhaseRequirements | null;
-    final_ready_for_ta_individual?: FinalReadyStatus;
-}
-
-const WORKFLOW_STEPS = [
-    { key: 'BIDDING', label: 'Select Title' },
-    { key: 'APPROVAL', label: 'Approval' },
-    { key: 'PDC1', label: 'PDC 1' },
-    { key: 'SEMPRO', label: 'Sempro' },
-    { key: 'PDC2', label: 'PDC 2' },
-    { key: 'EXPO', label: 'Expo' },
-    { key: 'SIDANG', label: 'Sidang' },
-];
-
-const getScheduleTypeColor = (type: string) => {
-    switch (type) {
-        case 'BIMBINGAN':
-            return 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800';
-        case 'SEMPRO':
-            return 'bg-purple-100 text-purple-800 border-purple-200 dark:bg-purple-900/20 dark:text-purple-300 dark:border-purple-800';
-        case 'EXPO':
-            return 'bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/20 dark:text-orange-300 dark:border-orange-800';
-        case 'TA_DEFENSE':
-            return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/20 dark:text-red-300 dark:border-red-800';
-        default:
-            return 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/20 dark:text-gray-300 dark:border-gray-800';
-    }
-};
-
-const getScheduleTypeLabel = (type: string) => {
-    switch (type) {
-        case 'BIMBINGAN':
-            return 'Bimbingan';
-        case 'SEMPRO':
-            return 'Sempro';
-        case 'EXPO':
-            return 'Expo';
-        case 'TA_DEFENSE':
-            return 'TA Defense';
-        default:
-            return type;
-    }
-};
-
 const PHASE_LABELS: Record<string, string> = {
-    'PDC1': 'PDC 1',
-    'SEMPRO': 'Seminar Proposal',
-    'PDC2': 'PDC 2',
-    'TA_DRAFT': 'TA Draft (Group)',
-    'EXPO': 'Expo',
-    'TA_INDIVIDUAL_READY': 'Ready for TA Individual',
+    PDC1: 'PDC 1',
+    SEMPRO: 'Seminar Proposal',
+    PDC2: 'PDC 2',
+    TA_DRAFT: 'TA Draft (Grup)',
+    EXPO: 'Expo',
+    TA: 'TA',
+    SIDANG: 'Sidang',
+    TA_INDIVIDUAL_READY: 'Siap TA Individu',
 };
 
-const getPhaseStatusColor = (status: string) => {
-    switch (status) {
-        case 'completed':
-            return 'border-green-500 bg-green-500 text-white';
-        case 'submitted':
-            return 'border-blue-500 bg-blue-500 text-white';
-        case 'revision':
-            return 'border-yellow-500 bg-yellow-500 text-white';
-        case 'locked':
-            return 'border-muted-foreground/30 bg-muted text-muted-foreground';
-        case 'draft':
-            return 'border-orange-400 bg-orange-400 text-white';
-        default:
-            return 'border-primary bg-background text-primary';
-    }
+const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; ring: string }> = {
+    completed: { bg: 'bg-emerald-500', border: 'border-emerald-500', text: 'text-white', ring: 'ring-emerald-500/20' },
+    submitted: { bg: 'bg-blue-500', border: 'border-blue-500', text: 'text-white', ring: 'ring-blue-500/20' },
+    draft: { bg: 'bg-amber-500', border: 'border-amber-500', text: 'text-white', ring: 'ring-amber-500/20' },
+    revision: { bg: 'bg-red-500', border: 'border-red-500', text: 'text-white', ring: 'ring-red-500/20' },
+    unlocked: { bg: 'bg-background', border: 'border-primary', text: 'text-primary', ring: 'ring-primary/20' },
+    locked: { bg: 'bg-muted', border: 'border-muted-foreground/20', text: 'text-muted-foreground', ring: '' },
 };
 
-const getPhaseStatusIcon = (status: string) => {
+const SCHEDULE_COLORS: Record<string, string> = {
+    BIMBINGAN: 'bg-blue-50 text-blue-700 border-blue-200',
+    SEMPRO: 'bg-purple-50 text-purple-700 border-purple-200',
+    EXPO: 'bg-orange-50 text-orange-700 border-orange-200',
+    TA_DEFENSE: 'bg-red-50 text-red-700 border-red-200',
+};
+
+const SCHEDULE_LABELS: Record<string, string> = {
+    BIMBINGAN: 'Bimbingan',
+    SEMPRO: 'Sempro',
+    EXPO: 'Expo',
+    TA_DEFENSE: 'Sidang TA',
+};
+
+const StatusIcon = ({ status }: { status: string }) => {
     switch (status) {
         case 'completed':
             return <Check className="h-5 w-5" />;
         case 'submitted':
             return <Clock className="h-5 w-5" />;
+        case 'draft':
+            return <FileText className="h-5 w-5" />;
         case 'revision':
             return <AlertTriangle className="h-5 w-5" />;
         case 'locked':
             return <Lock className="h-4 w-4" />;
-        case 'draft':
-            return <FileText className="h-5 w-5" />;
         default:
             return <Circle className="h-5 w-5" />;
     }
+};
+
+const STATUS_LABELS: Record<string, string> = {
+    completed: 'Selesai',
+    submitted: 'Terkirim',
+    draft: 'Draft',
+    revision: 'Revisi',
+    unlocked: 'Terbuka',
+    locked: 'Terkunci',
 };
 
 export default function MahasiswaDashboard() {
@@ -221,34 +108,26 @@ export default function MahasiswaDashboard() {
                 const response = await api.get('/mahasiswa/my-period');
                 const hasRegistration = !!response.data?.period;
 
-                // Redirect to registration if not registered
                 if (!hasRegistration) {
                     window.location.href = '/mahasiswa/registration';
                     return;
                 }
 
-                // Show notification if auto-registered
                 if (response.data?.auto_registered) {
-                    toast.success(response.data?.message || 'You have been automatically registered based on your group membership.');
+                    toast.success(response.data?.message || 'Anda telah terdaftar otomatis berdasarkan grup yang sudah ada.');
                 }
 
-                // Fetch dashboard stats only if registered
                 const statsResponse = await api.get('/mahasiswa/dashboard');
                 setStats(statsResponse.data);
             } catch (error) {
                 console.error('Failed to check registration', error);
-                // Only redirect to registration on 404 (endpoint not found) or successful response with no period
-                // For other errors (500, network error), show error instead
                 if (api.isAxiosError(error) && error.response?.status === 404) {
-                    // Endpoint not found, assume not registered
                     window.location.href = '/mahasiswa/registration';
                 } else if (api.isAxiosError(error) && error.response?.status === 200) {
-                    // Success response but no period data
                     window.location.href = '/mahasiswa/registration';
                 } else {
-                    // Other errors - show error message instead of redirecting
                     setLoading(false);
-                    toast.error('Failed to load registration data. Please try again.');
+                    toast.error('Gagal memuat data. Silakan coba lagi.');
                 }
             } finally {
                 setLoading(false);
@@ -257,12 +136,11 @@ export default function MahasiswaDashboard() {
         checkRegistration();
     }, []);
 
-    // Lazy load workflow data when user has group and it's approved
     useEffect(() => {
-        const groupApproved = stats?.group_status && ![
-            'FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'REJECTED'
-        ].includes(stats.group_status);
-        
+        const groupApproved =
+            stats?.group_status &&
+            !['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'REJECTED'].includes(stats.group_status);
+
         if (stats?.has_group && groupApproved) {
             loadWorkflowData();
         }
@@ -272,7 +150,7 @@ export default function MahasiswaDashboard() {
         setWorkflowLoading(true);
         try {
             const response = await api.get('/mahasiswa/dashboard/workflow');
-            setStats(prev => prev ? { ...prev, ...response.data } : null);
+            setStats((prev) => (prev ? { ...prev, ...response.data } : null));
         } catch (error) {
             console.error('Failed to load workflow data', error);
         } finally {
@@ -281,463 +159,558 @@ export default function MahasiswaDashboard() {
     };
 
     if (loading) {
-        return <div className="p-4 flex justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+        return (
+            <div className="flex items-center justify-center py-20">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+            </div>
+        );
     }
 
     if (!stats) {
-        return <div className="p-4">Failed to load dashboard data.</div>;
+        return (
+            <div className="flex items-center justify-center py-20">
+                <p className="text-sm text-muted-foreground">Gagal memuat data dashboard.</p>
+            </div>
+        );
     }
 
-    const isGroupApproved = stats.group_status && ![
-        'FORMING',
-        'FORMING_SOLO',
-        'READY_FOR_BIDDING',
-        'REJECTED'
-    ].includes(stats.group_status);
+    const isGroupApproved =
+        stats.group_status &&
+        !['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'REJECTED'].includes(stats.group_status);
 
     const isSoloSeeker = stats.group_status && ['FORMING_SOLO', 'FORMING'].includes(stats.group_status);
 
-    const getStepStatus = (stepKey: string): 'completed' | 'current' | 'error' | 'upcoming' => {
-        if (stepKey === 'BIDDING') {
-            return stats.has_group ? 'completed' : 'current';
-        }
-        if (stepKey === 'APPROVAL') {
-            if (!stats.has_group) return 'upcoming';
-            if (isGroupApproved) return 'completed';
-            if (stats.group_status === 'REJECTED') return 'error';
-            return 'current';
-        }
-        if (!isGroupApproved) return 'upcoming';
-        if (stats.steps[stepKey]) return 'completed';
+    const workflowPhases: WorkflowPhase[] = stats.workflow?.phases || [];
+    const currentPhase = stats.workflow?.current_phase;
+    const phaseKeys = Object.keys(stats.steps);
+    const donePhases = phaseKeys.filter((k) => stats.steps[k]).length;
+    const totalPhases = phaseKeys.length;
+    const progressPercent = totalPhases > 0 ? Math.round((donePhases / totalPhases) * 100) : 0;
 
-        const docPhases = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
-        for (const phase of docPhases) {
-            if (!stats.steps[phase]) {
-                return stepKey === phase ? 'current' : 'upcoming';
-            }
-        }
-        return 'upcoming';
-    };
-
-    const currentPhase = WORKFLOW_STEPS.find(step => getStepStatus(step.key) === 'current');
-    const completedCount = Object.values(stats.steps).filter(Boolean).length + (stats.has_group ? 1 : 0) + (isGroupApproved ? 1 : 0);
-    const totalSteps = WORKFLOW_STEPS.length;
-    const progressPercent = Math.round((completedCount / totalSteps) * 100);
+    const schedules: ScheduleItem[] = (stats as never as { upcoming_schedules?: ScheduleItem[] }).upcoming_schedules || [];
 
     return (
         <div className="flex flex-col space-y-6">
-
-            <div className="flex flex-col">
-                <div className="text-2xl font-bold tracking-tight">
-                    Welcome back, {user?.name || 'Student'}
+            {/* Header */}
+            <div className="flex items-baseline justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">
+                        Halo, {user?.name || 'Mahasiswa'}
+                    </h1>
+                    <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                        <Calendar className="h-3.5 w-3.5" />
+                        {stats.group_period?.name || (stats.active_periods?.length > 0 ? stats.active_periods[0].name : 'N/A')}
+                    </p>
                 </div>
-                <div className="text-sm text-muted-foreground flex items-center gap-1.5 mt-1">
-                    <Calendar className="h-3.5 w-3.5" />
-                    <span>Periode: <strong>{stats.group_period?.name || (stats.active_periods?.length > 0 ? stats.active_periods[0].name : 'N/A')}</strong></span>
-                </div>
+                <Badge
+                    variant={stats.is_graduated ? 'default' : 'secondary'}
+                    className={cn('text-xs h-6', stats.is_graduated && 'bg-emerald-500 hover:bg-emerald-500')}
+                >
+                    {stats.is_graduated ? 'Lulus' : stats.group_status || 'Belum Terdaftar'}
+                </Badge>
             </div>
 
-            {/* Workflow Stepper - Matches Documents Page Style */}
-            {stats?.workflow?.phases && stats.workflow.phases.length > 0 && (
-                <div className="space-y-4">
-                    {stats.workflow.is_graduated && (
-                        <div className="p-4 rounded-lg bg-green-500/10 border border-green-500/30 text-center">
-                            <h2 className="text-xl font-bold text-green-600">🎓 Congratulations! All phases completed.</h2>
-                        </div>
-                    )}
+            {/* Workflow Stepper */}
+            {workflowPhases.length > 0 && (
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
+                            Alur Kerja
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                        {stats.workflow?.is_graduated && (
+                            <div className="mb-5 rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-center text-sm text-emerald-700 font-medium">
+                                Semua fase telah diselesaikan.
+                            </div>
+                        )}
 
-                    {/* Horizontal stepper */}
-                    <div className="relative">
-                        {(() => {
-                            const stepCount = stats.workflow!.phases.length + (stats.final_ready_for_ta_individual ? 1 : 0);
-                            return stepCount > 1 && (
+                        <div className="relative">
+                            {workflowPhases.length > 1 && (
                                 <div
-                                    className="hidden md:block absolute top-6 h-0.5 bg-muted z-0"
+                                    className="hidden md:block absolute h-0.5 bg-muted z-0 top-6"
                                     style={{
-                                        left: `${50 / stepCount}%`,
-                                        right: `${50 / stepCount}%`,
+                                        left: `calc(100% / ${2 * workflowPhases.length})`,
+                                        right: `calc(100% / ${2 * workflowPhases.length})`,
                                     }}
                                 />
-                            );
-                        })()}
-                        <div
-                            className={cn(
-                                'grid grid-cols-1 gap-4 relative z-10',
-                                (() => {
-                                    const stepCount = stats.workflow!.phases.length + (stats.final_ready_for_ta_individual ? 1 : 0);
-                                    const gridCols: Record<number, string> = {
-                                        1: 'md:grid-cols-1',
-                                        2: 'md:grid-cols-2',
-                                        3: 'md:grid-cols-3',
-                                        4: 'md:grid-cols-4',
-                                        5: 'md:grid-cols-5',
-                                        6: 'md:grid-cols-6',
-                                    };
-                                    return gridCols[stepCount] || 'md:grid-cols-6';
-                                })()
                             )}
-                        >
-                            {stats.workflow.phases.map((phaseInfo) => (
-                                <div key={phaseInfo.phase} className="flex flex-col items-center text-center">
-                                    <div className={cn(
-                                        "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2",
-                                        getPhaseStatusColor(phaseInfo.status),
-                                        phaseInfo.status === 'unlocked' && "ring-4 ring-primary/20"
-                                    )}>
-                                        {getPhaseStatusIcon(phaseInfo.status)}
-                                    </div>
-                                    <h3 className={cn(
-                                        "font-medium text-sm",
-                                        phaseInfo.status === 'locked' && "text-muted-foreground"
-                                    )}>
-                                        {PHASE_LABELS[phaseInfo.phase] || phaseInfo.phase}
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground capitalize mt-0.5">{phaseInfo.status}</p>
-                                </div>
-                            ))}
-                            
-                            {/* Final TA Individual Ready Step */}
-                            {stats.final_ready_for_ta_individual && (
-                                <div className="flex flex-col items-center text-center">
-                                    <div className={cn(
-                                        "w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2",
-                                        stats.final_ready_for_ta_individual.ready
-                                            ? 'border-green-500 bg-green-500 text-white'
-                                            : 'border-muted-foreground/30 bg-muted text-muted-foreground'
-                                    )}>
-                                        {stats.final_ready_for_ta_individual.ready
-                                            ? <Check className="h-5 w-5" />
-                                            : <Lock className="h-5 w-5" />
-                                        }
-                                    </div>
-                                    <h3 className={cn(
-                                        "font-medium text-sm",
-                                        !stats.final_ready_for_ta_individual.ready && "text-muted-foreground"
-                                    )}>
-                                        {PHASE_LABELS['TA_INDIVIDUAL_READY']}
-                                    </h3>
-                                    <p className="text-xs text-muted-foreground capitalize mt-0.5">
-                                        {stats.final_ready_for_ta_individual.ready ? 'completed' : 'locked'}
-                                    </p>
-                                </div>
-                            )}
+                            <div
+                                className={cn(
+                                    'grid grid-cols-1 gap-4 relative z-10',
+                                    `md:grid-cols-${workflowPhases.length}`,
+                                )}
+                            >
+                                {workflowPhases.map((phase) => {
+                                    const colors = STATUS_COLORS[phase.status];
+                                    const active = phase.phase === currentPhase;
+                                    return (
+                                        <div
+                                            key={phase.phase}
+                                            className="flex flex-col items-center text-center"
+                                        >
+                                            <div
+                                                className={cn(
+                                                    'w-12 h-12 rounded-full flex items-center justify-center border-2 transition-all mb-2',
+                                                    colors.bg,
+                                                    colors.border,
+                                                    colors.text,
+                                                    active && colors.ring && 'ring-4',
+                                                    colors.ring,
+                                                )}
+                                            >
+                                                <StatusIcon status={phase.status} />
+                                            </div>
+                                            <p
+                                                className={cn(
+                                                    'font-medium text-sm',
+                                                    phase.status === 'locked' && 'text-muted-foreground',
+                                                )}
+                                            >
+                                                {PHASE_LABELS[phase.phase] || phase.phase}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground mt-0.5">
+                                                {STATUS_LABELS[phase.status] || phase.status}
+                                            </p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                </div>
+                    </CardContent>
+                </Card>
             )}
+
             {workflowLoading && !stats?.workflow?.phases && (
                 <div className="flex justify-center py-4">
-                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                 </div>
             )}
 
-            {/* Cards Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+            {/* Main Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                {/* Progress Overview */}
+                <Card className="lg:col-span-2 flex flex-col justify-center">
+                    <CardContent className="flex items-center justify-between p-6 gap-6">
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm text-muted-foreground">Progres Capaian</p>
+                            <p className="text-xl font-semibold mt-0.5">
+                                {donePhases}/{totalPhases} fase
+                            </p>
 
-                {/* Progress Overview — spans 2 columns */}
-                <Card className="col-span-1 md:col-span-2 flex flex-row items-center justify-between">
-                    <div className="flex flex-col justify-center p-6">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-                            <GraduationCap className="h-4 w-4" />
-                            <span>Overall Progress</span>
-                        </div>
-                        <div className="text-3xl font-bold tracking-tight">
-                            {stats.group_period?.name || (stats.active_periods?.length > 0 ? stats.active_periods[0].name : 'No Active Period')}
-                        </div>
-                        <div className="flex items-center gap-2 mt-3">
-                            <Badge variant={stats.is_graduated ? 'default' : 'secondary'}>
-                                {stats.is_graduated ? '🎓 Graduated' : currentPhase?.label || 'In Progress'}
-                            </Badge>
-                            {stats.group_status === 'APPROVED' && (
-                                <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-900">
-                                    <CheckCircle className="w-3 h-3 mr-1" /> Approved
-                                </Badge>
-                            )}
-                        </div>
-                    </div>
+                            <div className="flex flex-wrap gap-1.5 mt-3">
+                                {phaseKeys.map((key) => (
+                                    <Badge
+                                        key={key}
+                                        variant={stats.steps[key] ? 'default' : 'secondary'}
+                                        className={cn(
+                                            'text-[11px] h-5',
+                                            stats.steps[key] && 'bg-emerald-500 hover:bg-emerald-500',
+                                        )}
+                                    >
+                                        {PHASE_LABELS[key] || key}
+                                    </Badge>
+                                ))}
+                            </div>
 
-                    {/* Circular Progress */}
-                    <div className="h-32 w-32 relative flex items-center justify-center shrink-0 mr-4">
-                        <div className="absolute inset-0 flex items-center justify-center flex-col">
-                            <span className="text-2xl font-bold">{progressPercent}%</span>
-                            <span className="text-[10px] text-muted-foreground uppercase">Complete</span>
+                            <div className="mt-4 w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                                <div
+                                    className="bg-primary h-full rounded-full transition-all duration-700 ease-out"
+                                    style={{ width: `${progressPercent}%` }}
+                                />
+                            </div>
                         </div>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie
-                                    data={[
-                                        { value: completedCount, fill: 'var(--primary)' },
-                                        { value: totalSteps - completedCount, fill: 'var(--muted)' }
-                                    ]}
-                                    cx="50%"
-                                    cy="50%"
-                                    innerRadius={35}
-                                    outerRadius={45}
-                                    startAngle={90}
-                                    endAngle={-270}
-                                    dataKey="value"
-                                    cornerRadius={4}
-                                >
-                                    <Cell fill="var(--primary)" />
-                                    <Cell fill="var(--muted)" opacity={1} />
-                                </Pie>
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
+
+                        <div className="h-24 w-24 shrink-0 relative flex items-center justify-center">
+                            <div className="absolute inset-0 flex items-center justify-center flex-col">
+                                <span className="text-lg font-bold tabular-nums">{progressPercent}%</span>
+                            </div>
+                            <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                    <Pie
+                                        data={[
+                                            { name: 'done', value: donePhases },
+                                            { name: 'remaining', value: totalPhases - donePhases },
+                                        ]}
+                                        cx="50%"
+                                        cy="50%"
+                                        innerRadius={30}
+                                        outerRadius={40}
+                                        startAngle={90}
+                                        endAngle={-270}
+                                        dataKey="value"
+                                        cornerRadius={6}
+                                        strokeWidth={0}
+                                    >
+                                        <Cell fill="var(--primary)" />
+                                        <Cell fill="var(--muted)" />
+                                    </Pie>
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                    </CardContent>
                 </Card>
 
                 {/* Quick Actions */}
-                <Card className="col-span-1 flex flex-col justify-between">
+                <Card className="lg:col-span-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <Zap className="h-4 w-4" /> Quick Actions
-                        </CardTitle>
+                        <CardTitle className="text-sm font-medium">Aksi Cepat</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-3 pt-2">
+                    <CardContent className="flex flex-col gap-2 pt-0">
                         {!stats.has_group ? (
                             <>
-                                <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full justify-between h-9"
+                                    asChild
+                                >
                                     <Link href="/mahasiswa/group">
-                                        {isSoloSeeker ? "Cari Kelompok (Bursa Ide)" : "Buat atau Cari Kelompok"} <ArrowRight className="h-4 w-4" />
+                                        {isSoloSeeker ? 'Cari Kelompok' : 'Buat / Cari Kelompok'}
+                                        <ArrowRight className="h-4 w-4" />
                                     </Link>
                                 </Button>
-                                <Button size="sm" className="w-full justify-between shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full justify-between h-9"
+                                    asChild
+                                >
                                     <Link href="/mahasiswa/titles">
-                                        Browse Titles <ArrowRight className="h-4 w-4" />
+                                        Jelajahi Judul
+                                        <ArrowRight className="h-4 w-4" />
                                     </Link>
                                 </Button>
                             </>
                         ) : isGroupApproved ? (
-                            <Button size="sm" className="w-full justify-between" variant="default" asChild>
+                            <Button
+                                size="sm"
+                                className="w-full justify-between h-9"
+                                asChild
+                            >
                                 <Link href="/mahasiswa/documents">
-                                    Upload Docs <Upload className="h-4 w-4" />
+                                    <Upload className="h-4 w-4 mr-2" />
+                                    Upload Dokumen
+                                    <ArrowRight className="h-4 w-4 ml-auto" />
                                 </Link>
                             </Button>
                         ) : (
-                            <Button size="sm" className="w-full" variant="secondary" disabled>
-                                <Clock className="mr-2 h-4 w-4" /> Waiting Approval
+                            <Button size="sm" className="w-full h-9" variant="secondary" disabled>
+                                <Clock className="h-4 w-4 mr-2" />
+                                Menunggu Persetujuan
                             </Button>
                         )}
-                        <Button size="sm" className="w-full justify-start shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                        <Separator className="my-1" />
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className="w-full justify-start h-9"
+                            asChild
+                        >
                             <Link href="/mahasiswa/schedule">
-                                <Calendar className="mr-2 h-4 w-4" /> View Schedule
+                                <Calendar className="h-4 w-4 mr-2" />
+                                Jadwal Saya
                             </Link>
                         </Button>
-                        <Button size="sm" className="w-full justify-start shadow-sm text-black bg-white border border-gray-200 hover:bg-gray-200 h-8 px-2" asChild>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            className="w-full justify-start h-9"
+                            asChild
+                        >
                             <Link href="/mahasiswa/grades">
-                                <GraduationCap className="mr-2 h-4 w-4" /> View Grades
+                                <GraduationCap className="h-4 w-4 mr-2" />
+                                Nilai Saya
                             </Link>
                         </Button>
                     </CardContent>
                 </Card>
 
                 {/* Project Details */}
-                <Card className="col-span-1 flex flex-col">
+                <Card className="lg:col-span-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <BookOpen className="h-4 w-4" /> Project Details
-                        </CardTitle>
+                        <CardTitle className="text-sm font-medium">Proyek</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-4">
+                    <CardContent className="space-y-4 pt-0">
                         <div>
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Title</div>
-                            <div className="font-medium text-sm line-clamp-2 leading-snug" title={stats.title || 'No Title Selected'}>
-                                {stats.title || 'No Title Selected'}
-                            </div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                                Judul
+                            </p>
+                            <p
+                                className="font-medium text-sm line-clamp-2 leading-snug"
+                                title={stats.title || 'Belum ada judul'}
+                            >
+                                {stats.title || 'Belum ada judul'}
+                            </p>
                         </div>
-
                         <div>
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Group Status</div>
-                            <div className="flex items-center gap-2">
-                                <span className={cn(
-                                    "text-sm font-medium",
-                                    isGroupApproved ? "text-green-600" :
-                                        stats.group_status === 'REJECTED' ? "text-red-600" : "text-muted-foreground"
-                                )}>
-                                    {stats.group_status || 'Not Joined'}
-                                </span>
-                            </div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                                Status Grup
+                            </p>
+                            <Badge
+                                variant="outline"
+                                className={cn(
+                                    'text-xs',
+                                    isGroupApproved
+                                        ? 'border-emerald-300 text-emerald-700 bg-emerald-50'
+                                        : String(stats.group_status) === 'REJECTED'
+                                          ? 'border-red-300 text-red-700 bg-red-50'
+                                          : '',
+                                )}
+                            >
+                                {stats.group_status || 'Tidak Tergabung'}
+                            </Badge>
                         </div>
-
                         <div>
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Current Phase</div>
-                            <div className="text-sm font-medium">
-                                {currentPhase?.label || (stats.is_graduated ? 'Completed' : 'N/A')}
-                            </div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                                Fase Aktif
+                            </p>
+                            <p className="text-sm font-medium">
+                                {currentPhase
+                                    ? PHASE_LABELS[currentPhase] || currentPhase
+                                    : stats.is_graduated
+                                      ? 'Selesai'
+                                      : '—'}
+                            </p>
                         </div>
-
-                        <div className="pt-2 border-t border-dashed">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Registration Period</div>
-                            <div className="text-xs font-medium text-primary">
-                                {stats.group_period?.name || 'Not Registered'}
-                            </div>
+                        <Separator className="!-mx-0" />
+                        <div>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
+                                Periode
+                            </p>
+                            <p className="text-sm font-medium text-primary">
+                                {stats.group_period?.name || 'Belum Terdaftar'}
+                            </p>
                         </div>
                     </CardContent>
                 </Card>
 
                 {/* Upcoming Schedules */}
-                <Card className="col-span-1 flex flex-col">
+                <Card className="lg:col-span-1">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-medium flex items-center gap-2">
-                            <Calendar className="h-4 w-4" /> Upcoming Schedules
-                        </CardTitle>
+                        <CardTitle className="text-sm font-medium">Jadwal Mendatang</CardTitle>
                     </CardHeader>
-                    <CardContent className="flex flex-col gap-3 flex-1">
-                        {stats.upcoming_schedules && stats.upcoming_schedules.length > 0 ? (
+                    <CardContent className="pt-0">
+                        {schedules.length > 0 ? (
                             <div className="flex flex-col gap-3">
-                                {stats.upcoming_schedules.map((schedule, index) => (
-                                    <div key={schedule.id} className={cn(
-                                        "p-3 rounded-lg border",
-                                        index === 0 ? "bg-primary/5 border-primary/20" : "bg-muted/30 border-muted"
-                                    )}>
-                                        <div className="flex items-start justify-between gap-2 mb-2">
-                                            <Badge 
-                                                variant="outline" 
-                                                className={cn("text-[10px] uppercase tracking-wider font-semibold", getScheduleTypeColor(schedule.type))}
+                                {schedules.map((s, i) => (
+                                    <div
+                                        key={s.id}
+                                        className={cn(
+                                            'p-3 rounded-lg border',
+                                            i === 0
+                                                ? 'bg-primary/5 border-primary/20'
+                                                : 'bg-muted/30 border-transparent',
+                                        )}
+                                    >
+                                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    'text-[10px] uppercase tracking-wider font-semibold h-5',
+                                                    SCHEDULE_COLORS[s.type] || '',
+                                                )}
                                             >
-                                                {getScheduleTypeLabel(schedule.type)}
+                                                {SCHEDULE_LABELS[s.type] || s.type}
                                             </Badge>
-                                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                                                {schedule.time_until}
+                                            <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                                                {s.time_until}
                                             </span>
                                         </div>
-                                        
-                                        <div className="space-y-1">
-                                            <div className="text-sm font-medium">
-                                                {new Date(schedule.date).toLocaleDateString('id-ID', { 
-                                                    weekday: 'short', 
-                                                    year: 'numeric', 
-                                                    month: 'short', 
-                                                    day: 'numeric',
-                                                    hour: '2-digit',
-                                                    minute: '2-digit'
-                                                })}
-                                            </div>
-                                            
-                                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                                <span className="truncate">{schedule.room}</span>
-                                                {schedule.mode && (
-                                                    <span className="shrink-0">• {schedule.mode}</span>
-                                                )}
-                                            </div>
-                                            
-                                            {schedule.notes && (
-                                                <div className="text-xs text-muted-foreground line-clamp-1 mt-1">
-                                                    {schedule.notes}
-                                                </div>
+                                        <p className="text-xs font-medium leading-snug">
+                                            {new Date(s.date).toLocaleDateString('id-ID', {
+                                                weekday: 'short',
+                                                year: 'numeric',
+                                                month: 'short',
+                                                day: 'numeric',
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                            })}
+                                        </p>
+                                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5">
+                                            <span className="truncate">{s.room}</span>
+                                            {s.mode && (
+                                                <span className="shrink-0">| {s.mode}</span>
                                             )}
                                         </div>
+                                        {s.notes && (
+                                            <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5">
+                                                {s.notes}
+                                            </p>
+                                        )}
                                     </div>
                                 ))}
-                                
-                                <Button size="sm" className="w-full justify-between mt-2" variant="outline" asChild>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="w-full justify-between"
+                                    asChild
+                                >
                                     <Link href="/mahasiswa/schedule">
-                                        View Full Schedule <ArrowRight className="h-4 w-4" />
+                                        Lihat Semua Jadwal
+                                        <ArrowRight className="h-4 w-4" />
                                     </Link>
                                 </Button>
                             </div>
                         ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-                                <Calendar className="h-8 w-8 text-muted-foreground/40 mb-2" />
-                                <div className="text-sm text-muted-foreground">No upcoming schedules</div>
-                                <div className="text-xs text-muted-foreground/70 mt-1">Check back later for updates</div>
-                                <Button size="sm" className="w-full justify-between mt-4" variant="outline" asChild>
+                            <div className="flex flex-col items-center justify-center py-10 text-center">
+                                <Calendar className="h-10 w-10 text-muted-foreground/30 mb-3" />
+                                <p className="text-sm text-muted-foreground">Belum ada jadwal</p>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="mt-4 justify-between"
+                                    asChild
+                                >
                                     <Link href="/mahasiswa/schedule">
-                                        View Schedule <ArrowRight className="h-4 w-4" />
+                                        Lihat Jadwal
+                                        <ArrowRight className="h-4 w-4 ml-2" />
                                     </Link>
                                 </Button>
                             </div>
                         )}
                     </CardContent>
                 </Card>
-
             </div>
 
-            {/* Next Phase Requirements - Collapsible */}
+            {/* Next Phase Requirements */}
             {stats?.next_phase_requirements && (
                 <Card>
-                    <CardHeader 
-                        className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors"
+                    <CardHeader
+                        className="pb-2 cursor-pointer hover:bg-muted/50 transition-colors rounded-t-lg"
                         onClick={() => setShowRequirements(!showRequirements)}
                     >
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-sm font-medium flex items-center gap-2">
-                                <AlertCircle className="h-4 w-4" /> 
-                                Next Phase Requirements: {PHASE_LABELS[stats.next_phase_requirements.next_phase] || stats.next_phase_requirements.next_phase}
+                                <AlertCircle className="h-4 w-4" />
+                                Menuju Fase:{' '}
+                                {PHASE_LABELS[stats.next_phase_requirements.next_phase] ||
+                                    stats.next_phase_requirements.next_phase}
                             </CardTitle>
-                            {showRequirements ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {showRequirements ? (
+                                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
                         </div>
                     </CardHeader>
                     {showRequirements && (
                         <CardContent>
                             {workflowLoading ? (
-                                <div className="flex justify-center py-4">
-                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                                <div className="flex justify-center py-6">
+                                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                                 </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {/* Documents Status */}
+                                    {/* Documents */}
                                     <div className="space-y-2">
                                         <div className="flex items-center justify-between">
-                                            <span className="text-sm font-medium">Documents</span>
-                                            <Badge variant={stats.next_phase_requirements.documents.completed ? 'default' : 'secondary'}>
-                                                {stats.next_phase_requirements.documents.approved_count}/{stats.next_phase_requirements.documents.total_required}
+                                            <p className="text-sm font-medium flex items-center gap-1.5">
+                                                <FileCheck className="h-4 w-4 text-muted-foreground" />
+                                                Dokumen
+                                            </p>
+                                            <Badge
+                                                variant={
+                                                    stats.next_phase_requirements.documents.completed
+                                                        ? 'default'
+                                                        : 'secondary'
+                                                }
+                                                className={cn(
+                                                    'text-xs',
+                                                    stats.next_phase_requirements.documents
+                                                        .completed && 'bg-emerald-500 hover:bg-emerald-500',
+                                                )}
+                                            >
+                                                {stats.next_phase_requirements.documents.approved_count}/
+                                                {stats.next_phase_requirements.documents.total_required}
                                             </Badge>
                                         </div>
-                                        {!stats.next_phase_requirements.documents.completed && (
-                                            <div className="text-xs text-muted-foreground">
-                                                Pending: {stats.next_phase_requirements.documents.pending_types.join(', ')}
-                                            </div>
-                                        )}
+                                        {!stats.next_phase_requirements.documents.completed &&
+                                            stats.next_phase_requirements.documents.pending_types.length >
+                                                0 && (
+                                                <p className="text-xs text-muted-foreground pl-6">
+                                                    Menunggu:{' '}
+                                                    {stats.next_phase_requirements.documents.pending_types.join(
+                                                        ', ',
+                                                    )}
+                                                </p>
+                                            )}
                                     </div>
 
-                                    {/* SEMPRO Specific Requirements */}
+                                    {/* SEMPRO specific */}
                                     {stats.next_phase_requirements.seminar_schedule && (
-                                        <div className="space-y-2 border-t pt-3">
+                                        <div className="space-y-2 border-t pt-4">
                                             {!stats.next_phase_requirements.seminar_schedule.exists ? (
-                                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-800">
-                                                    <div className="font-medium">SEMPRO Not Scheduled</div>
-                                                    <div className="text-yellow-700">Contact admin to schedule your SEMPRO</div>
+                                                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-800">
+                                                    <p className="font-medium">SEMPRO Belum Terjadwal</p>
+                                                    <p className="text-amber-700 mt-0.5">
+                                                        Hubungi admin untuk menjadwalkan SEMPRO
+                                                    </p>
                                                 </div>
                                             ) : (
                                                 <>
                                                     <div className="flex items-center gap-2 text-sm">
                                                         <Calendar className="h-4 w-4 text-muted-foreground" />
                                                         <span>
-                                                            {new Date(stats.next_phase_requirements.seminar_schedule.date!).toLocaleDateString('id-ID', {
+                                                            {new Date(
+                                                                stats.next_phase_requirements
+                                                                    .seminar_schedule.date!,
+                                                            ).toLocaleDateString('id-ID', {
                                                                 weekday: 'long',
                                                                 year: 'numeric',
                                                                 month: 'long',
-                                                                day: 'numeric'
+                                                                day: 'numeric',
                                                             })}
                                                         </span>
                                                     </div>
-                                                    
-                                                    {/* Examiner Evaluations */}
-                                                    {stats.next_phase_requirements.seminar_schedule.examiner_evaluations && (
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs font-medium">Examiner Evaluations</div>
-                                                            <div className="text-xs text-muted-foreground">
-                                                                {stats.next_phase_requirements.seminar_schedule.examiner_evaluations.submitted}/
-                                                                {stats.next_phase_requirements.seminar_schedule.examiner_evaluations.total} submitted
-                                                            </div>
+
+                                                    {stats.next_phase_requirements.seminar_schedule
+                                                        .examiner_evaluations && (
+                                                        <div className="space-y-1 pl-6">
+                                                            <p className="text-xs font-medium">
+                                                                Evaluasi Penguji
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                {stats.next_phase_requirements.seminar_schedule
+                                                                    .examiner_evaluations.submitted}
+                                                                /
+                                                                {stats.next_phase_requirements.seminar_schedule
+                                                                    .examiner_evaluations.total}{' '}
+                                                                terkumpul
+                                                            </p>
                                                         </div>
                                                     )}
 
-                                                    {/* Supervisor Bimbingan */}
-                                                    {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan && (
-                                                        <div className="space-y-1">
-                                                            <div className="text-xs font-medium">Supervisor Bimbingan</div>
+                                                    {stats.next_phase_requirements.seminar_schedule
+                                                        .supervisor_bimbingan && (
+                                                        <div className="space-y-1 pl-6">
+                                                            <p className="text-xs font-medium">
+                                                                Bimbingan Pembimbing
+                                                            </p>
                                                             <div className="flex gap-2 flex-wrap">
-                                                                {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan.supervisors.map((sup: SupervisorInEvaluation) => (
-                                                                    <Badge 
-                                                                        key={sup.id} 
-                                                                        variant={sup.status === 'completed' ? 'default' : 'outline'}
-                                                                        className="text-xs"
-                                                                    >
-                                                                        {sup.name}: {sup.submitted_components}/{sup.total_components}
-                                                                    </Badge>
-                                                                ))}
+                                                                {stats.next_phase_requirements.seminar_schedule.supervisor_bimbingan.supervisors.map(
+                                                                    (sup: SupervisorInEvaluation) => (
+                                                                        <Badge
+                                                                            key={sup.id}
+                                                                            variant={
+                                                                                sup.status ===
+                                                                                'completed'
+                                                                                    ? 'default'
+                                                                                    : 'outline'
+                                                                            }
+                                                                            className={cn(
+                                                                                'text-[11px]',
+                                                                                sup.status ===
+                                                                                    'completed' &&
+                                                                                    'bg-emerald-500 hover:bg-emerald-500',
+                                                                            )}
+                                                                        >
+                                                                            {sup.name}:{' '}
+                                                                            {sup.submitted_components}/
+                                                                            {sup.total_components}
+                                                                        </Badge>
+                                                                    ),
+                                                                )}
                                                             </div>
                                                         </div>
                                                     )}
@@ -746,28 +719,54 @@ export default function MahasiswaDashboard() {
                                         </div>
                                     )}
 
-                                    {/* Supervisor Evaluations for PDC2 */}
-                                    {stats.next_phase_requirements.supervisor_evaluations && stats.next_phase_requirements.supervisor_evaluations.length > 0 && (
-                                        <div className="space-y-2 border-t pt-3">
-                                            <div className="text-sm font-medium">Supervisor Evaluations</div>
-                                            {stats.next_phase_requirements.supervisor_evaluations.map((evalStatus: EvaluationWithSupervisors) => (
-                                                <div key={evalStatus.evaluation_type} className="space-y-1">
-                                                    <div className="text-xs font-medium">{evalStatus.evaluation_type}</div>
-                                                    <div className="flex gap-2 flex-wrap">
-                                                        {evalStatus.supervisors.map((sup: SupervisorInEvaluation) => (
-                                                            <Badge 
-                                                                key={sup.id} 
-                                                                variant={sup.status === 'completed' ? 'default' : 'outline'}
-                                                                className="text-xs"
-                                                            >
-                                                                {sup.name}: {sup.submitted_components}/{sup.total_components}
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                    {/* Supervisor Evaluations */}
+                                    {stats.next_phase_requirements.supervisor_evaluations &&
+                                        stats.next_phase_requirements.supervisor_evaluations.length >
+                                            0 && (
+                                            <div className="space-y-2 border-t pt-4">
+                                                <p className="text-sm font-medium flex items-center gap-1.5">
+                                                    <Users className="h-4 w-4 text-muted-foreground" />
+                                                    Evaluasi Pembimbing
+                                                </p>
+                                                {stats.next_phase_requirements.supervisor_evaluations.map(
+                                                    (evalStatus: EvaluationWithSupervisors) => (
+                                                        <div
+                                                            key={evalStatus.evaluation_type}
+                                                            className="space-y-1 pl-6"
+                                                        >
+                                                            <p className="text-xs font-medium">
+                                                                {evalStatus.evaluation_type}
+                                                            </p>
+                                                            <div className="flex gap-2 flex-wrap">
+                                                                {evalStatus.supervisors.map(
+                                                                    (sup: SupervisorInEvaluation) => (
+                                                                        <Badge
+                                                                            key={sup.id}
+                                                                            variant={
+                                                                                sup.status ===
+                                                                                'completed'
+                                                                                    ? 'default'
+                                                                                    : 'outline'
+                                                                            }
+                                                                            className={cn(
+                                                                                'text-[11px]',
+                                                                                sup.status ===
+                                                                                    'completed' &&
+                                                                                    'bg-emerald-500 hover:bg-emerald-500',
+                                                                            )}
+                                                                        >
+                                                                            {sup.name}:{' '}
+                                                                            {sup.submitted_components}/
+                                                                            {sup.total_components}
+                                                                        </Badge>
+                                                                    ),
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ),
+                                                )}
+                                            </div>
+                                        )}
                                 </div>
                             )}
                         </CardContent>
@@ -777,28 +776,36 @@ export default function MahasiswaDashboard() {
 
             {/* Final TA Readiness Gate */}
             {stats?.final_ready_for_ta_individual && (
-                <Card className={cn(
-                    stats.final_ready_for_ta_individual.ready && "border-green-500 bg-green-50 dark:bg-green-900/10"
-                )}>
+                <Card
+                    className={cn(
+                        stats.final_ready_for_ta_individual.ready &&
+                            'border-emerald-300 bg-emerald-50/60',
+                    )}
+                >
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-medium flex items-center gap-2">
                             {stats.final_ready_for_ta_individual.ready ? (
-                                <CheckCircle className="h-4 w-4 text-green-600" />
+                                <Check className="h-4 w-4 text-emerald-600" />
                             ) : (
-                                <Lock className="h-4 w-4" />
+                                <Lock className="h-4 w-4 text-muted-foreground" />
                             )}
-                            Ready for TA Individual
+                            Kesiapan TA Individu
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3">
+                        <div className="space-y-2.5">
                             {/* Expo Documents */}
                             <div className="flex items-center justify-between text-sm">
-                                <span>Expo Documents</span>
+                                <span className="flex items-center gap-1.5">
+                                    <FileCheck className="h-3.5 w-3.5 text-muted-foreground" />
+                                    Dokumen Expo
+                                </span>
                                 {stats.final_ready_for_ta_individual.expo_documents.completed ? (
-                                    <Check className="h-4 w-4 text-green-600" />
+                                    <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-[10px] h-5">
+                                        Selesai
+                                    </Badge>
                                 ) : (
-                                    <span className="text-xs text-muted-foreground">
+                                    <span className="text-xs text-muted-foreground tabular-nums">
                                         {stats.final_ready_for_ta_individual.expo_documents.approved_count}/
                                         {stats.final_ready_for_ta_individual.expo_documents.total_required}
                                     </span>
@@ -806,25 +813,35 @@ export default function MahasiswaDashboard() {
                             </div>
 
                             {/* Evaluations */}
-                            {[
-                                { key: 'nilai_dosen', label: 'Nilai Dosen' },
-                                { key: 'milestone', label: 'Milestone' },
-                                { key: 'expo_evaluation', label: 'Expo Evaluation' }
-                            ].map(({ key, label }) => {
-                                if (!stats.final_ready_for_ta_individual) return null;
-                                // Use type-safe property access with validation
-                                const status = stats.final_ready_for_ta_individual[key as keyof FinalReadyStatus];
+                            {(
+                                ['nilai_dosen', 'milestone', 'expo_evaluation'] as Array<
+                                    'nilai_dosen' | 'milestone' | 'expo_evaluation'
+                                >
+                            ).map((key) => {
+                                const status = stats.final_ready_for_ta_individual![key];
                                 if (!isFinalReadyEvaluationSection(status)) return null;
                                 if (!status?.configured) return null;
+                                const labels: Record<string, string> = {
+                                    nilai_dosen: 'Nilai Dosen',
+                                    milestone: 'Milestone',
+                                    expo_evaluation: 'Evaluasi Expo',
+                                };
                                 return (
                                     <div key={key} className="flex items-center justify-between text-sm">
-                                        <span>{label}</span>
+                                        <span className="flex items-center gap-1.5">
+                                            <Mic className="h-3.5 w-3.5 text-muted-foreground" />
+                                            {labels[key]}
+                                        </span>
                                         {status.completed ? (
-                                            <Check className="h-4 w-4 text-green-600" />
+                                            <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-[10px] h-5">
+                                                Selesai
+                                            </Badge>
                                         ) : (
-                                            <span className="text-xs text-muted-foreground">
-                                                {status.supervisors?.filter((s) => s.status === 'completed').length || 0}/
-                                                {status.supervisors?.length || 0}
+                                            <span className="text-xs text-muted-foreground tabular-nums">
+                                                {status.supervisors?.filter(
+                                                    (s) => s.status === 'completed',
+                                                ).length || 0}
+                                                /{status.supervisors?.length || 0}
                                             </span>
                                         )}
                                     </div>
@@ -834,13 +851,18 @@ export default function MahasiswaDashboard() {
                             {/* Peer Review */}
                             {stats.final_ready_for_ta_individual.peer_review.configured && (
                                 <div className="flex items-center justify-between text-sm">
-                                    <span>Peer Review</span>
+                                    <span className="flex items-center gap-1.5">
+                                        <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                                        Peer Review
+                                    </span>
                                     {stats.final_ready_for_ta_individual.peer_review.completed ? (
-                                        <Check className="h-4 w-4 text-green-600" />
+                                        <Badge variant="default" className="bg-emerald-500 hover:bg-emerald-500 text-[10px] h-5">
+                                            Selesai
+                                        </Badge>
                                     ) : (
-                                        <span className="text-xs text-muted-foreground">
+                                        <span className="text-xs text-muted-foreground tabular-nums">
                                             {stats.final_ready_for_ta_individual.peer_review.completed_members}/
-                                            {stats.final_ready_for_ta_individual.peer_review.total_members} members
+                                            {stats.final_ready_for_ta_individual.peer_review.total_members} anggota
                                         </span>
                                     )}
                                 </div>
