@@ -447,6 +447,10 @@ class TaSubmissionController extends Controller
 
         $documentRequirements = $this->getTaDocumentRequirements($submission->group->period_id);
 
+        // Self-heal: re-evaluate document approval status on every page load
+        $this->checkAllDocumentsApproved($user->id, $submission->group_id);
+        $submission->refresh();
+
         return response()->json([
             'can_access' => true,
             'status' => $submission->status,
@@ -604,33 +608,26 @@ class TaSubmissionController extends Controller
      */
     private function checkAllDocumentsApproved(int $studentId, int $groupId): void
     {
-        $group = Group::find($groupId);
         $submission = TaSubmission::where('student_id', $studentId)->first();
 
-        if (!$submission || !$group) {
+        if (!$submission) {
             return;
         }
 
-        // Get required documents (using 'name' field from PhaseDocumentRequirement)
-        $requiredDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+        $totalCount = Document::where('student_id', $studentId)
             ->where('phase', 'TA')
-            ->where('is_required', true)
-            ->pluck('name');
+            ->count();
 
-        if ($requiredDocs->isEmpty()) {
-            // No required docs, auto-approve
-            $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
+        if ($totalCount === 0) {
             return;
         }
 
-        // Check approved documents
         $approvedCount = Document::where('student_id', $studentId)
             ->where('phase', 'TA')
-            ->whereIn('document_type', $requiredDocs)
             ->where('status', 'APPROVED')
             ->count();
 
-        if ($approvedCount >= $requiredDocs->count()) {
+        if ($approvedCount >= $totalCount) {
             $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
         }
     }
