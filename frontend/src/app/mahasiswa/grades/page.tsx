@@ -221,7 +221,7 @@ export default function MahasiswaGradesPage() {
                                             )}
                                         </div>
                                         <span className={`ml-2 text-sm font-semibold tabular-nums shrink-0 ${e.score !== null ? gradePalette(e.score).text : 'text-muted-foreground'}`}>
-                                            {e.score !== null ? Number(e.score).toFixed(1) : '—'}
+                                            {e.score != null ? Number(e.score).toFixed(1) : '—'}
                                         </span>
                                     </div>
                                 ))}

@@ -234,7 +234,7 @@ class GradeCalculationService
                 ],
                 'PEER_REVIEW' => [
                     'score' => $peerReviewScore,
-                    'evaluators' => [['name' => 'Peers', 'role' => 'STUDENT']],
+                    'evaluators' => [['name' => 'Peers', 'role' => 'STUDENT', 'score' => $peerReviewScore]],
                 ],
             ],
             'component_count' => $componentCount,
@@ -513,7 +513,7 @@ class GradeCalculationService
                     ],
                     'PEER_REVIEW' => [
                         'score' => $peerReviewScore,
-                        'evaluators' => [['name' => 'Peers', 'role' => 'STUDENT']],
+                        'evaluators' => [['name' => 'Peers', 'role' => 'STUDENT', 'score' => $peerReviewScore]],
                     ],
                 ],
                 'component_count' => $componentCount,

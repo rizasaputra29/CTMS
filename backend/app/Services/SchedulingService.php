@@ -555,29 +555,6 @@ class SchedulingService
                 // Update schedule with final score
                 $schedule->update(['final_score' => $finalScore]);
 
-                $canTransitionExpoDone = true;
-                if ($schedule->type === 'EXPO' && $calculatedResult === 'PASS') {
-                    $requiredExpoDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
-                        ->where('phase', 'EXPO')
-                        ->where('is_required', true)
-                        ->count();
-
-                    if ($requiredExpoDocs > 0) {
-                        $approvedExpoDocs = Document::where('group_id', $group->id)
-                            ->where('phase', 'EXPO')
-                            ->where('status', 'APPROVED')
-                            ->count();
-
-                        if ($approvedExpoDocs < $requiredExpoDocs) {
-                            $canTransitionExpoDone = false;
-                            Log::info(
-                                "EXPO completion blocked: missing approved documents for group {$group->id}. " .
-                                "Approved {$approvedExpoDocs}/{$requiredExpoDocs}."
-                            );
-                        }
-                    }
-                }
-
                 if ($schedule->type === 'SEMPRO') {
                     if ($calculatedResult === 'PASS') {
                         $this->stateMachine->transition($group, 'SEMPRO_DONE');
@@ -588,19 +565,7 @@ class SchedulingService
                     }
                 } elseif ($schedule->type === 'EXPO') {
                     if ($calculatedResult === 'PASS') {
-                        if ($canTransitionExpoDone) {
-                            $this->stateMachine->transition($group, 'EXPO_DONE');
-
-                            // Unlock peer review for all group members
-                            try {
-                                $peerReviewService = app(\App\Services\PeerReviewService::class);
-                                $peerReviewService->unlockPeerReview($group->id);
-                                Log::info("Peer review unlocked for group {$group->id} after EXPO completion");
-                            } catch (\Exception $e) {
-                                Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
-                                // Don't throw - peer review unlock failure shouldn't break the flow
-                            }
-                        }
+                        $this->tryTransitionToExpoDone($group);
                     } else {
                         $this->stateMachine->transition($group, 'PDC2_ACTIVE');
                     }
@@ -625,6 +590,108 @@ class SchedulingService
                 'result' => $allSubmitted ? $result : null,
             ];
         });
+    }
+
+    /**
+     * Check if EXPO_DONE transition conditions are met and transition if so.
+     * Called after EXPO-related evaluations (NILAI_DOSEN, EXPO, MILESTONE) or documents are submitted.
+     *
+     * Conditions:
+     *  1. All supervisors must have submitted EXPO, NILAI_DOSEN, and MILESTONE evaluations
+     *  2. All required EXPO documents must be approved
+     */
+    public function tryTransitionToExpoDone(Group $group): bool
+    {
+        if ($group->status !== 'EXPO_REGISTERED') {
+            return false;
+        }
+
+        // 1. Check all evaluations complete (EXPO, NILAI_DOSEN, MILESTONE from both supervisors)
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        foreach (['EXPO', 'NILAI_DOSEN', 'MILESTONE'] as $type) {
+            foreach ($supervisorIds as $supervisorId) {
+                if (!AssessmentScoreRepository::existsForGroupAndEvaluator($group->id, $supervisorId, $type)) {
+                    Log::info("EXPO_DONE blocked: missing {$type} from supervisor {$supervisorId} for group {$group->id}");
+                    return false;
+                }
+            }
+        }
+
+        // 2. Check EXPO documents approved
+        $requiredExpoDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', 'EXPO')
+            ->where('is_required', true)
+            ->count();
+
+        if ($requiredExpoDocs > 0) {
+            $approvedExpoDocs = Document::where('group_id', $group->id)
+                ->where('phase', 'EXPO')
+                ->where('status', 'APPROVED')
+                ->count();
+
+            if ($approvedExpoDocs < $requiredExpoDocs) {
+                Log::info("EXPO_DONE blocked: missing approved documents for group {$group->id}. Approved {$approvedExpoDocs}/{$requiredExpoDocs}");
+                return false;
+            }
+        }
+
+        // All conditions met - transition
+        try {
+            $this->stateMachine->transition($group, 'EXPO_DONE');
+
+            // Unlock peer review for all group members
+            try {
+                $peerReviewService = app(\App\Services\PeerReviewService::class);
+                $peerReviewService->unlockPeerReview($group->id);
+                Log::info("Peer review unlocked for group {$group->id} after EXPO_DONE");
+            } catch (\Exception $e) {
+                Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
+            }
+
+            // If all members already completed peer review, auto-transition to READY_FOR_TA_INDIVIDUAL
+            $this->tryTransitionToReadyForTaIndividual($group);
+
+            Log::info("Group {$group->id} transitioned to EXPO_DONE");
+            return true;
+        } catch (\Exception $e) {
+            Log::error("Failed to transition group {$group->id} to EXPO_DONE: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * If all group members completed peer review and group is EXPO_DONE,
+     * auto-transition to READY_FOR_TA_INDIVIDUAL.
+     */
+    private function tryTransitionToReadyForTaIndividual(Group $group): void
+    {
+        if ($group->status !== 'EXPO_DONE') {
+            return;
+        }
+
+        $totalMembers = $group->members()->count();
+        if ($totalMembers === 0) {
+            return;
+        }
+
+        $completedCount = \App\Models\StudentPeerReviewStatus::where('group_id', $group->id)
+            ->where('has_completed_peer_review', true)
+            ->count();
+
+        if ($completedCount < $totalMembers) {
+            return;
+        }
+
+        try {
+            $this->stateMachine->transition($group, 'READY_FOR_TA_INDIVIDUAL');
+            Log::info("Group {$group->id} auto-transitioned to READY_FOR_TA_INDIVIDUAL");
+        } catch (\Exception $e) {
+            Log::info("Could not transition group {$group->id} to READY_FOR_TA_INDIVIDUAL: " . $e->getMessage());
+        }
     }
 
     /**

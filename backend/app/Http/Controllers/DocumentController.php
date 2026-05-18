@@ -371,6 +371,10 @@ class DocumentController extends Controller
             } elseif ($phase === 'TA_DRAFT' && $group->status === 'PDC2_ACTIVE') {
                 // TA_DRAFT approved + both supervisors evaluated → transition to PDC2_READY_FOR_EXPO
                 $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+            } elseif ($phase === 'EXPO' && $group->status === 'EXPO_REGISTERED') {
+                // EXPO documents approved → check EXPO_DONE readiness
+                $schedulingService = app(\App\Services\SchedulingService::class);
+                $schedulingService->tryTransitionToExpoDone($group);
             }
         } catch (\InvalidArgumentException $e) {
             // Transition not valid from current state — ignore

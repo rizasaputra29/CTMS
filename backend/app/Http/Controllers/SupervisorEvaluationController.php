@@ -699,6 +699,15 @@ class SupervisorEvaluationController extends Controller
                 }
             }
 
+            // If EXPO-related evaluation submitted, check EXPO_DONE readiness
+            if (in_array($evaluationType, ['NILAI_DOSEN', 'EXPO', 'MILESTONE'], true)) {
+                $group = Group::find($groupId);
+                if ($group) {
+                    $schedulingService = app(\App\Services\SchedulingService::class);
+                    $schedulingService->tryTransitionToExpoDone($group);
+                }
+            }
+
             // Send notification if deadline has passed
             if ($deadlinePassed) {
                 try {
