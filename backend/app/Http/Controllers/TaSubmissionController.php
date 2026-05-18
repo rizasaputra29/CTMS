@@ -449,7 +449,8 @@ class TaSubmissionController extends Controller
 
         // Self-heal: re-evaluate document approval status on every page load
         $this->checkAllDocumentsApproved($user->id, $submission->group_id);
-        $submission->refresh();
+        $submission = TaSubmission::with(['group.title', 'group.supervisor1', 'group.supervisor2'])
+            ->find($submission->id);
 
         return response()->json([
             'can_access' => true,

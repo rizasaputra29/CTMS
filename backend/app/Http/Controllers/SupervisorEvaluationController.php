@@ -252,6 +252,7 @@ class SupervisorEvaluationController extends Controller
         // TA_DEFENSE → BIMBINGAN_TA (only if student has TA_READY_FOR_SIDANG or higher status)
         $taSchedules = TaDefenseSchedule::where('group_id', $group->id)
             ->where('status', '!=', 'CANCELLED')
+            ->with('student')
             ->get();
 
         foreach ($taSchedules as $ta) {

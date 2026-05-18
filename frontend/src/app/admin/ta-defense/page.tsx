@@ -99,6 +99,7 @@ export default function AdminTaDefensePage() {
 
     const [createOpen, setCreateOpen] = useState(false);
     const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
+    const [editingScheduleId, setEditingScheduleId] = useState<number | null>(null);
     const [examinerError, setExaminerError] = useState('');
 
     const [cancelOpen, setCancelOpen] = useState(false);
@@ -312,6 +313,7 @@ export default function AdminTaDefensePage() {
 
     const handleEdit = (schedule: TaDefenseSchedule) => {
         setDialogMode('edit');
+        setEditingScheduleId(schedule.id);
         // Format date/time properly - extract just the date part and HH:MM for time
         const formattedDate = schedule.date ? schedule.date.split('T')[0] : '';
         const formattedStartTime = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
@@ -338,16 +340,17 @@ export default function AdminTaDefensePage() {
 
     const handleUpdate = async (data: TaDefenseFormData) => {
         if (!validateExaminers()) return;
-        // Find the current schedule being edited
-        const currentSchedule = schedules.find(s => 
-            s.group?.id?.toString() === data.group_id && s.status === 'SCHEDULED'
-        );
+        if (!editingScheduleId) {
+            toast.error('Schedule not found');
+            return;
+        }
+        const currentSchedule = schedules.find(s => s.id === editingScheduleId);
         if (!currentSchedule) {
             toast.error('Schedule not found');
             return;
         }
         try {
-            await api.put(`/admin/ta-defense-schedules/${currentSchedule.id}`, {
+            await api.put(`/admin/ta-defense-schedules/${editingScheduleId}`, {
                 period_id: currentSchedule.period?.id, // Include period_id from existing schedule
                 date: data.date,
                 start_time: data.start_time,
@@ -384,6 +387,7 @@ export default function AdminTaDefensePage() {
         });
         setExaminerError('');
         setEligibleGroups([]);
+        setEditingScheduleId(null);
     };
 
     const filteredAndSorted = useMemo(() => {

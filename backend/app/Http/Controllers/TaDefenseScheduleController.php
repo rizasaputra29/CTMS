@@ -127,7 +127,7 @@ class TaDefenseScheduleController extends Controller
             'date' => 'required|date|after_or_equal:today',
             'start_time' => 'required|date_format:H:i,H:i:s',
             'end_time' => 'required|date_format:H:i,H:i:s|after:start_time',
-            'room' => 'required|string|max:100',
+            'room' => 'nullable|string|max:100',
             'location_id' => 'nullable|exists:locations,id',
             'notes' => 'nullable|string|max:1000',
         ]);
