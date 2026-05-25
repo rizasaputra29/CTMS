@@ -473,7 +473,7 @@ export default function MahasiswaDashboard() {
                                       : '—'}
                             </p>
                         </div>
-                        <Separator className="!-mx-0" />
+                        <Separator className="mx-0!" />
                         <div>
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
                                 Periode

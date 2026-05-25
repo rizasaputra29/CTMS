@@ -106,7 +106,7 @@ export default function DosenDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedPeriod]);
+  }, []);
 
   useEffect(() => {
     fetchData();

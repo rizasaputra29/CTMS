@@ -91,8 +91,8 @@ export function useFinalizationDashboard(
     search: urlParams.search,
     perPage: urlParams.perPage,
     page: urlParams.page,
-    supervisorStatus: urlParams.supervisorStatus,
-    memberCount: urlParams.memberCount,
+    ...(urlParams.supervisorStatus ? { supervisorStatus: urlParams.supervisorStatus } : {}),
+    ...(urlParams.memberCount ? { memberCount: urlParams.memberCount } : {}),
   });
   const [loading, setLoading] = useState(false);
   const [isLoadingPeriods, setIsLoadingPeriods] = useState(false);

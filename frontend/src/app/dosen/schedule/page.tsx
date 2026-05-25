@@ -15,7 +15,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Loader2, Plus, Calendar as CalendarIcon } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { toast } from "sonner";
 import { format, parseISO } from 'date-fns';
 import {
@@ -28,12 +28,12 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Badge } from '@/components/ui/badge';
-import { Pencil, Trash2, X, Edit, Check } from 'lucide-react';
+import { Trash2, Edit } from 'lucide-react';
 import { dosenScheduleSchema, type DosenScheduleFormData } from '@/lib/validations/schedule';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { toScheduleMode, toNumber } from '@/types';
 import ScheduleCalendar from '@/components/schedule/ScheduleCalendar';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+
 
 interface Group {
     id: number;
@@ -64,16 +64,19 @@ interface ScheduleEvent {
     start_time?: string;
     end_time?: string;
     room: string;
-    mode?: string;
-    notes?: string;
+    mode?: string | null;
+    notes?: string | null;
     status?: string;
     period_name?: string;
     student_name?: string;
     examiner1?: { name: string } | null;
     examiner2?: { name: string } | null;
     examiners?: { name: string; role?: string }[];
-    group?: {
-        title?: { title: string };
+    group: {
+        title: {
+            title: string;
+            lecturer?: { name: string } | null;
+        } | null;
         members?: { student: { name: string } }[];
         supervisor?: { name: string } | null;
     };
@@ -214,7 +217,9 @@ export default function DosenSchedulePage() {
         } catch (error) {
             console.error('Failed to save schedule', error);
             const message = api.getApiErrorMessage(error, 'Failed to save schedule');
-            const conflicts = error?.response?.data?.conflicts;
+            // Use type guard to safely access axios error properties
+            const axiosError = api.isAxiosError(error) ? error : null;
+            const conflicts = axiosError?.response?.data?.conflicts;
             if (conflicts && conflicts.length > 0) {
                 toast.error(`${message}: ${conflicts.join(', ')}`);
             } else {
@@ -316,7 +321,7 @@ export default function DosenSchedulePage() {
     // Filter schedules by period if selected
     const filteredSchedules = useMemo(() => {
         if (selectedPeriod === 'all') return schedules;
-        return schedules.filter(s => {
+        return schedules.filter(_s => {
             // This would need period_id in the schedule data
             // For now, return all
             return true;
@@ -421,7 +426,7 @@ export default function DosenSchedulePage() {
                                     control={form.control}
                                     render={({ field }) => (
                                         <Select
-                                            value={field.value || undefined}
+                                            value={field.value || ''}
                                             onValueChange={field.onChange}
                                         >
                                             <SelectTrigger data-invalid={form.formState.errors.group_id ? '' : undefined}>
@@ -527,7 +532,7 @@ export default function DosenSchedulePage() {
                                         control={form.control}
                                         render={({ field }) => (
                                             <Select
-                                                value={field.value || undefined}
+                                                value={field.value || ''}
                                                 onValueChange={field.onChange}
                                             >
                                                 <SelectTrigger data-invalid={form.formState.errors.room ? '' : undefined}>

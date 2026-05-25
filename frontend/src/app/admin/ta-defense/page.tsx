@@ -1056,7 +1056,7 @@ export default function AdminTaDefensePage() {
                                     render={({ field, fieldState }) => (
                                         <Field>
                                             <FieldLabel>Location <span className="text-destructive">*</span></FieldLabel>
-                                            <Select value={field.value || undefined} onValueChange={field.onChange}>
+                                            <Select value={field.value ?? ''} onValueChange={field.onChange}>
                                             <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
                                                     <SelectValue placeholder="Select location..." />
                                                 </SelectTrigger>

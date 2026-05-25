@@ -26,7 +26,7 @@ export * from "./switch";
 export * from "./table";
 export * from "./tabs";
 export * from "./textarea";
-export * from "./toast";
+// Note: ./toast module does not exist - removed to fix TS2307 error
 export * from "./tooltip";
 
 // Recharts (if you have them)

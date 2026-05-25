@@ -318,7 +318,7 @@ export default function DosenExaminerPage() {
                             points: myEval.score,
                             notes: myEval.feedback || '',
                             deadline: s.evaluation_deadline || null,
-                            updated_at: myEval.updated_at,
+                            updated_at: myEval.updated_at ?? '',
                             group: s.group,
                             student: null
                         });
@@ -342,7 +342,7 @@ export default function DosenExaminerPage() {
                         points: myEval?.score || 0,
                         notes: myEval?.feedback || '',
                         deadline: t.evaluation_deadline || null,
-                        updated_at: myEval?.updated_at,
+                        updated_at: myEval?.updated_at ?? '',
                         group: t.group,
                         student: t.student || null
                     });

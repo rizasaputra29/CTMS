@@ -298,7 +298,7 @@ export default function AdminUsersPage() {
             name: user.name,
             email: user.email,
             password: '',
-            roles: user.roles?.map(r => r.slug) || [user.role],
+            roles: (user.roles?.map(r => r.slug) || [user.role]) as ('admin' | 'dosen' | 'mahasiswa')[],
             nim: user.nim || '',
         });
         setOpen(true);
@@ -575,11 +575,11 @@ export default function AdminUsersPage() {
                                         <Field data-invalid={fieldState.invalid}>
                                             <FieldLabel>Roles</FieldLabel>
                                             <div className="flex flex-wrap gap-4 mt-2">
-                                                {['admin', 'dosen', 'mahasiswa'].map((roleSlug) => (
+                                                {(['admin', 'dosen', 'mahasiswa'] as const).map((roleSlug) => (
                                                     <div key={roleSlug} className="flex items-center space-x-2">
                                                         <Checkbox
                                                             id={`role-${roleSlug}`}
-                                                            checked={field.value?.includes(roleSlug)}
+                                                            checked={field.value?.includes(roleSlug as 'admin' | 'dosen' | 'mahasiswa')}
                                                             onCheckedChange={(checked) => {
                                                                 const newRoles = handleRoleToggle(field.value || [], roleSlug, checked as boolean);
                                                                 field.onChange(newRoles);

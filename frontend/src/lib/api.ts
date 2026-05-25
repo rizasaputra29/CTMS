@@ -1,4 +1,4 @@
-import axios, { isAxiosError, AxiosInstance, AxiosError } from "axios";
+import axios, { isAxiosError, type AxiosInstance, AxiosError } from "axios";
 
 // Extend AxiosInstance type to include isAxiosError and getApiErrorMessage
 interface ExtendedAxiosInstance extends AxiosInstance {

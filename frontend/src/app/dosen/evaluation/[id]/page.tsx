@@ -16,14 +16,12 @@ import {
     ArrowLeft, 
     Save, 
     AlertCircle, 
-    CheckCircle2, 
     User, 
     BookOpen, 
     Calendar as CalendarIcon, 
     Clock,
     Eye
 } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { format } from 'date-fns'
 import { id as idLocale } from 'date-fns/locale'
 

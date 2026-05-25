@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -111,6 +111,7 @@ export default function AssessmentsReportPage() {
     // Period filter
     const [periods, setPeriods] = useState<Period[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>(initialPeriodId || '');
+    const hasInitializedPeriod = useRef(false);
     
     // Filters
     const [studentSearch, setStudentSearch] = useState('');
@@ -153,8 +154,9 @@ export default function AssessmentsReportPage() {
                 const periodsData = res.data.data || res.data || [];
                 setPeriods(periodsData);
                 
-                // Auto-select first active period if none selected
-                if (!selectedPeriod && periodsData.length > 0) {
+                // Auto-select first active period if none selected (only on initial load)
+                if (!hasInitializedPeriod.current && periodsData.length > 0) {
+                    hasInitializedPeriod.current = true;
                     const activePeriod = periodsData.find((p: Period) => p.is_active);
                     if (activePeriod) {
                         setSelectedPeriod(activePeriod.id.toString());

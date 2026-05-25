@@ -30,7 +30,7 @@ import {
 import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
-import { Bid } from '@/types/bid';
+import type { Bid } from '@/types/bid';
 import { proposeTitleSchema, type ProposeTitleFormData } from '@/lib/validations/proposals';
 
 interface Lecturer {

@@ -5,6 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { semproScheduleSchema, type SemproScheduleFormData } from '@/lib/validations/sempro';
 import api from '@/lib/api';
+import type { ScheduleUpdatePayload } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -54,7 +55,6 @@ interface Schedule {
 }
 
 interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[]; supervisor1?: { id: number; name: string } | null; supervisor2?: { id: number; name: string } | null; }
-interface User { id: number; name: string; email: string; role: string; }
 
 type SortKey = 'title' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -68,6 +68,7 @@ export default function AdminSemproPage() {
     const [locations, setLocations] = useState<Location[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const selectedPeriodRef = useRef(selectedPeriod);
+    const hasInitializedPeriod = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -141,10 +142,9 @@ export default function AdminSemproPage() {
                 setPeriods(perData);
                 const active = perData.find((p: Period) => p.is_active);
 
-                // Determine which period to use for other fetches
-                const periodToUse = active && selectedPeriod !== 'all'
-                    ? active.id.toString()
-                    : selectedPeriod;
+                // Determine which period to use for other fetches on initial load
+                // Use active period if available, otherwise use 'all'
+                const periodToUse = active?.id.toString() || 'all';
 
                 // Fetch all data in parallel
                 const query = periodToUse !== 'all' && periodToUse ? `?period_id=${periodToUse}` : '';
@@ -163,7 +163,9 @@ export default function AdminSemproPage() {
                 setDosens(dosensRes.data.data || []);
                 setLocations(locationsRes.data.data || []);
 
-                if (active && selectedPeriod !== 'all') {
+                // Only set active period on initial load
+                if (active && !hasInitializedPeriod.current) {
+                    hasInitializedPeriod.current = true;
                     setSelectedPeriod(active.id.toString());
                 }
             } catch (err) {
@@ -417,20 +419,16 @@ export default function AdminSemproPage() {
     const submitEdit = async () => {
         if (!editId) return;
         try {
-            const payload: any = {
+            const payload: ScheduleUpdatePayload = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
                 examiner_1_id: Number(approveData.examiner_1_id),
                 examiner_2_id: Number(approveData.examiner_2_id),
+                location_id: approveData.location_id && approveData.location_id !== ''
+                    ? Number(approveData.location_id)
+                    : null,
             };
-            
-            // Only include location_id if it has a value, otherwise send null
-            if (approveData.location_id && approveData.location_id !== '') {
-                payload.location_id = Number(approveData.location_id);
-            } else {
-                payload.location_id = null;
-            }
             
             // Include room if location_id is not set or if room has value
             if (approveData.room && approveData.room !== '') {
@@ -495,13 +493,7 @@ export default function AdminSemproPage() {
         return groups.find(g => g.id.toString() === watchedGroupId);
     }, [groups, watchedGroupId]);
 
-    const supervisorIds = useMemo(() => {
-        if (!selectedGroup) return [];
-        const ids: number[] = [];
-        // Check supervisor1 and supervisor2 - adjust based on your GroupItem interface
-        // Assuming group data structure from line 55
-        return ids;
-    }, [selectedGroup]);
+
 
     // Filter dosens to exclude supervisors of selected group
     const availableDosens = useMemo(() => {

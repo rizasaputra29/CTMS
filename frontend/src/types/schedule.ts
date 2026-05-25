@@ -188,3 +188,17 @@ export interface SeminarSchedule {
   is_ready_for_pdc2?: boolean;
   message?: string;
 }
+
+/**
+ * Schedule update/edit request payload
+ * Used when updating existing sempro/sidang schedules
+ */
+export interface ScheduleUpdatePayload {
+  date: string;
+  start_time: string;
+  end_time: string;
+  examiner_1_id: number;
+  examiner_2_id: number;
+  location_id: number | null;
+  room?: string;
+}

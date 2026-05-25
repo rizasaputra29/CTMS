@@ -75,10 +75,11 @@ export function SupervisorAssignmentDialog({
   }, [lecturers, supervisor2Id]);
 
   const handleSubmit = async (data: SupervisorAssignmentFormData) => {
+    if (!data.supervisor_1_id) return;
     await onSubmit({
-      supervisor_1_id: data.supervisor_1_id,
-      supervisor_2_id: data.supervisor_2_id,
-      notes: data.notes || undefined,
+      supervisor_1_id: data.supervisor_1_id!,
+      ...(data.supervisor_2_id ? { supervisor_2_id: data.supervisor_2_id } : {}),
+      ...(data.notes ? { notes: data.notes } : {}),
     });
 
     // Reset form

@@ -659,14 +659,14 @@ export function AppSidebar() {
                                             <Collapsible
                                                 key={item.title}
                                                 asChild
-                                                defaultOpen={isDefaultOpen}
+                                                defaultOpen={!!isDefaultOpen}
                                                 className="group/collapsible"
                                             >
                                                 <SidebarMenuItem>
                                                     <CollapsibleTrigger asChild>
                                                         <SidebarMenuButton
                                                             tooltip={getTooltipMessage(item.title, item.url || '')}
-                                                            isActive={hasActiveSubitem}
+                                                            isActive={!!hasActiveSubitem}
                                                             className={disableParent ? 'opacity-50' : ''}
                                                         >
                                                             {item.icon && <item.icon />}

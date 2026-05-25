@@ -137,12 +137,13 @@ export function ManualGroupingDialog({
         if (!newTitle.title.trim() || newTitleSpecializations.length === 0 || !selectedLecturerId) {
           return;
         }
+        const trimmedDescription = newTitle.description.trim();
         await onCreateGroup({
           studentIds: selectedStudents,
           option: 'add_title',
           newTitle: {
             title: newTitle.title.trim(),
-            description: newTitle.description.trim() || undefined,
+            ...(trimmedDescription ? { description: trimmedDescription } : {}),
             specializations: newTitleSpecializations,
             lecturerId: selectedLecturerId,
           },
