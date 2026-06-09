@@ -6,23 +6,23 @@ use App\Concerns\RequiresActivePeriod;
 use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\TaSubmission;
+use App\Models\PhaseDocumentRequirement;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GroupStateMachine;
 use App\Services\WorkflowService;
-use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use App\Models\PhaseDocumentRequirement;
 
 class DocumentController extends Controller
 {
     use RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
+
     protected WorkflowService $workflowService;
 
     public function __construct(GroupStateMachine $stateMachine, WorkflowService $workflowService)
@@ -60,14 +60,14 @@ class DocumentController extends Controller
         $user = Auth::user();
         $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
 
-        if (!$groupMember || !$groupMember->group) {
+        if (! $groupMember || ! $groupMember->group) {
             return response()->json(['phases' => [], 'current_phase' => null]);
         }
 
         $periodId = $groupMember->group->period_id;
         $allRequirements = PhaseDocumentRequirement::where('period_id', $periodId)->get();
         $documents = Document::where('group_id', $groupMember->group_id)->get();
-        
+
         // Use WorkflowService for workflow data
         $workflowData = $this->workflowService->getWorkflowData($groupMember->group, $documents, $allRequirements);
         $nextPhaseRequirements = $this->workflowService->getNextPhaseRequirements(
@@ -101,13 +101,14 @@ class DocumentController extends Controller
 
         if (in_array('mahasiswa', $roles, true)) {
             $groupMember = GroupMember::where('student_id', $user->id)->first();
-            if (!$groupMember) {
+            if (! $groupMember) {
                 return response()->json(['data' => []]);
             }
             $documents = Document::where('group_id', $groupMember->group_id)
                 ->with('student')
                 ->orderBy('created_at', 'desc')
                 ->get();
+
             return response()->json(['data' => $documents]);
         }
 
@@ -124,7 +125,7 @@ class DocumentController extends Controller
                 if ($request->has('period_id')) {
                     $supervisedGroupsQuery->where('period_id', $request->period_id);
                     // Also filter the main query by period even if group_id is provided later
-                    $query->whereHas('group', fn($q) => $q->where('period_id', $request->period_id));
+                    $query->whereHas('group', fn ($q) => $q->where('period_id', $request->period_id));
                 }
 
                 $supervisedGroupIds = $supervisedGroupsQuery->pluck('id');
@@ -132,6 +133,7 @@ class DocumentController extends Controller
             }
 
             $documents = $query->orderBy('created_at', 'desc')->get();
+
             return response()->json(['data' => $documents]);
         }
 
@@ -151,7 +153,7 @@ class DocumentController extends Controller
         $user = Auth::user();
         $groupMember = GroupMember::with('group.period')->where('student_id', $user->id)->first();
 
-        if (!$groupMember) {
+        if (! $groupMember) {
             return response()->json(['message' => 'You are not in any group.'], 400);
         }
 
@@ -164,7 +166,7 @@ class DocumentController extends Controller
                 ->where('phase', $request->phase)
                 ->pluck('name')->toArray();
 
-            if (!empty($requirements)) {
+            if (! empty($requirements)) {
                 $validationRules['document_type'] = ['required', 'string', Rule::in($requirements)];
             } else {
                 $validationRules['document_type'] = ['nullable', 'string'];
@@ -181,9 +183,9 @@ class DocumentController extends Controller
                 ->where('status', 'APPROVED')
                 ->exists();
 
-            if (!$prereqApproved) {
+            if (! $prereqApproved) {
                 return response()->json([
-                    'message' => "You must have an approved {$prereq} document before uploading {$request->phase}."
+                    'message' => "You must have an approved {$prereq} document before uploading {$request->phase}.",
                 ], 400);
             }
         }
@@ -195,9 +197,9 @@ class DocumentController extends Controller
                 ->whereIn('status', ['SCHEDULED', 'ONGOING', 'COMPLETED'])
                 ->first();
 
-            if (!$schedule) {
+            if (! $schedule) {
                 return response()->json([
-                    'message' => 'SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.'
+                    'message' => 'SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.',
                 ], 400);
             }
         }
@@ -206,21 +208,22 @@ class DocumentController extends Controller
         if (isset(self::STATUS_GATES[$request->phase])) {
             $group = $groupMember->group;
             $minStatus = self::STATUS_GATES[$request->phase];
-            if ($minStatus && !$this->stateMachine->isAtLeast($group, $minStatus)) {
-                $phaseName = match($request->phase) {
+            if ($minStatus && ! $this->stateMachine->isAtLeast($group, $minStatus)) {
+                $phaseName = match ($request->phase) {
                     'PDC2' => 'PDC2',
                     'TA_DRAFT' => 'TA Draft',
                     'EXPO' => 'EXPO',
                     default => $request->phase,
                 };
-                $message = match($request->phase) {
+                $message = match ($request->phase) {
                     'PDC2' => 'Both SEMPRO examiners must submit their evaluations first.',
                     'TA_DRAFT' => 'Group must be in PDC2 Active status.',
                     'EXPO' => 'TA Draft must be approved first.',
                     default => 'Prerequisites not met.',
                 };
+
                 return response()->json([
-                    'message' => "{$phaseName} documents are locked. {$message}"
+                    'message' => "{$phaseName} documents are locked. {$message}",
                 ], 400);
             }
         }
@@ -230,7 +233,7 @@ class DocumentController extends Controller
         // V5: Replace (overwrite) existing document instead of creating new version
         $existingDoc = Document::where('group_id', $groupMember->group_id)
             ->where('phase', $request->phase)
-            ->when($request->document_type, fn($q) => $q->where('document_type', $request->document_type))
+            ->when($request->document_type, fn ($q) => $q->where('document_type', $request->document_type))
             ->first();
 
         if ($existingDoc) {
@@ -277,7 +280,7 @@ class DocumentController extends Controller
     public function update(Request $request, string $id)
     {
         $user = Auth::user();
-        if (!$user->hasRole('dosen')) {
+        if (! $user->hasRole('dosen')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -314,9 +317,9 @@ class DocumentController extends Controller
         $statusStr = strtolower($request->status);
         $notificationService->sendToMany(
             $studentIds,
-            'PROPOSAL_' . strtoupper($request->status), // e.g. PROPOSAL_APPROVED, PROPOSAL_REJECTED (reused for doc status)
+            'PROPOSAL_'.strtoupper($request->status), // e.g. PROPOSAL_APPROVED, PROPOSAL_REJECTED (reused for doc status)
             "Document {$request->status}",
-            "Your {$document->phase} document ({$document->document_type}) has been {$statusStr}" . ($request->feedback ? " with feedback: {$request->feedback}" : "."),
+            "Your {$document->phase} document ({$document->document_type}) has been {$statusStr}".($request->feedback ? " with feedback: {$request->feedback}" : '.'),
             'documents',
             $document->id
         );
@@ -341,8 +344,8 @@ class DocumentController extends Controller
                 ->where('phase', $phase)
                 ->where('status', 'APPROVED')
                 ->exists();
-            
-            if (!$hasAnyApproved) {
+
+            if (! $hasAnyApproved) {
                 return; // No approved documents yet
             }
         } else {
@@ -354,15 +357,14 @@ class DocumentController extends Controller
                     ->where('status', 'APPROVED')
                     ->exists();
 
-                if (!$hasApproved)
-                    return; // Not all types approved yet
+                if (! $hasApproved) {
+                    return;
+                } // Not all types approved yet
             }
         }
 
         // All required types approved (or at least one if no requirements) — check additional requirements
         // PDC1: No supervisor evaluation required, transition immediately when documents approved
-        
-
 
         // All requirements met — trigger transition
         try {
@@ -513,7 +515,7 @@ class DocumentController extends Controller
             $groupMember = GroupMember::where('student_id', $user->id)
                 ->where('group_id', $document->group_id)
                 ->first();
-            if (!$groupMember) {
+            if (! $groupMember) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
         } elseif (in_array('dosen', $roles, true)) {
@@ -523,7 +525,7 @@ class DocumentController extends Controller
                     $q->where('supervisor_id', $user->id);
                 })
                 ->exists();
-            if (!$isSupervisor) {
+            if (! $isSupervisor) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
         } elseif (in_array('admin', $roles, true)) {
@@ -533,16 +535,16 @@ class DocumentController extends Controller
         }
 
         // Check if file exists
-        if (!$document->file_path || !Storage::disk('public')->exists($document->file_path)) {
+        if (! $document->file_path || ! Storage::disk('public')->exists($document->file_path)) {
             return response()->json(['message' => 'File not found'], 404);
         }
 
         // Return the file with proper headers
         $path = Storage::disk('public')->path($document->file_path);
         $filename = basename($document->file_path);
-        
+
         return response()->file($path, [
-            'Content-Disposition' => 'inline; filename="' . $filename . '"',
+            'Content-Disposition' => 'inline; filename="'.$filename.'"',
         ]);
     }
 }

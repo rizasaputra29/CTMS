@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class SeminarSchedule extends Model
 {
     use SoftDeletes;
+
     protected $fillable = [
         'group_id',
         'type',

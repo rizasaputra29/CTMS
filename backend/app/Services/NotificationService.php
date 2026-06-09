@@ -77,7 +77,7 @@ class NotificationService
     public function notifyGroupMembersOfFinalization(\App\Models\Group $group): void
     {
         $members = $group->members;
-        
+
         foreach ($members as $member) {
             $this->send(
                 $member->student_id,
@@ -96,7 +96,7 @@ class NotificationService
     public function notifyGroupMembersOfCancellation(\App\Models\Group $group): void
     {
         $members = $group->members;
-        
+
         foreach ($members as $member) {
             $this->send(
                 $member->student_id,
@@ -116,13 +116,13 @@ class NotificationService
     {
         $members = $group->members;
         $message = "Dosen telah menarik persetujuan untuk judul \"{$title->title}\".";
-        
+
         if ($reason) {
             $message .= " Alasan: {$reason}";
         }
-        
-        $message .= " Status kelompok kembali ke FORMING_SOLO. Silakan pilih judul lain.";
-        
+
+        $message .= ' Status kelompok kembali ke FORMING_SOLO. Silakan pilih judul lain.';
+
         foreach ($members as $member) {
             $this->send(
                 $member->student_id,
@@ -141,22 +141,22 @@ class NotificationService
     public function notifySupervisorsOfSchedule(\App\Models\Group $group, \App\Models\Schedule $schedule, string $scheduleType): void
     {
         $supervisors = $group->supervisions;
-        
+
         $typeLabels = [
             'SEMINAR' => 'Seminar Proposal (SEMPRO)',
             'TA_DEFENSE' => 'Sidang Tugas Akhir',
             'EXPO' => 'Expo',
         ];
-        
+
         $typeLabel = $typeLabels[$scheduleType] ?? $scheduleType;
         $groupName = $group->title->title ?? $group->name ?? "Group #{$group->id}";
-        
+
         foreach ($supervisors as $supervision) {
             $this->send(
                 $supervision->supervisor_id,
                 'supervisor_evaluation_scheduled',
                 'Jadwal Penilaian Baru',
-                "Anda perlu mengisi nilai {$typeLabel} untuk kelompok \"{$groupName}\". Jadwal: " . $schedule->date->format('d M Y H:i') . " di {$schedule->room}.",
+                "Anda perlu mengisi nilai {$typeLabel} untuk kelompok \"{$groupName}\". Jadwal: ".$schedule->date->format('d M Y H:i')." di {$schedule->room}.",
                 'Schedule',
                 $schedule->id
             );
@@ -173,16 +173,16 @@ class NotificationService
             'TA_DEFENSE' => 'Sidang Tugas Akhir',
             'EXPO' => 'Expo',
         ];
-        
+
         $typeLabel = $typeLabels[$scheduleType] ?? $scheduleType;
         $groupName = $group->title->title ?? $group->name ?? "Group #{$group->id}";
-        
+
         foreach ($examinerIds as $examinerId) {
             $this->send(
                 $examinerId,
                 'examiner_evaluation_scheduled',
                 'Jadwal Penilaian sebagai Examiner',
-                "Anda ditugaskan sebagai examiner untuk {$typeLabel} kelompok \"{$groupName}\". Jadwal: " . $schedule->date->format('d M Y H:i') . " di {$schedule->room}.",
+                "Anda ditugaskan sebagai examiner untuk {$typeLabel} kelompok \"{$groupName}\". Jadwal: ".$schedule->date->format('d M Y H:i')." di {$schedule->room}.",
                 'Schedule',
                 $schedule->id
             );

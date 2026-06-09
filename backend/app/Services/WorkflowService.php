@@ -2,20 +2,19 @@
 
 namespace App\Services;
 
+use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\Document;
-use App\Models\SeminarSchedule;
 use App\Models\PeriodAssessmentComponent;
-use App\Models\PhaseDocumentRequirement;
+use App\Models\SeminarSchedule;
 use App\Repositories\AssessmentScoreRepository;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class WorkflowService
 {
     const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA_DRAFT', 'EXPO'];
-    
+
     const UNLOCK_RULES = [
         'PDC1' => null,
         'SEMPRO' => 'PDC1',
@@ -70,12 +69,15 @@ class WorkflowService
                 if ($latestForType) {
                     $status = $latestForType->status;
                     $uploadedCount++;
-                    if ($status === 'REJECTED')
+                    if ($status === 'REJECTED') {
                         $anyRejected = true;
-                    if ($status === 'SUBMITTED')
+                    }
+                    if ($status === 'SUBMITTED') {
                         $anySubmitted = true;
-                    if ($status !== 'APPROVED')
+                    }
+                    if ($status !== 'APPROVED') {
                         $allApproved = false;
+                    }
                 } else {
                     $allApproved = false;
                 }
@@ -83,7 +85,7 @@ class WorkflowService
                 $typesStatus[] = [
                     'type' => $type,
                     'status' => $status,
-                    'latest_document' => $latestForType
+                    'latest_document' => $latestForType,
                 ];
             }
 
@@ -94,8 +96,9 @@ class WorkflowService
                 $phaseStatus = 'unlocked';
             } else {
                 $prereqReqs = $allRequirements->where('phase', $prereq)->where('is_required', true)->pluck('name')->toArray();
-                if (empty($prereqReqs))
+                if (empty($prereqReqs)) {
                     $prereqReqs = ['GENERAL'];
+                }
 
                 $prereqAllApproved = true;
                 foreach ($prereqReqs as $pType) {
@@ -103,7 +106,7 @@ class WorkflowService
                     if ($pType === 'GENERAL' && empty($allRequirements->where('phase', $prereq)->toArray())) {
                         $pDoc = $documents->where('phase', $prereq)->where('status', 'APPROVED')->first();
                     }
-                    if (!$pDoc) {
+                    if (! $pDoc) {
                         $prereqAllApproved = false;
                         break;
                     }
@@ -116,7 +119,7 @@ class WorkflowService
 
             if ($phaseStatus === 'unlocked' && isset(self::STATUS_GATES[$phase])) {
                 $minStatus = self::STATUS_GATES[$phase];
-                if ($minStatus && !$this->stateMachine->isAtLeast($group, $minStatus)) {
+                if ($minStatus && ! $this->stateMachine->isAtLeast($group, $minStatus)) {
                     $phaseStatus = 'locked';
                 }
             }
@@ -125,7 +128,7 @@ class WorkflowService
                 if ($allApproved) {
                     if ($phase === 'SEMPRO') {
                         $semproStatus = $this->getSemproCompletionStatus($group);
-                        if (!$semproStatus['schedule_exists'] || !$semproStatus['all_examiners_submitted'] || !$semproStatus['all_supervisors_submitted']) {
+                        if (! $semproStatus['schedule_exists'] || ! $semproStatus['all_examiners_submitted'] || ! $semproStatus['all_supervisors_submitted']) {
                             $phaseStatus = 'submitted';
                         } else {
                             $phaseStatus = 'completed';
@@ -154,7 +157,7 @@ class WorkflowService
         $currentPhase = null;
         $isPeriodFinalized = $group->period && $group->period->is_finalized;
         $isPostFinalizationStatus = in_array($group->status, ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL']);
-        
+
         foreach ($phases as $p) {
             // For groups in post-finalization status, PDC1 should always be shown as current/completed
             // This ensures phase labels are correct after reopen/re-finalize cycles
@@ -162,14 +165,14 @@ class WorkflowService
                 // Force PDC1 to be completed if group has progressed past finalization
                 $p['status'] = 'completed';
             }
-            
+
             if ($p['status'] !== 'completed') {
                 $currentPhase = $p['phase'];
                 break;
             }
         }
 
-        $allCompleted = collect($phases)->every(fn($p) => $p['status'] === 'completed');
+        $allCompleted = collect($phases)->every(fn ($p) => $p['status'] === 'completed');
 
         return [
             'phases' => $phases,
@@ -191,14 +194,14 @@ class WorkflowService
             }
         }
 
-        if (!$currentPhaseData) {
+        if (! $currentPhaseData) {
             return null;
         }
 
         $phase = $currentPhaseData['phase'];
         $nextPhase = $this->getNextPhase($phase);
 
-        if (!$nextPhase) {
+        if (! $nextPhase) {
             return null;
         }
 
@@ -220,7 +223,7 @@ class WorkflowService
                 $latestForType = $documents->where('phase', $phase)->sortByDesc('version')->first();
             }
 
-            if (!$latestForType || $latestForType->status !== 'APPROVED') {
+            if (! $latestForType || $latestForType->status !== 'APPROVED') {
                 $pendingDocs[] = $type;
             } else {
                 $approvedDocs++;
@@ -240,7 +243,7 @@ class WorkflowService
         $seminarSchedule = null;
         $examinerEvaluations = null;
         $supervisorBimbinganStatus = null;
-        
+
         if ($phase === 'SEMPRO') {
             $semproStatus = $this->getSemproCompletionStatus($group);
             $seminarSchedule = $semproStatus['schedule'];
@@ -309,7 +312,7 @@ class WorkflowService
                 $latestForType = $documents->where('phase', 'EXPO')->sortByDesc('version')->first();
             }
 
-            if (!$latestForType || $latestForType->status !== 'APPROVED') {
+            if (! $latestForType || $latestForType->status !== 'APPROVED') {
                 $pendingDocs[] = $type;
             }
         }
@@ -395,7 +398,7 @@ class WorkflowService
             ->whereIn('status', ['SCHEDULED', 'ONGOING', 'COMPLETED'])
             ->first();
 
-        if (!$schedule) {
+        if (! $schedule) {
             return [
                 'schedule_exists' => false,
                 'schedule' => null,
@@ -415,7 +418,7 @@ class WorkflowService
             'total' => $totalExaminers,
             'submitted' => $submittedExaminers,
             'pending' => max($totalExaminers - $submittedExaminers, 0),
-            'examiners' => $evaluations->map(fn($eval) => [
+            'examiners' => $evaluations->map(fn ($eval) => [
                 'id' => $eval->examiner_id,
                 'name' => $eval->examiner?->name ?? 'Penguji',
                 'status' => $eval->status,
@@ -431,7 +434,7 @@ class WorkflowService
 
         $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
         $supervisorRows = [];
-        $allSupervisorsSubmitted = !empty($supervisorIds) && $componentCount > 0;
+        $allSupervisorsSubmitted = ! empty($supervisorIds) && $componentCount > 0;
 
         foreach ($supervisorIds as $supervisorId) {
             $supervisor = \App\Models\User::find($supervisorId);
@@ -440,7 +443,7 @@ class WorkflowService
                 ->where('evaluator_id', $supervisorId)
                 ->count();
             $isComplete = $expectedScores > 0 && $submittedScores >= $expectedScores;
-            if (!$isComplete) {
+            if (! $isComplete) {
                 $allSupervisorsSubmitted = false;
             }
 
@@ -507,7 +510,9 @@ class WorkflowService
                 'submitted_components' => $scores1,
                 'total_components' => $expectedScores,
             ];
-            if (!$isComplete1) $allComplete = false;
+            if (! $isComplete1) {
+                $allComplete = false;
+            }
         }
 
         if ($group->supervisor_2_id) {
@@ -525,7 +530,9 @@ class WorkflowService
                 'submitted_components' => $scores2,
                 'total_components' => $expectedScores,
             ];
-            if (!$isComplete2) $allComplete = false;
+            if (! $isComplete2) {
+                $allComplete = false;
+            }
         }
 
         return [
@@ -563,7 +570,7 @@ class WorkflowService
         }
 
         $configured = $indicatorCount > 0;
-        if (!$configured || $totalMembers === 0) {
+        if (! $configured || $totalMembers === 0) {
             return [
                 'configured' => $configured,
                 'completed' => false,
@@ -620,7 +627,7 @@ class WorkflowService
         $completed = $completedCount === $totalMembers;
 
         $incompleteStudents = $memberRows
-            ->filter(fn ($m) => !in_array((int) $m->student_id, $completedStudentIds, true))
+            ->filter(fn ($m) => ! in_array((int) $m->student_id, $completedStudentIds, true))
             ->map(fn ($m) => [
                 'student_id' => $m->student_id,
                 'student_name' => $m->student?->name,
@@ -648,6 +655,7 @@ class WorkflowService
         if ($index === false || $index >= count(self::PHASES) - 1) {
             return null;
         }
+
         return self::PHASES[$index + 1];
     }
 }

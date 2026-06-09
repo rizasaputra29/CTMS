@@ -1,8 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
@@ -24,7 +22,7 @@ return new class extends Migration
                 ->where('examiner_id', $schedule->examiner_1_id)
                 ->exists();
 
-            if (!$examiner1Exists && $schedule->examiner_1_id) {
+            if (! $examiner1Exists && $schedule->examiner_1_id) {
                 DB::table('ta_defense_examiners')->insert([
                     'schedule_id' => $schedule->id,
                     'examiner_id' => $schedule->examiner_1_id,
@@ -40,7 +38,7 @@ return new class extends Migration
                 ->where('examiner_id', $schedule->examiner_2_id)
                 ->exists();
 
-            if (!$examiner2Exists && $schedule->examiner_2_id) {
+            if (! $examiner2Exists && $schedule->examiner_2_id) {
                 DB::table('ta_defense_examiners')->insert([
                     'schedule_id' => $schedule->id,
                     'examiner_id' => $schedule->examiner_2_id,

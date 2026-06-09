@@ -89,12 +89,14 @@ class SemproScore extends Model
             if (! $this->relationLoaded('component')) {
                 $this->setRelation('component', $this->component()->first());
             }
+
             return $this->relations['component'];
         }
 
         if (! $this->relationLoaded('periodComponent')) {
             $this->setRelation('periodComponent', $this->periodComponent()->first());
         }
+
         return $this->relations['periodComponent'];
     }
 
@@ -103,6 +105,7 @@ class SemproScore extends Model
         if (! $this->relationLoaded('examiner')) {
             $this->setRelation('examiner', $this->examiner()->first());
         }
+
         return $this->relations['examiner'];
     }
 }

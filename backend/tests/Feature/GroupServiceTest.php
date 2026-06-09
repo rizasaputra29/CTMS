@@ -2,22 +2,22 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-use App\Models\User;
-use App\Models\Period;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\Title;
+use App\Models\Period;
+use App\Models\User;
 use App\Services\GroupService;
-use Illuminate\Support\Facades\DB;
 use Exception;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Tests\TestCase;
 
 class GroupServiceTest extends TestCase
 {
     use RefreshDatabase;
 
     protected GroupService $groupService;
+
     protected Period $period;
 
     protected function setUp(): void
@@ -46,7 +46,7 @@ class GroupServiceTest extends TestCase
             'group_id' => $targetGroup->id,
             'student_id' => $targetLeader->id,
             'is_leader' => true,
-            'period_id' => $this->period->id
+            'period_id' => $this->period->id,
         ]);
 
         $soloStudent = User::factory()->create(['role' => 'mahasiswa']);
@@ -55,7 +55,7 @@ class GroupServiceTest extends TestCase
             'group_id' => $soloGroup->id,
             'student_id' => $soloStudent->id,
             'is_leader' => true,
-            'period_id' => $this->period->id
+            'period_id' => $this->period->id,
         ]);
 
         // Act
@@ -66,9 +66,9 @@ class GroupServiceTest extends TestCase
         $this->assertDatabaseHas('group_members', [
             'group_id' => $targetGroup->id,
             'student_id' => $soloStudent->id,
-            'is_leader' => false
+            'is_leader' => false,
         ]);
-        
+
         // Assert group becomes READY since size is 2
         $this->assertEquals('READY_FOR_BIDDING', $targetGroup->fresh()->status);
     }
@@ -83,15 +83,15 @@ class GroupServiceTest extends TestCase
         $leader = User::factory()->create(['role' => 'mahasiswa']);
         $group = Group::create(['period_id' => $this->period->id, 'status' => 'FORMING']);
         GroupMember::create(['group_id' => $group->id, 'student_id' => $leader->id, 'is_leader' => true, 'period_id' => $this->period->id]);
-        
+
         $member1 = User::factory()->create(['role' => 'mahasiswa']);
         $this->groupService->handleJoinGroup($member1, $group); // Now group is full (max=2)
 
         $outsider = User::factory()->create(['role' => 'mahasiswa']);
-        
+
         $this->expectException(Exception::class);
-        $this->expectExceptionMessage("Kapasitas grup tidak mencukupi");
-        
+        $this->expectExceptionMessage('Kapasitas grup tidak mencukupi');
+
         $this->groupService->handleJoinGroup($outsider, $group);
     }
 
@@ -105,21 +105,22 @@ class GroupServiceTest extends TestCase
         GroupMember::create(['group_id' => $group->id, 'student_id' => $leader->id, 'is_leader' => true, 'period_id' => $this->period->id]);
 
         $student = User::factory()->create(['role' => 'mahasiswa']);
-        
+
         // We simulate failure by forcing an exception during transition
         // But since we can't easily mock the state machine inside handleJoinGroup without DI manipulation,
         // we'll just check that a standard exception rollbacks the member creation.
-        
+
         try {
-            DB::transaction(function() use ($student, $group) {
+            DB::transaction(function () use ($student, $group) {
                 GroupMember::create([
                     'group_id' => $group->id,
                     'student_id' => $student->id,
-                    'period_id' => $this->period->id
+                    'period_id' => $this->period->id,
                 ]);
-                throw new Exception("Simulated Failure");
+                throw new Exception('Simulated Failure');
             });
-        } catch (Exception $e) {}
+        } catch (Exception $e) {
+        }
 
         $this->assertDatabaseMissing('group_members', ['student_id' => $student->id]);
     }
@@ -142,13 +143,13 @@ class GroupServiceTest extends TestCase
         $this->assertDatabaseHas('group_members', [
             'student_id' => $member->id,
             'is_leader' => true,
-            'period_id' => $this->period->id
+            'period_id' => $this->period->id,
         ]);
-        
+
         $newGroup = GroupMember::where('student_id', $member->id)->first()->group;
         $this->assertEquals('FORMING_SOLO', $newGroup->status);
         $this->assertNotEquals($group->id, $newGroup->id);
-        
+
         // Assert old group demoted back to FORMING_SOLO (because size < 2)
         $this->assertEquals('FORMING_SOLO', $group->fresh()->status);
     }

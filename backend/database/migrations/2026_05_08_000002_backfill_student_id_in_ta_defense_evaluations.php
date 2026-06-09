@@ -1,8 +1,6 @@
 <?php
 
 use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
@@ -36,6 +34,6 @@ return new class extends Migration
         DB::table('ta_defense_evaluations')
             ->update(['student_id' => null]);
 
-        \Illuminate\Support\Facades\Log::info("Rolled back student_id backfill - set to NULL for all records");
+        \Illuminate\Support\Facades\Log::info('Rolled back student_id backfill - set to NULL for all records');
     }
 };

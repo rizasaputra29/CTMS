@@ -6,9 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    Loader2, CalendarDays, MapPin, Users, Clock, CheckCircle2, AlertCircle,
+    CalendarDays, MapPin, Users, Clock, CheckCircle2, AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Loading } from '@/components/ui/loading';
 
 interface ExpoEvent {
     id: number;
@@ -71,13 +72,7 @@ export default function MahasiswaExpoPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">
@@ -147,7 +142,7 @@ export default function MahasiswaExpoPage() {
                                             disabled={registering === evt.id}
                                         >
                                             {registering === evt.id ? (
-                                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Registering...</>
+                                                <><div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> Registering...</>
                                             ) : (
                                                 'Daftar Expo'
                                             )}
@@ -165,7 +160,7 @@ export default function MahasiswaExpoPage() {
                                                 disabled={withdrawing === evt.id}
                                             >
                                                 {withdrawing === evt.id ? (
-                                                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Withdrawing...</>
+                                                    <><div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> Withdrawing...</>
                                                 ) : (
                                                     'Undurkan dari Expo'
                                                 )}

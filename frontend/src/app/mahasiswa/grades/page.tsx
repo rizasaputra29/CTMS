@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loading } from '@/components/ui/loading';
 import { GraduationCap, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -125,19 +125,7 @@ function ScoreBar({ label, subtitle, score, status }: ScoreBarProps) {
     );
 }
 
-function LoadingState() {
-    return (
-        <div className="space-y-8">
-            <Skeleton className="h-10 w-48" />
-            <div className="space-y-3">
-                <Skeleton className="h-[72px] w-full rounded-lg" />
-                <Skeleton className="h-[72px] w-full rounded-lg" />
-                <Skeleton className="h-[72px] w-full rounded-lg" />
-            </div>
-            <Skeleton className="h-[300px] w-full" />
-        </div>
-    );
-}
+
 
 function EmptyState() {
     return (
@@ -168,7 +156,7 @@ export default function MahasiswaGradesPage() {
             .finally(() => setLoading(false));
     }, []);
 
-    if (loading) return <LoadingState />;
+    if (loading) return <Loading variant="section" />;
 
     const grades = result?.grades;
     const periodName = result?.period?.name;

@@ -577,13 +577,13 @@ class Group extends Model
 
     /**
      * Revert group to appropriate status after title loss (withdrawal/deletion).
-     * 
+     *
      * Logic by member count:
      * - 3+ members: READY_FOR_BIDDING
      * - 2 members: FORMING
      * - 1 member + is_solo: FORMING_SOLO
      * - 1 member (normal): FORMING
-     * 
+     *
      * Logic by action:
      * - withdraw: Groups that were approved go to WAITING_SUPERVISOR_APPROVAL
      * - delete: Always go to base status based on member count
@@ -592,7 +592,7 @@ class Group extends Model
     {
         $memberCount = $this->members()->count();
         $allowSolo = $this->period->allow_solo ?? false;
-        
+
         // Determine base status by member count
         if ($memberCount >= $minSize) {
             $baseStatus = 'READY_FOR_BIDDING';
@@ -603,7 +603,7 @@ class Group extends Model
         } else {
             $baseStatus = 'FORMING';
         }
-        
+
         // Apply action-specific logic
         if ($action === 'withdraw') {
             // For withdrawal: go to WAITING_SUPERVISOR_APPROVAL if group had approved title
@@ -616,9 +616,9 @@ class Group extends Model
             // For deletion: always go to base status
             $newStatus = $baseStatus;
         }
-        
+
         $this->update(['status' => $newStatus, 'title_id' => null]);
-        
+
         return $newStatus;
     }
 

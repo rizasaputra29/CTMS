@@ -2,15 +2,15 @@
 
 namespace App\Services;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\StudentPeerReviewStatus;
-use App\Models\User;
-use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\Log;
 
 class IndividualStateService
 {
     use RequiresActivePeriod;
+
     /**
      * Transition student to TA phase after peer review completion.
      * This is the main method called when a student completes peer review.
@@ -23,11 +23,12 @@ class IndividualStateService
             $this->ensurePeriodIsActive($group);
 
             // Verify student has completed peer review
-            $peerReviewService = new PeerReviewService();
+            $peerReviewService = new PeerReviewService;
             $hasCompleted = $peerReviewService->checkCompletion($studentId, $groupId);
 
-            if (!$hasCompleted) {
+            if (! $hasCompleted) {
                 Log::info("Student {$studentId} has not completed peer review yet");
+
                 return false;
             }
 
@@ -43,13 +44,14 @@ class IndividualStateService
             $status->save();
 
             Log::info("Student {$studentId} transitioned to TA_ACTIVE");
-            
+
             // TODO: Send notification to student
             // Notification::send($status->student, new TAPhaseUnlocked());
 
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to transition student {$studentId} to TA: " . $e->getMessage());
+            Log::error("Failed to transition student {$studentId} to TA: ".$e->getMessage());
+
             return false;
         }
     }
@@ -64,7 +66,7 @@ class IndividualStateService
             ->latest()
             ->first();
 
-        if (!$status) {
+        if (! $status) {
             return [
                 'can_access' => false,
                 'status' => null,
@@ -95,7 +97,7 @@ class IndividualStateService
             ->where('group_id', $groupId)
             ->first();
 
-        if (!$status) {
+        if (! $status) {
             throw new \Exception('TA status not found. Please complete peer review first.', 403);
         }
 
@@ -146,13 +148,15 @@ class IndividualStateService
                 ->where('group_id', $groupId)
                 ->first();
 
-            if (!$status) {
+            if (! $status) {
                 Log::error("No TA status found for student {$studentId}");
+
                 return false;
             }
 
             if ($status->ta_status !== 'TA_ACTIVE') {
                 Log::warning("Cannot mark TA done for student {$studentId}. Current status: {$status->ta_status}");
+
                 return false;
             }
 
@@ -160,10 +164,11 @@ class IndividualStateService
             $status->save();
 
             Log::info("Student {$studentId} marked as TA_DONE");
-            
+
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to mark TA done for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to mark TA done for student {$studentId}: ".$e->getMessage());
+
             return false;
         }
     }
@@ -176,7 +181,7 @@ class IndividualStateService
         try {
             $group = Group::findOrFail($groupId);
             $this->ensurePeriodIsActive($group);
-            
+
             $status = StudentPeerReviewStatus::firstOrNew([
                 'student_id' => $studentId,
                 'group_id' => $groupId,
@@ -187,10 +192,11 @@ class IndividualStateService
             $status->save();
 
             Log::info("Admin {$adminId} force unlocked TA for student {$studentId}");
-            
+
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to force unlock TA for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to force unlock TA for student {$studentId}: ".$e->getMessage());
+
             return false;
         }
     }

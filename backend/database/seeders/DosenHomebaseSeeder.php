@@ -136,6 +136,6 @@ class DosenHomebaseSeeder extends Seeder
             }
         }
 
-        $this->command->info('Seeded ' . count($dosens) . ' dosen homebase accounts.');
+        $this->command->info('Seeded '.count($dosens).' dosen homebase accounts.');
     }
 }

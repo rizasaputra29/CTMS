@@ -2,26 +2,26 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         // Step 1: Migrate Assessment Components to Templates
         $this->migrateAssessmentComponents();
-        
+
         // Step 2: Migrate Peer Review Indicators to Templates
         $this->migratePeerReviewIndicators();
-        
+
         // Step 3: Migrate Period Assessment Components
         $this->migratePeriodAssessmentComponents();
-        
+
         // Step 4: Migrate Period Peer Review Indicators
         $this->migratePeriodPeerReviewIndicators();
-        
+
         // Step 5: Migrate Assessment Scores to use period_component_id
         $this->migrateAssessmentScores();
-        
+
         // Step 6: Migrate Peer Reviews to use period_indicator_id
         $this->migratePeerReviews();
     }
@@ -40,7 +40,7 @@ return new class extends Migration {
                 ->where('code', $component->code)
                 ->exists();
 
-            if (!$exists) {
+            if (! $exists) {
                 DB::table('assessment_component_templates')->insert([
                     'code' => $component->code,
                     'name' => $component->name,
@@ -70,7 +70,7 @@ return new class extends Migration {
                 ->where('name', $indicator->name)
                 ->exists();
 
-            if (!$exists) {
+            if (! $exists) {
                 DB::table('peer_review_indicator_templates')->insert([
                     'name' => $indicator->name,
                     'description' => $indicator->description,
@@ -104,7 +104,7 @@ return new class extends Migration {
                     ->where('template_id', $template->id)
                     ->exists();
 
-                if (!$exists) {
+                if (! $exists) {
                     DB::table('period_assessment_components')->insert([
                         'period_id' => $component->period_id,
                         'template_id' => $template->id,
@@ -136,7 +136,7 @@ return new class extends Migration {
                     ->where('template_id', $template->id)
                     ->exists();
 
-                if (!$exists) {
+                if (! $exists) {
                     DB::table('period_peer_review_indicators')->insert([
                         'period_id' => $indicator->period_id,
                         'template_id' => $template->id,

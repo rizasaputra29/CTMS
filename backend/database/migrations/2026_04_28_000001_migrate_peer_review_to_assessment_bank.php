@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -64,16 +64,16 @@ return new class extends Migration
     private function migrateTemplates(): void
     {
         $oldTemplates = DB::table('peer_review_indicator_templates')->get();
-        
+
         foreach ($oldTemplates as $oldTemplate) {
             // Generate code from name (kebab-case uppercase with PR- prefix)
             $code = $this->generateCode($oldTemplate->name);
-            
+
             // Check if assessment template with this code already exists
             $existingTemplate = DB::table('assessment_component_templates')
                 ->where('code', $code)
                 ->first();
-            
+
             if ($existingTemplate) {
                 // Use existing template
                 $newTemplateId = $existingTemplate->id;
@@ -91,7 +91,7 @@ return new class extends Migration
                     'updated_at' => now(),
                 ]);
             }
-            
+
             // Log the migration
             DB::table('peer_review_migration_log')->insert([
                 'old_template_id' => $oldTemplate->id,
@@ -106,7 +106,7 @@ return new class extends Migration
     private function updatePeriodIndicators(): void
     {
         $migrationLog = DB::table('peer_review_migration_log')->get();
-        
+
         foreach ($migrationLog as $log) {
             DB::table('period_peer_review_indicators')
                 ->where('template_id', $log->old_template_id)
@@ -120,11 +120,11 @@ return new class extends Migration
         $code = strtoupper(
             preg_replace('/[^a-zA-Z0-9]+/', '-', $name)
         );
-        
+
         // Remove leading/trailing dashes
         $code = trim($code, '-');
-        
+
         // Add PR- prefix
-        return 'PR-' . $code;
+        return 'PR-'.$code;
     }
 };

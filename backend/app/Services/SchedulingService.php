@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\BimbinganSemproScore;
 use App\Models\BimbinganTaScore;
@@ -20,7 +21,6 @@ use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
 use App\Repositories\AssessmentScoreRepository;
-use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -64,7 +64,7 @@ class SchedulingService
         // All must be dosen
         foreach ($examinerIds as $examinerId) {
             $user = \App\Models\User::find($examinerId);
-            if (!$user || $user->role !== 'dosen') {
+            if (! $user || $user->role !== 'dosen') {
                 return "Examiner ID {$examinerId} must be a dosen.";
             }
         }
@@ -75,7 +75,7 @@ class SchedulingService
             $group->supervisor_2_id,
         ]);
         $overlap = array_intersect($examinerIds, $supervisorIds);
-        if (!empty($overlap)) {
+        if (! empty($overlap)) {
             return 'Examiner cannot be the same as the group supervisor.';
         }
 
@@ -86,14 +86,11 @@ class SchedulingService
      * Check if all supervisors have completed their evaluations for a seminar.
      * For SEMPRO: checks BIMBINGAN_SEMPRO evaluations
      * For EXPO: checks BIMBINGAN_EXPO and MILESTONE evaluations
-     *
-     * @param SeminarSchedule $schedule
-     * @return bool
      */
     public function checkSupervisorEvaluationsComplete(SeminarSchedule $schedule): bool
     {
         $group = Group::find($schedule->group_id);
-        if (!$group) {
+        if (! $group) {
             return false;
         }
 
@@ -114,7 +111,7 @@ class SchedulingService
             default => null,
         };
 
-        if (!$evaluationType) {
+        if (! $evaluationType) {
             return true; // Unknown type, consider complete
         }
 
@@ -128,11 +125,12 @@ class SchedulingService
                         $type
                     );
 
-                    if (!$hasSubmitted) {
+                    if (! $hasSubmitted) {
                         return false; // Supervisor hasn't submitted this evaluation type
                     }
                 }
             }
+
             return true;
         }
 
@@ -144,7 +142,7 @@ class SchedulingService
                 $evaluationType
             );
 
-            if (!$hasSubmitted) {
+            if (! $hasSubmitted) {
                 return false; // Supervisor hasn't submitted evaluation
             }
         }
@@ -174,7 +172,7 @@ class SchedulingService
      * Queries BOTH seminar_schedules and ta_defense_schedules across ALL active and finalized periods.
      * Filtered to non-CANCELLED schedules only.
      *
-     * @return array|null  The conflicting schedule info, or null if no conflict.
+     * @return array|null The conflicting schedule info, or null if no conflict.
      */
     public function checkDoubleBooking(
         int $examinerId,
@@ -198,7 +196,7 @@ class SchedulingService
                 $q->where('examiner_1_id', $examinerId)
                     ->orWhere('examiner_2_id', $examinerId);
             })
-            ->when($excludeSeminarId, fn($q) => $q->where('id', '!=', $excludeSeminarId))
+            ->when($excludeSeminarId, fn ($q) => $q->where('id', '!=', $excludeSeminarId))
             ->first();
 
         if ($seminarConflict) {
@@ -220,9 +218,9 @@ class SchedulingService
             ->where(function ($q) use ($examinerId) {
                 $q->where('examiner_1_id', $examinerId)
                     ->orWhere('examiner_2_id', $examinerId)
-                    ->orWhereHas('examiners', fn($sq) => $sq->where('examiner_id', $examinerId));
+                    ->orWhereHas('examiners', fn ($sq) => $sq->where('examiner_id', $examinerId));
             })
-            ->when($excludeTaDefenseId, fn($q) => $q->where('id', '!=', $excludeTaDefenseId))
+            ->when($excludeTaDefenseId, fn ($q) => $q->where('id', '!=', $excludeTaDefenseId))
             ->first();
 
         if ($taConflict) {
@@ -238,7 +236,7 @@ class SchedulingService
             ->whereHas('group', function ($q) use ($periodIds) {
                 $q->whereIn('period_id', $periodIds);
             })
-            ->whereHas('group.supervisions', fn($q) => $q->where('supervisor_id', $examinerId))
+            ->whereHas('group.supervisions', fn ($q) => $q->where('supervisor_id', $examinerId))
             ->whereRaw('DATE(date) = ?', [$date])
             ->whereRaw('start_time < ?', [$endTime])
             ->whereRaw('end_time > ?', [$startTime])
@@ -247,6 +245,7 @@ class SchedulingService
         if ($bimbinganConflict) {
             $bTime = $bimbinganConflict->start_time->format('H:i');
             $bEndTime = $bimbinganConflict->end_time->format('H:i');
+
             return [
                 'type' => 'bimbingan',
                 'schedule' => $bimbinganConflict,
@@ -284,7 +283,7 @@ class SchedulingService
             ->whereHas('group', function ($q) use ($periodIds) {
                 $q->whereIn('period_id', $periodIds);
             })
-            ->when($excludeSeminarId, fn($q) => $q->where('id', '!=', $excludeSeminarId))
+            ->when($excludeSeminarId, fn ($q) => $q->where('id', '!=', $excludeSeminarId))
             ->first();
 
         if ($seminarConflict) {
@@ -303,7 +302,7 @@ class SchedulingService
             ->whereHas('group', function ($q) use ($periodIds) {
                 $q->whereIn('period_id', $periodIds);
             })
-            ->when($excludeTaDefenseId, fn($q) => $q->where('id', '!=', $excludeTaDefenseId))
+            ->when($excludeTaDefenseId, fn ($q) => $q->where('id', '!=', $excludeTaDefenseId))
             ->first();
 
         if ($taConflict) {
@@ -327,6 +326,7 @@ class SchedulingService
         if ($bimbinganRoomConflict) {
             $bTime = $bimbinganRoomConflict->start_time->format('H:i');
             $bEndTime = $bimbinganRoomConflict->end_time->format('H:i');
+
             return [
                 'type' => 'bimbingan',
                 'message' => "Room '{$room}' is already booked for BIMBINGAN on {$date} ({$bTime}-{$bEndTime})",
@@ -372,11 +372,11 @@ class SchedulingService
      * Checks if dosen has conflicts as an examiner in SEMPRO, EXPO, or TA Defense schedules.
      * Also checks for existing BIMBINGAN conflicts for this dosen.
      *
-     * @param int $dosenId The dosen creating the BIMBINGAN
-     * @param string $date Date in Y-m-d format
-     * @param string $startTime Start time in H:i format
-     * @param string $endTime End time in H:i format
-     * @param int|null $excludeBimbinganId BIMBINGAN schedule ID to exclude (for updates)
+     * @param  int  $dosenId  The dosen creating the BIMBINGAN
+     * @param  string  $date  Date in Y-m-d format
+     * @param  string  $startTime  Start time in H:i format
+     * @param  string  $endTime  End time in H:i format
+     * @param  int|null  $excludeBimbinganId  BIMBINGAN schedule ID to exclude (for updates)
      * @return array Array of conflict error messages, empty if no conflicts
      */
     public function validateBimbinganConflicts(
@@ -418,7 +418,7 @@ class SchedulingService
             ->where(function ($q) use ($dosenId) {
                 $q->where('examiner_1_id', $dosenId)
                     ->orWhere('examiner_2_id', $dosenId)
-                    ->orWhereHas('examiners', fn($sq) => $sq->where('examiner_id', $dosenId));
+                    ->orWhereHas('examiners', fn ($sq) => $sq->where('examiner_id', $dosenId));
             })
             ->first();
 
@@ -432,7 +432,7 @@ class SchedulingService
             ->whereRaw('DATE(date) = ?', [$date])
             ->whereRaw('start_time < ?', [$endTime])
             ->whereRaw('end_time > ?', [$startTime])
-            ->when($excludeBimbinganId, fn($q) => $q->where('id', '!=', $excludeBimbinganId))
+            ->when($excludeBimbinganId, fn ($q) => $q->where('id', '!=', $excludeBimbinganId))
             ->first();
 
         if ($bimbinganConflict) {
@@ -473,17 +473,32 @@ class SchedulingService
     /**
      * Auto-generate PENDING evaluation rows for a TA defense schedule.
      */
+    /**
+     * Auto-generate TA defense evaluations for all examiners and all students.
+     * Supports both single and multiple students via pivot table.
+     */
     public function autoGenerateTaDefenseEvaluations(TaDefenseSchedule $schedule): void
     {
         $examiners = TaDefenseExaminer::where('schedule_id', $schedule->id)->get();
 
+        // Get all students in the schedule from pivot table
+        $studentIds = $schedule->students()->pluck('student_id')->toArray();
+
+        // Fall back to student_id column if no pivot records exist (backward compatibility)
+        if (empty($studentIds)) {
+            $studentIds = [$schedule->student_id];
+        }
+
         foreach ($examiners as $examiner) {
-            TaDefenseEvaluation::create([
-                'schedule_id' => $schedule->id,
-                'examiner_id' => $examiner->examiner_id,
-                'student_id' => $schedule->student_id,
-                'status' => 'PENDING',
-            ]);
+            foreach ($studentIds as $studentId) {
+                TaDefenseEvaluation::firstOrCreate([
+                    'schedule_id' => $schedule->id,
+                    'examiner_id' => $examiner->examiner_id,
+                    'student_id' => $studentId,
+                ], [
+                    'status' => 'PENDING',
+                ]);
+            }
         }
     }
 
@@ -614,8 +629,9 @@ class SchedulingService
 
         foreach (['EXPO', 'NILAI_DOSEN', 'MILESTONE'] as $type) {
             foreach ($supervisorIds as $supervisorId) {
-                if (!AssessmentScoreRepository::existsForGroupAndEvaluator($group->id, $supervisorId, $type)) {
+                if (! AssessmentScoreRepository::existsForGroupAndEvaluator($group->id, $supervisorId, $type)) {
                     Log::info("EXPO_DONE blocked: missing {$type} from supervisor {$supervisorId} for group {$group->id}");
+
                     return false;
                 }
             }
@@ -635,6 +651,7 @@ class SchedulingService
 
             if ($approvedExpoDocs < $requiredExpoDocs) {
                 Log::info("EXPO_DONE blocked: missing approved documents for group {$group->id}. Approved {$approvedExpoDocs}/{$requiredExpoDocs}");
+
                 return false;
             }
         }
@@ -649,16 +666,18 @@ class SchedulingService
                 $peerReviewService->unlockPeerReview($group->id);
                 Log::info("Peer review unlocked for group {$group->id} after EXPO_DONE");
             } catch (\Exception $e) {
-                Log::error("Failed to unlock peer review for group {$group->id}: " . $e->getMessage());
+                Log::error("Failed to unlock peer review for group {$group->id}: ".$e->getMessage());
             }
 
             // If all members already completed peer review, auto-transition to READY_FOR_TA_INDIVIDUAL
             $this->tryTransitionToReadyForTaIndividual($group);
 
             Log::info("Group {$group->id} transitioned to EXPO_DONE");
+
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to transition group {$group->id} to EXPO_DONE: " . $e->getMessage());
+            Log::error("Failed to transition group {$group->id} to EXPO_DONE: ".$e->getMessage());
+
             return false;
         }
     }
@@ -690,13 +709,14 @@ class SchedulingService
             $this->stateMachine->transition($group, 'READY_FOR_TA_INDIVIDUAL');
             Log::info("Group {$group->id} auto-transitioned to READY_FOR_TA_INDIVIDUAL");
         } catch (\Exception $e) {
-            Log::info("Could not transition group {$group->id} to READY_FOR_TA_INDIVIDUAL: " . $e->getMessage());
+            Log::info("Could not transition group {$group->id} to READY_FOR_TA_INDIVIDUAL: ".$e->getMessage());
         }
     }
 
     /**
      * Submit a TA defense evaluation. Transactional with lockForUpdate().
-     * If all evaluations submitted → determine PASS/FAIL → update TA status → check group CLOSED.
+     * Supports per-student completion: each student advances independently when all evaluators submit.
+     * If ALL students' evaluations are submitted → mark schedule COMPLETED → check group CLOSED.
      */
     public function submitTaDefenseEvaluation(
         int $evaluationId,
@@ -720,36 +740,61 @@ class SchedulingService
 
             $schedule = TaDefenseSchedule::lockForUpdate()->findOrFail($evaluation->schedule_id);
 
-            $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
-            $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+            // Load all students for this schedule
+            $schedule->load('students');
+            $studentIds = $schedule->students->pluck('id')->toArray();
+            if (empty($studentIds)) {
+                $studentIds = [$schedule->student_id];
+            }
+
+            $thisStudentId = $evaluation->student_id;
+
+            // Check if THIS student's evaluations are all submitted (PER-STUDENT completion)
+            $studentTotalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+                ->where('student_id', $thisStudentId)
+                ->count();
+            $studentSubmittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+                ->where('student_id', $thisStudentId)
                 ->where('status', 'SUBMITTED')
                 ->count();
+            $studentAllSubmitted = $studentSubmittedEvals >= $studentTotalEvals;
 
-            $allSubmitted = $submittedEvals >= $totalEvals;
-
-            if ($allSubmitted) {
-                $schedule->update(['status' => 'COMPLETED']);
-
-                // Update TA submission status
-                $taSubmission = TaSubmission::where('student_id', $schedule->student_id)
-                    ->where('group_id', $schedule->group_id)
-                    ->firstOrFail();
-
+            // If this student is complete, update their individual TA submission status immediately
+            if ($studentAllSubmitted) {
                 $group = Group::findOrFail($schedule->group_id);
                 $this->ensurePeriodIsActive($group);
 
-                // Calculate final score from examiners AND supervisors
-                $finalScore = $this->calculateFinalTaDefenseScore($schedule);
-                $calculatedResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
+                // Calculate per-student final score
+                $studentFinalScore = $this->calculateFinalTaDefenseScoreForStudent($schedule, $thisStudentId);
+                $studentResult = $studentFinalScore >= 60 ? 'PASS' : 'FAIL';
 
-                // Update schedule with final score
-                $schedule->update(['final_score' => $finalScore]);
+                // Update this student's TaSubmission status
+                $taSubmission = TaSubmission::where('student_id', $thisStudentId)
+                    ->where('group_id', $schedule->group_id)
+                    ->first();
 
-                if ($calculatedResult === 'PASS') {
-                    $taSubmission->update(['status' => 'TA_DEFENDED']);
+                if ($taSubmission) {
+                    if ($studentResult === 'PASS') {
+                        $taSubmission->update(['status' => 'TA_DEFENDED']);
+                    } else {
+                        $taSubmission->update(['status' => 'TA_REVISED']);
+                    }
 
-                    // Check if ALL active group members have defended → group CLOSED
-                    $group = Group::findOrFail($schedule->group_id);
+                    AuditLog::create([
+                        'user_id' => $userId,
+                        'action' => "TA_DEFENSE_{$studentResult}",
+                        'target_type' => 'TaDefenseSchedule',
+                        'target_id' => $schedule->id,
+                        'payload' => [
+                            'student_id' => $thisStudentId,
+                            'final_score' => $studentFinalScore,
+                            'calculated_result' => $studentResult,
+                        ],
+                    ]);
+                }
+
+                // Check if ALL group members have defended → group CLOSED
+                if ($studentResult === 'PASS') {
                     $activeMemberCount = GroupMember::where('group_id', $group->id)->count();
                     $defendedCount = TaSubmission::where('group_id', $group->id)
                         ->where('status', 'TA_DEFENDED')
@@ -758,20 +803,23 @@ class SchedulingService
                     if ($activeMemberCount > 0 && $defendedCount >= $activeMemberCount) {
                         $this->stateMachine->transition($group, 'CLOSED');
                     }
-                } else {
-                    $taSubmission->update(['status' => 'TA_REVISED']);
                 }
+            }
 
-                AuditLog::create([
-                    'user_id' => $userId,
-                    'action' => "TA_DEFENSE_{$calculatedResult}",
-                    'target_type' => 'TaDefenseSchedule',
-                    'target_id' => $schedule->id,
-                    'payload' => [
-                        'student_id' => $schedule->student_id,
-                        'final_score' => $finalScore,
-                        'calculated_result' => $calculatedResult,
-                    ],
+            // Check if ALL students' evaluations are submitted (SCHEDULE-WIDE completion)
+            $totalEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)->count();
+            $submittedEvals = TaDefenseEvaluation::where('schedule_id', $schedule->id)
+                ->where('status', 'SUBMITTED')
+                ->count();
+            $allSubmitted = $submittedEvals >= $totalEvals;
+
+            if ($allSubmitted) {
+                // Calculate final score for the schedule (all students combined)
+                $finalScore = $this->calculateFinalTaDefenseScore($schedule);
+
+                $schedule->update([
+                    'status' => 'COMPLETED',
+                    'final_score' => $finalScore,
                 ]);
             }
 
@@ -789,19 +837,24 @@ class SchedulingService
 
     /**
      * Create evaluation records for TA defense examiners
+     * Supports both single and multiple students via pivot table.
+     *
+     * @param  array|null  $studentIds  Optional student IDs to create evaluations for (if null, will query from schedule)
      */
-    public function createTaDefenseEvaluations(TaDefenseSchedule $schedule): void
+    public function createTaDefenseEvaluations(TaDefenseSchedule $schedule, ?array $studentIds = null): void
     {
-        // Create evaluation record for examiner 1
-        TaDefenseEvaluation::firstOrCreate([
-            'schedule_id' => $schedule->id,
-            'examiner_id' => $schedule->examiner_1_id,
-            'student_id' => $schedule->student_id,
-        ], [
-            'status' => 'PENDING',
-        ]);
+        // If student IDs not provided, get from pivot table
+        if ($studentIds === null) {
+            // Use the relationship property (not query builder) to get student IDs
+            $studentIds = $schedule->students->pluck('id')->toArray();
+        }
 
-        // Create examiner record for examiner 1 (required for examiner lookup)
+        // Fall back to student_id column if no pivot records exist (backward compatibility)
+        if (empty($studentIds)) {
+            $studentIds = [$schedule->student_id];
+        }
+
+        // Create examiner records for examiner 1 and 2 (required for examiner lookup)
         TaDefenseExaminer::firstOrCreate([
             'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_1_id,
@@ -809,22 +862,31 @@ class SchedulingService
             'role' => 'EXAMINER_1',
         ]);
 
-        // Create evaluation record for examiner 2
-        TaDefenseEvaluation::firstOrCreate([
-            'schedule_id' => $schedule->id,
-            'examiner_id' => $schedule->examiner_2_id,
-            'student_id' => $schedule->student_id,
-        ], [
-            'status' => 'PENDING',
-        ]);
-
-        // Create examiner record for examiner 2 (required for examiner lookup)
         TaDefenseExaminer::firstOrCreate([
             'schedule_id' => $schedule->id,
             'examiner_id' => $schedule->examiner_2_id,
         ], [
             'role' => 'EXAMINER_2',
         ]);
+
+        // Create evaluation records for each student with each examiner
+        foreach ($studentIds as $studentId) {
+            TaDefenseEvaluation::firstOrCreate([
+                'schedule_id' => $schedule->id,
+                'examiner_id' => $schedule->examiner_1_id,
+                'student_id' => $studentId,
+            ], [
+                'status' => 'PENDING',
+            ]);
+
+            TaDefenseEvaluation::firstOrCreate([
+                'schedule_id' => $schedule->id,
+                'examiner_id' => $schedule->examiner_2_id,
+                'student_id' => $studentId,
+            ], [
+                'status' => 'PENDING',
+            ]);
+        }
     }
 
     /**
@@ -846,9 +908,6 @@ class SchedulingService
     /**
      * Calculate final seminar score from examiners AND supervisors
      * Formula: Average of (per-dosen averages) from both examiners and supervisors
-     *
-     * @param SeminarSchedule $schedule
-     * @return float
      */
     private function calculateFinalSeminarScore(SeminarSchedule $schedule): float
     {
@@ -856,7 +915,7 @@ class SchedulingService
 
         // Get examiner scores from sempro_scores table
         $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
-        if (!empty($examinerIds)) {
+        if (! empty($examinerIds)) {
             $examinerScores = SemproScore::where('group_id', $schedule->group_id)
                 ->whereIn('examiner_id', $examinerIds)
                 ->get()
@@ -871,7 +930,7 @@ class SchedulingService
         $group = Group::find($schedule->group_id);
         if ($group) {
             $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
-            if (!empty($supervisorIds)) {
+            if (! empty($supervisorIds)) {
                 $supervisorScores = BimbinganSemproScore::where('group_id', $schedule->group_id)
                     ->whereIn('evaluator_id', $supervisorIds)
                     ->get()
@@ -904,9 +963,9 @@ class SchedulingService
                 $milestoneAvg = $milestoneScores->has($supervisorId) ? $milestoneScores[$supervisorId]->avg('score') : null;
                 $nilaiDosenAvg = $nilaiDosenScores->has($supervisorId) ? $nilaiDosenScores[$supervisorId]->avg('score') : null;
 
-                $parts = array_filter([$expoAvg, $milestoneAvg, $nilaiDosenAvg], fn($v) => $v !== null);
+                $parts = array_filter([$expoAvg, $milestoneAvg, $nilaiDosenAvg], fn ($v) => $v !== null);
 
-                if (!empty($parts)) {
+                if (! empty($parts)) {
                     $dosenAverages[] = array_sum($parts) / count($parts);
                 }
             }
@@ -923,9 +982,6 @@ class SchedulingService
     /**
      * Calculate final TA defense score from examiners AND supervisors
      * Formula: Average of (per-dosen averages) from both examiners and supervisors
-     *
-     * @param TaDefenseSchedule $schedule
-     * @return float
      */
     private function calculateFinalTaDefenseScore(TaDefenseSchedule $schedule): float
     {
@@ -951,9 +1007,59 @@ class SchedulingService
         $group = Group::find($schedule->group_id);
         if ($group) {
             $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
-            if (!empty($supervisorIds)) {
+            if (! empty($supervisorIds)) {
                 $supervisorScores = BimbinganTaScore::where('group_id', $schedule->group_id)
                     ->whereIn('evaluator_id', $supervisorIds)
+                    ->get()
+                    ->groupBy('evaluator_id');
+
+                foreach ($supervisorScores as $supervisorId => $scores) {
+                    $dosenAverages[] = $scores->avg('score');
+                }
+            }
+        }
+
+        // Calculate final score (average of all dosen averages)
+        if (count($dosenAverages) > 0) {
+            return round(array_sum($dosenAverages) / count($dosenAverages), 2);
+        }
+
+        return 0;
+    }
+
+    /**
+     * Calculate final TA defense score for a SPECIFIC STUDENT from examiners AND supervisors
+     * Formula: Average of (per-dosen averages) from both examiners and supervisors for this student
+     */
+    public function calculateFinalTaDefenseScoreForStudent(TaDefenseSchedule $schedule, int $studentId): float
+    {
+        $dosenAverages = [];
+
+        // Get examiner scores from sidang_ta_scores table for this student
+        $examiners = TaDefenseExaminer::where('schedule_id', $schedule->id)
+            ->whereIn('role', ['EXAMINER_1', 'EXAMINER_2'])
+            ->pluck('examiner_id');
+
+        if ($examiners->isNotEmpty()) {
+            $examinerScores = SidangTaScore::where('group_id', $schedule->group_id)
+                ->whereIn('examiner_id', $examiners)
+                ->where('student_id', $studentId)
+                ->get()
+                ->groupBy('examiner_id');
+
+            foreach ($examinerScores as $examinerId => $scores) {
+                $dosenAverages[] = $scores->avg('score');
+            }
+        }
+
+        // Get supervisor scores from bimbingan_ta_scores table for this student
+        $group = Group::find($schedule->group_id);
+        if ($group) {
+            $supervisorIds = array_filter([$group->supervisor_1_id, $group->supervisor_2_id]);
+            if (! empty($supervisorIds)) {
+                $supervisorScores = BimbinganTaScore::where('group_id', $schedule->group_id)
+                    ->whereIn('evaluator_id', $supervisorIds)
+                    ->where('student_id', $studentId)
                     ->get()
                     ->groupBy('evaluator_id');
 

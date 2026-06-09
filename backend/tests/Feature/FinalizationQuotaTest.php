@@ -18,14 +18,17 @@ class FinalizationQuotaTest extends TestCase
     use RefreshDatabase;
 
     protected $admin;
+
     protected $lecturer;
+
     protected $period;
+
     protected $service;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Setup Roles
         Role::firstOrCreate(['slug' => 'admin'], ['name' => 'Admin']);
         Role::firstOrCreate(['slug' => 'dosen'], ['name' => 'Dosen']);
@@ -54,7 +57,7 @@ class FinalizationQuotaTest extends TestCase
             'end_date' => now()->addMonths(6),
         ]);
 
-        $this->service = new FinalizationService(new GroupStateMachine());
+        $this->service = new FinalizationService(new GroupStateMachine);
     }
 
     public function test_cannot_allocate_group_if_quota_is_full()
@@ -70,7 +73,7 @@ class FinalizationQuotaTest extends TestCase
 
         // 2. Create Group A and allocate it to the title
         $groupA = Group::create(['period_id' => $this->period->id, 'status' => 'PDC1_ACTIVE', 'title_id' => $title->id]);
-        
+
         // 3. Create Group B and a bid for the same title
         $groupB = Group::create(['period_id' => $this->period->id, 'status' => 'READY_FOR_BIDDING']);
         $bidB = Bid::create([

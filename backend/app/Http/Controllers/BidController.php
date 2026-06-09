@@ -9,7 +9,6 @@ use App\Models\GroupMember;
 use App\Models\User;
 use App\Services\BiddingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class BidController extends Controller
@@ -29,19 +28,19 @@ class BidController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        
+
         // Get all active period IDs
         $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
-        
+
         // Find user's group membership in any active period
         $membership = GroupMember::where('student_id', $user->id)
             ->whereHas('group', function ($q) use ($activePeriodIds) {
                 $q->whereIn('period_id', $activePeriodIds)
-                  ->where('status', '!=', 'REJECTED');
+                    ->where('status', '!=', 'REJECTED');
             })
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['data' => []]);
         }
 
@@ -75,28 +74,28 @@ class BidController extends Controller
 
         // Get all active period IDs
         $activePeriodIds = \App\Models\Period::where('is_active', true)->pluck('id')->toArray();
-        
+
         // Find user's group membership in any active period
         $membership = GroupMember::where('student_id', $user->id)
             ->where('is_leader', true)
             ->whereHas('group', function ($q) use ($activePeriodIds) {
                 $q->whereIn('period_id', $activePeriodIds)
-                  ->where('status', '!=', 'REJECTED');
+                    ->where('status', '!=', 'REJECTED');
             })
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengajukan bidding.'], 403);
         }
 
         // Validate supervisors are dosen
         $sup1 = User::find($request->proposed_supervisor_1_id);
-        if (!$sup1 || !$sup1->hasRole('dosen')) {
+        if (! $sup1 || ! $sup1->hasRole('dosen')) {
             return response()->json(['message' => 'Pembimbing 1 harus berupa dosen.'], 400);
         }
         if ($request->proposed_supervisor_2_id) {
             $sup2 = User::find($request->proposed_supervisor_2_id);
-            if (!$sup2 || !$sup2->hasRole('dosen')) {
+            if (! $sup2 || ! $sup2->hasRole('dosen')) {
                 return response()->json(['message' => 'Pembimbing 2 harus berupa dosen.'], 400);
             }
         }
@@ -109,7 +108,7 @@ class BidController extends Controller
         $minSize = $group->period->min_group_size ?? 3;
         if ($group->members->count() < $minSize) {
             return response()->json([
-                'message' => 'Kelompok Anda memiliki ' . $group->members->count() . ' anggota. Minimal ' . $minSize . ' anggota diperlukan untuk melakukan bidding pada judul Dosen.',
+                'message' => 'Kelompok Anda memiliki '.$group->members->count().' anggota. Minimal '.$minSize.' anggota diperlukan untuk melakukan bidding pada judul Dosen.',
             ], 403);
         }
 
@@ -130,20 +129,20 @@ class BidController extends Controller
         // Allow bidding if group has enough members and is in valid status
         // FORMING with 3+ members, READY_FOR_BIDDING, or WAITING_SUPERVISOR_APPROVAL can all bid
         $validStatuses = ['FORMING', 'READY_FOR_BIDDING', 'WAITING_SUPERVISOR_APPROVAL'];
-        if (!in_array($group->status, $validStatuses)) {
+        if (! in_array($group->status, $validStatuses)) {
             return response()->json(['message' => 'Kelompok belum siap untuk bidding.'], 400);
         }
 
         // Mutual Exclusive: Block bidding if group has active proposal (normal groups only)
-        if (!$group->is_solo) {
+        if (! $group->is_solo) {
             $hasActiveProposal = \App\Models\Title::where('proposed_by_group_id', $group->id)
                 ->where('title_source', 'STUDENT')
                 ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW', 'APPROVED'])
                 ->exists();
-            
+
             if ($hasActiveProposal) {
                 return response()->json([
-                    'message' => 'Tidak dapat mengajukan bid karena kelompok sudah memiliki proposal yang sedang diproses atau disetujui.'
+                    'message' => 'Tidak dapat mengajukan bid karena kelompok sudah memiliki proposal yang sedang diproses atau disetujui.',
                 ], 400);
             }
         }
@@ -157,7 +156,7 @@ class BidController extends Controller
             return response()->json(['message' => 'Bidding ditutup untuk periode ini.'], 400);
         }
 
-        if (!$this->biddingService->isWindowOpen($group->period)) {
+        if (! $this->biddingService->isWindowOpen($group->period)) {
             return response()->json(['message' => 'Waktu bidding belum dibuka.'], 400);
         }
 
@@ -177,7 +176,7 @@ class BidController extends Controller
         $existingBid = Bid::where('group_id', $group->id)
             ->where('title_id', $request->title_id)
             ->exists();
-        
+
         if ($existingBid) {
             return response()->json(['message' => 'Anda sudah mengajukan bid untuk judul ini.'], 400);
         }
@@ -211,7 +210,7 @@ class BidController extends Controller
         $membership = GroupMember::where('student_id', $user->id)
             ->first();
 
-        if (!$membership || !$membership->is_leader) {
+        if (! $membership || ! $membership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat menghapus bidding.'], 403);
         }
 
@@ -228,6 +227,7 @@ class BidController extends Controller
         }
 
         $bid->delete();
+
         return response()->json(['message' => 'Bid deleted successfully.']);
     }
 
@@ -247,7 +247,7 @@ class BidController extends Controller
         $membership = GroupMember::where('student_id', $user->id)
             ->first();
 
-        if (!$membership || !$membership->is_leader) {
+        if (! $membership || ! $membership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengubah urutan bidding.'], 403);
         }
 
@@ -267,10 +267,12 @@ class BidController extends Controller
                     ->update(['priority' => $bidData['priority']]);
             }
             DB::commit();
+
             return response()->json(['message' => 'Urutan prioritas berhasil disimpan.']);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal menyimpan urutan: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal menyimpan urutan: '.$e->getMessage()], 500);
         }
     }
 
@@ -310,6 +312,7 @@ class BidController extends Controller
 
         $bids = $bids->map(function (Bid $bid) use ($acceptedBidByTitle) {
             $bid->setAttribute('allowed_actions', $this->resolveLecturerBidActions($bid, $acceptedBidByTitle));
+
             return $bid;
         });
 
@@ -355,10 +358,10 @@ class BidController extends Controller
                 ->where('id', '!=', $bid->id)
                 ->where('lecturer_recommendation', 'ACCEPT')
                 ->first();
-            
+
             if ($existingAcceptedBid) {
                 return response()->json([
-                    'message' => 'Anda sudah menerima kelompok lain untuk judul ini. Hanya satu kelompok yang dapat diterima per judul.'
+                    'message' => 'Anda sudah menerima kelompok lain untuk judul ini. Hanya satu kelompok yang dapat diterima per judul.',
                 ], 400);
             }
 
@@ -369,12 +372,12 @@ class BidController extends Controller
             $group->title_id = $bid->title_id;
             $group->status = 'TITLE_APPROVED';
             $group->save();
-            
+
             // Notify accepted group members - OPTIMIZED: Batch insert
             $members = $group->members()->with('student')->get();
             $notifications = [];
             $now = now();
-            
+
             foreach ($members as $member) {
                 $notifications[] = [
                     'user_id' => $member->student_id,
@@ -388,8 +391,8 @@ class BidController extends Controller
                     'updated_at' => $now,
                 ];
             }
-            
-            if (!empty($notifications)) {
+
+            if (! empty($notifications)) {
                 \App\Models\Notification::insert($notifications);
             }
 
@@ -399,12 +402,12 @@ class BidController extends Controller
                 ->where('id', '!=', $bid->id)
                 ->whereNull('lecturer_recommendation') // Only pending bids
                 ->get();
-            
+
             // OPTIMIZED: Batch collect notifications and delete bids
             $rejectedNotifications = [];
             $rejectedBidIds = [];
             $now = now();
-            
+
             foreach ($otherBids as $otherBid) {
                 // Collect notifications for batch insert
                 foreach ($otherBid->group->members as $member) {
@@ -420,27 +423,27 @@ class BidController extends Controller
                         'updated_at' => $now,
                     ];
                 }
-                
+
                 $rejectedBidIds[] = $otherBid->id;
             }
-            
+
             // Batch insert all rejected notifications
-            if (!empty($rejectedNotifications)) {
+            if (! empty($rejectedNotifications)) {
                 \App\Models\Notification::insert($rejectedNotifications);
             }
-            
+
             // Batch delete all rejected bids
-            if (!empty($rejectedBidIds)) {
+            if (! empty($rejectedBidIds)) {
                 Bid::whereIn('id', $rejectedBidIds)->delete();
             }
-            
+
             // NEW: Auto-delete all other bids from the same group to other titles
             $otherGroupBids = Bid::with(['title.lecturer', 'group.members'])
                 ->where('group_id', $group->id)
                 ->where('id', '!=', $bid->id)
                 ->whereNull('lecturer_recommendation') // Only pending bids
                 ->get();
-            
+
             foreach ($otherGroupBids as $otherBid) {
                 // Notify the lecturer before deleting
                 if ($otherBid->title && $otherBid->title->lecturer) {
@@ -453,7 +456,7 @@ class BidController extends Controller
                         'related_id' => $otherBid->id,
                     ]);
                 }
-                
+
                 // Notify group members before deleting
                 foreach ($otherBid->group->members as $member) {
                     \App\Models\Notification::create([
@@ -465,33 +468,33 @@ class BidController extends Controller
                         'related_id' => $otherBid->id,
                     ]);
                 }
-                
+
                 // DELETE the bid immediately
                 $otherBid->delete();
             }
-            
+
             return response()->json([
                 'message' => 'Bid diterima. Semua bid lain dari kelompok ini otomatis dihapus.',
                 'data' => $bid->fresh(),
             ]);
         }
-        
+
         // REJECT Logic - DELETE the bid immediately
         if ($request->recommendation === 'REJECT') {
             $previousRecommendation = $bid->lecturer_recommendation;
-            
+
             // If this bid was previously ACCEPTED, revert group status
             if ($previousRecommendation === 'ACCEPT') {
                 $group->title_id = null;
                 $group->status = 'READY_FOR_BIDDING';
                 $group->save();
             }
-            
+
             // OPTIMIZED: Batch insert notifications for rejection
             $members = $group->members()->with('student')->get();
             $rejectedNotifications = [];
             $now = now();
-            
+
             foreach ($members as $member) {
                 $rejectedNotifications[] = [
                     'user_id' => $member->student_id,
@@ -505,14 +508,14 @@ class BidController extends Controller
                     'updated_at' => $now,
                 ];
             }
-            
-            if (!empty($rejectedNotifications)) {
+
+            if (! empty($rejectedNotifications)) {
                 \App\Models\Notification::insert($rejectedNotifications);
             }
-            
+
             // DELETE the bid immediately
             $bid->delete();
-            
+
             return response()->json([
                 'message' => 'Bid ditolak dan dihapus.',
             ]);
@@ -525,7 +528,7 @@ class BidController extends Controller
 
     private function buildBiddingFlowPayload(?Group $group, ?GroupMember $membership): array
     {
-        if (!$group || !$membership) {
+        if (! $group || ! $membership) {
             return [
                 'can_submit_bid' => false,
                 'can_reorder_bid' => false,
@@ -538,15 +541,15 @@ class BidController extends Controller
         $minSize = $period?->min_group_size ?? 3;
         $memberCount = $group->members->count();
         $isLeader = (bool) $membership->is_leader;
-        $isLocked = !$period || $period->is_finalized || $this->biddingService->isBiddingLocked($period);
+        $isLocked = ! $period || $period->is_finalized || $this->biddingService->isBiddingLocked($period);
 
-        $canReorderBid = $isLeader && !$isLocked;
-        $canDeleteBid = $isLeader && !$isLocked;
+        $canReorderBid = $isLeader && ! $isLocked;
+        $canDeleteBid = $isLeader && ! $isLocked;
 
         $canSubmitBid = true;
         $reason = null;
 
-        if (!$isLeader) {
+        if (! $isLeader) {
             $canSubmitBid = false;
             $reason = 'LEADER_ONLY';
         }
@@ -562,7 +565,7 @@ class BidController extends Controller
         }
 
         $validStatuses = ['FORMING', 'READY_FOR_BIDDING', 'WAITING_SUPERVISOR_APPROVAL'];
-        if ($canSubmitBid && !in_array($group->status, $validStatuses, true)) {
+        if ($canSubmitBid && ! in_array($group->status, $validStatuses, true)) {
             $canSubmitBid = false;
             $reason = 'INVALID_GROUP_STATUS';
         }
@@ -587,7 +590,7 @@ class BidController extends Controller
             $reason = 'BIDDING_LOCKED';
         }
 
-        if ($canSubmitBid && $period && !$this->biddingService->isWindowOpen($period)) {
+        if ($canSubmitBid && $period && ! $this->biddingService->isWindowOpen($period)) {
             $canSubmitBid = false;
             $reason = 'BIDDING_WINDOW_CLOSED';
         }
@@ -636,7 +639,7 @@ class BidController extends Controller
     private function resolveLecturerBidActions(Bid $bid, $acceptedBidByTitle): array
     {
         $period = $bid->group?->period;
-        if (!$period || $period->is_finalized || $this->biddingService->isBiddingLocked($period)) {
+        if (! $period || $period->is_finalized || $this->biddingService->isBiddingLocked($period)) {
             return [
                 'can_accept' => false,
                 'can_reject' => false,
@@ -650,18 +653,18 @@ class BidController extends Controller
         $isAccepted = $bid->lecturer_recommendation === 'ACCEPT';
         $isRejected = $bid->lecturer_recommendation === 'REJECT';
 
-        if ($hasOtherAcceptedBidOnTitle && !$isAccepted) {
+        if ($hasOtherAcceptedBidOnTitle && ! $isAccepted) {
             return [
                 'can_accept' => false,
-                'can_reject' => !$isRejected,
+                'can_reject' => ! $isRejected,
                 'can_cancel_accept' => false,
                 'reason' => 'TITLE_ALREADY_HAS_ACCEPTED_BID',
             ];
         }
 
         return [
-            'can_accept' => !$isAccepted && !$isRejected,
-            'can_reject' => !$isRejected,
+            'can_accept' => ! $isAccepted && ! $isRejected,
+            'can_reject' => ! $isRejected,
             'can_cancel_accept' => $isAccepted,
             'reason' => null,
         ];

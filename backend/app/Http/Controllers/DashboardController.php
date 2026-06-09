@@ -3,22 +3,24 @@
 namespace App\Http\Controllers;
 
 use App\Models\Bid;
+use App\Models\Document;
+use App\Models\ExpoRegistration;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
+use App\Models\PhaseDocumentRequirement;
 use App\Models\Schedule;
 use App\Models\SeminarSchedule;
-use App\Models\ExpoRegistration;
 use App\Models\TaDefenseSchedule;
-use App\Models\Document;
-use App\Models\PhaseDocumentRequirement;
 use App\Models\Title;
 use App\Models\User;
 use App\Services\FinalizationService;
 use App\Services\WorkflowService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
@@ -28,28 +30,60 @@ class DashboardController extends Controller
     {
         $this->workflowService = $workflowService;
     }
+
     public function admin()
     {
-        $currentPeriod = Period::getActive('period:active:latest');
-        $readinessStats = $currentPeriod ? app(FinalizationService::class)->getReadinessStats($currentPeriod->id) : null;
+        // Cache key changes every minute (floor to nearest minute)
+        $cacheKey = 'dashboard:admin:'.now()->floorMinute(1)->timestamp;
 
-        return response()->json([
-            'total_users' => User::count(),
-            'total_students' => User::where('role', 'mahasiswa')->count(),
-            'total_lecturers' => User::where('role', 'dosen')->count(),
-            'active_periods' => Period::getAllActive(),
-            'registration_summary' => $readinessStats ? [
-                'total' => $readinessStats['total_registered'],
-                'assigned' => $readinessStats['total_assigned'],
-                'unassigned' => $readinessStats['total_unassigned'],
-            ] : null,
-            'readiness_overview' => $readinessStats ? [
-                'total_groups' => $readinessStats['total_groups'],
-                'invalid_groups' => $readinessStats['total_invalid_groups'],
-                'global_progress' => $readinessStats['global_progress'],
-            ] : null,
-            'unassigned_list' => $readinessStats ? $readinessStats['unassigned_students'] : [],
-        ]);
+        return Cache::remember($cacheKey, 60, function () {
+            // Single optimized query for all user stats (was 3 queries)
+            $userStats = DB::table('users')
+                ->selectRaw('
+                    COUNT(*) as total,
+                    COUNT(CASE WHEN role = ? THEN 1 END) as students,
+                    COUNT(CASE WHEN role = ? THEN 1 END) as lecturers
+                ', ['mahasiswa', 'dosen'])
+                ->first();
+
+            // Cache periods separately (changes less frequently, 5 min TTL)
+            $activePeriods = Cache::remember('periods:active:all', 300, function () {
+                return Period::getAllActive();
+            });
+
+            // Get current period with caching
+            $currentPeriod = Cache::remember('period:active:latest', 60, function () {
+                return Period::getActive('period:active:latest');
+            });
+
+            // Expensive readiness stats with caching
+            $readinessStats = null;
+            if ($currentPeriod) {
+                $readinessStats = Cache::remember(
+                    "readiness:{$currentPeriod->id}",
+                    60,
+                    fn () => app(FinalizationService::class)->getReadinessStats($currentPeriod->id)
+                );
+            }
+
+            return response()->json([
+                'total_users' => (int) $userStats->total,
+                'total_students' => (int) $userStats->students,
+                'total_lecturers' => (int) $userStats->lecturers,
+                'active_periods' => $activePeriods,
+                'registration_summary' => $readinessStats ? [
+                    'total' => $readinessStats['total_registered'],
+                    'assigned' => $readinessStats['total_assigned'],
+                    'unassigned' => $readinessStats['total_unassigned'],
+                ] : null,
+                'readiness_overview' => $readinessStats ? [
+                    'total_groups' => $readinessStats['total_groups'],
+                    'invalid_groups' => $readinessStats['total_invalid_groups'],
+                    'global_progress' => $readinessStats['global_progress'],
+                ] : null,
+                'unassigned_list' => $readinessStats ? $readinessStats['unassigned_students'] : [],
+            ]);
+        });
     }
 
     public function dosen(Request $request)
@@ -173,7 +207,7 @@ class DashboardController extends Controller
         if ($group) {
             $now = Carbon::now();
             $groupId = $group->id;
-            
+
             // 1. BIMBINGAN schedules
             $bimbinganSchedules = Schedule::where('group_id', $groupId)
                 ->where('type', 'BIMBINGAN')
@@ -192,7 +226,7 @@ class DashboardController extends Controller
                     ];
                 });
             $upcomingSchedules = array_merge($upcomingSchedules, $bimbinganSchedules->toArray());
-            
+
             // 2. SEMPRO schedules
             $semproSchedules = SeminarSchedule::where('group_id', $groupId)
                 ->where('type', 'SEMPRO')
@@ -201,9 +235,10 @@ class DashboardController extends Controller
                 ->orderBy('start_time', 'asc')
                 ->get()
                 ->map(function ($schedule) {
-                    $dateTime = Carbon::parse($schedule->date->format('Y-m-d') . ' ' . $schedule->start_time);
+                    $dateTime = Carbon::parse($schedule->date->format('Y-m-d').' '.$schedule->start_time);
+
                     return [
-                        'id' => 'sempro_' . $schedule->id,
+                        'id' => 'sempro_'.$schedule->id,
                         'type' => 'SEMPRO',
                         'date' => $dateTime->toDateTimeString(),
                         'room' => $schedule->room,
@@ -213,7 +248,7 @@ class DashboardController extends Controller
                     ];
                 });
             $upcomingSchedules = array_merge($upcomingSchedules, $semproSchedules->toArray());
-            
+
             // 3. EXPO events
             $expoRegistrations = ExpoRegistration::where('group_id', $groupId)
                 ->where('status', '!=', 'CANCELLED')
@@ -221,13 +256,13 @@ class DashboardController extends Controller
                     $query->whereRaw("CONCAT(date, ' ', start_time) > ?", [$now]);
                 }])
                 ->get();
-                
+
             foreach ($expoRegistrations as $registration) {
                 $event = $registration->expoEvent;
                 if ($event) {
-                    $dateTime = Carbon::parse($event->date->format('Y-m-d') . ' ' . $event->start_time);
+                    $dateTime = Carbon::parse($event->date->format('Y-m-d').' '.$event->start_time);
                     $upcomingSchedules[] = [
-                        'id' => 'expo_' . $event->id,
+                        'id' => 'expo_'.$event->id,
                         'type' => 'EXPO',
                         'date' => $dateTime->toDateTimeString(),
                         'room' => $event->room,
@@ -237,7 +272,7 @@ class DashboardController extends Controller
                     ];
                 }
             }
-            
+
             // 4. TA Defense schedules
             $taDefenseSchedules = TaDefenseSchedule::where('student_id', $user->id)
                 ->whereIn('status', ['SCHEDULED', 'DONE'])
@@ -246,9 +281,10 @@ class DashboardController extends Controller
                 ->orderBy('start_time', 'asc')
                 ->get()
                 ->map(function ($schedule) {
-                    $dateTime = Carbon::parse($schedule->date->format('Y-m-d') . ' ' . $schedule->start_time);
+                    $dateTime = Carbon::parse($schedule->date->format('Y-m-d').' '.$schedule->start_time);
+
                     return [
-                        'id' => 'ta_defense_' . $schedule->id,
+                        'id' => 'ta_defense_'.$schedule->id,
                         'type' => 'TA_DEFENSE',
                         'date' => $dateTime->toDateTimeString(),
                         'room' => $schedule->room,
@@ -258,7 +294,7 @@ class DashboardController extends Controller
                     ];
                 });
             $upcomingSchedules = array_merge($upcomingSchedules, $taDefenseSchedules->toArray());
-            
+
             // Sort all schedules by date
             usort($upcomingSchedules, function ($a, $b) {
                 return strtotime($a['date']) - strtotime($b['date']);
@@ -293,7 +329,7 @@ class DashboardController extends Controller
             ->whereHas('group', fn ($q) => $q->where('status', '!=', 'REJECTED'))
             ->first();
 
-        if (!$groupMember || !$groupMember->group) {
+        if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'workflow' => null,
                 'next_phase_requirements' => null,

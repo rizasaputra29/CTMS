@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Models\Bid;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
@@ -17,11 +16,17 @@ class GroupMarketplaceTest extends TestCase
     use RefreshDatabase;
 
     protected User $leader;
+
     protected User $student2;
+
     protected User $student3;
+
     protected User $dosen;
+
     protected Group $group;
+
     protected Period $period;
+
     protected Title $facultyTitle;
 
     protected function setUp(): void

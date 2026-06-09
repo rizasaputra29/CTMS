@@ -8,7 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
-import { Loader2, FileCheck, AlertCircle, Clock, GraduationCap, Calendar, MapPin, Users, Eye, Play, Edit, User, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileCheck, AlertCircle, Clock, GraduationCap, Calendar, MapPin, Users, Eye, Play, Edit, User, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
@@ -282,13 +283,7 @@ export default function SupervisorEvaluationPage() {
     return isPast(parseISO(deadline));
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    );
-  }
+  if (loading) return <Loading variant="section" />;
 
   return (
     <div className="container mx-auto py-6 max-w-7xl">
@@ -407,7 +402,7 @@ export default function SupervisorEvaluationPage() {
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {todaySchedules.map((schedule) => (
                       <ScheduleCard
-                        key={`${schedule.schedule_id}-${schedule.evaluation_type}`}
+                        key={`${schedule.schedule_id}-${schedule.evaluation_type}-${schedule.student?.id ?? 'group'}`}
                         schedule={schedule}
                         onEvaluate={() => handleEvaluateFromSchedule(schedule)}
                         isUrgent={isDeadlineUrgent(schedule.deadline)}
@@ -427,7 +422,7 @@ export default function SupervisorEvaluationPage() {
                   <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                     {upcomingSchedules.map((schedule) => (
                       <ScheduleCard
-                        key={`${schedule.schedule_id}-${schedule.evaluation_type}`}
+                        key={`${schedule.schedule_id}-${schedule.evaluation_type}-${schedule.student?.id ?? 'group'}`}
                         schedule={schedule}
                         onEvaluate={() => handleEvaluateFromSchedule(schedule)}
                         isUrgent={isDeadlineUrgent(schedule.deadline)}
@@ -452,7 +447,7 @@ export default function SupervisorEvaluationPage() {
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {pastSchedules.map((schedule) => (
                         <ScheduleCard
-                          key={`${schedule.schedule_id}-${schedule.evaluation_type}`}
+                          key={`${schedule.schedule_id}-${schedule.evaluation_type}-${schedule.student?.id ?? 'group'}`}
                           schedule={schedule}
                           onEvaluate={() => handleEvaluateFromSchedule(schedule)}
                           isUrgent={false}

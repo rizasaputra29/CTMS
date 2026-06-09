@@ -36,7 +36,7 @@ class RefreshGroupReadiness implements ShouldQueue
     public function handle(): void
     {
         $group = Group::find($this->groupId);
-        
+
         if ($group) {
             $group->refreshReadinessSnapshot();
         }

@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Bimbingan TA Score Model
- * 
+ *
  * Stores assessment scores for BIMBINGAN_TA evaluation type.
  * This model replaces evaluation_type='BIMBINGAN_TA' records from the old assessment_scores table.
  */

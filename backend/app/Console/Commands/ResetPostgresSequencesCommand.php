@@ -3,8 +3,8 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 
 class ResetPostgresSequencesCommand extends Command
 {
@@ -81,7 +81,7 @@ class ResetPostgresSequencesCommand extends Command
                     AND table_name = ?
                 )", [$table]);
 
-                if (!$exists[0]->exists) {
+                if (! $exists[0]->exists) {
                     continue;
                 }
 
@@ -93,7 +93,7 @@ class ResetPostgresSequencesCommand extends Command
                     AND column_name = 'id'
                 )", [$table]);
 
-                if (!$hasId[0]->exists) {
+                if (! $hasId[0]->exists) {
                     continue;
                 }
 
@@ -102,10 +102,10 @@ class ResetPostgresSequencesCommand extends Command
 
                 // Reset sequence to max ID + 1
                 $sequenceName = "{$table}_id_seq";
-                
-                DB::statement("SELECT setval(?, ?, false)", [$sequenceName, $maxId + 1]);
-                
-                $this->info("   ✓ {$table}: sequence reset to " . ($maxId + 1));
+
+                DB::statement('SELECT setval(?, ?, false)', [$sequenceName, $maxId + 1]);
+
+                $this->info("   ✓ {$table}: sequence reset to ".($maxId + 1));
                 $resetCount++;
 
             } catch (\Exception $e) {
@@ -116,7 +116,7 @@ class ResetPostgresSequencesCommand extends Command
 
         $this->newLine();
         $this->info("✅ Reset {$resetCount} sequences successfully!");
-        
+
         return 0;
     }
 }

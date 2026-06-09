@@ -46,7 +46,7 @@ class AssessmentScoreRepository
 
     public static function create(array $data): Model
     {
-        if (!isset($data['evaluation_type'])) {
+        if (! isset($data['evaluation_type'])) {
             throw new InvalidArgumentException('evaluation_type is required');
         }
 
@@ -68,7 +68,7 @@ class AssessmentScoreRepository
     /**
      * Create multiple score records (bulk insert)
      *
-     * @param array $records Array of score data arrays (each must include evaluation_type)
+     * @param  array  $records  Array of score data arrays (each must include evaluation_type)
      * @return array Created model instances
      */
     public static function createMany(array $records): array
@@ -77,35 +77,34 @@ class AssessmentScoreRepository
         foreach ($records as $data) {
             $created[] = self::create($data);
         }
+
         return $created;
     }
 
     /**
      * Get scores by group ID and evaluation type
      *
-     * @param int $groupId Group ID
-     * @param string $type Evaluation type
-     * @param array $with Relationships to eager load
-     * @return Collection
+     * @param  int  $groupId  Group ID
+     * @param  string  $type  Evaluation type
+     * @param  array  $with  Relationships to eager load
      */
     public static function getByGroupAndType(int $groupId, string $type, array $with = []): Collection
     {
         $query = self::forType($type)->where('group_id', $groupId);
-        
-        if (!empty($with)) {
+
+        if (! empty($with)) {
             $query->with($with);
         }
-        
+
         return $query->get();
     }
 
     /**
      * Get scores by evaluator ID and type
      *
-     * @param int $evaluatorId Evaluator user ID
-     * @param string $type Evaluation type
-     * @param array $with Relationships to eager load
-     * @return Collection
+     * @param  int  $evaluatorId  Evaluator user ID
+     * @param  string  $type  Evaluation type
+     * @param  array  $with  Relationships to eager load
      */
     public static function getByEvaluatorAndType(int $evaluatorId, string $type, array $with = []): Collection
     {
@@ -113,7 +112,7 @@ class AssessmentScoreRepository
 
         $query = self::forType($type)->where($idField, $evaluatorId);
 
-        if (!empty($with)) {
+        if (! empty($with)) {
             $query->with($with);
         }
 
@@ -123,29 +122,27 @@ class AssessmentScoreRepository
     /**
      * Get scores by student ID and type
      *
-     * @param int $studentId Student user ID
-     * @param string $type Evaluation type
-     * @param array $with Relationships to eager load
-     * @return Collection
+     * @param  int  $studentId  Student user ID
+     * @param  string  $type  Evaluation type
+     * @param  array  $with  Relationships to eager load
      */
     public static function getByStudentAndType(int $studentId, string $type, array $with = []): Collection
     {
         $query = self::forType($type)->where('student_id', $studentId);
-        
-        if (!empty($with)) {
+
+        if (! empty($with)) {
             $query->with($with);
         }
-        
+
         return $query->get();
     }
 
     /**
      * Check if scores exist for group and evaluator
      *
-     * @param int $groupId Group ID
-     * @param int $evaluatorId Evaluator ID
-     * @param string $type Evaluation type
-     * @return bool
+     * @param  int  $groupId  Group ID
+     * @param  int  $evaluatorId  Evaluator ID
+     * @param  string  $type  Evaluation type
      */
     public static function existsForGroupAndEvaluator(int $groupId, int $evaluatorId, string $type): bool
     {
@@ -160,9 +157,8 @@ class AssessmentScoreRepository
     /**
      * Check if scores exist for group
      *
-     * @param int $groupId Group ID
-     * @param string $type Evaluation type
-     * @return bool
+     * @param  int  $groupId  Group ID
+     * @param  string  $type  Evaluation type
      */
     public static function existsForGroup(int $groupId, string $type): bool
     {
@@ -174,9 +170,8 @@ class AssessmentScoreRepository
     /**
      * Get count of scores for group and type
      *
-     * @param int $groupId Group ID
-     * @param string $type Evaluation type
-     * @return int
+     * @param  int  $groupId  Group ID
+     * @param  string  $type  Evaluation type
      */
     public static function countForGroup(int $groupId, string $type): int
     {
@@ -188,10 +183,9 @@ class AssessmentScoreRepository
     /**
      * Get count of scores for group and evaluator
      *
-     * @param int $groupId Group ID
-     * @param int $evaluatorId Evaluator ID
-     * @param string $type Evaluation type
-     * @return int
+     * @param  int  $groupId  Group ID
+     * @param  int  $evaluatorId  Evaluator ID
+     * @param  string  $type  Evaluation type
      */
     public static function countForGroupAndEvaluator(int $groupId, int $evaluatorId, string $type): int
     {
@@ -206,29 +200,29 @@ class AssessmentScoreRepository
     /**
      * Get scores by component ID across all tables
      *
-     * @param int $componentId Component ID
-     * @param string $columnName Column name (period_component_id or component_id)
+     * @param  int  $componentId  Component ID
+     * @param  string  $columnName  Column name (period_component_id or component_id)
      * @return Collection
      */
     public static function getByComponentId(int $componentId, string $columnName = 'period_component_id'): \Illuminate\Support\Collection
     {
         $allScores = collect();
-        
+
         foreach (self::getSupportedTypes() as $type) {
             $scores = self::forType($type)
                 ->where($columnName, $componentId)
                 ->get();
             $allScores = $allScores->merge($scores);
         }
-        
+
         return $allScores;
     }
 
     /**
      * Delete scores by group ID and type
      *
-     * @param int $groupId Group ID
-     * @param string $type Evaluation type
+     * @param  int  $groupId  Group ID
+     * @param  string  $type  Evaluation type
      * @return int Number of deleted records
      */
     public static function deleteByGroup(int $groupId, string $type): int
@@ -240,8 +234,6 @@ class AssessmentScoreRepository
 
     /**
      * Get all evaluation types supported by this repository
-     *
-     * @return array
      */
     public static function getSupportedTypes(): array
     {
@@ -258,9 +250,6 @@ class AssessmentScoreRepository
 
     /**
      * Check if an evaluation type is supported
-     *
-     * @param string $type
-     * @return bool
      */
     public static function isSupportedType(string $type): bool
     {
@@ -271,21 +260,21 @@ class AssessmentScoreRepository
      * Get scores by multiple types (aggregate query)
      * Note: This runs separate queries and merges results
      *
-     * @param int $groupId Group ID
-     * @param array $types Evaluation types
+     * @param  int  $groupId  Group ID
+     * @param  array  $types  Evaluation types
      * @return Collection
      */
     public static function getByGroupAndTypes(int $groupId, array $types): \Illuminate\Support\Collection
     {
         $allScores = collect();
-        
+
         foreach ($types as $type) {
             if (self::isSupportedType($type)) {
                 $scores = self::getByGroupAndType($groupId, $type);
                 $allScores = $allScores->merge($scores);
             }
         }
-        
+
         return $allScores;
     }
 
@@ -293,28 +282,28 @@ class AssessmentScoreRepository
      * Get all scores with relationships across all supported types
      * Note: This runs separate queries and merges results
      *
-     * @param array $with Relationships to eager load
-     * @param callable|null $filterCallback Optional callback to apply filters
+     * @param  array  $with  Relationships to eager load
+     * @param  callable|null  $filterCallback  Optional callback to apply filters
      * @return Collection
      */
     public static function getAllWith(array $with = [], ?callable $filterCallback = null): \Illuminate\Support\Collection
     {
         $allScores = collect();
-        
+
         foreach (self::getSupportedTypes() as $type) {
             $query = self::forType($type);
-            
-            if (!empty($with)) {
+
+            if (! empty($with)) {
                 $query->with($with);
             }
-            
+
             if ($filterCallback !== null) {
                 $filterCallback($query, $type);
             }
-            
+
             $allScores = $allScores->merge($query->get());
         }
-        
+
         return $allScores;
     }
 
@@ -322,64 +311,64 @@ class AssessmentScoreRepository
      * Get all scores with whereHas on group
      * Note: This runs separate queries and merges results
      *
-     * @param callable $groupFilter Callback for group filter
-     * @param array $with Relationships to eager load
-     * @param callable|null $filterCallback Optional callback for additional filters
-     * @return Collection
+     * @param  callable  $groupFilter  Callback for group filter
+     * @param  array  $with  Relationships to eager load
+     * @param  callable|null  $filterCallback  Optional callback for additional filters
      */
     public static function getAllWhereHasGroup(callable $groupFilter, array $with = [], ?callable $filterCallback = null): Collection
     {
         $allScores = collect();
-        
+
         foreach (self::getSupportedTypes() as $type) {
             $query = self::forType($type);
-            
-            if (!empty($with)) {
+
+            if (! empty($with)) {
                 $query->with($with);
             }
-            
+
             $query->whereHas('group', $groupFilter);
-            
+
             if ($filterCallback !== null) {
                 $filterCallback($query, $type);
             }
-            
+
             $allScores = $allScores->merge($query->get());
         }
-        
+
         return $allScores;
     }
 
     /**
      * Upsert scores into the appropriate table
      *
-     * @param string $type Evaluation type
-     * @param array $data Array of score data
-     * @param array $uniqueKeys Unique keys for upsert
-     * @param array $updateColumns Columns to update
+     * @param  string  $type  Evaluation type
+     * @param  array  $data  Array of score data
+     * @param  array  $uniqueKeys  Unique keys for upsert
+     * @param  array  $updateColumns  Columns to update
      * @return int Number of records affected
+     *
      * @throws InvalidArgumentException
      */
     public static function upsert(string $type, array $data, array $uniqueKeys, array $updateColumns): int
     {
         $modelClass = self::getModelClass($type);
-        
+
         return $modelClass::upsert($data, $uniqueKeys, $updateColumns);
     }
 
     /**
      * Update or create a score record
      *
-     * @param string $type Evaluation type
-     * @param array $attributes Attributes to match
-     * @param array $values Values to update/create
-     * @return Model
+     * @param  string  $type  Evaluation type
+     * @param  array  $attributes  Attributes to match
+     * @param  array  $values  Values to update/create
+     *
      * @throws InvalidArgumentException
      */
     public static function updateOrCreate(string $type, array $attributes, array $values): Model
     {
         $modelClass = self::getModelClass($type);
-        
+
         return $modelClass::updateOrCreate($attributes, $values);
     }
 }

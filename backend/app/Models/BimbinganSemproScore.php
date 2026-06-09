@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Bimbingan Sempro Score Model
- * 
+ *
  * Stores assessment scores for BIMBINGAN_SEMPRO evaluation type.
  * This model replaces evaluation_type='BIMBINGAN_SEMPRO' records from the old assessment_scores table.
  */

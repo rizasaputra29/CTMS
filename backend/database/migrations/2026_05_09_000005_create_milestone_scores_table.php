@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Create Milestone Scores Table
- * 
+ *
  * Stores assessment scores for MILESTONE evaluation type.
  * This replaces the evaluation_type='MILESTONE' records from assessment_scores table.
  */
@@ -19,43 +19,43 @@ return new class extends Migration
     {
         Schema::create('milestone_scores', function (Blueprint $table) {
             $table->id();
-            
+
             // Foreign keys with Laravel 10+ syntax
             $table->foreignId('component_id')
                 ->nullable()
                 ->constrained('assessment_components')
                 ->cascadeOnDelete();
-            
+
             $table->foreignId('period_component_id')
                 ->nullable()
                 ->constrained('period_assessment_components')
                 ->nullOnDelete();
-            
+
             $table->foreignId('evaluator_id')
                 ->constrained('users')
                 ->cascadeOnDelete();
-            
+
             $table->foreignId('group_id')
                 ->constrained('groups')
                 ->cascadeOnDelete();
-            
+
             $table->foreignId('student_id')
                 ->nullable()
                 ->constrained('users')
                 ->nullOnDelete();
-            
+
             // Score data
             $table->decimal('score', 5, 2); // nilai 0-100
             $table->text('notes')->nullable();
-            
+
             $table->timestamps();
-            
+
             // Named indexes following best practices
             $table->unique(
-                ['component_id', 'evaluator_id', 'student_id'], 
+                ['component_id', 'evaluator_id', 'student_id'],
                 'uq_milestone_scores_component_evaluator_student'
             );
-            
+
             $table->index(['group_id', 'evaluator_id'], 'idx_milestone_scores_group_evaluator');
             $table->index(['student_id'], 'idx_milestone_scores_student');
             $table->index(['evaluator_id'], 'idx_milestone_scores_evaluator');

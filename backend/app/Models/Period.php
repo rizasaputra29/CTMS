@@ -15,6 +15,7 @@ class Period extends Model
     protected $appends = [
         'max_supervisor_load',
     ];
+
     protected $fillable = [
         'name',
         'start_date',
@@ -79,6 +80,7 @@ class Period extends Model
         }
 
         $legacy = $this->attributes['max_supervise_load'] ?? null;
+
         return $legacy !== null ? (int) $legacy : null;
     }
 
@@ -121,7 +123,7 @@ class Period extends Model
      */
     public function isRegistrationOpen(): bool
     {
-        return $this->is_active && !$this->is_finalized;
+        return $this->is_active && ! $this->is_finalized;
     }
 
     public function groups()

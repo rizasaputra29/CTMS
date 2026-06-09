@@ -6,10 +6,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * HasAssessmentScore Trait
- * 
+ *
  * Provides common functionality for assessment score models.
  * Used by: BimbinganSemproScore, BimbinganTaScore, ExpoScore, MilestoneScore, NilaiDosenScore
- * 
+ *
  * Note: Models using this trait must define their own $fillable property.
  * Do NOT define $fillable or $casts in this trait.
  */
@@ -44,12 +44,14 @@ trait HasAssessmentScore
             if (! $this->relationLoaded('component')) {
                 $this->setRelation('component', $this->component()->first());
             }
+
             return $this->relations['component'];
         }
 
         if (! $this->relationLoaded('periodComponent')) {
             $this->setRelation('periodComponent', $this->periodComponent()->first());
         }
+
         return $this->relations['periodComponent'];
     }
 

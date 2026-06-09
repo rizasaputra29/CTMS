@@ -3,14 +3,14 @@
 namespace App\Services;
 
 use App\Models\Group;
-use InvalidArgumentException;
 use Illuminate\Support\Facades\Log;
+use InvalidArgumentException;
 
 class GroupStateMachine
 {
     /**
      * All valid state transitions: from => [to, to, ...]
-     * 
+     *
      * IMPORTANT NOTES:
      * - Group status is determined by member count via determineStatus()
      * - Transitions here are for INTENTIONAL actions, NOT automatic recalculations
@@ -23,7 +23,7 @@ class GroupStateMachine
             'WAITING_SUPERVISOR_APPROVAL', // via controller guard - submit proposal
             'DISSOLVED',
         ],
-        
+
         // Solo seeker group - similar to FORMING but for solo mode
         'FORMING_SOLO' => [
             'WAITING_SUPERVISOR_APPROVAL', // via controller guard - submit proposal
@@ -31,7 +31,7 @@ class GroupStateMachine
             'READY_FOR_BIDDING',           // when members reach min (for non-solo transitions)
             'DISSOLVED',
         ],
-        
+
         // Group ready to bid/propose - can submit proposal, join other groups, or be finalized
         'READY_FOR_BIDDING' => [
             'FORMING',                       // via determineStatus() - members dropped below min
@@ -40,7 +40,7 @@ class GroupStateMachine
             'TITLE_APPROVED',                // bid accepted by lecturer → title approved
             'DISSOLVED',
         ],
-        
+
         // Group has been accepted/recommended by lecturer - waiting for leader to confirm
         'READY_FOR_FINALIZATION' => [
             'READY_FOR_BIDDING',             // leader can revert if needed
@@ -48,21 +48,21 @@ class GroupStateMachine
             'KELOMPOK_FINAL',                // admin finalization
             'DISSOLVED',
         ],
-        
+
         // Proposal under review - waiting for supervisor decision
         'WAITING_SUPERVISOR_APPROVAL' => [
             'TITLE_APPROVED',      // solo seeker proposal approved - title open for recruitment
             'READY_FOR_BIDDING',   // regular group proposal approved - via determineStatus()
             'DISSOLVED',
         ],
-        
+
         // Title from solo seeker approved - open for bids/recruitment from other groups
         'TITLE_APPROVED' => [
             'READY_FOR_FINALIZATION',       // leader manually marks as ready for finalization
             'KELOMPOK_FINAL',              // admin finalization after member merge
             'DISSOLVED',
         ],
-        
+
         // After finalization - no going back
         'KELOMPOK_FINAL' => ['PDC1_ACTIVE'],
         'PDC1_ACTIVE' => ['READY_FOR_SEMPRO'],
@@ -106,7 +106,7 @@ class GroupStateMachine
      */
     public function canTransition(string $from, string $to): bool
     {
-        if (!isset(self::TRANSITIONS[$from])) {
+        if (! isset(self::TRANSITIONS[$from])) {
             return false;
         }
 
@@ -121,30 +121,30 @@ class GroupStateMachine
     public function transition(Group $group, string $newStatus): void
     {
         $currentStatus = $group->status;
-        
+
         // DEBUG: Log all transitions to track down auto-transition bug
         Log::info('state_machine.transition', [
             'group_id' => $group->id,
             'from' => $currentStatus,
             'to' => $newStatus,
             'trace' => collect(debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 10))
-                ->map(fn($t) => ($t['class'] ?? '') . '::' . ($t['function'] ?? '') . ':' . ($t['line'] ?? ''))
-                ->toArray()
+                ->map(fn ($t) => ($t['class'] ?? '').'::'.($t['function'] ?? '').':'.($t['line'] ?? ''))
+                ->toArray(),
         ]);
 
         if ($newStatus === 'PDC1_ACTIVE') {
             $group->loadMissing('period');
-            if (!$group->period || !$group->period->is_finalized) {
+            if (! $group->period || ! $group->period->is_finalized) {
                 throw new InvalidArgumentException(
-                    "Invalid transition to PDC1_ACTIVE: period must be finalized by admin first."
+                    'Invalid transition to PDC1_ACTIVE: period must be finalized by admin first.'
                 );
             }
         }
 
-        if (!$this->canTransition($currentStatus, $newStatus)) {
+        if (! $this->canTransition($currentStatus, $newStatus)) {
             throw new InvalidArgumentException(
-                "Invalid group state transition: {$currentStatus} → {$newStatus}. " .
-                "Allowed transitions from {$currentStatus}: " .
+                "Invalid group state transition: {$currentStatus} → {$newStatus}. ".
+                "Allowed transitions from {$currentStatus}: ".
                 implode(', ', self::TRANSITIONS[$currentStatus] ?? [])
             );
         }
@@ -167,6 +167,7 @@ class GroupStateMachine
     public function statusOrder(string $status): int
     {
         $index = array_search($status, self::ALL_STATUSES);
+
         return $index !== false ? $index : -1;
     }
 

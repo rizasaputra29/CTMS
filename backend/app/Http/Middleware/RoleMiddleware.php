@@ -23,16 +23,16 @@ class RoleMiddleware
             'required_roles' => $roles,
         ]);
 
-        if (!$request->user()) {
+        if (! $request->user()) {
             Log::warning('RoleMiddleware: User is null! Returning 401.');
             abort(401, 'Unauthenticated.');
         }
 
         // Check if user has ANY of the required roles
         $userRoles = $request->user()->roleSlugs();
-        $hasRole = !empty(array_intersect($userRoles, $roles));
+        $hasRole = ! empty(array_intersect($userRoles, $roles));
 
-        if (!$hasRole) {
+        if (! $hasRole) {
             Log::error('RoleMiddleware: Role mismatch!', [
                 'user_roles' => $userRoles,
                 'required_roles' => $roles,

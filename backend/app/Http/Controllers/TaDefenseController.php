@@ -20,6 +20,7 @@ class TaDefenseController extends Controller
     use RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
+
     protected SchedulingService $schedulingService;
 
     public function __construct(GroupStateMachine $stateMachine, SchedulingService $schedulingService)
@@ -71,7 +72,7 @@ class TaDefenseController extends Controller
             ->where('status', 'TA_REGISTERED')
             ->first();
 
-        if (!$taSubmission) {
+        if (! $taSubmission) {
             return response()->json(['message' => 'Student must have a TA submission in TA_REGISTERED status.'], 400);
         }
 
@@ -81,7 +82,7 @@ class TaDefenseController extends Controller
         // Validate examiners are dosen
         foreach (['examiner_1_id', 'examiner_2_id'] as $field) {
             $user = User::find($request->$field);
-            if (!$user || !$user->hasRole('dosen')) {
+            if (! $user || ! $user->hasRole('dosen')) {
                 return response()->json(['message' => "{$field} must be a dosen."], 400);
             }
         }
@@ -120,7 +121,7 @@ class TaDefenseController extends Controller
             $request->room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -221,15 +222,22 @@ class TaDefenseController extends Controller
         $request->validate([
             'rubric_json' => 'required|array',
             'score' => 'required|numeric|min:0|max:100',
+            'student_id' => 'nullable|exists:users,id',
         ]);
 
         $user = $request->user();
 
-        $evaluation = TaDefenseEvaluation::where('schedule_id', $scheduleId)
-            ->where('examiner_id', $user->id)
-            ->first();
+        $evaluationQuery = TaDefenseEvaluation::where('schedule_id', $scheduleId)
+            ->where('examiner_id', $user->id);
 
-        if (!$evaluation) {
+        // Filter by student_id if provided (for multi-student schedules)
+        if ($request->has('student_id')) {
+            $evaluationQuery->where('student_id', $request->student_id);
+        }
+
+        $evaluation = $evaluationQuery->first();
+
+        if (! $evaluation) {
             return response()->json(['message' => 'You are not assigned as examiner for this defense.'], 403);
         }
 
@@ -246,7 +254,7 @@ class TaDefenseController extends Controller
         try {
             // Calculate result based on score threshold (60)
             $result = $request->score >= 60 ? 'PASS' : 'FAIL';
-            
+
             $evaluationResult = $this->schedulingService->submitTaDefenseEvaluation(
                 $evaluation->id,
                 $request->rubric_json,
@@ -268,13 +276,16 @@ class TaDefenseController extends Controller
 
     /**
      * Student view: my TA defense schedule.
+     * Supports both single and multiple students via pivot table.
      */
     public function myDefense(Request $request)
     {
         $user = $request->user();
 
-        $schedule = TaDefenseSchedule::with(['examiners.examiner', 'evaluations.examiner'])
-            ->where('student_id', $user->id)
+        $schedule = TaDefenseSchedule::with(['examiners.examiner', 'evaluations.examiner', 'students'])
+            ->whereHas('students', function ($q) use ($user) {
+                $q->where('student_id', $user->id);
+            })
             ->first();
 
         return response()->json(['data' => $schedule]);
@@ -328,7 +339,7 @@ class TaDefenseController extends Controller
             $request->room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -337,7 +348,7 @@ class TaDefenseController extends Controller
             'start_time' => $request->start_time,
             'end_time' => $request->end_time,
             'room' => $request->room,
-            'status' => 'SCHEDULED'
+            'status' => 'SCHEDULED',
         ]);
 
         // Recreate examiners based on request
@@ -354,14 +365,14 @@ class TaDefenseController extends Controller
         ]);
 
         // Auto-attach supervisors (if not already attached)
-        if ($supervisor1 && !TaDefenseExaminer::where('schedule_id', $schedule->id)->where('examiner_id', $supervisor1->supervisor_id)->exists()) {
+        if ($supervisor1 && ! TaDefenseExaminer::where('schedule_id', $schedule->id)->where('examiner_id', $supervisor1->supervisor_id)->exists()) {
             TaDefenseExaminer::create([
                 'schedule_id' => $schedule->id,
                 'examiner_id' => $supervisor1->supervisor_id,
                 'role' => 'SUPERVISOR_1',
             ]);
         }
-        if ($supervisor2 && !TaDefenseExaminer::where('schedule_id', $schedule->id)->where('examiner_id', $supervisor2->supervisor_id)->exists()) {
+        if ($supervisor2 && ! TaDefenseExaminer::where('schedule_id', $schedule->id)->where('examiner_id', $supervisor2->supervisor_id)->exists()) {
             TaDefenseExaminer::create([
                 'schedule_id' => $schedule->id,
                 'examiner_id' => $supervisor2->supervisor_id,

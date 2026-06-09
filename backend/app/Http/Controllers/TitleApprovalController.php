@@ -3,13 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
-use App\Models\Title;
 use App\Models\Group;
 use App\Models\Notification;
+use App\Models\Title;
+use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
-use App\Services\GroupStateMachine;
 
 class TitleApprovalController extends Controller
 {
@@ -44,7 +43,7 @@ class TitleApprovalController extends Controller
             $query->where('period_id', $periodId);
         } else {
             // Default to current active period if no period_id provided
-            $query->whereHas('period', function($q) {
+            $query->whereHas('period', function ($q) {
                 $q->where('is_active', true);
             });
         }
@@ -54,6 +53,7 @@ class TitleApprovalController extends Controller
 
         $proposals = $proposals->map(function (Title $proposal) {
             $proposal->setAttribute('allowed_actions', $this->resolveLecturerProposalActions($proposal));
+
             return $proposal;
         });
 
@@ -76,7 +76,7 @@ class TitleApprovalController extends Controller
             ->with(['proposedByGroup.members.student', 'proposedByGroup.period', 'proposedSupervisor', 'stakeholders'])
             ->first();
 
-        if (!$proposal) {
+        if (! $proposal) {
             return response()->json(['message' => 'Proposal not found.'], 404);
         }
 
@@ -101,7 +101,7 @@ class TitleApprovalController extends Controller
             ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->first();
 
-        if (!$title) {
+        if (! $title) {
             return response()->json(['message' => 'Proposal not found or already processed.'], 404);
         }
 
@@ -114,7 +114,7 @@ class TitleApprovalController extends Controller
 
         $this->ensurePeriodIsActive($group);
 
-        if (!$group) {
+        if (! $group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
         }
 
@@ -122,9 +122,9 @@ class TitleApprovalController extends Controller
         try {
             $memberCount = $group->members()->count();
             $minSize = $group->period->min_group_size ?? 3;
-            
+
             // Determine approval type based on member count and group type
-            $newStatus = ($memberCount < $minSize && !$group->is_solo) ? 'UNDER_REVIEW' : 'APPROVED';
+            $newStatus = ($memberCount < $minSize && ! $group->is_solo) ? 'UNDER_REVIEW' : 'APPROVED';
 
             // Approve the title (or Pre-Approve if lacking members)
             $title->update([
@@ -139,7 +139,7 @@ class TitleApprovalController extends Controller
             // If Approved, link title_id to the group and handle status transition
             if ($newStatus === 'APPROVED') {
                 $group->update(['title_id' => $title->id]);
-                
+
                 // Both solo seeker AND normal group → TITLE_APPROVED
                 if ($this->stateMachine->canTransition($group->status, 'TITLE_APPROVED')) {
                     $this->stateMachine->transition($group, 'TITLE_APPROVED');
@@ -153,8 +153,8 @@ class TitleApprovalController extends Controller
             // Notify all group members
             $verb = $newStatus === 'APPROVED' ? 'Approved' : 'Under Review';
             $msgPart = $newStatus === 'APPROVED'
-                ? "await admin finalization."
-                : "complete your team members first.";
+                ? 'await admin finalization.'
+                : 'complete your team members first.';
 
             // Batch insert notifications for better performance
             $notifications = [];
@@ -172,7 +172,7 @@ class TitleApprovalController extends Controller
                 ];
             }
 
-            if (!empty($notifications)) {
+            if (! empty($notifications)) {
                 Notification::insert($notifications);
             }
 
@@ -184,7 +184,8 @@ class TitleApprovalController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to approve: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to approve: '.$e->getMessage()], 500);
         }
     }
 
@@ -205,7 +206,7 @@ class TitleApprovalController extends Controller
             ->whereIn('supervisor_approval_status', ['PENDING', 'UNDER_REVIEW'])
             ->first();
 
-        if (!$title) {
+        if (! $title) {
             return response()->json(['message' => 'Proposal not found or already processed.'], 404);
         }
 
@@ -213,7 +214,7 @@ class TitleApprovalController extends Controller
 
         $this->ensurePeriodIsActive($group);
 
-        if (!$group) {
+        if (! $group) {
             return response()->json(['message' => 'Associated group not found.'], 404);
         }
 
@@ -225,7 +226,7 @@ class TitleApprovalController extends Controller
             ]);
             $group->update(['has_active_proposal' => false]);
 
-            // Reject proposal - do NOT hardcode status. 
+            // Reject proposal - do NOT hardcode status.
             // Use determineStatus() to recalculate based on member count ONLY.
             // This follows the principle: cancel/reject/withdraw NEVER changes group status.
             $group->status = $group->determineStatus();
@@ -247,7 +248,7 @@ class TitleApprovalController extends Controller
                 ];
             }
 
-            if (!empty($notifications)) {
+            if (! empty($notifications)) {
                 Notification::insert($notifications);
             }
 
@@ -259,7 +260,8 @@ class TitleApprovalController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to reject: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to reject: '.$e->getMessage()], 500);
         }
     }
 
@@ -282,7 +284,7 @@ class TitleApprovalController extends Controller
 
     private function resolveLecturerProposalActions(Title $proposal): array
     {
-        if (!in_array($proposal->supervisor_approval_status, ['PENDING', 'UNDER_REVIEW'], true)) {
+        if (! in_array($proposal->supervisor_approval_status, ['PENDING', 'UNDER_REVIEW'], true)) {
             return [
                 'can_approve' => false,
                 'can_reject' => false,

@@ -2,13 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\PeerReview;
 use App\Models\Group;
+use App\Models\PeerReview;
 use App\Repositories\AssessmentScoreRepository;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportDetailController extends Controller
@@ -39,7 +37,7 @@ class ReportDetailController extends Controller
                 ->whereHas('group', function ($q) use ($periodId) {
                     $q->where('period_id', $periodId);
                 });
-            
+
             if ($first) {
                 $query = $typeQuery;
                 $first = false;
@@ -61,7 +59,7 @@ class ReportDetailController extends Controller
             $search = $request->student_search;
             $query->whereHas('student', function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('nim', 'like', "%{$search}%");
+                    ->orWhere('nim', 'like', "%{$search}%");
             });
         }
 
@@ -92,6 +90,7 @@ class ReportDetailController extends Controller
             } else {
                 $score->component_display = null;
             }
+
             return $score;
         });
 
@@ -102,7 +101,7 @@ class ReportDetailController extends Controller
                 'last_page' => $scores->lastPage(),
                 'per_page' => $scores->perPage(),
                 'total' => $scores->total(),
-            ]
+            ],
         ]);
     }
 
@@ -147,6 +146,7 @@ class ReportDetailController extends Controller
             $array = $review->toArray();
             $array['score'] = (float) $array['score']; // Ensure score is number
             $array['periodIndicator'] = $array['period_indicator']; // Add camelCase alias
+
             return $array;
         });
 
@@ -157,7 +157,7 @@ class ReportDetailController extends Controller
                 'last_page' => $reviews->lastPage(),
                 'per_page' => $reviews->perPage(),
                 'total' => $reviews->total(),
-            ]
+            ],
         ]);
     }
 
@@ -177,7 +177,7 @@ class ReportDetailController extends Controller
 
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
-        $gradeService = new GradeCalculationService();
+        $gradeService = new GradeCalculationService;
 
         // Preload period data for batch calculations
         $gradeService->preloadPeriodData($periodId);
@@ -198,7 +198,9 @@ class ReportDetailController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
+                if (! $student) {
+                    continue;
+                }
 
                 $studentGroupPairs[] = [
                     'student_id' => $student->id,
@@ -243,10 +245,16 @@ class ReportDetailController extends Controller
 
             // Calculate final grade (average of available scores)
             $availableScores = [];
-            if ($pdc1Score !== null) $availableScores[] = $pdc1Score;
-            if ($pdc2Score !== null) $availableScores[] = $pdc2Score;
-            if ($taScore !== null) $availableScores[] = $taScore;
-            
+            if ($pdc1Score !== null) {
+                $availableScores[] = $pdc1Score;
+            }
+            if ($pdc2Score !== null) {
+                $availableScores[] = $pdc2Score;
+            }
+            if ($taScore !== null) {
+                $availableScores[] = $taScore;
+            }
+
             $finalGrade = count($availableScores) > 0 ? array_sum($availableScores) / count($availableScores) : 0;
 
             $letterGrade = $gradeService->getLetterGrade($finalGrade);
@@ -306,7 +314,7 @@ class ReportDetailController extends Controller
                 'last_page' => ceil($total / $perPage),
                 'per_page' => $perPage,
                 'total' => $total,
-            ]
+            ],
         ]);
     }
 
@@ -325,7 +333,7 @@ class ReportDetailController extends Controller
 
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
-        $gradeService = new GradeCalculationService();
+        $gradeService = new GradeCalculationService;
 
         // Preload period data for batch calculations
         $gradeService->preloadPeriodData($periodId);
@@ -341,7 +349,9 @@ class ReportDetailController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
+                if (! $student) {
+                    continue;
+                }
 
                 $studentGroupPairs[] = [
                     'student_id' => $student->id,
@@ -390,8 +400,8 @@ class ReportDetailController extends Controller
                 // Apply student search filter
                 if ($request->filled('student_search')) {
                     $search = strtolower($request->student_search);
-                    if (!str_contains(strtolower($student->name), $search) &&
-                        !str_contains(strtolower($student->nim ?? ''), $search)) {
+                    if (! str_contains(strtolower($student->name), $search) &&
+                        ! str_contains(strtolower($student->nim ?? ''), $search)) {
                         continue;
                     }
                 }
@@ -434,7 +444,7 @@ class ReportDetailController extends Controller
                 'last_page' => ceil($total / $perPage),
                 'per_page' => $perPage,
                 'total' => $total,
-            ]
+            ],
         ]);
     }
 
@@ -509,7 +519,7 @@ class ReportDetailController extends Controller
                 'last_page' => $groups->lastPage(),
                 'per_page' => $groups->perPage(),
                 'total' => $groups->total(),
-            ]
+            ],
         ]);
     }
 
@@ -678,14 +688,18 @@ class ReportDetailController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
+                if (! $student) {
+                    continue;
+                }
 
                 // Filter by search
                 if ($search) {
                     $searchLower = strtolower($search);
                     $nameMatch = stripos(strtolower($student->name), $searchLower) !== false;
                     $nimMatch = stripos(strtolower($student->nim ?? ''), $searchLower) !== false;
-                    if (!$nameMatch && !$nimMatch) continue;
+                    if (! $nameMatch && ! $nimMatch) {
+                        continue;
+                    }
                 }
 
                 $studentGroupPairs = [['student_id' => $student->id, 'group_id' => $group->id]];
@@ -717,7 +731,7 @@ class ReportDetailController extends Controller
                     $totalComponents = $bimbinganTaScores->count();
                     $scoredComponents = $bimbinganTaScores->whereNotNull('score')->count();
                     $avgScore = $bimbinganTaScores->whereNotNull('score')->avg('score');
-                    
+
                     $evaluations['BIMBINGAN_TA'] = [
                         'score' => $avgScore ? round($avgScore, 2) : null,
                         'status' => $scoredComponents === $totalComponents ? 'COMPLETE' : ($scoredComponents > 0 ? 'PARTIAL' : 'NOT_STARTED'),
@@ -739,9 +753,9 @@ class ReportDetailController extends Controller
 
         // Sort students
         if ($sortBy === 'name') {
-            usort($students, fn($a, $b) => strcmp($a['student_name'], $b['student_name']));
+            usort($students, fn ($a, $b) => strcmp($a['student_name'], $b['student_name']));
         } else {
-            usort($students, fn($a, $b) => strcmp($a['group_name'], $b['group_name']) ?: strcmp($a['student_name'], $b['student_name']));
+            usort($students, fn ($a, $b) => strcmp($a['group_name'], $b['group_name']) ?: strcmp($a['student_name'], $b['student_name']));
         }
 
         // Manual pagination
@@ -766,7 +780,7 @@ class ReportDetailController extends Controller
      */
     private function calculateEvaluationStatus($data, string $type): array
     {
-        if (!$data) {
+        if (! $data) {
             return [
                 'score' => null,
                 'status' => 'NOT_STARTED',
@@ -782,7 +796,7 @@ class ReportDetailController extends Controller
             if (isset($data['components'][$type])) {
                 $component = $data['components'][$type];
                 $hasScore = isset($component['score']) && $component['score'] !== null;
-                
+
                 return [
                     'score' => $hasScore ? round($component['score'], 2) : null,
                     'status' => $hasScore ? 'COMPLETE' : 'NOT_STARTED',
@@ -824,7 +838,7 @@ class ReportDetailController extends Controller
 
         // Validate evaluation type
         $supportedTypes = AssessmentScoreRepository::getSupportedTypes();
-        if (!in_array($evaluationType, $supportedTypes)) {
+        if (! in_array($evaluationType, $supportedTypes)) {
             return response()->json(['error' => 'Invalid evaluation type'], 400);
         }
 
@@ -836,12 +850,12 @@ class ReportDetailController extends Controller
             ->with(['members.student', 'title'])
             ->first();
 
-        if (!$group) {
+        if (! $group) {
             return response()->json(['error' => 'Student not found in this period'], 404);
         }
 
         $student = $group->members->firstWhere('student_id', $studentId)?->student;
-        if (!$student) {
+        if (! $student) {
             return response()->json(['error' => 'Student not found'], 404);
         }
 
@@ -869,15 +883,15 @@ class ReportDetailController extends Controller
             ];
 
             // Track last evaluated date
-            if ($score->created_at && (!$lastEvaluatedOverall || $score->created_at > $lastEvaluatedOverall)) {
+            if ($score->created_at && (! $lastEvaluatedOverall || $score->created_at > $lastEvaluatedOverall)) {
                 $lastEvaluatedOverall = $score->created_at;
             }
 
             // Group by evaluator
             if ($score->evaluator) {
                 $evaluatorId = $score->evaluator->id;
-                
-                if (!isset($evaluatorGroups[$evaluatorId])) {
+
+                if (! isset($evaluatorGroups[$evaluatorId])) {
                     $evaluatorGroups[$evaluatorId] = [
                         'evaluator_id' => $evaluatorId,
                         'name' => $score->evaluator->name,
@@ -885,7 +899,7 @@ class ReportDetailController extends Controller
                         'components' => [],
                     ];
                 }
-                
+
                 $evaluatorGroups[$evaluatorId]['components'][] = $component;
             } else {
                 $unassignedComponents[] = $component;
@@ -895,21 +909,21 @@ class ReportDetailController extends Controller
         // Build evaluator data with normalized weights and calculations
         $evaluators = [];
         $completedEvaluators = 0;
-        
+
         foreach ($evaluatorGroups as $evaluatorId => $evaluatorData) {
             $components = $evaluatorData['components'];
-            
+
             // Calculate total weight for normalization
             $totalWeight = array_sum(array_column($components, 'weight'));
-            
+
             // Normalize weights and build component data
             $normalizedComponents = [];
             $scoredCount = 0;
             $totalScore = 0;
-            
+
             foreach ($components as $comp) {
                 $normalizedWeight = $totalWeight > 0 ? round(($comp['weight'] / $totalWeight) * 100, 2) : 0;
-                
+
                 $normalizedComponents[] = [
                     'component_id' => $comp['component_id'],
                     'component_code' => $comp['component_code'],
@@ -920,16 +934,16 @@ class ReportDetailController extends Controller
                     'notes' => $comp['notes'],
                     'evaluated_at' => $comp['evaluated_at'],
                 ];
-                
+
                 if ($comp['score'] !== null) {
                     $scoredCount++;
                     $totalScore += $comp['score'] * $normalizedWeight;
                 }
             }
-            
+
             // Calculate evaluator's final score (weights sum to 100)
             $finalScore = $scoredCount > 0 && $totalWeight > 0 ? round($totalScore / 100, 2) : null;
-            
+
             // Determine evaluator status
             $totalComponents = count($components);
             $evaluatorStatus = 'NOT_STARTED';
@@ -939,7 +953,7 @@ class ReportDetailController extends Controller
             } elseif ($scoredCount > 0) {
                 $evaluatorStatus = 'PARTIAL';
             }
-            
+
             // Build calculation breakdown
             $calculationBreakdown = [];
             foreach ($normalizedComponents as $comp) {
@@ -952,7 +966,7 @@ class ReportDetailController extends Controller
                     ];
                 }
             }
-            
+
             $evaluators[] = [
                 'evaluator_id' => $evaluatorId,
                 'name' => $evaluatorData['name'],
@@ -973,20 +987,20 @@ class ReportDetailController extends Controller
         }
 
         // Calculate overall score (simple average of evaluator scores)
-        $evaluatorScores = array_filter(array_column($evaluators, 'score'), fn($s) => $s !== null);
+        $evaluatorScores = array_filter(array_column($evaluators, 'score'), fn ($s) => $s !== null);
         $overallScore = count($evaluatorScores) > 0 ? round(array_sum($evaluatorScores) / count($evaluatorScores), 2) : null;
-        
+
         // Determine overall status
         $overallStatus = 'NOT_STARTED';
         $totalEvaluators = count($evaluators);
-        
+
         if (count($unassignedComponents) > 0) {
             $overallStatus = 'PARTIAL';
         } elseif ($totalEvaluators === 0) {
             $overallStatus = 'NOT_STARTED';
         } elseif ($completedEvaluators === $totalEvaluators) {
             $overallStatus = 'COMPLETE';
-        } elseif ($completedEvaluators > 0 || count(array_filter($evaluators, fn($e) => $e['status'] === 'PARTIAL')) > 0) {
+        } elseif ($completedEvaluators > 0 || count(array_filter($evaluators, fn ($e) => $e['status'] === 'PARTIAL')) > 0) {
             $overallStatus = 'PARTIAL';
         }
 
@@ -1055,13 +1069,17 @@ class ReportDetailController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
+                if (! $student) {
+                    continue;
+                }
 
                 if ($search) {
                     $searchLower = strtolower($search);
                     $nameMatch = stripos(strtolower($student->name), $searchLower) !== false;
                     $nimMatch = stripos(strtolower($student->nim ?? ''), $searchLower) !== false;
-                    if (!$nameMatch && !$nimMatch) continue;
+                    if (! $nameMatch && ! $nimMatch) {
+                        continue;
+                    }
                 }
 
                 $studentGroupPairs = [['student_id' => $student->id, 'group_id' => $group->id]];
@@ -1090,9 +1108,9 @@ class ReportDetailController extends Controller
         }
 
         if ($sortBy === 'name') {
-            usort($students, fn($a, $b) => strcmp($a['student_name'], $b['student_name']));
+            usort($students, fn ($a, $b) => strcmp($a['student_name'], $b['student_name']));
         } else {
-            usort($students, fn($a, $b) => strcmp($a['group_name'], $b['group_name']) ?: strcmp($a['student_name'], $b['student_name']));
+            usort($students, fn ($a, $b) => strcmp($a['group_name'], $b['group_name']) ?: strcmp($a['student_name'], $b['student_name']));
         }
 
         return $this->exportStudentEvaluationsCsv($students);
@@ -1105,14 +1123,14 @@ class ReportDetailController extends Controller
     {
         return response()->streamDownload(function () use ($students) {
             $handle = fopen('php://output', 'w');
-            
+
             // Header row with 3 columns per evaluation type
             $headers = ['Group', 'Student Name', 'NIM'];
             $evaluationTypes = ['SEMPRO', 'BIMBINGAN_SEMPRO', 'SIDANG_TA', 'BIMBINGAN_TA', 'EXPO', 'MILESTONE', 'NILAI_DOSEN'];
             foreach ($evaluationTypes as $type) {
-                $headers[] = $type . ' Score';
-                $headers[] = $type . ' Status';
-                $headers[] = $type . ' Components';
+                $headers[] = $type.' Score';
+                $headers[] = $type.' Status';
+                $headers[] = $type.' Components';
             }
             fputcsv($handle, $headers);
 
@@ -1123,14 +1141,14 @@ class ReportDetailController extends Controller
                     $student['student_name'],
                     $student['student_nim'],
                 ];
-                
+
                 foreach ($evaluationTypes as $type) {
                     $eval = $student['evaluations'][$type];
                     $row[] = $eval['score'] ?? '';
                     $row[] = $eval['status'];
-                    $row[] = $eval['scored_components'] . '/' . $eval['total_components'];
+                    $row[] = $eval['scored_components'].'/'.$eval['total_components'];
                 }
-                
+
                 fputcsv($handle, $row);
             }
 

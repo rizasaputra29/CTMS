@@ -127,7 +127,7 @@ class TitleSeeder extends Seeder
 
         foreach ($titles as $row) {
             $lecturerId = $lecturerByEmail->get($row['lecturer_email']);
-            if (!$lecturerId) {
+            if (! $lecturerId) {
                 continue;
             }
 

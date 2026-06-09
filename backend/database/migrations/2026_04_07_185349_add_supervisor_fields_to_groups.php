@@ -13,13 +13,13 @@ return new class extends Migration
     {
         Schema::table('groups', function (Blueprint $table) {
             // Only add fields that don't exist yet
-            if (!Schema::hasColumn('groups', 'finalization_notes')) {
+            if (! Schema::hasColumn('groups', 'finalization_notes')) {
                 $table->text('finalization_notes')->nullable()->after('status');
             }
-            if (!Schema::hasColumn('groups', 'finalized_at')) {
+            if (! Schema::hasColumn('groups', 'finalized_at')) {
                 $table->timestamp('finalized_at')->nullable()->after('finalization_notes');
             }
-            if (!Schema::hasColumn('groups', 'finalized_by')) {
+            if (! Schema::hasColumn('groups', 'finalized_by')) {
                 $table->foreignId('finalized_by')->nullable()->after('finalized_at')->constrained('users')->onDelete('set null');
             }
         });

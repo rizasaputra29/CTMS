@@ -28,7 +28,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table"
-import { Plus, Trash2, Edit, Search, ArrowUpDown, Loader2, ChevronLeft, ChevronRight, UserX } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, ArrowUpDown, ChevronLeft, ChevronRight, UserX, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { toast } from "sonner";
 import { isRoleTab, type RoleTab } from "@/types/guards";
 import { userSchema, type UserFormData } from "@/lib/validations/user";
@@ -419,11 +420,11 @@ export default function AdminUsersPage() {
                                     disabled={kickingUserId === user.id}
                                     title="Kick dari periode"
                                 >
-                                    {kickingUserId === user.id ? (
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <UserX className="h-4 w-4" />
-                                    )}
+                                {kickingUserId === user.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                    <UserX className="h-4 w-4" />
+                                )}
                                 </Button>
                             )}
                             {user.id !== 1 && (
@@ -671,9 +672,7 @@ export default function AdminUsersPage() {
 
             {/* Table */}
             {loading ? (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
+                <Loading variant="section" />
             ) : users.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
                     No users found.

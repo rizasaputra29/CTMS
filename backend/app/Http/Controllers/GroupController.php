@@ -3,9 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
+use App\Http\Requests\Group\AddMemberRequest;
+use App\Http\Requests\Group\AssignSupervisor2Request;
+use App\Http\Requests\Group\ProposeSupervisorsRequest;
 use App\Models\AuditLog;
-use App\Models\Document;
-use App\Models\Evaluation;
 use App\Models\Group;
 use App\Models\GroupInvitation;
 use App\Models\GroupMember;
@@ -14,17 +15,13 @@ use App\Models\JoinRequest;
 use App\Models\Notification;
 use App\Models\Period;
 use App\Models\PeriodRegistration;
-use App\Models\Schedule;
-use App\Models\SeminarSchedule;
 use App\Models\Supervision;
-use App\Models\TaDefenseSchedule;
-use App\Models\TaSubmission;
 use App\Models\Title;
-use App\Models\TitleApprovalAudit;
 use App\Models\User;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -33,7 +30,9 @@ class GroupController extends Controller
     use RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
+
     protected \App\Services\GroupService $groupService;
+
     protected NotificationService $notificationService;
 
     public function __construct(GroupStateMachine $stateMachine, \App\Services\GroupService $groupService, NotificationService $notificationService)
@@ -46,55 +45,63 @@ class GroupController extends Controller
     public function index(Request $request)
     {
         $user = $request->user();
-        
-        // Determine which period to use
-        $period = null;
-        
-        // 1. If period_id is provided in request, use it
-        if ($request->has('period_id')) {
-            $period = Period::find($request->period_id);
-        }
-        
-        // 2. If no period_id, find the period the user is registered in
-        if (!$period) {
-            $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
-                ->first();
-            if ($registration) {
-                $period = Period::find($registration->period_id);
+        $periodId = $request->input('period_id', 'current');
+
+        // Cache key: user group data per period
+        $cacheKey = "user:{$user->id}:group:{$periodId}";
+
+        $result = Cache::remember($cacheKey, 60, function () use ($user, $request) {
+            // Determine which period to use
+            $period = null;
+
+            // 1. If period_id is provided in request, use it
+            if ($request->has('period_id')) {
+                $period = Period::find($request->period_id);
             }
-        }
-        
-        // 3. Fallback to current active period (backward compatibility)
-        if (!$period) {
-            $period = Period::where('is_active', true)
-                ->orderBy('created_at', 'desc')
+
+            // 2. If no period_id, find the period the user is registered in
+            if (! $period) {
+                $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
+                    ->first();
+                if ($registration) {
+                    $period = Period::find($registration->period_id);
+                }
+            }
+
+            // 3. Fallback to current active period (backward compatibility)
+            if (! $period) {
+                $period = Period::where('is_active', true)
+                    ->orderBy('created_at', 'desc')
+                    ->first();
+            }
+
+            $membership = GroupMember::where('student_id', $user->id)
+                ->where('period_id', $period?->id)
+                ->whereHas('group', function ($q) {
+                    $q->whereNotIn('status', ['CLOSED']);
+                })
                 ->first();
-        }
 
-        $membership = GroupMember::where('student_id', $user->id)
-            ->where('period_id', $period?->id)
-            ->whereHas('group', function ($q) {
-                $q->whereNotIn('status', ['CLOSED']);
-            })
-            ->first();
+            if (! $membership || ! $period) {
+                return ['group' => null];
+            }
 
-        if (!$membership || !$period) {
-            return response()->json(['group' => null]);
-        }
+            $group = Group::with([
+                'members.student',
+                'title.lecturer',
+                'period',
+                'bids.title',
+                'supervisorProposals.supervisor1',
+                'supervisorProposals.supervisor2',
+                'supervisions.supervisor',
+                'supervisor1',
+                'supervisor2',
+            ])->find($membership->group_id);
 
-        $group = Group::with([
-            'members.student',
-            'title.lecturer',
-            'period',
-            'bids.title',
-            'supervisorProposals.supervisor1',
-            'supervisorProposals.supervisor2',
-            'supervisions.supervisor',
-            'supervisor1',
-            'supervisor2',
-        ])->find($membership->group_id);
+            return ['group' => $this->buildCanonicalGroupPayload($group, $user)];
+        });
 
-        return response()->json(['group' => $this->buildCanonicalGroupPayload($group, $user)]);
+        return response()->json($result);
     }
 
     public function listGroups(Request $request)
@@ -111,7 +118,7 @@ class GroupController extends Controller
             $groupArray['status_label'] = $this->resolveAdminStatusLabel($group->status);
             $groupArray['allowed_actions'] = [
                 'can_manage_finalization' => in_array($group->status, ['READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'TITLE_APPROVED', 'READY_FOR_BIDDING'], true)
-                    && !($group->period?->is_finalized),
+                    && ! ($group->period?->is_finalized),
                 'reason' => $group->period?->is_finalized ? 'PERIOD_FINALIZED' : null,
             ];
 
@@ -150,10 +157,10 @@ class GroupController extends Controller
                 $q->whereHas('title', function ($titleQuery) use ($search) {
                     $titleQuery->where('title', 'like', "%{$search}%");
                 })
-                ->orWhereHas('members.student', function ($studentQuery) use ($search) {
-                    $studentQuery->where('name', 'like', "%{$search}%")
-                        ->orWhere('nim', 'like', "%{$search}%");
-                });
+                    ->orWhereHas('members.student', function ($studentQuery) use ($search) {
+                        $studentQuery->where('name', 'like', "%{$search}%")
+                            ->orWhere('nim', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -170,7 +177,7 @@ class GroupController extends Controller
         $workflowService = app(\App\Services\WorkflowService::class);
         $stateMachine = app(\App\Services\GroupStateMachine::class);
 
-        $transformedData = $groups->getCollection()->map(function (Group $group) use ($workflowService, $allRequirements, $stateMachine) {
+        $transformedData = $groups->getCollection()->map(function (Group $group) use ($workflowService, $allRequirements) {
             // Get documents for this group
             $documents = $group->documents ?? collect();
             $periodRequirements = $allRequirements->where('period_id', $group->period_id);
@@ -191,7 +198,7 @@ class GroupController extends Controller
                 'FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_PROPOSED', 'TITLE_APPROVED',
                 'READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE',
                 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'READY_FOR_TA_INDIVIDUAL',
-                'TA_IN_PROGRESS', 'CLOSED', 'DISSOLVED'
+                'TA_IN_PROGRESS', 'CLOSED', 'DISSOLVED',
             ];
             $statusIndex = array_search($group->status, $statusOrder);
             $progressPercentage = $statusIndex !== false
@@ -299,7 +306,7 @@ class GroupController extends Controller
                 ->first();
         }
 
-        if (!$period) {
+        if (! $period) {
             return response()->json(['message' => 'Periode pendaftaran tidak ditemukan atau sudah ditutup.'], 400);
         }
 
@@ -344,13 +351,15 @@ class GroupController extends Controller
             $this->groupService->evaluateGroupReadiness($group);
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Group created successfully.',
                 'group' => $this->buildCanonicalGroupPayload($group->load('members.student', 'period'), $user),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to create group: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to create group: '.$e->getMessage()], 500);
         }
     }
 
@@ -373,7 +382,7 @@ class GroupController extends Controller
                 ->first();
         }
 
-        if (!$period) {
+        if (! $period) {
             return response()->json(['message' => 'Periode pendaftaran tidak ditemukan atau sudah ditutup.'], 400);
         }
 
@@ -415,13 +424,15 @@ class GroupController extends Controller
             ]);
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Solo group created successfully.',
                 'group' => $this->buildCanonicalGroupPayload($group->load('members.student', 'period'), $user),
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to create solo group: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to create solo group: '.$e->getMessage()], 500);
         }
     }
 
@@ -438,11 +449,11 @@ class GroupController extends Controller
             })
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'Anda belum memiliki kelompok. Buat atau bergabung dengan kelompok terlebih dahulu.'], 400);
         }
 
-        if (!$membership->is_leader) {
+        if (! $membership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat membubarkan kelompok.'], 403);
         }
 
@@ -480,30 +491,29 @@ class GroupController extends Controller
             $group->delete();
 
             DB::commit();
+
             return response()->json(['message' => 'Group deleted successfully.']);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to delete group: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to delete group: '.$e->getMessage()], 500);
         }
     }
 
     /**
      * Add a member to the current user's group (leader only).
      */
-    public function addMember(Request $request)
+    public function addMember(AddMemberRequest $request)
     {
-        $request->validate([
-            'email' => 'required|email|exists:users,email',
-        ]);
 
         $user = $request->user();
 
         $leaderMembership = GroupMember::where('student_id', $user->id)->first();
-        if (!$leaderMembership) {
+        if (! $leaderMembership) {
             return response()->json(['message' => 'Anda belum memiliki kelompok. Buat atau bergabung dengan kelompok terlebih dahulu.'], 400);
         }
 
-        if (!$leaderMembership->is_leader) {
+        if (! $leaderMembership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat menambahkan anggota.'], 403);
         }
 
@@ -525,7 +535,7 @@ class GroupController extends Controller
 
         // Find the student to add
         $student = User::where('email', $request->email)->where('role', 'mahasiswa')->first();
-        if (!$student) {
+        if (! $student) {
             return response()->json(['message' => 'Mahasiswa tidak ditemukan.'], 404);
         }
 
@@ -573,13 +583,15 @@ class GroupController extends Controller
             );
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Invitation sent successfully',
                 'group' => $this->buildCanonicalGroupPayload($group->fresh()->load('members.student', 'period'), $user),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to send invitation: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to send invitation: '.$e->getMessage()], 500);
         }
     }
 
@@ -594,7 +606,7 @@ class GroupController extends Controller
             ->where('status', 'PENDING')
             ->first();
 
-        if (!$invitation) {
+        if (! $invitation) {
             return response()->json(['message' => 'Undangan tidak ditemukan atau sudah diproses.'], 404);
         }
 
@@ -602,7 +614,7 @@ class GroupController extends Controller
 
         $this->ensurePeriodIsActive($group);
 
-        if (!$group || $group->status === 'CLOSED') {
+        if (! $group || $group->status === 'CLOSED') {
             return response()->json(['message' => 'Kelompok tidak tersedia lagi.'], 400);
         }
 
@@ -620,7 +632,7 @@ class GroupController extends Controller
         // Prevent joining if the title has been withdrawn by lecturer
         if ($group->is_solo && $group->title_id) {
             $title = \App\Models\Title::find($group->title_id);
-            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+            if (! $title || $title->supervisor_approval_status !== 'APPROVED') {
                 return response()->json(['message' => 'Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat bergabung.'], 400);
             }
         }
@@ -650,7 +662,7 @@ class GroupController extends Controller
             ->exists();
 
         $autoRegistered = false;
-        if (!$isRegistered) {
+        if (! $isRegistered) {
             PeriodRegistration::create([
                 'user_id' => $user->id,
                 'period_id' => $group->period_id,
@@ -661,7 +673,7 @@ class GroupController extends Controller
         DB::beginTransaction();
         try {
             $this->groupService->handleJoinGroup($user, $group);
-            
+
             DB::commit();
 
             $response = [
@@ -676,7 +688,8 @@ class GroupController extends Controller
             return response()->json($response);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to accept invitation: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to accept invitation: '.$e->getMessage()], 500);
         }
     }
 
@@ -691,7 +704,7 @@ class GroupController extends Controller
             ->where('status', 'PENDING')
             ->first();
 
-        if (!$invitation) {
+        if (! $invitation) {
             return response()->json(['message' => 'Undangan tidak ditemukan atau sudah diproses.'], 404);
         }
 
@@ -723,11 +736,11 @@ class GroupController extends Controller
         $user = $request->user();
 
         $leaderMembership = GroupMember::where('student_id', $user->id)->first();
-        if (!$leaderMembership) {
+        if (! $leaderMembership) {
             return response()->json(['message' => 'Anda belum memiliki kelompok.'], 400);
         }
 
-        if (!$leaderMembership->is_leader) {
+        if (! $leaderMembership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengeluarkan anggota.'], 403);
         }
 
@@ -735,7 +748,7 @@ class GroupController extends Controller
             ->where('group_id', $leaderMembership->group_id)
             ->first();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json(['message' => 'Anggota tidak ditemukan di kelompok Anda.'], 404);
         }
 
@@ -748,7 +761,7 @@ class GroupController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // LOCKED: After READY_FOR_FINALIZATION, cannot modify members (admin can bypass)
-        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION') && !$user->hasRole('admin')) {
+        if ($this->stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION') && ! $user->hasRole('admin')) {
             return response()->json([
                 'message' => 'Kelompok sudah terkunci (Ready for Finalization). Batalkan finalisasi terlebih dahulu untuk mengubah anggota.',
             ], 400);
@@ -785,13 +798,15 @@ class GroupController extends Controller
             DB::commit();
 
             $group = Group::with('members.student')->find($leaderMembership->group_id);
+
             return response()->json([
                 'message' => 'Member removed',
                 'group' => $this->buildCanonicalGroupPayload($group->load('period'), $user),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to remove member: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to remove member: '.$e->getMessage()], 500);
         }
     }
 
@@ -803,7 +818,7 @@ class GroupController extends Controller
         $user = $request->user();
 
         $membership = GroupMember::where('student_id', $user->id)->first();
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'Anda belum memiliki kelompok.'], 400);
         }
 
@@ -815,7 +830,7 @@ class GroupController extends Controller
 
         $this->ensurePeriodIsActive($group);
 
-        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
+        if (! in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
             return response()->json([
                 'message' => 'Hanya dapat keluar sepenuhnya dari grup dengan status FORMING.',
                 'current_status' => $group->status,
@@ -838,32 +853,30 @@ class GroupController extends Controller
             }
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Anda telah keluar dari grup dan tidak memiliki kelompok aktif.',
                 'group_dissolved' => $remainingMembers === 0,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal keluar dari grup: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal keluar dari grup: '.$e->getMessage()], 500);
         }
     }
 
     /**
      * Propose preferred supervisors (group leader only, when READY_FOR_BIDDING).
      */
-    public function proposeSupervisors(Request $request)
+    public function proposeSupervisors(ProposeSupervisorsRequest $request)
     {
-        $request->validate([
-            'proposed_supervisor_1_id' => 'required|exists:users,id',
-            'proposed_supervisor_2_id' => 'nullable|exists:users,id|different:proposed_supervisor_1_id',
-        ]);
 
         $user = $request->user();
 
         $leaderMembership = GroupMember::where('student_id', $user->id)
             ->first();
 
-        if (!$leaderMembership || !$leaderMembership->is_leader) {
+        if (! $leaderMembership || ! $leaderMembership->is_leader) {
             return response()->json(['message' => 'Only the group leader can propose supervisors.'], 403);
         }
 
@@ -882,12 +895,12 @@ class GroupController extends Controller
 
         // Validate supervisors are dosen
         $sup1 = User::find($request->proposed_supervisor_1_id);
-        if (!$sup1 || !$sup1->hasRole('dosen')) {
+        if (! $sup1 || ! $sup1->hasRole('dosen')) {
             return response()->json(['message' => 'Proposed supervisor 1 must be a lecturer.'], 400);
         }
         if ($request->proposed_supervisor_2_id) {
             $sup2 = User::find($request->proposed_supervisor_2_id);
-            if (!$sup2 || !$sup2->hasRole('dosen')) {
+            if (! $sup2 || ! $sup2->hasRole('dosen')) {
                 return response()->json(['message' => 'Proposed supervisor 2 must be a lecturer.'], 400);
             }
         }
@@ -947,7 +960,7 @@ class GroupController extends Controller
         $periodId = $request->query('period_id');
 
         // Use provided period_id or default to current active period
-        if (!$periodId) {
+        if (! $periodId) {
             $currentPeriod = Period::where('is_active', true)
                 ->orderBy('created_at', 'desc')
                 ->first();
@@ -970,17 +983,13 @@ class GroupController extends Controller
     /**
      * [Admin] Assign Supervisor 2 (Dosbing 2) to a group. Admin exclusive.
      */
-    public function assignSupervisor2(Request $request, Group $group)
+    public function assignSupervisor2(AssignSupervisor2Request $request, Group $group)
     {
         $this->ensurePeriodIsActive($group);
 
-        $request->validate([
-            'supervisor_2_id' => 'required|exists:users,id',
-        ]);
-
         $supervisor = User::findOrFail($request->supervisor_2_id);
 
-        if (!$supervisor->hasRole('dosen')) {
+        if (! $supervisor->hasRole('dosen')) {
             return response()->json(['message' => 'Supervisor 2 must be a lecturer.'], 400);
         }
 
@@ -1011,18 +1020,19 @@ class GroupController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed: '.$e->getMessage()], 500);
         }
     }
 
-     /**
-      * Leader marks group as ready for finalization.
-      * Prerequisites:
-      * - User must be group leader
-      * - Group status must be FORMING_SOLO, READY_FOR_BIDDING, or TITLE_APPROVED
-      * - Group must meet member count requirements (min & max from period)
-      * - Group must have at least one accepted bid or approved proposal
-      */
+    /**
+     * Leader marks group as ready for finalization.
+     * Prerequisites:
+     * - User must be group leader
+     * - Group status must be FORMING_SOLO, READY_FOR_BIDDING, or TITLE_APPROVED
+     * - Group must meet member count requirements (min & max from period)
+     * - Group must have at least one accepted bid or approved proposal
+     */
     public function markReadyForFinalization(Request $request)
     {
         $user = $request->user();
@@ -1034,24 +1044,24 @@ class GroupController extends Controller
             ->where('group_id', $group->id)
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'Anda bukan anggota kelompok ini.'], 403);
         }
 
-        if (!$membership->is_leader) {
+        if (! $membership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat menandai siap finalisasi.'], 403);
         }
 
         // Check current status - now includes FORMING_SOLO
-        if (!in_array($group->status, ['FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])) {
+        if (! in_array($group->status, ['FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])) {
             return response()->json([
-                'message' => 'Grup tidak dalam status yang dapat ditandai siap finalisasi. Status saat ini: ' . $group->status
+                'message' => 'Grup tidak dalam status yang dapat ditandai siap finalisasi. Status saat ini: '.$group->status,
             ], 400);
         }
 
         // Check period is active
         $period = $group->period;
-        if (!$period || !$period->is_active) {
+        if (! $period || ! $period->is_active) {
             return response()->json(['message' => 'Periode tidak aktif.'], 400);
         }
 
@@ -1062,14 +1072,14 @@ class GroupController extends Controller
 
         if ($memberCount < $minSize) {
             return response()->json([
-                'message' => "Anggota kurang dari batas minimum ({$memberCount}/{$minSize}). Tambahkan anggota terlebih dahulu."
+                'message' => "Anggota kurang dari batas minimum ({$memberCount}/{$minSize}). Tambahkan anggota terlebih dahulu.",
             ], 400);
         }
 
         // Require minimum members met (between min and max)
         if ($memberCount < $minSize || $memberCount > $maxSize) {
             return response()->json([
-                'message' => "Jumlah anggota harus antara {$minSize}-{$maxSize} orang (saat ini: {$memberCount})."
+                'message' => "Jumlah anggota harus antara {$minSize}-{$maxSize} orang (saat ini: {$memberCount}).",
             ], 400);
         }
 
@@ -1083,9 +1093,9 @@ class GroupController extends Controller
             ->where('supervisor_approval_status', 'APPROVED')
             ->exists();
 
-        if (!$hasAcceptedBid && !$hasApprovedProposal) {
+        if (! $hasAcceptedBid && ! $hasApprovedProposal) {
             return response()->json([
-                'message' => 'Grup belum memiliki bid yang diterima atau proposal yang disetujui oleh dosen.'
+                'message' => 'Grup belum memiliki bid yang diterima atau proposal yang disetujui oleh dosen.',
             ], 400);
         }
 
@@ -1119,31 +1129,31 @@ class GroupController extends Controller
             ->where('group_id', $group->id)
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'Anda bukan anggota kelompok ini.'], 403);
         }
 
-        if (!$membership->is_leader) {
+        if (! $membership->is_leader) {
             return response()->json(['message' => 'Hanya ketua kelompok yang dapat membatalkan finalisasi.'], 403);
         }
 
         // Check current status
         if ($group->status !== 'READY_FOR_FINALIZATION') {
             return response()->json([
-                'message' => 'Grup tidak dalam status siap finalisasi. Status saat ini: ' . $group->status
+                'message' => 'Grup tidak dalam status siap finalisasi. Status saat ini: '.$group->status,
             ], 400);
         }
 
         // Check period is still active
         $period = $group->period;
-        if (!$period || !$period->is_active) {
+        if (! $period || ! $period->is_active) {
             return response()->json(['message' => 'Periode tidak aktif. Tidak dapat membatalkan finalisasi.'], 400);
         }
 
         // Determine target status based on group's title ownership
         // If group has their own approved proposal (solo seeker), revert to TITLE_APPROVED
         // Otherwise, revert to READY_FOR_BIDDING
-        
+
         // SECURITY FIX: Check the actual title's approval status, not just ownership
         $hasOwnApprovedTitle = false;
         if ($group->title_id) {
@@ -1255,9 +1265,9 @@ class GroupController extends Controller
             && ($hasAcceptedBid || $hasApprovedProposal);
 
         return [
-            'can_add_member' => $isLeader && !$isLocked && $memberCount < $maxSize,
-            'can_remove_member' => $isLeader && !$isLocked && $memberCount > 1,
-            'can_leave_group' => !$isLeader && !$isLocked,
+            'can_add_member' => $isLeader && ! $isLocked && $memberCount < $maxSize,
+            'can_remove_member' => $isLeader && ! $isLocked && $memberCount > 1,
+            'can_leave_group' => ! $isLeader && ! $isLocked,
             'can_delete_group' => $isLeader
                 && in_array($group->status, ['FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])
                 && $memberCount <= 1,
@@ -1281,20 +1291,20 @@ class GroupController extends Controller
         $canDelete = false;
         $reason = null;
 
-        if (!$period) {
+        if (! $period) {
             // No period assigned - allow deletion
             $canDelete = true;
-        } elseif (!$period->is_active) {
+        } elseif (! $period->is_active) {
             // Period is inactive - allow deletion
             $canDelete = true;
         } elseif (in_array($group->status, ['FORMING', 'FORMING_SOLO'])) {
             // Group is still in formation stage - allow deletion in active period
             $canDelete = true;
         } else {
-            $reason = 'Cannot delete group: must be inactive period or group in FORMING/FORMING_SOLO status. Current status: ' . $group->status;
+            $reason = 'Cannot delete group: must be inactive period or group in FORMING/FORMING_SOLO status. Current status: '.$group->status;
         }
 
-        if (!$canDelete) {
+        if (! $canDelete) {
             return response()->json(['message' => $reason], 403);
         }
 
@@ -1370,7 +1380,7 @@ class GroupController extends Controller
                     'user_id' => $studentId,
                     'type' => 'GROUP_DELETED_BY_ADMIN',
                     'title' => 'Kelompok Dihapus oleh Admin',
-                    'message' => "Kelompok Anda telah dihapus oleh admin. Anda sekarang dapat mendaftar kembali ke periode yang aktif.",
+                    'message' => 'Kelompok Anda telah dihapus oleh admin. Anda sekarang dapat mendaftar kembali ke periode yang aktif.',
                     'related_type' => 'Period',
                     'related_id' => $period?->id,
                 ]);
@@ -1384,7 +1394,8 @@ class GroupController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to delete group: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to delete group: '.$e->getMessage()], 500);
         }
     }
 }

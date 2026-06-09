@@ -19,7 +19,7 @@ return new class extends Migration
             $table->enum('action', ['APPROVE', 'WITHDRAW', 'RE_APPROVE'])->default('APPROVE');
             $table->text('reason')->nullable();
             $table->timestamps();
-            
+
             // Indexes for faster queries
             $table->index(['title_id', 'created_at']);
             $table->index(['lecturer_id', 'created_at']);

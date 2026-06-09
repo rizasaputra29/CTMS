@@ -9,10 +9,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
-  Loader2, FileCheck, Upload, Info, Lock, CheckCircle, AlertCircle, 
+  FileCheck, Upload, Info, Lock, CheckCircle, AlertCircle, 
   FileText, Calendar, GraduationCap, User, Users, Clock, MapPin, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Loading } from '@/components/ui/loading';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
@@ -81,6 +82,30 @@ interface DefenseSchedule {
   examiner2?: { name: string } | null;
   evaluation_deadline?: string;
   notes?: string;
+}
+
+// Interfaces for grade display
+interface EvaluatorDetail {
+  name: string;
+  role: string;
+  score: number | null;
+  component: string;
+}
+
+interface ComponentDetail {
+  score: number | null;
+  evaluators: EvaluatorDetail[];
+}
+
+interface GradeSection {
+  grade: number;
+  components: Record<string, ComponentDetail>;
+  component_count: number;
+  status: string;
+}
+
+interface GradeData {
+  ta: GradeSection | null;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; description: string }> = {
@@ -164,8 +189,10 @@ export default function TaSubmissionPage() {
   const { user } = useAuth();
   const [statusData, setStatusData] = useState<TaStatusResponse | null>(null);
   const [defenseSchedule, setDefenseSchedule] = useState<DefenseSchedule | null>(null);
+  const [gradesData, setGradesData] = useState<GradeSection | null>(null);
   const [loading, setLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [gradesLoading, setGradesLoading] = useState(false);
 
   // Upload dialog state
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
@@ -223,17 +250,41 @@ export default function TaSubmissionPage() {
     }
   }, [statusData?.status]);
 
-  // Auto-refresh every 30 seconds
+  // Fetch grades when defense is complete
+  const fetchGrades = useCallback(async () => {
+    const completionStatuses = ['TA_DEFENDED', 'TA_REVISED'];
+    if (!statusData?.status || !completionStatuses.includes(statusData.status)) {
+      setGradesData(null);
+      return;
+    }
+
+    try {
+      setGradesLoading(true);
+      const response = await api.get('/mahasiswa/my-grades');
+      const grades: GradeData | null = response.data?.grades || null;
+      setGradesData(grades?.ta || null);
+    } catch (err) {
+      console.error('Failed to fetch grades', err);
+      setGradesData(null);
+    } finally {
+      setGradesLoading(false);
+    }
+  }, [statusData?.status]);
+
+  // Fetch data on initial load
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
   }, [fetchData]);
 
   // Fetch defense schedule when status changes
   useEffect(() => {
     fetchDefenseSchedule();
   }, [fetchDefenseSchedule]);
+
+  // Fetch grades when status changes to DEFENDED or REVISED
+  useEffect(() => {
+    fetchGrades();
+  }, [fetchGrades]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -326,13 +377,33 @@ export default function TaSubmissionPage() {
     return statusData.document_requirements.filter(r => r.is_required).length;
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
-  }
+  // Helper functions for grade display
+  const getLetterGrade = (score: number): string => {
+    if (score >= 85) return 'A';
+    if (score >= 70) return 'B';
+    if (score >= 60) return 'C';
+    if (score >= 50) return 'D';
+    return 'E';
+  };
+
+  const getGradeColor = (score: number) => {
+    if (score >= 85) return { text: 'text-emerald-700', bg: 'bg-emerald-100', bar: 'bg-emerald-500' };
+    if (score >= 70) return { text: 'text-sky-700', bg: 'bg-sky-100', bar: 'bg-sky-500' };
+    if (score >= 60) return { text: 'text-amber-700', bg: 'bg-amber-100', bar: 'bg-amber-500' };
+    if (score >= 50) return { text: 'text-orange-700', bg: 'bg-orange-100', bar: 'bg-orange-500' };
+    return { text: 'text-rose-700', bg: 'bg-rose-100', bar: 'bg-rose-500' };
+  };
+
+  const roleLabels: Record<string, string> = {
+    EXAMINER_1: 'Penguji 1',
+    EXAMINER_2: 'Penguji 2',
+    EXAMINER: 'Penguji',
+    SUPERVISOR_1: 'Pembimbing 1',
+    SUPERVISOR_2: 'Pembimbing 2',
+    UNKNOWN: 'Evaluator',
+  };
+
+    if (loading) return <Loading variant="section" />;
 
   // TA Locked State
   if (!statusData || !statusData.can_access || statusData.status === 'TA_LOCKED') {
@@ -637,24 +708,159 @@ export default function TaSubmissionPage() {
         </Card>
       )}
 
-      {/* Sidang Scheduled Section */}
-      {['TA_READY_FOR_SIDANG', 'TA_REGISTERED', 'TA_SCHEDULED', 'TA_DEFENDED'].includes(currentStatus) && (
+      {/* Sidang Scheduled/Completed Section */}
+      {['TA_READY_FOR_SIDANG', 'TA_REGISTERED', 'TA_SCHEDULED', 'TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) && (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <GraduationCap className="w-5 h-5" />
-              Sidang TA
+              {['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) ? 'Hasil Sidang TA' : 'Sidang TA'}
             </CardTitle>
             <CardDescription>
-              Your thesis defense schedule and information
+              {['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) 
+                ? 'Nilai dan evaluasi sidang tugas akhir Anda' 
+                : 'Your thesis defense schedule and information'}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {scheduleLoading ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            {/* Loading states */}
+            {(scheduleLoading || gradesLoading) && (
+              <Loading variant="inline" />
+            )}
+
+            {/* Completed state with scores */}
+            {!scheduleLoading && !gradesLoading && ['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) && gradesData && (
+              <div className="space-y-6">
+                {/* Final Score Display */}
+                <div className="bg-gradient-to-r from-emerald-50 to-sky-50 border border-emerald-200 rounded-lg p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600 mb-1">Nilai Akhir</p>
+                      <div className="flex items-baseline gap-3">
+                        <span className={`text-4xl font-bold ${getGradeColor(Number(gradesData.grade)).text}`}>
+                          {Number(gradesData.grade).toFixed(2)}
+                        </span>
+                        <span className={`text-xl font-semibold px-3 py-1 rounded-lg ${getGradeColor(Number(gradesData.grade)).bg} ${getGradeColor(Number(gradesData.grade)).text}`}>
+                          {getLetterGrade(Number(gradesData.grade))}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <Badge variant={gradesData.status === 'COMPLETE' ? 'default' : 'secondary'}>
+                        {gradesData.status === 'COMPLETE' ? 'Selesai' : 'Dalam Proses'}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <div className="h-3 w-full bg-gray-200 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full ${getGradeColor(Number(gradesData.grade)).bar} transition-all duration-700`}
+                        style={{ width: `${Math.min(100, Math.max(0, Number(gradesData.grade)))}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SIDANG_TA Scores */}
+                {gradesData.components.SIDANG_TA && (
+                  <div className="border rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                      Nilai Penguji (SIDANG_TA)
+                    </h4>
+                    <div className="space-y-2">
+                      {gradesData.components.SIDANG_TA.evaluators.map((evaluator, idx) => (
+                        <div key={idx} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm">{evaluator.name}</span>
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                              {roleLabels[evaluator.role] || evaluator.role}
+                            </Badge>
+                          </div>
+                          <span className={`text-sm font-semibold ${evaluator.score !== null && evaluator.score !== undefined ? getGradeColor(Number(evaluator.score)).text : 'text-gray-400'}`}>
+                            {evaluator.score !== null && evaluator.score !== undefined ? Number(evaluator.score).toFixed(1) : '-'}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between py-2 px-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                        <span className="text-sm font-medium text-emerald-800">Rata-rata Penguji</span>
+                        <span className="text-sm font-bold text-emerald-700">
+                          {gradesData.components.SIDANG_TA.score !== null && gradesData.components.SIDANG_TA.score !== undefined ? Number(gradesData.components.SIDANG_TA.score).toFixed(1) : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* BIMBINGAN_TA Scores */}
+                {gradesData.components.BIMBINGAN_TA && (
+                  <div className="border rounded-lg p-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                      Nilai Pembimbing (BIMBINGAN_TA)
+                    </h4>
+                    <div className="space-y-2">
+                      {gradesData.components.BIMBINGAN_TA.evaluators.map((evaluator, idx) => (
+                        <div key={idx} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-gray-500" />
+                            <span className="text-sm">{evaluator.name}</span>
+                            <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                              {roleLabels[evaluator.role] || evaluator.role}
+                            </Badge>
+                          </div>
+                          <span className={`text-sm font-semibold ${evaluator.score !== null && evaluator.score !== undefined ? getGradeColor(Number(evaluator.score)).text : 'text-gray-400'}`}>
+                            {evaluator.score !== null && evaluator.score !== undefined ? Number(evaluator.score).toFixed(1) : '-'}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between py-2 px-3 bg-sky-50 rounded-lg border border-sky-200">
+                        <span className="text-sm font-medium text-sky-800">Rata-rata Pembimbing</span>
+                        <span className="text-sm font-bold text-sky-700">
+                          {gradesData.components.BIMBINGAN_TA.score !== null && gradesData.components.BIMBINGAN_TA.score !== undefined ? Number(gradesData.components.BIMBINGAN_TA.score).toFixed(1) : '-'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Defense Schedule Summary (Collapsible) */}
+                {defenseSchedule && (
+                  <details className="border rounded-lg">
+                    <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
+                      Lihat Jadwal Sidang
+                    </summary>
+                    <div className="px-4 pb-4 pt-2 space-y-2 text-sm">
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Calendar className="h-4 w-4" />
+                        {new Date(defenseSchedule.date).toLocaleDateString('id-ID', {
+                          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+                        })}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Clock className="h-4 w-4" />
+                        {defenseSchedule.start_time} - {defenseSchedule.end_time}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <MapPin className="h-4 w-4" />
+                        {defenseSchedule.room}
+                      </div>
+                    </div>
+                  </details>
+                )}
+
+                <Link href="/mahasiswa/ta-defense" className="block">
+                  <Button className="w-full" variant="outline">
+                    Lihat Detail Lengkap
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </Link>
               </div>
-            ) : defenseSchedule ? (
+            )}
+
+            {/* Pre-defense state with schedule */}
+            {!scheduleLoading && !gradesLoading && !['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) && defenseSchedule && (
               <>
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
                   <div className="flex items-center gap-2">
@@ -680,7 +886,7 @@ export default function TaSubmissionPage() {
                   </div>
                   <Separator className="bg-blue-200" />
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-blue-900">Examiners:</p>
+                    <p className="text-sm font-medium text-blue-900">Penguji:</p>
                     <div className="text-sm text-blue-800">
                       1. {defenseSchedule.examiner1?.name || 'TBA'}
                     </div>
@@ -692,7 +898,7 @@ export default function TaSubmissionPage() {
                     <>
                       <Separator className="bg-blue-200" />
                       <div className="text-xs text-blue-700">
-                        Evaluation deadline: {new Date(defenseSchedule.evaluation_deadline).toLocaleDateString('id-ID')}
+                        Tenggat evaluasi: {new Date(defenseSchedule.evaluation_deadline).toLocaleDateString('id-ID')}
                       </div>
                     </>
                   )}
@@ -700,17 +906,20 @@ export default function TaSubmissionPage() {
 
                 <Link href="/mahasiswa/ta-defense" className="block">
                   <Button className="w-full" variant="default">
-                    View Full Defense Details
+                    Lihat Detail Sidang
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Button>
                 </Link>
               </>
-            ) : (
+            )}
+
+            {/* No schedule found */}
+            {!scheduleLoading && !gradesLoading && !['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) && !defenseSchedule && (
               <Alert className="bg-yellow-50 border-yellow-200">
                 <Info className="h-4 w-4 text-yellow-600" />
-                <AlertTitle className="text-yellow-800">Schedule Information</AlertTitle>
+                <AlertTitle className="text-yellow-800">Informasi Jadwal</AlertTitle>
                 <AlertDescription className="text-yellow-700">
-                  Your TA defense has been scheduled. Please check the schedules page for complete details.
+                  Sidang TA Anda telah dijadwalkan. Silakan cek halaman jadwal untuk detail lengkap.
                 </AlertDescription>
               </Alert>
             )}
@@ -771,7 +980,7 @@ export default function TaSubmissionPage() {
             <Button onClick={handleUpload} disabled={!selectedFile || uploading}>
               {uploading ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                   Uploading...
                 </>
               ) : (

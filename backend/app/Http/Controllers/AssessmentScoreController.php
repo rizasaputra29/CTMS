@@ -81,7 +81,7 @@ class AssessmentScoreController extends Controller
                     ? $score->period_component_id
                     : $score->component_id;
 
-                return $componentId . '_' . $score->student_id;
+                return $componentId.'_'.$score->student_id;
             });
 
         return response()->json([
@@ -186,7 +186,7 @@ class AssessmentScoreController extends Controller
 
         $scores = AssessmentScoreRepository::forType($request->type)
             ->with(['periodComponent.template', $evaluatorRelation, 'student', 'group'])
-            ->whereHas('group', fn($q) => $q->where('period_id', $request->period_id))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $request->period_id))
             ->get();
 
         // Group by group_id, then by student_id

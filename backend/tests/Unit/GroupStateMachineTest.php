@@ -18,7 +18,7 @@ class GroupStateMachineTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->sm = new GroupStateMachine();
+        $this->sm = new GroupStateMachine;
     }
 
     private function makeGroup(string $status): Group

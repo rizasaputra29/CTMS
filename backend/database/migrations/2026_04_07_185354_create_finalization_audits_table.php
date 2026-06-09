@@ -21,7 +21,7 @@ return new class extends Migration
             $table->json('new_values')->nullable();
             $table->text('notes')->nullable();
             $table->timestamps();
-            
+
             $table->index(['period_id', 'action']);
             $table->index(['group_id', 'created_at']);
         });

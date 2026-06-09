@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\PeriodRegistration;
-use App\Models\GroupMember;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -38,12 +38,12 @@ class RegistrationController extends Controller
         $period = Period::findOrFail($request->period_id);
 
         // Guard: Only students can register
-        if (!$user->hasRole('mahasiswa')) {
+        if (! $user->hasRole('mahasiswa')) {
             return response()->json(['message' => 'Only students can register for an academic period.'], 403);
         }
 
         // Guard: Period must be open
-        if (!$period->isRegistrationOpen()) {
+        if (! $period->isRegistrationOpen()) {
             return response()->json(['message' => 'Registration for this period is closed.'], 400);
         }
 
@@ -53,8 +53,9 @@ class RegistrationController extends Controller
 
         if ($existingRegistration) {
             $existingPeriod = Period::find($existingRegistration->period_id);
+
             return response()->json([
-                'message' => "You are already registered in period '{$existingPeriod->name}'. You must leave your current group before registering for a new period."
+                'message' => "You are already registered in period '{$existingPeriod->name}'. You must leave your current group before registering for a new period.",
             ], 400);
         }
 
@@ -82,7 +83,8 @@ class RegistrationController extends Controller
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Registration failed: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Registration failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -93,13 +95,13 @@ class RegistrationController extends Controller
     public function myPeriod(Request $request)
     {
         $user = $request->user();
-        
+
         $registration = PeriodRegistration::where('user_id', $user->id)
             ->with('period')
             ->first();
 
         // If no registration found, check if user has a group membership
-        if (!$registration) {
+        if (! $registration) {
             $groupMembership = GroupMember::where('student_id', $user->id)
                 ->whereHas('group', function ($q) {
                     $q->whereNotIn('status', ['CLOSED', 'DISSOLVED']);

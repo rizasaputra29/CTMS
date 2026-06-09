@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, Loader2, Search, Eye } from 'lucide-react';
+import { FileText, Search, Eye, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { toast } from "sonner";
 import {
     Select,
@@ -272,9 +273,7 @@ export default function DosenBimbinganPage() {
 
 
             {loading ? (
-                <div className="flex justify-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                </div>
+                <Loading variant="section" />
             ) : groups.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
                     <p className="font-medium">No supervised groups found</p>

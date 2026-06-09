@@ -7,9 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Calendar, CheckCircle, Loader2, GraduationCap, ArrowRight } from 'lucide-react';
+import { Calendar, CheckCircle, GraduationCap, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
+import { Loading } from '@/components/ui/loading';
 
 interface Period {
     id: number;
@@ -81,16 +82,7 @@ export default function RegistrationPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <div className="flex flex-col items-center gap-4">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                    <p className="text-muted-foreground">Loading available periods...</p>
-                </div>
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     // If already registered, show success state
     if (registeredPeriodId) {
@@ -185,7 +177,7 @@ export default function RegistrationPage() {
                                 >
                                     {registering === period.id ? (
                                         <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                            <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                                             Registering...
                                         </>
                                     ) : (

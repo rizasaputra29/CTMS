@@ -2,14 +2,13 @@
 
 namespace Database\Seeders;
 
-use App\Models\PhaseDocumentRequirement;
-use App\Models\Role;
-use App\Models\User;
-use App\Models\Period;
-use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Models\Period;
+use App\Models\PhaseDocumentRequirement;
+use App\Models\Role;
+use App\Models\Title;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 
 class CTMSDataSeeder extends Seeder
@@ -130,7 +129,7 @@ class CTMSDataSeeder extends Seeder
         $students = [];
         for ($i = 0; $i < 10; $i++) {
             $student = User::updateOrCreate(
-                ['email' => 'mahasiswa' . ($i + 1) . '@ctms.com'],
+                ['email' => 'mahasiswa'.($i + 1).'@ctms.com'],
                 [
                     'name' => $studentNames[$i],
                     'password' => bcrypt('password'),
@@ -239,8 +238,9 @@ class CTMSDataSeeder extends Seeder
         $dosen2 = User::where('email', 'dosen2@ctms.com')->first();
         $dosen3 = User::where('email', 'dosen3@ctms.com')->first();
 
-        if (!$dosen1 || !$dosen2 || !$dosen3) {
+        if (! $dosen1 || ! $dosen2 || ! $dosen3) {
             $this->command->error('Dosen not found. Run seed in correct order.');
+
             return;
         }
 
@@ -303,7 +303,7 @@ class CTMSDataSeeder extends Seeder
     protected function seedGroups(): void
     {
         $period1 = Period::where('is_active', true)->first();
-        
+
         // Get students
         $mhs1 = User::where('email', 'mahasiswa1@ctms.com')->first();
         $mhs2 = User::where('email', 'mahasiswa2@ctms.com')->first();
@@ -371,7 +371,7 @@ class CTMSDataSeeder extends Seeder
 
         // GROUP 4: Multi-period testing - Inactive period
         $period2 = Period::where('is_active', false)->first();
-        
+
         if ($period2) {
             $group4 = Group::create([
                 'period_id' => $period2->id,

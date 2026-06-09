@@ -8,7 +8,7 @@ use Illuminate\Support\ServiceProvider;
 
 /**
  * Service Provider to register the custom Neon PostgreSQL connection.
- * 
+ *
  * This provider registers the NeonPostgresConnection class to handle
  * the 'pgsql' driver, fixing boolean casting issues when using
  * Neon PostgreSQL with PgBouncer (ATTR_EMULATE_PREPARES => true).

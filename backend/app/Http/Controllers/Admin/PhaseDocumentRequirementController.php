@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Http\Controllers\Controller;
 use App\Http\Controllers\ApiResponseTrait;
+use App\Http\Controllers\Controller;
 use App\Models\Period;
 use App\Models\PhaseDocumentRequirement;
 use Illuminate\Http\Request;
@@ -24,6 +24,7 @@ class PhaseDocumentRequirementController extends Controller
         if ($period && $period->is_finalized) {
             return $this->errorResponse('Cannot modify document requirements for a finalized period.', 403);
         }
+
         return null;
     }
 
@@ -58,7 +59,7 @@ class PhaseDocumentRequirementController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'period_id' => 'required|exists:periods,id',
-            'phase' => 'required|string|in:' . implode(',', self::PHASES),
+            'phase' => 'required|string|in:'.implode(',', self::PHASES),
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'is_required' => 'nullable|boolean',
@@ -89,7 +90,7 @@ class PhaseDocumentRequirementController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'phase' => 'sometimes|string|in:' . implode(',', self::PHASES),
+            'phase' => 'sometimes|string|in:'.implode(',', self::PHASES),
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'is_required' => 'nullable|boolean',
@@ -123,7 +124,7 @@ class PhaseDocumentRequirementController extends Controller
         $validator = Validator::make($request->all(), [
             'period_id' => 'required|exists:periods,id',
             'requirements' => 'required|array',
-            'requirements.*.phase' => 'required|string|in:' . implode(',', self::PHASES),
+            'requirements.*.phase' => 'required|string|in:'.implode(',', self::PHASES),
             'requirements.*.name' => 'required|string|max:255',
             'requirements.*.description' => 'nullable|string',
             'requirements.*.is_required' => 'nullable|boolean',

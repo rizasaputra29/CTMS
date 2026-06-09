@@ -3,8 +3,8 @@
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\DB;
 
 class SyncRoleUserCommand extends Command
 {
@@ -25,7 +25,7 @@ class SyncRoleUserCommand extends Command
             'database' => database_path('database.sqlite'),
             'prefix' => '',
         ]);
-        
+
         DB::purge('sqlite');
         DB::purge('pgsql');
 
@@ -34,8 +34,8 @@ class SyncRoleUserCommand extends Command
             $sqliteData = DB::connection('sqlite')
                 ->table('role_user')
                 ->get();
-            
-            $this->info("Found " . $sqliteData->count() . " role_user records in SQLite");
+
+            $this->info('Found '.$sqliteData->count().' role_user records in SQLite');
 
             // Clear existing role_user in PostgreSQL
             $deleted = DB::connection('pgsql')->table('role_user')->delete();
@@ -43,7 +43,7 @@ class SyncRoleUserCommand extends Command
 
             // Insert into PostgreSQL
             if ($sqliteData->isNotEmpty()) {
-                $data = $sqliteData->map(fn($row) => [
+                $data = $sqliteData->map(fn ($row) => [
                     'role_id' => $row->role_id,
                     'user_id' => $row->user_id,
                     'created_at' => $row->created_at,
@@ -51,27 +51,30 @@ class SyncRoleUserCommand extends Command
                 ])->toArray();
 
                 DB::connection('pgsql')->table('role_user')->insert($data);
-                
-                $this->info("✅ Synced " . count($data) . " role_user records");
+
+                $this->info('✅ Synced '.count($data).' role_user records');
             }
 
             // Verify
             $pgsqlCount = DB::connection('pgsql')->table('role_user')->count();
             $this->newLine();
-            $this->info("Verification:");
-            $this->info("  SQLite: " . $sqliteData->count() . " records");
-            $this->info("  PostgreSQL: " . $pgsqlCount . " records");
-            
+            $this->info('Verification:');
+            $this->info('  SQLite: '.$sqliteData->count().' records');
+            $this->info('  PostgreSQL: '.$pgsqlCount.' records');
+
             if ($sqliteData->count() === $pgsqlCount) {
-                $this->info("  ✅ Sync successful!");
+                $this->info('  ✅ Sync successful!');
+
                 return 0;
             } else {
-                $this->error("  ❌ Mismatch detected!");
+                $this->error('  ❌ Mismatch detected!');
+
                 return 1;
             }
 
         } catch (\Exception $e) {
-            $this->error("Error: " . $e->getMessage());
+            $this->error('Error: '.$e->getMessage());
+
             return 1;
         }
     }

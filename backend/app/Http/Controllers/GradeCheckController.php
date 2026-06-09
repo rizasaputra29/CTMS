@@ -2,14 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Period;
 use App\Models\PeerReview;
+use App\Models\Period;
 use App\Models\TaDefenseEvaluation;
-use App\Models\TaDefenseSchedule;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Response;
 
 class GradeCheckController extends Controller
 {
@@ -27,10 +26,10 @@ class GradeCheckController extends Controller
         ]);
 
         $perPage = $request->input('per_page', 25);
-        
+
         // Get active period if not specified
         $periodId = $request->input('period_id');
-        if (!$periodId) {
+        if (! $periodId) {
             $activePeriod = Period::getActive();
             $periodId = $activePeriod?->id;
         }
@@ -42,7 +41,7 @@ class GradeCheckController extends Controller
 
         // Build query based on evaluation type
         $evaluationType = $request->input('evaluation_type');
-        
+
         if ($evaluationType === 'PEER_REVIEW') {
             return $this->getPeerReviewData($request, $periodId, $perPage);
         } else {
@@ -72,7 +71,7 @@ class GradeCheckController extends Controller
             'group.title:id,title',
             'component:id,name',
             'periodComponent:id,template_id',
-            'periodComponent.template:id,code,name,weight'
+            'periodComponent.template:id,code,name,weight',
         ], function ($query, $type) use ($studentId, $periodGroupIds) {
             $query->where('student_id', $studentId);
             if ($periodGroupIds && $periodGroupIds->isNotEmpty()) {
@@ -85,7 +84,7 @@ class GradeCheckController extends Controller
         $schedules = \App\Models\Schedule::whereIn('group_id', $scoreGroupIds)
             ->whereIn('type', ['SEMPRO', 'SIDANG_TA'])
             ->get()
-            ->keyBy(fn($s) => $s->group_id . '_' . $s->type);
+            ->keyBy(fn ($s) => $s->group_id.'_'.$s->type);
 
         // Get all peer reviews for the student (filter by student first, then by group)
         $peerReviews = PeerReview::with([
@@ -94,12 +93,12 @@ class GradeCheckController extends Controller
             'group:id,status,title_id',
             'group.title:id,title',
             'periodIndicator:id,template_id',
-            'periodIndicator.template:id,code,name,weight'
+            'periodIndicator.template:id,code,name,weight',
         ])
-        ->where('reviewee_id', $studentId)
-        ->where('is_final_submission', true)
-        ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-        ->get();
+            ->where('reviewee_id', $studentId)
+            ->where('is_final_submission', true)
+            ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
+            ->get();
 
         // Get all TA defense evaluations for the student
         $taDefenseEvals = TaDefenseEvaluation::with([
@@ -107,13 +106,13 @@ class GradeCheckController extends Controller
             'schedule.group:id,status,title_id',
             'schedule.group.title:id,title',
         ])
-        ->whereHas('schedule', function($q) use ($studentId, $periodId) {
-            $q->where('student_id', $studentId);
-            if ($periodId) {
-                $q->where('period_id', $periodId);
-            }
-        })
-        ->get();
+            ->whereHas('schedule', function ($q) use ($studentId, $periodId) {
+                $q->where('student_id', $studentId);
+                if ($periodId) {
+                    $q->where('period_id', $periodId);
+                }
+            })
+            ->get();
 
         // Format assessment scores
         $formattedScores = $assessmentScores->map(function ($score) use ($schedules) {
@@ -125,8 +124,8 @@ class GradeCheckController extends Controller
                 'id' => $score->id,
                 'group' => [
                     'id' => $score->group_id,
-                    'code' => 'G' . $score->group_id,
-                    'name' => $score->group?->title?->title ?? 'Group ' . $score->group_id,
+                    'code' => 'G'.$score->group_id,
+                    'name' => $score->group?->title?->title ?? 'Group '.$score->group_id,
                     'status' => $score->group?->status,
                 ],
                 'student' => $score->student ? [
@@ -153,8 +152,8 @@ class GradeCheckController extends Controller
                 'id' => $review->id,
                 'group' => [
                     'id' => $review->group_id,
-                    'code' => 'G' . $review->group_id,
-                    'name' => $review->group?->title?->title ?? 'Group ' . $review->group_id,
+                    'code' => 'G'.$review->group_id,
+                    'name' => $review->group?->title?->title ?? 'Group '.$review->group_id,
                     'status' => $review->group?->status,
                 ],
                 'student' => [
@@ -175,7 +174,7 @@ class GradeCheckController extends Controller
                         'raw_score' => $review->raw_score,
                         'converted_score' => $review->score,
                         'weight' => $review->periodIndicator?->template?->weight ?? 100,
-                    ]
+                    ],
                 ],
                 'weighted_average' => $review->score,
                 'submitted_at' => $review->submitted_at,
@@ -189,8 +188,8 @@ class GradeCheckController extends Controller
                 'id' => $eval->id,
                 'group' => [
                     'id' => $eval->schedule->group_id,
-                    'code' => 'G' . $eval->schedule->group_id,
-                    'name' => $eval->schedule->group?->title?->title ?? 'Group ' . $eval->schedule->group_id,
+                    'code' => 'G'.$eval->schedule->group_id,
+                    'name' => $eval->schedule->group?->title?->title ?? 'Group '.$eval->schedule->group_id,
                     'status' => $eval->schedule->group?->status,
                 ],
                 'student' => [
@@ -210,7 +209,7 @@ class GradeCheckController extends Controller
                         'name' => 'TA Defense',
                         'score' => $eval->score,
                         'weight' => 100,
-                    ]
+                    ],
                 ],
                 'weighted_average' => $eval->score,
                 'submitted_at' => $eval->updated_at,
@@ -274,30 +273,30 @@ class GradeCheckController extends Controller
                     'group.title:id,title',
                     'component:id,name',
                     'periodComponent:id,template_id',
-                    'periodComponent.template:id,code,name,weight'
+                    'periodComponent.template:id,code,name,weight',
                 ])
                 ->whereHas('group', function ($q) use ($periodId) {
                     $q->where('period_id', $periodId);
                 });
-            
+
             if ($request->group_id) {
                 $query->where('group_id', $request->group_id);
             }
             if ($request->student_id) {
                 $query->where('student_id', $request->student_id);
             }
-            
+
             $scores = $query->paginate($perPage);
         } else {
             // Multiple evaluation types - aggregate from all supported types
             // Note: For paginated results across multiple tables, we collect all and paginate manually
             $allScores = collect();
-            
+
             foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
                 if ($evaluationType && $type !== $evaluationType) {
                     continue;
                 }
-                
+
                 $typeScores = AssessmentScoreRepository::forType($type)
                     ->with([
                         'evaluator:id,name',
@@ -306,24 +305,24 @@ class GradeCheckController extends Controller
                         'group.title:id,title',
                         'component:id,name',
                         'periodComponent:id,template_id',
-                        'periodComponent.template:id,code,name,weight'
+                        'periodComponent.template:id,code,name,weight',
                     ])
                     ->whereHas('group', function ($q) use ($periodId) {
                         $q->where('period_id', $periodId);
                     })
-                    ->when($request->group_id, fn($q) => $q->where('group_id', $request->group_id))
-                    ->when($request->student_id, fn($q) => $q->where('student_id', $request->student_id))
+                    ->when($request->group_id, fn ($q) => $q->where('group_id', $request->group_id))
+                    ->when($request->student_id, fn ($q) => $q->where('student_id', $request->student_id))
                     ->get();
-                
+
                 $allScores = $allScores->merge($typeScores);
             }
-            
+
             // Manual pagination
             $total = $allScores->count();
             $page = $request->input('page', 1);
             $offset = ($page - 1) * $perPage;
             $scores = $allScores->slice($offset, $perPage)->values();
-            
+
             // Create a simple paginator-like object
             $scores = new \Illuminate\Pagination\LengthAwarePaginator(
                 $scores,
@@ -333,7 +332,7 @@ class GradeCheckController extends Controller
                 ['path' => $request->url()]
             );
         }
-        
+
         // Preload schedules to avoid N+1 queries for SEMPRO and SIDANG_TA types
         $scoreGroupIds = $scores->pluck('group_id')->unique()->filter()->values();
         $schedules = collect();
@@ -341,7 +340,7 @@ class GradeCheckController extends Controller
             $schedules = \App\Models\Schedule::whereIn('group_id', $scoreGroupIds)
                 ->whereIn('type', ['SEMPRO', 'SIDANG_TA'])
                 ->get()
-                ->keyBy(fn($s) => $s->group_id . '_' . $s->type);
+                ->keyBy(fn ($s) => $s->group_id.'_'.$s->type);
         }
 
         $data = $scores->map(function ($score) use ($schedules) {
@@ -358,8 +357,8 @@ class GradeCheckController extends Controller
                 'id' => $score->id,
                 'group' => [
                     'id' => $score->group_id,
-                    'code' => 'G' . $score->group_id,
-                    'name' => $score->group?->title?->title ?? 'Group ' . $score->group_id,
+                    'code' => 'G'.$score->group_id,
+                    'name' => $score->group?->title?->title ?? 'Group '.$score->group_id,
                     'status' => $score->group?->status,
                 ],
                 'student' => $score->student ? [
@@ -428,11 +427,11 @@ class GradeCheckController extends Controller
             'group:id,status,title_id',
             'group.title:id,title',
             'periodIndicator:id,template_id',
-            'periodIndicator.template:id,code,name,weight'
+            'periodIndicator.template:id,code,name,weight',
         ])
-        ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-        ->when($request->group_id, fn($q) => $q->where('group_id', $request->group_id))
-        ->when($request->student_id, fn($q) => $q->where('reviewee_id', $request->student_id));
+            ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
+            ->when($request->group_id, fn ($q) => $q->where('group_id', $request->group_id))
+            ->when($request->student_id, fn ($q) => $q->where('reviewee_id', $request->student_id));
 
         $reviews = $query->paginate($perPage);
 
@@ -441,8 +440,8 @@ class GradeCheckController extends Controller
                 'id' => $review->id,
                 'group' => [
                     'id' => $review->group_id,
-                    'code' => 'G' . $review->group_id,
-                    'name' => $review->group?->title?->title ?? 'Group ' . $review->group_id,
+                    'code' => 'G'.$review->group_id,
+                    'name' => $review->group?->title?->title ?? 'Group '.$review->group_id,
                     'status' => $review->group?->status,
                 ],
                 'student' => [
@@ -463,7 +462,7 @@ class GradeCheckController extends Controller
                         'raw_score' => $review->raw_score,
                         'converted_score' => $review->score,
                         'weight' => $review->periodIndicator?->template?->weight ?? 100,
-                    ]
+                    ],
                 ],
                 'weighted_average' => $review->score,
                 'submitted_at' => $review->submitted_at,
@@ -488,8 +487,8 @@ class GradeCheckController extends Controller
 
     /**
      * Determine evaluator role based on score data
-     * 
-     * @param \Illuminate\Support\Collection|null $schedules Preloaded schedules cache to avoid N+1 queries
+     *
+     * @param  \Illuminate\Support\Collection|null  $schedules  Preloaded schedules cache to avoid N+1 queries
      */
     private function getEvaluatorRole($score, $schedules = null): string
     {
@@ -497,15 +496,16 @@ class GradeCheckController extends Controller
         $evaluatorId = $score->examiner_id ?? $score->evaluator_id ?? null;
         $group = $score->group;
 
-        if (!$group) {
+        if (! $group) {
             return 'EVALUATOR';
         }
 
         // Check if evaluator is supervisor
         $isSupervisor = $group->supervisor_1_id === $evaluatorId || $group->supervisor_2_id === $evaluatorId;
-        
+
         if ($isSupervisor) {
             $supervisorNumber = $group->supervisor_1_id === $evaluatorId ? '1' : '2';
+
             return "SUPERVISOR_{$supervisorNumber}";
         }
 
@@ -513,22 +513,23 @@ class GradeCheckController extends Controller
         if (in_array($evaluationType, ['SEMPRO', 'SIDANG_TA'])) {
             // Use preloaded schedules if available, otherwise query (fallback for backward compatibility)
             if ($schedules !== null) {
-                $key = $group->id . '_' . $evaluationType;
+                $key = $group->id.'_'.$evaluationType;
                 $schedule = $schedules->get($key);
             } else {
                 $schedule = \App\Models\Schedule::where('group_id', $group->id)
                     ->where('type', $evaluationType)
                     ->first();
             }
-            
+
             if ($schedule) {
                 $examiners = $schedule->examiners ?? [];
                 foreach ($examiners as $index => $examiner) {
                     if ($examiner['id'] == $evaluatorId) {
-                        return "EXAMINER_" . ($index + 1);
+                        return 'EXAMINER_'.($index + 1);
                     }
                 }
             }
+
             return 'EXAMINER';
         }
 
@@ -542,12 +543,12 @@ class GradeCheckController extends Controller
     {
         // For now, return the score as a single component
         // In the future, this could expand to show individual rubric items
-        $componentName = $score->component?->name 
-            ?? $score->periodComponent?->template?->name 
+        $componentName = $score->component?->name
+            ?? $score->periodComponent?->template?->name
             ?? 'Component';
-        
-        $componentCode = $score->component?->code 
-            ?? $score->periodComponent?->template?->code 
+
+        $componentCode = $score->component?->code
+            ?? $score->periodComponent?->template?->code
             ?? 'COMP';
 
         return [
@@ -555,10 +556,10 @@ class GradeCheckController extends Controller
                 'code' => $componentCode,
                 'name' => $componentName,
                 'score' => $score->score,
-                'weight' => $score->component?->weight 
-                    ?? $score->periodComponent?->template?->weight 
+                'weight' => $score->component?->weight
+                    ?? $score->periodComponent?->template?->weight
                     ?? 100,
-            ]
+            ],
         ];
     }
 
@@ -583,7 +584,7 @@ class GradeCheckController extends Controller
         ]);
 
         $periodId = $request->input('period_id');
-        if (!$periodId) {
+        if (! $periodId) {
             $activePeriod = Period::getActive();
             $periodId = $activePeriod?->id;
         }
@@ -630,10 +631,10 @@ class GradeCheckController extends Controller
         // Generate CSV using streaming (memory efficient)
         $headers = [
             'Content-Type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename="grade-check-export-' . date('Y-m-d') . '.csv"',
+            'Content-Disposition' => 'attachment; filename="grade-check-export-'.date('Y-m-d').'.csv"',
         ];
 
-        $callback = function() use ($groupIds, $students, $groups, $studentGroups) {
+        $callback = function () use ($groupIds, $students, $groups, $studentGroups) {
             $file = fopen('php://output', 'w');
 
             // Add headers
@@ -677,40 +678,40 @@ class GradeCheckController extends Controller
                 }
 
                 // Calculate PDC1 (SEMPRO + BIMBINGAN_SEMPRO) / 2
-                $semproScores = array_filter($scores, fn($s) => $s['type'] === 'SEMPRO');
-                $bimbinganSemproScores = array_filter($scores, fn($s) => $s['type'] === 'BIMBINGAN_SEMPRO');
-                $semproAvg = !empty($semproScores) ? array_sum(array_column($semproScores, 'score')) / count($semproScores) : null;
-                $bimbinganSemproAvg = !empty($bimbinganSemproScores) ? array_sum(array_column($bimbinganSemproScores, 'score')) / count($bimbinganSemproScores) : null;
-                $pdc1Scores = array_filter([$semproAvg, $bimbinganSemproAvg], fn($s) => $s !== null);
-                $pdc1 = !empty($pdc1Scores) ? array_sum($pdc1Scores) / count($pdc1Scores) : null;
+                $semproScores = array_filter($scores, fn ($s) => $s['type'] === 'SEMPRO');
+                $bimbinganSemproScores = array_filter($scores, fn ($s) => $s['type'] === 'BIMBINGAN_SEMPRO');
+                $semproAvg = ! empty($semproScores) ? array_sum(array_column($semproScores, 'score')) / count($semproScores) : null;
+                $bimbinganSemproAvg = ! empty($bimbinganSemproScores) ? array_sum(array_column($bimbinganSemproScores, 'score')) / count($bimbinganSemproScores) : null;
+                $pdc1Scores = array_filter([$semproAvg, $bimbinganSemproAvg], fn ($s) => $s !== null);
+                $pdc1 = ! empty($pdc1Scores) ? array_sum($pdc1Scores) / count($pdc1Scores) : null;
 
                 // Calculate PDC2 (NILAI_DOSEN + MILESTONE + EXPO + PEER_REVIEW) / 4
-                $nilaiDosenScores = array_filter($scores, fn($s) => $s['type'] === 'NILAI_DOSEN');
-                $milestoneScores = array_filter($scores, fn($s) => $s['type'] === 'MILESTONE');
-                $expoScores = array_filter($scores, fn($s) => $s['type'] === 'EXPO');
-                $peerReviewScores = array_filter($scores, fn($s) => $s['type'] === 'PEER_REVIEW');
+                $nilaiDosenScores = array_filter($scores, fn ($s) => $s['type'] === 'NILAI_DOSEN');
+                $milestoneScores = array_filter($scores, fn ($s) => $s['type'] === 'MILESTONE');
+                $expoScores = array_filter($scores, fn ($s) => $s['type'] === 'EXPO');
+                $peerReviewScores = array_filter($scores, fn ($s) => $s['type'] === 'PEER_REVIEW');
 
-                $nilaiDosenAvg = !empty($nilaiDosenScores) ? array_sum(array_column($nilaiDosenScores, 'score')) / count($nilaiDosenScores) : null;
-                $milestoneAvg = !empty($milestoneScores) ? array_sum(array_column($milestoneScores, 'score')) / count($milestoneScores) : null;
-                $expoAvg = !empty($expoScores) ? array_sum(array_column($expoScores, 'score')) / count($expoScores) : null;
-                $peerReviewAvg = !empty($peerReviewScores) ? array_sum(array_column($peerReviewScores, 'score')) / count($peerReviewScores) : null;
+                $nilaiDosenAvg = ! empty($nilaiDosenScores) ? array_sum(array_column($nilaiDosenScores, 'score')) / count($nilaiDosenScores) : null;
+                $milestoneAvg = ! empty($milestoneScores) ? array_sum(array_column($milestoneScores, 'score')) / count($milestoneScores) : null;
+                $expoAvg = ! empty($expoScores) ? array_sum(array_column($expoScores, 'score')) / count($expoScores) : null;
+                $peerReviewAvg = ! empty($peerReviewScores) ? array_sum(array_column($peerReviewScores, 'score')) / count($peerReviewScores) : null;
 
-                $pdc2Scores = array_filter([$nilaiDosenAvg, $milestoneAvg, $expoAvg, $peerReviewAvg], fn($s) => $s !== null);
-                $pdc2 = !empty($pdc2Scores) ? array_sum($pdc2Scores) / count($pdc2Scores) : null;
+                $pdc2Scores = array_filter([$nilaiDosenAvg, $milestoneAvg, $expoAvg, $peerReviewAvg], fn ($s) => $s !== null);
+                $pdc2 = ! empty($pdc2Scores) ? array_sum($pdc2Scores) / count($pdc2Scores) : null;
 
                 // Calculate SidangTA (SIDANG_TA + BIMBINGAN_TA) / 2
-                $sidangTaScores = array_filter($scores, fn($s) => $s['type'] === 'SIDANG_TA');
-                $bimbinganTaScores = array_filter($scores, fn($s) => $s['type'] === 'BIMBINGAN_TA');
+                $sidangTaScores = array_filter($scores, fn ($s) => $s['type'] === 'SIDANG_TA');
+                $bimbinganTaScores = array_filter($scores, fn ($s) => $s['type'] === 'BIMBINGAN_TA');
 
-                $sidangTaAvg = !empty($sidangTaScores) ? array_sum(array_column($sidangTaScores, 'score')) / count($sidangTaScores) : null;
-                $bimbinganTaAvg = !empty($bimbinganTaScores) ? array_sum(array_column($bimbinganTaScores, 'score')) / count($bimbinganTaScores) : null;
+                $sidangTaAvg = ! empty($sidangTaScores) ? array_sum(array_column($sidangTaScores, 'score')) / count($sidangTaScores) : null;
+                $bimbinganTaAvg = ! empty($bimbinganTaScores) ? array_sum(array_column($bimbinganTaScores, 'score')) / count($bimbinganTaScores) : null;
 
-                $sidangTaComponents = array_filter([$sidangTaAvg, $bimbinganTaAvg], fn($s) => $s !== null);
-                $sidangTa = !empty($sidangTaComponents) ? array_sum($sidangTaComponents) / count($sidangTaComponents) : null;
+                $sidangTaComponents = array_filter([$sidangTaAvg, $bimbinganTaAvg], fn ($s) => $s !== null);
+                $sidangTa = ! empty($sidangTaComponents) ? array_sum($sidangTaComponents) / count($sidangTaComponents) : null;
 
                 // Calculate Final (PDC1 + PDC2 + SidangTA) / 3
-                $finalScores = array_filter([$pdc1, $pdc2, $sidangTa], fn($s) => $s !== null);
-                $final = !empty($finalScores) ? array_sum($finalScores) / count($finalScores) : null;
+                $finalScores = array_filter([$pdc1, $pdc2, $sidangTa], fn ($s) => $s !== null);
+                $final = ! empty($finalScores) ? array_sum($finalScores) / count($finalScores) : null;
 
                 // Determine status
                 $hasAllScores = $pdc1 !== null && $pdc2 !== null && $sidangTa !== null;
@@ -719,8 +720,8 @@ class GradeCheckController extends Controller
                 // Get group info
                 $groupMember = $studentGroups->get($studentId);
                 $group = $groupMember ? $groups->get($groupMember->group_id) : null;
-                $groupCode = $group ? 'G' . $group->id : '';
-                $groupName = $group?->title?->title ?? ($group ? 'Group ' . $group->id : '');
+                $groupCode = $group ? 'G'.$group->id : '';
+                $groupName = $group?->title?->title ?? ($group ? 'Group '.$group->id : '');
 
                 // Write row immediately (low memory footprint)
                 fputcsv($file, [
@@ -752,7 +753,7 @@ class GradeCheckController extends Controller
         ]);
 
         $periodId = $request->input('period_id');
-        if (!$periodId) {
+        if (! $periodId) {
             $activePeriod = Period::getActive();
             $periodId = $activePeriod?->id;
         }
@@ -782,7 +783,7 @@ class GradeCheckController extends Controller
             ->select('id', 'name', 'nim')
             ->first();
 
-        if (!$student) {
+        if (! $student) {
             return response()->json([
                 'error' => 'Student not found',
             ], 404);
@@ -795,12 +796,12 @@ class GradeCheckController extends Controller
             if ($type === 'PEER_REVIEW') {
                 // Handle peer review separately
                 $peerReviews = PeerReview::with([
-                    'periodIndicator.template:id,code,name,weight'
+                    'periodIndicator.template:id,code,name,weight',
                 ])
-                ->where('reviewee_id', $studentId)
-                ->where('is_final_submission', true)
-                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-                ->get();
+                    ->where('reviewee_id', $studentId)
+                    ->where('is_final_submission', true)
+                    ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
+                    ->get();
 
                 foreach ($peerReviews as $review) {
                     $scores[] = [
@@ -818,7 +819,7 @@ class GradeCheckController extends Controller
                 $typeScores = AssessmentScoreRepository::forType($type)
                     ->with(['component:id,name,code,weight', 'periodComponent.template:id,code,name,weight', 'evaluator:id,name'])
                     ->where('student_id', $studentId)
-                    ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+                    ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
                     ->get();
 
                 foreach ($typeScores as $score) {
@@ -837,13 +838,13 @@ class GradeCheckController extends Controller
             }
 
             // Calculate average score
-            $avgScore = !empty($scores) 
-                ? array_sum(array_column($scores, 'score')) / count($scores) 
+            $avgScore = ! empty($scores)
+                ? array_sum(array_column($scores, 'score')) / count($scores)
                 : null;
 
             $evaluations[$type] = [
                 'type' => $type,
-                'status' => !empty($scores) ? 'COMPLETED' : 'PENDING',
+                'status' => ! empty($scores) ? 'COMPLETED' : 'PENDING',
                 'score_count' => count($scores),
                 'average_score' => $avgScore !== null ? round($avgScore, 2) : null,
                 'scores' => $scores,
@@ -883,7 +884,7 @@ class GradeCheckController extends Controller
         ]);
 
         $periodId = $request->input('period_id');
-        if (!$periodId) {
+        if (! $periodId) {
             $activePeriod = Period::getActive();
             $periodId = $activePeriod?->id;
         }
@@ -899,7 +900,7 @@ class GradeCheckController extends Controller
             ->select('id', 'name', 'nim')
             ->first();
 
-        if (!$student) {
+        if (! $student) {
             return response()->json([
                 'error' => 'Student not found',
             ], 404);
@@ -911,17 +912,17 @@ class GradeCheckController extends Controller
             // Handle peer review
             $peerReviews = PeerReview::with([
                 'reviewer:id,name',
-                'periodIndicator.template:id,code,name,weight'
+                'periodIndicator.template:id,code,name,weight',
             ])
-            ->where('reviewee_id', $studentId)
-            ->where('is_final_submission', true)
-            ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
-            ->get();
+                ->where('reviewee_id', $studentId)
+                ->where('is_final_submission', true)
+                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
+                ->get();
 
             foreach ($peerReviews as $review) {
                 $evaluatorId = $review->reviewer_id;
-                
-                if (!isset($evaluators[$evaluatorId])) {
+
+                if (! isset($evaluators[$evaluatorId])) {
                     $evaluators[$evaluatorId] = [
                         'evaluator_id' => $evaluatorId,
                         'evaluator_name' => $review->reviewer?->name ?? 'Unknown',
@@ -951,18 +952,18 @@ class GradeCheckController extends Controller
                 'schedule.group:id,status,title_id',
                 'schedule.group.title:id,title',
             ])
-            ->whereHas('schedule', function($q) use ($studentId, $periodId) {
-                $q->where('student_id', $studentId);
-                if ($periodId) {
-                    $q->where('period_id', $periodId);
-                }
-            })
-            ->get();
+                ->whereHas('schedule', function ($q) use ($studentId, $periodId) {
+                    $q->where('student_id', $studentId);
+                    if ($periodId) {
+                        $q->where('period_id', $periodId);
+                    }
+                })
+                ->get();
 
             foreach ($taDefenseEvals as $eval) {
                 $evaluatorId = $eval->examiner_id;
-                
-                if (!isset($evaluators[$evaluatorId])) {
+
+                if (! isset($evaluators[$evaluatorId])) {
                     $evaluators[$evaluatorId] = [
                         'evaluator_id' => $evaluatorId,
                         'evaluator_name' => $eval->examiner?->name ?? 'Unknown',
@@ -991,10 +992,10 @@ class GradeCheckController extends Controller
                     'component:id,name,code,weight',
                     'periodComponent.template:id,code,name,weight',
                     'group:id,supervisor_1_id,supervisor_2_id,status,title_id',
-                    'group.title:id,title'
+                    'group.title:id,title',
                 ])
                 ->where('student_id', $studentId)
-                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn($q) => $q->whereIn('group_id', $periodGroupIds))
+                ->when($periodGroupIds && $periodGroupIds->isNotEmpty(), fn ($q) => $q->whereIn('group_id', $periodGroupIds))
                 ->get();
 
             // Preload schedules for role determination
@@ -1004,16 +1005,16 @@ class GradeCheckController extends Controller
                 $schedules = \App\Models\Schedule::whereIn('group_id', $groupIds)
                     ->whereIn('type', ['SEMPRO', 'SIDANG_TA'])
                     ->get()
-                    ->keyBy(fn($s) => $s->group_id . '_' . $s->type);
+                    ->keyBy(fn ($s) => $s->group_id.'_'.$s->type);
             }
 
             foreach ($scores as $score) {
                 $evaluatorId = $score->evaluator_id;
-                
-                if (!isset($evaluators[$evaluatorId])) {
+
+                if (! isset($evaluators[$evaluatorId])) {
                     // Determine evaluator role
                     $role = $this->getEvaluatorRole($score, $schedules);
-                    
+
                     $evaluators[$evaluatorId] = [
                         'evaluator_id' => $evaluatorId,
                         'evaluator_name' => $score->evaluator?->name ?? 'Unknown',
@@ -1026,7 +1027,7 @@ class GradeCheckController extends Controller
 
                 $weight = $score->component?->weight ?? $score->periodComponent?->template?->weight ?? 100;
                 $componentScore = $score->score;
-                
+
                 $evaluators[$evaluatorId]['components'][] = [
                     'code' => $score->component?->code ?? $score->periodComponent?->template?->code ?? 'COMP',
                     'name' => $score->component?->name ?? $score->periodComponent?->template?->name ?? 'Component',
@@ -1048,7 +1049,7 @@ class GradeCheckController extends Controller
                 foreach ($evaluator['components'] as &$component) {
                     $component['normalized_weight'] = ($component['weight'] / $totalWeight) * 100;
                 }
-                
+
                 // Calculate final weighted average
                 $evaluator['weighted_average'] = $evaluator['total_weighted_score'] / ($evaluator['total_weight'] / 100);
             } else {
@@ -1061,7 +1062,7 @@ class GradeCheckController extends Controller
 
         // Calculate overall average across all evaluators
         $overallScores = array_filter(array_column($evaluatorList, 'weighted_average'));
-        $overallAverage = !empty($overallScores) ? array_sum($overallScores) / count($overallScores) : null;
+        $overallAverage = ! empty($overallScores) ? array_sum($overallScores) / count($overallScores) : null;
 
         return response()->json([
             'student' => [
@@ -1086,10 +1087,10 @@ class GradeCheckController extends Controller
     {
         $sempro = $evaluations['SEMPRO']['average_score'] ?? null;
         $bimbinganSempro = $evaluations['BIMBINGAN_SEMPRO']['average_score'] ?? null;
-        
-        $scores = array_filter([$sempro, $bimbinganSempro], fn($s) => $s !== null);
-        
-        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+
+        $scores = array_filter([$sempro, $bimbinganSempro], fn ($s) => $s !== null);
+
+        return ! empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
     }
 
     /**
@@ -1101,10 +1102,10 @@ class GradeCheckController extends Controller
         $milestone = $evaluations['MILESTONE']['average_score'] ?? null;
         $expo = $evaluations['EXPO']['average_score'] ?? null;
         $peerReview = $evaluations['PEER_REVIEW']['average_score'] ?? null;
-        
-        $scores = array_filter([$nilaiDosen, $milestone, $expo, $peerReview], fn($s) => $s !== null);
-        
-        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+
+        $scores = array_filter([$nilaiDosen, $milestone, $expo, $peerReview], fn ($s) => $s !== null);
+
+        return ! empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
     }
 
     /**
@@ -1114,10 +1115,10 @@ class GradeCheckController extends Controller
     {
         $sidangTa = $evaluations['SIDANG_TA']['average_score'] ?? null;
         $bimbinganTa = $evaluations['BIMBINGAN_TA']['average_score'] ?? null;
-        
-        $scores = array_filter([$sidangTa, $bimbinganTa], fn($s) => $s !== null);
-        
-        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+
+        $scores = array_filter([$sidangTa, $bimbinganTa], fn ($s) => $s !== null);
+
+        return ! empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
     }
 
     /**
@@ -1125,9 +1126,9 @@ class GradeCheckController extends Controller
      */
     private function calculateFinalScore(?float $pdc1, ?float $pdc2, ?float $ta): ?float
     {
-        $scores = array_filter([$pdc1, $pdc2, $ta], fn($s) => $s !== null);
-        
-        return !empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
+        $scores = array_filter([$pdc1, $pdc2, $ta], fn ($s) => $s !== null);
+
+        return ! empty($scores) ? round(array_sum($scores) / count($scores), 2) : null;
     }
 
     /**

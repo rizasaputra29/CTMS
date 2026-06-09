@@ -19,7 +19,8 @@ import {
 } from '@/components/ui/table';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
-import { Loader2, Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Eye, EyeOff, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, Eye, EyeOff, Edit, Trash2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { expoEventSchema, type ExpoEventFormData } from '@/lib/validations/expo';
 
 interface ExpoEvent {
@@ -311,9 +312,7 @@ export default function AdminExpoPage() {
             </div>
 
             {loading && (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
+                <Loading variant="section" />
             )}
 
             {!loading && filteredAndSorted.length === 0 && (

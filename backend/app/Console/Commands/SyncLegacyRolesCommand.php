@@ -19,6 +19,7 @@ class SyncLegacyRolesCommand extends Command
         $rolesBySlug = Role::query()->pluck('id', 'slug');
         if ($rolesBySlug->isEmpty()) {
             $this->error('No roles found in roles table. Seed roles first.');
+
             return self::FAILURE;
         }
 
@@ -48,23 +49,26 @@ class SyncLegacyRolesCommand extends Command
                 $legacy = strtolower(trim((string) ($user->role ?? '')));
                 if ($legacy === '') {
                     $emptyLegacy++;
+
                     continue;
                 }
 
                 $roleId = $rolesBySlug->get($legacy);
-                if (!$roleId) {
+                if (! $roleId) {
                     $unknownLegacy++;
                     $this->warn("User #{$user->id} has unknown legacy role '{$legacy}'");
+
                     continue;
                 }
 
                 $hasRole = $user->roles->contains(fn ($r) => (int) $r->id === (int) $roleId);
                 if ($hasRole) {
                     $alreadyHad++;
+
                     continue;
                 }
 
-                if (!$dryRun) {
+                if (! $dryRun) {
                     $user->roles()->syncWithoutDetaching([$roleId]);
                 }
 

@@ -48,7 +48,7 @@ class AssessmentComponentTemplateController extends Controller
         $template = AssessmentComponentTemplate::findOrFail($id);
 
         $data = $request->validate([
-            'code' => 'sometimes|string|max:50|unique:assessment_component_templates,code,' . $id,
+            'code' => 'sometimes|string|max:50|unique:assessment_component_templates,code,'.$id,
             'name' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'weight' => 'sometimes|numeric|min:0|max:100',
@@ -67,18 +67,20 @@ class AssessmentComponentTemplateController extends Controller
     public function destroy($id)
     {
         $template = AssessmentComponentTemplate::findOrFail($id);
-        
+
         // Check if template is used in any period
         $usageCount = $template->periodComponents()->count();
         if ($usageCount > 0) {
             // Soft delete by marking inactive
             $template->update(['is_active' => false]);
+
             return response()->json([
-                'message' => 'Template marked as inactive (has existing usage in ' . $usageCount . ' period configurations)'
+                'message' => 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)',
             ]);
         }
 
         $template->delete();
+
         return response()->json(['message' => 'Template deleted']);
     }
 }

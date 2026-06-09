@@ -1,8 +1,8 @@
 <?php
 
 // Load Laravel bootstrap
-require_once __DIR__ . '/vendor/autoload.php';
-$app = require_once __DIR__ . '/bootstrap/app.php';
+require_once __DIR__.'/vendor/autoload.php';
+$app = require_once __DIR__.'/bootstrap/app.php';
 
 // Get database connection
 $db = $app->make('database');

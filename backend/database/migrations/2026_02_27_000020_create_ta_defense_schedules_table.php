@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        if (!Schema::hasTable('ta_defense_schedules')) {
+        if (! Schema::hasTable('ta_defense_schedules')) {
             Schema::create('ta_defense_schedules', function (Blueprint $table) {
                 $table->id();
                 $table->foreignId('student_id')->constrained('users')->onDelete('cascade');
@@ -36,7 +36,7 @@ return new class extends Migration
         } else {
             // Add columns that may be missing from the older migration
             Schema::table('ta_defense_schedules', function (Blueprint $table) {
-                if (!Schema::hasColumn('ta_defense_schedules', 'evaluation_deadline')) {
+                if (! Schema::hasColumn('ta_defense_schedules', 'evaluation_deadline')) {
                     $table->timestamp('evaluation_deadline')->nullable();
                 }
             });

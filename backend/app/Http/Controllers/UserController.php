@@ -120,7 +120,7 @@ class UserController extends Controller
         if (isset($validated['roles'])) {
             $roleIds = \App\Models\Role::whereIn('slug', $validated['roles'])->pluck('id');
             $user->roles()->sync($roleIds);
-            
+
             // Sync legacy role column for compatibility
             $validated['role'] = $validated['roles'][0] ?? $user->role;
         }
@@ -159,11 +159,13 @@ class UserController extends Controller
 
             $user->delete();
             DB::commit();
+
             return response()->json(['message' => 'User deleted']);
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('user.delete.failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
-            return response()->json(['message' => 'Failed to delete user: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to delete user: '.$e->getMessage()], 500);
         }
     }
 
@@ -178,7 +180,7 @@ class UserController extends Controller
 
         foreach ($memberships as $membership) {
             $group = Group::with(['members', 'period'])->find($membership->group_id);
-            if (!$group) {
+            if (! $group) {
                 continue;
             }
 
@@ -202,10 +204,10 @@ class UserController extends Controller
                             ->where('student_id', '!=', $student->id)
                             ->orderBy('created_at', 'asc')
                             ->first();
-                        
+
                         if ($newLeader) {
                             $newLeader->update(['is_leader' => true]);
-                            
+
                             // Notify new leader
                             Notification::create([
                                 'user_id' => $newLeader->student_id,
@@ -217,7 +219,7 @@ class UserController extends Controller
                             ]);
                         }
                     }
-                    
+
                     // Delete the membership
                     $membership->delete();
                 }
@@ -235,40 +237,40 @@ class UserController extends Controller
         // Delete related data in order
         // Documents
         \App\Models\Document::where('group_id', $groupId)->delete();
-        
+
         // Bids
         \App\Models\Bid::where('group_id', $groupId)->delete();
-        
+
         // Student proposals (titles)
         \App\Models\Title::where('proposed_by_group_id', $groupId)->delete();
-        
+
         // Group memberships
         GroupMember::where('group_id', $groupId)->delete();
-        
+
         // Supervisions
         \App\Models\Supervision::where('group_id', $groupId)->delete();
-        
+
         // Schedules
         \App\Models\Schedule::where('group_id', $groupId)->delete();
-        
+
         // Seminar schedules
         \App\Models\SeminarSchedule::where('group_id', $groupId)->delete();
-        
+
         // TA defense schedules
         \App\Models\TaDefenseSchedule::where('group_id', $groupId)->delete();
-        
+
         // TA submissions
         \App\Models\TaSubmission::where('group_id', $groupId)->delete();
-        
+
         // Evaluations
         \App\Models\Evaluation::where('group_id', $groupId)->delete();
-        
+
         // Join requests
         \App\Models\JoinRequest::where('group_id', $groupId)->delete();
-        
+
         // Group invitations
         \App\Models\GroupInvitation::where('group_id', $groupId)->delete();
-        
+
         // Notifications related to group
         \App\Models\Notification::where('related_type', 'Group')
             ->where('related_id', $groupId)
@@ -276,7 +278,7 @@ class UserController extends Controller
 
         // Finally delete the group
         $group->delete();
-        
+
         Log::info('group.deleted.completely', ['group_id' => $groupId]);
     }
 
@@ -290,7 +292,7 @@ class UserController extends Controller
     {
         $admin = $request->user();
 
-        if (!$student->hasRole('mahasiswa')) {
+        if (! $student->hasRole('mahasiswa')) {
             return response()->json(['message' => 'Target user harus mahasiswa.'], 400);
         }
 
@@ -298,7 +300,7 @@ class UserController extends Controller
             ->where('period_id', $period->id)
             ->first();
 
-        if (!$registration) {
+        if (! $registration) {
             return response()->json(['message' => 'Mahasiswa tidak terdaftar pada periode ini.'], 404);
         }
 
@@ -340,7 +342,7 @@ class UserController extends Controller
 
             foreach ($affectedGroupIds as $groupId) {
                 $group = Group::find($groupId);
-                if (!$group) {
+                if (! $group) {
                     continue;
                 }
 
@@ -348,6 +350,7 @@ class UserController extends Controller
                 if ($remainingMembers === 0) {
                     $group->update(['status' => 'DISSOLVED']);
                     Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
+
                     continue;
                 }
 
@@ -396,7 +399,7 @@ class UserController extends Controller
             ]);
 
             return response()->json([
-                'message' => 'Gagal mengeluarkan mahasiswa dari periode: ' . $e->getMessage(),
+                'message' => 'Gagal mengeluarkan mahasiswa dari periode: '.$e->getMessage(),
             ], 500);
         }
     }

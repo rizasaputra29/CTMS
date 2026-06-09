@@ -4,6 +4,8 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -58,7 +60,7 @@ class User extends Authenticatable
     /**
      * Groups supervised by this user (via supervisions table — source of truth).
      */
-    public function supervisedGroups()
+    public function supervisedGroups(): BelongsToMany
     {
         return $this->belongsToMany(Group::class, 'supervisions', 'supervisor_id', 'group_id')
             ->withPivot('role', 'assigned_by')
@@ -68,7 +70,7 @@ class User extends Authenticatable
     /**
      * Roles assigned to this user.
      */
-    public function roles()
+    public function roles(): BelongsToMany
     {
         return $this->belongsToMany(Role::class);
     }
@@ -114,7 +116,7 @@ class User extends Authenticatable
     /**
      * TA submissions for this student.
      */
-    public function taSubmissions()
+    public function taSubmissions(): HasMany
     {
         return $this->hasMany(TaSubmission::class, 'student_id');
     }
@@ -122,7 +124,7 @@ class User extends Authenticatable
     /**
      * Supervision records (as supervisor).
      */
-    public function supervisions()
+    public function supervisions(): HasMany
     {
         return $this->hasMany(Supervision::class, 'supervisor_id');
     }
@@ -140,7 +142,7 @@ class User extends Authenticatable
     /**
      * Group memberships for this student.
      */
-    public function groupMemberships()
+    public function groupMemberships(): HasMany
     {
         return $this->hasMany(GroupMember::class, 'student_id');
     }
@@ -148,7 +150,7 @@ class User extends Authenticatable
     /**
      * Periods this student has registered for.
      */
-    public function registeredPeriods()
+    public function registeredPeriods(): BelongsToMany
     {
         return $this->belongsToMany(Period::class, 'period_registrations')
             ->withTimestamps();

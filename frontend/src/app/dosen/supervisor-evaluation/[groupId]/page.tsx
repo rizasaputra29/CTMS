@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Loading } from '@/components/ui/loading';
 import { 
   Loader2, 
   ArrowLeft, 
@@ -230,17 +230,7 @@ export default function SupervisorEvaluationDetailPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-6 container py-6">
-        <Skeleton className="h-10 w-1/4" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Skeleton className="h-[400px] md:col-span-1" />
-          <Skeleton className="h-[600px] md:col-span-2" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <Loading variant="section" />;
 
   if (!group) {
     return (

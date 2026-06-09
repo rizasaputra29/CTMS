@@ -3,15 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
-use App\Models\Title;
 use App\Models\Group;
-use App\Models\GroupMember;
+use App\Models\Title;
 use App\Models\TitleApprovalAudit;
 use App\Models\TitleDeletionAudit;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use App\Services\NotificationService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class TitleController extends Controller
 {
@@ -28,7 +26,7 @@ class TitleController extends Controller
             $query->where('period_id', $periodId);
         } else {
             // Default to current active period if no period_id provided
-            $query->whereHas('period', function($q) {
+            $query->whereHas('period', function ($q) {
                 $q->where('is_active', true);
             });
         }
@@ -38,7 +36,7 @@ class TitleController extends Controller
                 ->withCount([
                     'groups as active_groups_count' => function ($query) {
                         $query->where('status', '!=', 'REJECTED');
-                    }
+                    },
                 ])
                 ->get();
         }
@@ -53,7 +51,7 @@ class TitleController extends Controller
                         $q->where('title_source', 'LECTURER')
                             ->orWhereNull('title_source');
                     })
-                    ->where('quota', '>', 0);
+                        ->where('quota', '>', 0);
                 })
                 ->orWhere(function ($query) use ($periodId) {
                     // Include STUDENT titles that are APPROVED (for marketplace)
@@ -62,12 +60,12 @@ class TitleController extends Controller
                         ->where('supervisor_approval_status', 'APPROVED')
                         ->where('status', 'open')
                         ->where('is_reserved', false)
-                        ->whereHas('proposedByGroup', fn($q) => $q->where('is_solo', true));
-                    
+                        ->whereHas('proposedByGroup', fn ($q) => $q->where('is_solo', true));
+
                     if ($periodId) {
                         $query->where('period_id', $periodId);
                     } else {
-                        $query->whereHas('period', function($q) {
+                        $query->whereHas('period', function ($q) {
                             $q->where('is_active', true);
                         });
                     }
@@ -76,7 +74,7 @@ class TitleController extends Controller
                 ->withCount([
                     'groups as active_groups_count' => function ($query) {
                         $query->where('status', '!=', 'REJECTED');
-                    }
+                    },
                 ])
                 ->get()
                 ->filter(function ($title) {
@@ -84,6 +82,7 @@ class TitleController extends Controller
                     if ($title->title_source === 'LECTURER' || $title->title_source === null) {
                         return $title->active_groups_count < $title->quota;
                     }
+
                     // For STUDENT titles, always show (no quota limit)
                     return true;
                 })
@@ -113,12 +112,12 @@ class TitleController extends Controller
 
         // Validate that selected period is active
         $selectedPeriod = \App\Models\Period::findOrFail($validated['period_id']);
-        if (!$selectedPeriod->is_active) {
+        if (! $selectedPeriod->is_active) {
             return response()->json(['message' => 'Selected period is not active.'], 422);
         }
 
         // Set is_reserved if pre_assigned_group_id is provided
-        $isReserved = !empty($validated['pre_assigned_group_id']);
+        $isReserved = ! empty($validated['pre_assigned_group_id']);
         $preAssignedGroup = null;
         if ($isReserved) {
             $preAssignedGroup = Group::with(['members', 'period'])
@@ -192,7 +191,8 @@ class TitleController extends Controller
             return response()->json($title->fresh(), 201);
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to create title: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to create title: '.$e->getMessage()], 500);
         }
     }
 
@@ -202,7 +202,7 @@ class TitleController extends Controller
             'lecturer',
             'groups' => function ($q) {
                 $q->where('status', '!=', 'REJECTED')->with('members.student');
-            }
+            },
         ]);
     }
 
@@ -210,7 +210,7 @@ class TitleController extends Controller
     {
         $this->ensureModelPeriodActive($title);
 
-        if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
+        if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
 
@@ -239,7 +239,7 @@ class TitleController extends Controller
             // Update title fields
             $title->update([
                 ...$validated,
-                'is_reserved' => !empty($newPreAssignedGroupId),
+                'is_reserved' => ! empty($newPreAssignedGroupId),
             ]);
 
             // Handle group assignment changes
@@ -250,7 +250,7 @@ class TitleController extends Controller
                     if ($oldGroup && $oldGroup->title_id === $title->id) {
                         $oldGroup->update(['title_id' => null]);
                         // Status will be automatically recalculated or remain as-is
-                        
+
                         \App\Models\FinalizationAudit::create([
                             'period_id' => $oldGroup->period_id,
                             'group_id' => $oldGroup->id,
@@ -275,18 +275,21 @@ class TitleController extends Controller
                     // Validate group is in same period
                     if ((int) $newGroup->period_id !== (int) $title->period_id) {
                         DB::rollBack();
+
                         return response()->json(['message' => 'Kelompok harus berada dalam periode yang sama.'], 422);
                     }
 
                     // Validate group status
                     if ($newGroup->status !== 'READY_FOR_BIDDING') {
                         DB::rollBack();
+
                         return response()->json(['message' => 'Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.'], 422);
                     }
 
                     // Validate group doesn't already have a title
                     if ($newGroup->title_id && $newGroup->title_id !== $title->id) {
                         DB::rollBack();
+
                         return response()->json(['message' => 'Kelompok sudah memiliki judul.'], 422);
                     }
 
@@ -297,6 +300,7 @@ class TitleController extends Controller
 
                     if ($memberCount < $minSize || $memberCount > $maxSize) {
                         DB::rollBack();
+
                         return response()->json([
                             'message' => "Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
                         ], 422);
@@ -331,7 +335,8 @@ class TitleController extends Controller
             return response()->json($title->fresh());
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to update title: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to update title: '.$e->getMessage()], 500);
         }
     }
 
@@ -339,7 +344,7 @@ class TitleController extends Controller
     {
         $this->ensureModelPeriodActive($title);
 
-        if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
+        if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
 
@@ -347,10 +352,10 @@ class TitleController extends Controller
         $affectedGroups = Group::where('title_id', $title->id)
             ->where('status', '!=', 'READY_FOR_FINALIZATION')
             ->get();
-        
+
         $period = $title->period;
         $minSize = $period->min_group_size ?? 3;
-        
+
         // Revert each group and collect info for audit
         $revertedGroups = [];
         foreach ($affectedGroups as $group) {
@@ -368,7 +373,7 @@ class TitleController extends Controller
         \App\Models\Bid::where('title_id', $title->id)->delete();
 
         // Create audit log before deletion if there were affected groups
-        if (!empty($revertedGroups)) {
+        if (! empty($revertedGroups)) {
             TitleDeletionAudit::create([
                 'title_id' => $title->id,
                 'title_name' => $title->title,
@@ -414,7 +419,7 @@ class TitleController extends Controller
             $isApproved = true;
         }
 
-        if (!$isApproved) {
+        if (! $isApproved) {
             return response()->json(['message' => 'Title is not approved'], 422);
         }
 
@@ -445,7 +450,7 @@ class TitleController extends Controller
         $period = $title->period;
         $minSize = $period->min_group_size ?? 3;
         $reason = $request->input('reason');
-        
+
         foreach ($affectedGroups as $group) {
             $oldStatus = $group->status;
             // Revert with 'withdraw' action - approved groups go to WAITING_SUPERVISOR_APPROVAL
@@ -480,7 +485,7 @@ class TitleController extends Controller
     public function getApprovalHistory(Request $request, Title $title)
     {
         // Authorization: Lecturer who created this title, or admin
-        if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
+        if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
 
@@ -515,7 +520,7 @@ class TitleController extends Controller
     public function getDeletionHistory(Request $request, Title $title)
     {
         // Authorization: Lecturer who created this title, or admin
-        if ($request->user()->id !== $title->lecturer_id && !$request->user()->hasRole('admin')) {
+        if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
             abort(403, 'Unauthorized');
         }
 

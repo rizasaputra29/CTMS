@@ -27,7 +27,7 @@ class RefreshGroupReadinessBatch implements ShouldQueue
     /**
      * Create a new job instance.
      *
-     * @param array<int> $groupIds
+     * @param  array<int>  $groupIds
      */
     public function __construct(array $groupIds)
     {

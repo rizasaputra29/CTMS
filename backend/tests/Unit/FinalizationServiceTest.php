@@ -10,7 +10,6 @@ use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\User;
 use App\Services\FinalizationService;
-use App\Services\GroupStateMachine;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use InvalidArgumentException;
 use Tests\TestCase;
@@ -20,9 +19,13 @@ class FinalizationServiceTest extends TestCase
     use RefreshDatabase;
 
     protected FinalizationService $service;
+
     protected Period $period;
+
     protected User $admin;
+
     protected User $dosen1;
+
     protected User $dosen2;
 
     protected function setUp(): void
@@ -65,23 +68,23 @@ class FinalizationServiceTest extends TestCase
         ]);
     }
 
-    private function makeGroupWithBid(string $titleId = null): array
+    private function makeGroupWithBid(?string $titleId = null): array
     {
         $student1 = User::create([
-            'name' => 'S' . rand(100, 999),
-            'email' => 's' . rand(100, 999) . '@test.com',
+            'name' => 'S'.rand(100, 999),
+            'email' => 's'.rand(100, 999).'@test.com',
             'password' => bcrypt('pw'),
             'role' => 'mahasiswa',
         ]);
         $student2 = User::create([
-            'name' => 'S' . rand(100, 999),
-            'email' => 's' . rand(100, 999) . '@test.com',
+            'name' => 'S'.rand(100, 999),
+            'email' => 's'.rand(100, 999).'@test.com',
             'password' => bcrypt('pw'),
             'role' => 'mahasiswa',
         ]);
 
         $title = Title::create([
-            'title' => 'Test Title ' . rand(100, 999),
+            'title' => 'Test Title '.rand(100, 999),
             'description' => 'A test title',
             'lecturer_id' => $this->dosen1->id,
             'period_id' => $this->period->id,

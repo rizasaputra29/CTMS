@@ -21,7 +21,9 @@ class ExpoController extends Controller
     use RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
+
     protected SchedulingService $schedulingService;
+
     protected ExpoEligibilityService $eligibilityService;
 
     public function __construct(
@@ -98,7 +100,7 @@ class ExpoController extends Controller
         }
 
         // Check TA eligibility
-        if (!$this->eligibilityService->isEligible($group)) {
+        if (! $this->eligibilityService->isEligible($group)) {
             return response()->json(['message' => 'Group does not meet Expo TA eligibility requirements.'], 400);
         }
 
@@ -137,7 +139,7 @@ class ExpoController extends Controller
             $room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -175,10 +177,10 @@ class ExpoController extends Controller
             'seminar_schedules',
             $schedule->id
         );
-        
+
         // Only notify examiners if they are assigned (EXPO no longer requires examiners)
         $examinerIds = array_filter([$schedule->examiner_1_id, $schedule->examiner_2_id]);
-        if (!empty($examinerIds)) {
+        if (! empty($examinerIds)) {
             $notificationService->sendToMany(
                 $examinerIds,
                 'SCHEDULE_APPROVED',
@@ -212,7 +214,7 @@ class ExpoController extends Controller
             ->where('examiner_id', $user->id)
             ->first();
 
-        if (!$evaluation) {
+        if (! $evaluation) {
             return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
         }
 
@@ -249,7 +251,7 @@ class ExpoController extends Controller
                         $scheduleId
                     );
                 } catch (\Exception $e) {
-                    Log::error("Failed to send deadline notification: " . $e->getMessage());
+                    Log::error('Failed to send deadline notification: '.$e->getMessage());
                 }
             }
 
@@ -291,7 +293,7 @@ class ExpoController extends Controller
 
         // Double guard: examiner constraints (only if examiners provided)
         $examinerIds = array_filter([$request->examiner_1_id, $request->examiner_2_id]);
-        if (!empty($examinerIds)) {
+        if (! empty($examinerIds)) {
             $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
             if ($constraintError) {
                 return response()->json(['message' => $constraintError], 400);
@@ -307,7 +309,7 @@ class ExpoController extends Controller
             $request->room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -318,7 +320,7 @@ class ExpoController extends Controller
             'room' => $request->room,
             'examiner_1_id' => $request->examiner_1_id,
             'examiner_2_id' => $request->examiner_2_id,
-            'status' => 'SCHEDULED'
+            'status' => 'SCHEDULED',
         ]);
         $this->schedulingService->autoGenerateSeminarEvaluations($schedule);
 

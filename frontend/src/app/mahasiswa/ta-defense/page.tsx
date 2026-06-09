@@ -5,8 +5,9 @@ import axios from 'axios';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Calendar, Clock, MapPin, Users, GraduationCap, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, Users, GraduationCap, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import Link from 'next/link';
@@ -87,13 +88,7 @@ export default function MahasiswaTaDefensePage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-screen">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     // If TA is blocked, show blocking message
     if (taStatus?.ta_status === 'TA_BLOCKED') {

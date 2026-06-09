@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AssessmentComponentTemplate;
 use App\Models\AssessmentComponent;
+use App\Models\AssessmentComponentTemplate;
 use App\Models\Period;
 use App\Models\PeriodAssessmentComponent;
 use Illuminate\Http\Request;
@@ -116,7 +116,7 @@ class PeriodAssessmentConfigController extends Controller
 
                 foreach ($request->template_ids as $i => $templateId) {
                     $template = $templates->get((int) $templateId);
-                    if (!$template) {
+                    if (! $template) {
                         continue;
                     }
 

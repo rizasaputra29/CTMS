@@ -20,7 +20,7 @@ return new class extends Migration
 
     private function migrateSemproData(): void
     {
-        if (!Schema::hasTable('seminar_evaluations')) {
+        if (! Schema::hasTable('seminar_evaluations')) {
             return;
         }
 
@@ -74,7 +74,7 @@ return new class extends Migration
 
     private function migrateSidangTaData(): void
     {
-        if (!Schema::hasTable('ta_defense_evaluations')) {
+        if (! Schema::hasTable('ta_defense_evaluations')) {
             return;
         }
 
@@ -114,6 +114,7 @@ return new class extends Migration
                 ]);
 
                 $inserted++;
+
                 continue;
             }
 

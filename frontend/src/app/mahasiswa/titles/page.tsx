@@ -27,13 +27,14 @@ import {
 } from "@/components/ui/dialog"
 import { Textarea } from '@/components/ui/textarea';
 import { 
-    Search, Loader2, Info, Lock, 
+    Search, Info, Lock, 
     BookOpen, Lightbulb, Send, User, Check
 } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import { Loading } from '@/components/ui/loading';
 
 const SPECIALIZATIONS = ['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'];
 
@@ -331,13 +332,7 @@ export default function TitlesMarketplacePage() {
         LEADER_SOLO_ONLY: 'Hanya ghost student atau ketua kelompok seeker yang dapat request join.',
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">
@@ -569,7 +564,7 @@ export default function TitlesMarketplacePage() {
                                             ) : canRequestJoin && spots > 0 ? (
                                                 isPending ? (
                                                     <Button variant="ghost" disabled className="w-full text-xs">
-                                                        <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Pending Approval
+                                                        <div className="mr-2 h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> Pending Approval
                                                     </Button>
                                                 ) : (
                                                     <Button variant="default" size="sm" className="w-full" onClick={() => { setSelectedGroupId(groupInfo?.id || null); setRequestDialogOpen(true); }}>

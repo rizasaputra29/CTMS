@@ -15,7 +15,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Loader2, Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { toast } from "sonner";
 import { format, parseISO } from 'date-fns';
 import {
@@ -337,13 +338,7 @@ export default function DosenSchedulePage() {
         return stats;
     }, [filteredSchedules]);
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">

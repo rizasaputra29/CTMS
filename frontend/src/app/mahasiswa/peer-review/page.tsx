@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -17,8 +16,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Loading } from '@/components/ui/loading';
 import {
-  Loader2,
   Star,
   Send,
   Lock,
@@ -209,17 +208,7 @@ export default function MahasiswaPeerReviewPage() {
   const reviewableMembers = members.filter(m => m.student.id !== currentUser);
 
   // ── Loading skeleton ──
-  if (loading) {
-    return (
-      <div className="space-y-6 animate-in fade-in duration-500">
-        <Skeleton className="h-10 w-1/3" />
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-          <Skeleton className="h-[400px] lg:col-span-4" />
-          <Skeleton className="h-[600px] lg:col-span-8" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <Loading variant="section" />;
 
   // ── No group ──
   if (!hasGroup) {
@@ -558,7 +547,7 @@ export default function MahasiswaPeerReviewPage() {
                     <h4 className="font-bold text-muted-foreground">Score Summary</h4>
                     {isRefreshing ? (
                       <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                         <span className="text-sm">Refreshing scores...</span>
                       </div>
                     ) : (
@@ -582,7 +571,7 @@ export default function MahasiswaPeerReviewPage() {
                       >
                         {submitting ? (
                           <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />
                             Submitting...
                           </>
                         ) : (
@@ -699,7 +688,7 @@ export default function MahasiswaPeerReviewPage() {
             >
               {submitting ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <div className="w-4 h-4 mr-2 animate-spin rounded-full border-2 border-current border-t-transparent" />
                   Submitting...
                 </>
               ) : (

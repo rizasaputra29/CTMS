@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Repositories\AssessmentScoreRepository;
-use App\Models\PeerReview;
 use App\Models\GradeConsistencyCheck;
 use App\Models\Group;
-use App\Models\GroupMember;
+use App\Models\PeerReview;
 use App\Models\User;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -46,13 +45,13 @@ class ReportExportController extends Controller
         $students = User::whereHas('groupMemberships.group', function ($q) use ($periodId) {
             $q->where('period_id', $periodId);
         })
-        ->with(['groupMemberships' => function ($q) use ($periodId) {
-            $q->whereHas('group', function ($gq) use ($periodId) {
-                $gq->where('period_id', $periodId);
-            })->with('group.title');
-        }])
-        ->get()
-        ->keyBy('id');
+            ->with(['groupMemberships' => function ($q) use ($periodId) {
+                $q->whereHas('group', function ($gq) use ($periodId) {
+                    $gq->where('period_id', $periodId);
+                })->with('group.title');
+            }])
+            ->get()
+            ->keyBy('id');
 
         // Collect all evaluation data for each student
         $studentData = [];
@@ -60,13 +59,13 @@ class ReportExportController extends Controller
         foreach ($students as $student) {
             $membership = $student->groupMemberships->first();
             $group = $membership ? $membership->group : null;
-            
+
             $studentData[$student->id] = [
                 'student_id' => $student->id,
                 'student_name' => $student->name,
                 'student_nim' => $student->nim ?? '',
                 'group_id' => $group ? $group->id : '',
-                'group_name' => $group && $group->code ? $group->code : ($group ? 'Group ' . $group->id : ''),
+                'group_name' => $group && $group->code ? $group->code : ($group ? 'Group '.$group->id : ''),
                 'evaluations' => [
                     'SEMPRO' => ['score' => null, 'status' => 'NOT_STARTED'],
                     'BIMBINGAN_SEMPRO' => ['score' => null, 'status' => 'NOT_STARTED'],
@@ -81,15 +80,15 @@ class ReportExportController extends Controller
 
         // Fetch scores for each evaluation type
         $types = $evalType ? [$evalType] : AssessmentScoreRepository::getSupportedTypes();
-        
+
         foreach ($types as $type) {
-            if (!AssessmentScoreRepository::isSupportedType($type)) {
+            if (! AssessmentScoreRepository::isSupportedType($type)) {
                 continue;
             }
 
             // Get group IDs for this period
             $groupIds = Group::where('period_id', $periodId)->pluck('id');
-            
+
             if ($groupIds->isEmpty()) {
                 continue;
             }
@@ -103,7 +102,7 @@ class ReportExportController extends Controller
             $studentScores = [];
             foreach ($scores as $score) {
                 $studentId = $score->student_id;
-                if (!isset($studentScores[$studentId])) {
+                if (! isset($studentScores[$studentId])) {
                     $studentScores[$studentId] = [];
                 }
                 $studentScores[$studentId][] = $score->score;
@@ -111,10 +110,10 @@ class ReportExportController extends Controller
 
             // Update student data
             foreach ($studentScores as $studentId => $scores) {
-                if (!isset($studentData[$studentId])) {
+                if (! isset($studentData[$studentId])) {
                     continue;
                 }
-                
+
                 $avgScore = array_sum($scores) / count($scores);
                 $studentData[$studentId]['evaluations'][$type] = [
                     'score' => round($avgScore),
@@ -137,7 +136,7 @@ class ReportExportController extends Controller
                 $eval = $data['evaluations'][$evalType];
                 $score = $eval['score'];
                 $status = $eval['status'];
-                
+
                 if ($score === null) {
                     $row[] = 'N/A';
                 } else {
@@ -176,26 +175,26 @@ class ReportExportController extends Controller
     private function exportPeerReviews($periodId): StreamedResponse
     {
         $reviews = PeerReview::with(['reviewer', 'reviewee', 'periodIndicator.template', 'group.title'])
-            ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $periodId))
             ->where('is_final_submission', true)
             ->orderBy('created_at', 'desc')
             ->get();
 
-        $csvRows = $reviews->map(function($r) {
+        $csvRows = $reviews->map(function ($r) {
             $rawScore = $r->raw_score;
             $convertedScore = $r->score;
-            
+
             // Determine score interpretation
-            $rawInterpretation = match(true) {
+            $rawInterpretation = match (true) {
                 $rawScore >= 4 => 'Excellent',
                 $rawScore >= 3 => 'Good',
                 $rawScore >= 2 => 'Fair',
                 default => 'Poor',
             };
-            
+
             return [
                 $r->created_at ? date('Y-m-d', strtotime($r->created_at)) : '',
-                $r->group && $r->group->title ? $r->group->title->title : ($r->group ? 'Group ' . $r->group_id : ''),
+                $r->group && $r->group->title ? $r->group->title->title : ($r->group ? 'Group '.$r->group_id : ''),
                 $r->reviewer->name ?? '',
                 $r->reviewee->name ?? '',
                 $r->periodIndicator->template->code ?? '',
@@ -217,14 +216,14 @@ class ReportExportController extends Controller
             'Raw Score (1-4)',
             'Interpretation',
             'Converted Score (0-100)',
-            'Comment'
+            'Comment',
         ], $csvRows);
     }
 
     private function exportGradeConsistency($periodId): StreamedResponse
     {
         $checks = GradeConsistencyCheck::with(['group.title', 'student', 'checker'])
-            ->whereHas('group', fn($q) => $q->where('period_id', $periodId))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $periodId))
             ->get();
 
         return $this->streamCsv('grade_consistency.csv', [
@@ -236,18 +235,18 @@ class ReportExportController extends Controller
             'Deviation',
             'Status',
             'Checked By',
-            'Notes'
-        ], $checks->map(fn($c) => [
-                $c->group_id,
-                $c->group->title->title ?? '',
-                $c->student->name ?? '',
-                $c->pdc1_score ?? '',
-                $c->pdc2_score ?? '',
-                $c->deviation ?? '',
-                $c->status,
-                $c->checker->name ?? '',
-                $c->notes ?? '',
-            ])->toArray());
+            'Notes',
+        ], $checks->map(fn ($c) => [
+            $c->group_id,
+            $c->group->title->title ?? '',
+            $c->student->name ?? '',
+            $c->pdc1_score ?? '',
+            $c->pdc2_score ?? '',
+            $c->deviation ?? '',
+            $c->status,
+            $c->checker->name ?? '',
+            $c->notes ?? '',
+        ])->toArray());
     }
 
     private function exportGroups($periodId): StreamedResponse
@@ -263,16 +262,16 @@ class ReportExportController extends Controller
             'Mode',
             'Supervisor 1',
             'Supervisor 2',
-            'Members'
-        ], $groups->map(fn($g) => [
-                $g->id,
-                $g->title->title ?? '',
-                $g->status,
-                $g->group_mode ?? 'GROUP',
-                $g->supervisor1->name ?? '',
-                $g->supervisor2->name ?? '',
-                $g->members->map(fn($m) => ($m->student->name ?? '') . ' (' . ($m->student->nim ?? '') . ')')->implode('; '),
-            ])->toArray());
+            'Members',
+        ], $groups->map(fn ($g) => [
+            $g->id,
+            $g->title->title ?? '',
+            $g->status,
+            $g->group_mode ?? 'GROUP',
+            $g->supervisor1->name ?? '',
+            $g->supervisor2->name ?? '',
+            $g->members->map(fn ($m) => ($m->student->name ?? '').' ('.($m->student->nim ?? '').')')->implode('; '),
+        ])->toArray());
     }
 
     /**
@@ -281,7 +280,7 @@ class ReportExportController extends Controller
      */
     private function exportFinalGrades($periodId): StreamedResponse
     {
-        $gradeService = new GradeCalculationService();
+        $gradeService = new GradeCalculationService;
 
         // Get all groups in the period with their members
         $groups = Group::where('period_id', $periodId)
@@ -291,17 +290,19 @@ class ReportExportController extends Controller
         // Build student-group pairs for batch calculation
         $studentGroupPairs = [];
         $studentInfo = [];
-        
+
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
-                
+                if (! $student) {
+                    continue;
+                }
+
                 $studentGroupPairs[] = [
                     'student_id' => $student->id,
                     'group_id' => $group->id,
                 ];
-                
+
                 $studentInfo[$student->id] = [
                     'student' => $student,
                     'group' => $group,
@@ -321,7 +322,7 @@ class ReportExportController extends Controller
             $info = $studentInfo[$studentId];
             $student = $info['student'];
             $group = $info['group'];
-            
+
             $pdc1Data = $pdc1Results[$studentId] ?? null;
             $pdc2Data = $pdc2Results[$studentId] ?? null;
             $taData = $taResults[$studentId] ?? null;
@@ -331,7 +332,7 @@ class ReportExportController extends Controller
             $taScore = $taData && isset($taData['grade']) ? $taData['grade'] : null;
 
             $gradeRows[] = [
-                $group->title->title ?? ($group ? 'Group ' . $group->id : ''),
+                $group->title->title ?? ($group ? 'Group '.$group->id : ''),
                 $student->name,
                 $student->nim ?? '',
                 $pdc1Score !== null ? number_format($pdc1Score, 1) : 'N/A',
@@ -352,7 +353,7 @@ class ReportExportController extends Controller
             'PDC2 Score',
             'PDC2 Status',
             'TA Score',
-            'TA Status'
+            'TA Status',
         ], $gradeRows);
     }
 
@@ -371,7 +372,7 @@ class ReportExportController extends Controller
         });
 
         $response->headers->set('Content-Type', 'text/csv');
-        $response->headers->set('Content-Disposition', 'attachment; filename="' . $filename . '"');
+        $response->headers->set('Content-Disposition', 'attachment; filename="'.$filename.'"');
         $response->headers->set('Access-Control-Allow-Origin', 'http://localhost:3000');
         $response->headers->set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         $response->headers->set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');

@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -31,7 +31,7 @@ return new class extends Migration
             ['name' => 'Dosen', 'slug' => 'dosen'],
             ['name' => 'Mahasiswa', 'slug' => 'mahasiswa'],
         ];
-        
+
         foreach ($roles as $role) {
             \App\Models\Role::firstOrCreate(['slug' => $role['slug']], ['name' => $role['name']]);
         }
@@ -51,8 +51,8 @@ return new class extends Migration
             }
         }
 
-        // 5. We keep the 'role' column for now to avoid breaking existing legacy code 
-        // until Phase 2 is fully implemented. 
+        // 5. We keep the 'role' column for now to avoid breaking existing legacy code
+        // until Phase 2 is fully implemented.
         // Once Phase 2 (Backend Logic) is ready, we can drop it in a separate migration or later.
     }
 

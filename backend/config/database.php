@@ -102,6 +102,10 @@ return [
                 \PDO::ATTR_EMULATE_PREPARES => true,
                 // Prevent PDO from stringifying fetched values
                 \PDO::ATTR_STRINGIFY_FETCHES => false,
+                // NEON OPTIMIZATION: Keep connections alive to prevent cold starts
+                \PDO::ATTR_PERSISTENT => env('DB_PERSISTENT', true),
+                // NEON OPTIMIZATION: Connection timeout
+                \PDO::ATTR_TIMEOUT => (int) env('DB_CONNECT_TIMEOUT', 10),
             ],
         ],
 
@@ -155,7 +159,7 @@ return [
 
         'options' => [
             'cluster' => env('REDIS_CLUSTER', 'redis'),
-            'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')) . '-database-'),
+            'prefix' => env('REDIS_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')).'-database-'),
             'persistent' => env('REDIS_PERSISTENT', false),
         ],
 

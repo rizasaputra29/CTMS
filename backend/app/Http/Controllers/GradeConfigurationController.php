@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Period;
-use App\Models\PeriodAssessmentComponent;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -12,19 +11,19 @@ class GradeConfigurationController extends Controller
 {
     private const DEFAULT_PDC1_WEIGHTS = [
         'SEMPRO' => 50,
-        'BIMBINGAN_SEMPRO' => 50
+        'BIMBINGAN_SEMPRO' => 50,
     ];
 
     private const DEFAULT_PDC2_WEIGHTS = [
         'NILAI_DOSEN' => 25,
         'MILESTONE' => 25,
         'EXPO' => 25,
-        'PEER_REVIEW' => 25
+        'PEER_REVIEW' => 25,
     ];
 
     private const DEFAULT_TA_WEIGHTS = [
         'BIMBINGAN_TA' => 50,
-        'SIDANG_TA' => 50
+        'SIDANG_TA' => 50,
     ];
 
     protected $gradeCalculationService;
@@ -40,14 +39,14 @@ class GradeConfigurationController extends Controller
     public function getPDC1Weights(Request $request, int $periodId): JsonResponse
     {
         $period = Period::findOrFail($periodId);
-        
+
         $weights = $period->grade_configuration['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS;
 
         return response()->json([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'pdc1_weights' => $weights,
-            'total_weight' => array_sum($weights)
+            'total_weight' => array_sum($weights),
         ]);
     }
 
@@ -57,14 +56,14 @@ class GradeConfigurationController extends Controller
     public function getPDC2Weights(Request $request, int $periodId): JsonResponse
     {
         $period = Period::findOrFail($periodId);
-        
+
         $weights = $period->grade_configuration['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS;
 
         return response()->json([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'pdc2_weights' => $weights,
-            'total_weight' => array_sum($weights)
+            'total_weight' => array_sum($weights),
         ]);
     }
 
@@ -74,14 +73,14 @@ class GradeConfigurationController extends Controller
     public function getTAWeights(Request $request, int $periodId): JsonResponse
     {
         $period = Period::findOrFail($periodId);
-        
+
         $weights = $period->grade_configuration['ta'] ?? self::DEFAULT_TA_WEIGHTS;
 
         return response()->json([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'ta_weights' => $weights,
-            'total_weight' => array_sum($weights)
+            'total_weight' => array_sum($weights),
         ]);
     }
 
@@ -134,7 +133,7 @@ class GradeConfigurationController extends Controller
         return response()->json([
             'message' => 'Grade configuration updated successfully',
             'period_id' => $periodId,
-            'grade_configuration' => $gradeConfig
+            'grade_configuration' => $gradeConfig,
         ]);
     }
 
@@ -145,9 +144,9 @@ class GradeConfigurationController extends Controller
     {
         $group = \App\Models\Group::with('period')->findOrFail($groupId);
         $period = $group->period;
-        
+
         $weights = $period->grade_configuration['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS;
-        
+
         $grades = [];
         $totalWeightedScore = 0;
         $totalWeight = 0;
@@ -165,22 +164,23 @@ class GradeConfigurationController extends Controller
                     'status' => 'not_evaluated',
                     'average_score' => null,
                     'weight' => $weight,
-                    'weighted_score' => null
+                    'weighted_score' => null,
                 ];
+
                 continue;
             }
 
             // Calculate average score for this evaluation type
             $avgScore = $scores->avg('score');
             $weightedScore = ($avgScore * $weight) / 100;
-            
+
             $grades[$type] = [
                 'status' => 'evaluated',
                 'average_score' => round($avgScore, 2),
                 'weight' => $weight,
-                'weighted_score' => round($weightedScore, 2)
+                'weighted_score' => round($weightedScore, 2),
             ];
-            
+
             $totalWeightedScore += $weightedScore;
             $totalWeight += $weight;
         }
@@ -191,7 +191,7 @@ class GradeConfigurationController extends Controller
             'period_id' => $period->id,
             'pdc1_grades' => $grades,
             'final_pdc1_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
-            'total_weight' => $totalWeight
+            'total_weight' => $totalWeight,
         ]);
     }
 
@@ -202,9 +202,9 @@ class GradeConfigurationController extends Controller
     {
         $group = \App\Models\Group::with('period')->findOrFail($groupId);
         $period = $group->period;
-        
+
         $weights = $period->grade_configuration['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS;
-        
+
         $grades = [];
         $totalWeightedScore = 0;
         $totalWeight = 0;
@@ -223,22 +223,23 @@ class GradeConfigurationController extends Controller
                     'status' => 'not_evaluated',
                     'average_score' => null,
                     'weight' => $weight,
-                    'weighted_score' => null
+                    'weighted_score' => null,
                 ];
+
                 continue;
             }
 
             // Calculate average score for this evaluation type
             $avgScore = $scores->avg('score');
             $weightedScore = ($avgScore * $weight) / 100;
-            
+
             $grades[$type] = [
                 'status' => 'evaluated',
                 'average_score' => round($avgScore, 2),
                 'weight' => $weight,
-                'weighted_score' => round($weightedScore, 2)
+                'weighted_score' => round($weightedScore, 2),
             ];
-            
+
             $totalWeightedScore += $weightedScore;
             $totalWeight += $weight;
         }
@@ -249,7 +250,7 @@ class GradeConfigurationController extends Controller
             'period_id' => $period->id,
             'pdc2_grades' => $grades,
             'final_pdc2_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
-            'total_weight' => $totalWeight
+            'total_weight' => $totalWeight,
         ]);
     }
 
@@ -259,7 +260,7 @@ class GradeConfigurationController extends Controller
     public function getFullConfiguration(Request $request, int $periodId): JsonResponse
     {
         $period = Period::findOrFail($periodId);
-        
+
         $config = $period->grade_configuration ?? [];
 
         return response()->json([
@@ -268,18 +269,18 @@ class GradeConfigurationController extends Controller
             'pdc1' => [
                 'weights' => $config['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS,
                 'components' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
-                'total_weight' => array_sum($config['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS)
+                'total_weight' => array_sum($config['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS),
             ],
             'pdc2' => [
                 'weights' => $config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS,
                 'components' => ['NILAI_DOSEN', 'MILESTONE', 'EXPO', 'PEER_REVIEW'],
-                'total_weight' => array_sum($config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS)
+                'total_weight' => array_sum($config['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS),
             ],
             'ta' => [
                 'weights' => $config['ta'] ?? self::DEFAULT_TA_WEIGHTS,
                 'components' => ['BIMBINGAN_TA', 'SIDANG_TA'],
-                'total_weight' => array_sum($config['ta'] ?? self::DEFAULT_TA_WEIGHTS)
-            ]
+                'total_weight' => array_sum($config['ta'] ?? self::DEFAULT_TA_WEIGHTS),
+            ],
         ]);
     }
 
@@ -289,11 +290,11 @@ class GradeConfigurationController extends Controller
     public function resetToDefaults(Request $request, int $periodId): JsonResponse
     {
         $period = Period::findOrFail($periodId);
-        
+
         $gradeConfig = [
             'pdc1' => self::DEFAULT_PDC1_WEIGHTS,
             'pdc2' => self::DEFAULT_PDC2_WEIGHTS,
-            'ta' => self::DEFAULT_TA_WEIGHTS
+            'ta' => self::DEFAULT_TA_WEIGHTS,
         ];
 
         $period->update(['grade_configuration' => $gradeConfig]);
@@ -301,7 +302,7 @@ class GradeConfigurationController extends Controller
         return response()->json([
             'message' => 'Grade configuration reset to defaults',
             'period_id' => $periodId,
-            'grade_configuration' => $gradeConfig
+            'grade_configuration' => $gradeConfig,
         ]);
     }
 
@@ -311,24 +312,24 @@ class GradeConfigurationController extends Controller
     public function calculateTAGrade(Request $request, int $studentId): JsonResponse
     {
         $student = \App\Models\User::findOrFail($studentId);
-        
+
         // Get student's group to access period
         $groupMember = \App\Models\GroupMember::with('group.period')
             ->where('student_id', $studentId)
             ->first();
 
-        if (!$groupMember || !$groupMember->group) {
+        if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'message' => 'Student is not assigned to any group',
-                'grades' => null
+                'grades' => null,
             ], 404);
         }
 
         $group = $groupMember->group;
         $period = $group->period;
-        
+
         $weights = $period->grade_configuration['ta'] ?? self::DEFAULT_TA_WEIGHTS;
-        
+
         $grades = [];
         $totalWeightedScore = 0;
         $totalWeight = 0;
@@ -342,22 +343,23 @@ class GradeConfigurationController extends Controller
                     'status' => 'not_evaluated',
                     'average_score' => null,
                     'weight' => $weight,
-                    'weighted_score' => null
+                    'weighted_score' => null,
                 ];
+
                 continue;
             }
 
             // Calculate average score for this evaluation type
             $avgScore = $scores->avg('score');
             $weightedScore = ($avgScore * $weight) / 100;
-            
+
             $grades[$type] = [
                 'status' => 'evaluated',
                 'average_score' => round($avgScore, 2),
                 'weight' => $weight,
-                'weighted_score' => round($weightedScore, 2)
+                'weighted_score' => round($weightedScore, 2),
             ];
-            
+
             $totalWeightedScore += $weightedScore;
             $totalWeight += $weight;
         }
@@ -370,7 +372,7 @@ class GradeConfigurationController extends Controller
             'period_id' => $period->id,
             'ta_grades' => $grades,
             'final_ta_score' => $totalWeight > 0 ? round($totalWeightedScore, 2) : null,
-            'total_weight' => $totalWeight
+            'total_weight' => $totalWeight,
         ]);
     }
 
@@ -380,28 +382,28 @@ class GradeConfigurationController extends Controller
     public function getMyGrades(Request $request): JsonResponse
     {
         $user = $request->user();
-        
+
         // Get student's group
         $groupMember = \App\Models\GroupMember::with('group.period')
             ->where('student_id', $user->id)
             ->first();
 
-        if (!$groupMember || !$groupMember->group) {
+        if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'message' => 'You are not assigned to any group',
-                'grades' => null
+                'grades' => null,
             ], 404);
         }
 
         $group = $groupMember->group;
-        
+
         // Calculate grades using the service
         $grades = $this->gradeCalculationService->calculateFinalGradeForStudent(
-            $user->id, 
+            $user->id,
             $group->id
         );
 
-        if (!$grades) {
+        if (! $grades) {
             return response()->json([
                 'message' => 'No grades available yet',
                 'grades' => null,
@@ -412,7 +414,7 @@ class GradeConfigurationController extends Controller
                 'period' => [
                     'id' => $group->period->id,
                     'name' => $group->period->name,
-                ]
+                ],
             ]);
         }
 
@@ -430,7 +432,7 @@ class GradeConfigurationController extends Controller
                 'id' => $user->id,
                 'name' => $user->name,
                 'nim' => $user->nim,
-            ]
+            ],
         ]);
     }
 
@@ -440,24 +442,24 @@ class GradeConfigurationController extends Controller
     public function getStudentGrades(Request $request, int $studentId): JsonResponse
     {
         $student = \App\Models\User::findOrFail($studentId);
-        
+
         // Get student's group
         $groupMember = \App\Models\GroupMember::with('group.period')
             ->where('student_id', $studentId)
             ->first();
 
-        if (!$groupMember || !$groupMember->group) {
+        if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'message' => 'Student is not assigned to any group',
-                'grades' => null
+                'grades' => null,
             ], 404);
         }
 
         $group = $groupMember->group;
-        
+
         // Calculate grades using the service
         $grades = $this->gradeCalculationService->calculateFinalGradeForStudent(
-            $studentId, 
+            $studentId,
             $group->id
         );
 
@@ -475,7 +477,7 @@ class GradeConfigurationController extends Controller
                 'id' => $student->id,
                 'name' => $student->name,
                 'nim' => $student->nim,
-            ]
+            ],
         ]);
     }
 }

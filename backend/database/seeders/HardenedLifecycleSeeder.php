@@ -2,18 +2,17 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use App\Models\User;
-use App\Models\Period;
-use App\Models\PeriodRegistration;
-use App\Models\Title;
+use App\Models\Bid;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\Bid;
-use App\Models\Supervision;
+use App\Models\Period;
+use App\Models\PeriodRegistration;
 use App\Models\Role;
-use App\Services\GroupStateMachine;
+use App\Models\Supervision;
+use App\Models\Title;
+use App\Models\User;
 use App\Services\FinalizationService;
+use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 class HardenedLifecycleSeeder extends Seeder
@@ -31,21 +30,21 @@ class HardenedLifecycleSeeder extends Seeder
             $admin = User::firstOrCreate(['email' => 'admin_test@test.com'], [
                 'name' => 'Admin Test',
                 'password' => bcrypt('password'),
-                'role' => 'admin'
+                'role' => 'admin',
             ]);
             $admin->roles()->sync([$adminRole->id]);
 
             $dosen1 = User::firstOrCreate(['email' => 'dosen1_test@test.com'], [
                 'name' => 'Dr. Dosen Satu',
                 'password' => bcrypt('password'),
-                'role' => 'dosen'
+                'role' => 'dosen',
             ]);
             $dosen1->roles()->sync([$dosenRole->id]);
 
             $dosen2 = User::firstOrCreate(['email' => 'dosen2_test@test.com'], [
                 'name' => 'Dr. Dosen Dua',
                 'password' => bcrypt('password'),
-                'role' => 'dosen'
+                'role' => 'dosen',
             ]);
             $dosen2->roles()->sync([$dosenRole->id]);
 
@@ -54,7 +53,7 @@ class HardenedLifecycleSeeder extends Seeder
                 $s = User::firstOrCreate(['email' => "student{$i}_test@test.com"], [
                     'name' => "Student {$i} Test",
                     'password' => bcrypt('password'),
-                    'role' => 'mahasiswa'
+                    'role' => 'mahasiswa',
                 ]);
                 $s->roles()->sync([$mahasiswaRole->id]);
                 $students[] = $s;
@@ -69,11 +68,11 @@ class HardenedLifecycleSeeder extends Seeder
             Title::where('title_source', 'STUDENT')->delete();
             Group::query()->delete();
             Period::query()->delete();
-            
+
             echo "Cleanup complete.\n";
 
             // 3. Create Active Period
-            $periodName = 'Hardened Test Period ' . now()->format('Y-m-d H:i:s');
+            $periodName = 'Hardened Test Period '.now()->format('Y-m-d H:i:s');
             $period = Period::create([
                 'name' => $periodName,
                 'start_date' => now(),
@@ -166,12 +165,12 @@ class HardenedLifecycleSeeder extends Seeder
             // 8. Finalization
             echo "Executing Batch Finalization...\n";
             $result = $service->finalizePeriod($period->id, $admin->id);
-            echo "Finalization Result: Assigned " . $result['total_allocated'] . " groups.\n";
+            echo 'Finalization Result: Assigned '.$result['total_allocated']." groups.\n";
 
             $group->refresh();
             echo "Final Group Status: {$group->status}\n";
-            echo "Supervisor 1: " . ($group->supervisor_1_id ? User::find($group->supervisor_1_id)->name : 'NONE') . "\n";
-            echo "Supervisor 2: " . ($group->supervisor_2_id ? User::find($group->supervisor_2_id)->name : 'NONE') . "\n";
+            echo 'Supervisor 1: '.($group->supervisor_1_id ? User::find($group->supervisor_1_id)->name : 'NONE')."\n";
+            echo 'Supervisor 2: '.($group->supervisor_2_id ? User::find($group->supervisor_2_id)->name : 'NONE')."\n";
 
             echo "Hardened Lifecycle Seeder completed successfully!\n";
         });

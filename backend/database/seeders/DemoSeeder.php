@@ -50,8 +50,9 @@ class DemoSeeder extends Seeder
         $student1 = User::where('email', 'student1@ctms.com')->first();
         $student2 = User::where('email', 'student2@ctms.com')->first();
 
-        if (!$period) {
+        if (! $period) {
             $this->command->warn('No active period found. Run PeriodSeeder first.');
+
             return;
         }
 
@@ -190,7 +191,7 @@ class DemoSeeder extends Seeder
             ->where('group_mode', 'GROUP')
             ->first();
 
-        if (!$group1) {
+        if (! $group1) {
             $group1 = Group::create([
                 'period_id' => $period->id,
                 'status' => 'READY_FOR_BIDDING',
@@ -198,7 +199,7 @@ class DemoSeeder extends Seeder
             ]);
         }
         \Illuminate\Support\Facades\DB::statement('UPDATE groups SET has_existing_group = TRUE WHERE id = ?', [$group1->id]);
-        
+
         // Free up students from any existing groups in this period
         $studentIdsToClean = array_merge(
             [$student1->id, $student2->id],
@@ -222,13 +223,13 @@ class DemoSeeder extends Seeder
 
         // ── Group 2: GROUP mode, READY_FOR_BIDDING with bids ──
         if (Group::where('period_id', $period->id)->count() < 2) {
-             $group2 = Group::create(['period_id' => $period->id, 'status' => 'READY_FOR_BIDDING', 'group_mode' => 'GROUP']);
+            $group2 = Group::create(['period_id' => $period->id, 'status' => 'READY_FOR_BIDDING', 'group_mode' => 'GROUP']);
         } else {
-             $group2 = Group::where('period_id', $period->id)->skip(1)->first();
+            $group2 = Group::where('period_id', $period->id)->skip(1)->first();
         }
 
         \Illuminate\Support\Facades\DB::statement('UPDATE groups SET has_existing_group = TRUE WHERE id = ?', [$group2->id]);
-        
+
         // Clear existing bids for idempotency
         Bid::where('group_id', $group2->id)->delete();
 

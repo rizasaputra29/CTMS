@@ -5,13 +5,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         // For MySQL, we need to modify the enum column
         // First, we need to check what type of database is being used
         $driver = DB::connection()->getDriverName();
-        
+
         if ($driver === 'mysql') {
             // MySQL specific - modify enum
             DB::statement("ALTER TABLE assessment_scores MODIFY evaluation_type ENUM('SEMPRO', 'SIDANG_TA', 'EXPO', 'BIMBINGAN_SEMPRO', 'BIMBINGAN_EXPO', 'BIMBINGAN_TA', 'MILESTONE', 'PEER_REVIEW') NOT NULL");
@@ -26,7 +27,7 @@ return new class extends Migration {
     public function down(): void
     {
         $driver = DB::connection()->getDriverName();
-        
+
         if ($driver === 'mysql') {
             DB::statement("ALTER TABLE assessment_scores MODIFY evaluation_type ENUM('SEMPRO', 'SIDANG_TA', 'EXPO', 'BIMBINGAN') NOT NULL");
         } else {

@@ -3,8 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Evaluation;
-use App\Models\Group;
-use App\Models\GroupMember;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
@@ -26,6 +24,7 @@ class EvaluationController extends Controller
             if ($request->has('group_id')) {
                 return response()->json(['data' => Evaluation::where('group_id', $request->group_id)->with('student')->get()]);
             }
+
             return response()->json(['data' => []]);
         }
 
@@ -41,7 +40,7 @@ class EvaluationController extends Controller
      */
     public function store(Request $request)
     {
-        if (!Auth::user()->hasRole('dosen')) {
+        if (! Auth::user()->hasRole('dosen')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

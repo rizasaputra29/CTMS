@@ -27,6 +27,7 @@ import {
     Loader2, Plus, Search, FileText, ClipboardCheck,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 
 
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
@@ -565,11 +566,7 @@ export default function AdminSemproPage() {
                 </div>
             </div>
 
-            {loading && (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-            )}
+            {loading && <Loading variant="section" />}
 
             {!loading && !selectedPeriod && (
                 <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">

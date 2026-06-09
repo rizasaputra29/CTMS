@@ -165,12 +165,22 @@ export function ScheduleDetailModal({
                             <h3 className="font-semibold">Participants</h3>
                         </div>
 
-                        {schedule.student_name && (
+                        {(schedule.students && schedule.students.length > 0) || schedule.student_name ? (
                             <div className="pl-7 space-y-2">
-                                <p className="text-sm text-muted-foreground">Student</p>
-                                <p className="text-base font-medium">{schedule.student_name}</p>
+                                <p className="text-sm text-muted-foreground">Student{schedule.students && schedule.students.length > 1 ? 's' : ''}</p>
+                                {schedule.students && schedule.students.length > 0 ? (
+                                    <div className="space-y-1">
+                                        {schedule.students.map((student, idx) => (
+                                            <p key={student.id} className="text-base font-medium">
+                                                {idx + 1}. {student.name}
+                                            </p>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-base font-medium">{schedule.student_name}</p>
+                                )}
                             </div>
-                        )}
+                        ) : null}
 
                         {(schedule.examiner1 || schedule.examiner2) && (
                             <div className="pl-7 space-y-2">

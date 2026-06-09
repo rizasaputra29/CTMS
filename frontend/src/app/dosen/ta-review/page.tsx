@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, FileCheck, CheckCircle2, RotateCcw, ShieldCheck, CalendarDays, Search } from 'lucide-react';
+import { FileCheck, CheckCircle2, RotateCcw, ShieldCheck, CalendarDays, Search, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -157,13 +158,7 @@ export default function DosenTaReviewPage() {
         setReviewOpen(true);
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">

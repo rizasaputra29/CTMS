@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\LocationController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 use App\Http\Controllers\AssessmentComponentController;
@@ -16,10 +15,10 @@ use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\ExpoController;
 use App\Http\Controllers\ExpoEventController;
 use App\Http\Controllers\FinalizationController;
-use App\Http\Controllers\GradeCheckController;
 use App\Http\Controllers\GradeConfigurationController;
 use App\Http\Controllers\GradeConsistencyController;
 use App\Http\Controllers\GroupController;
+use App\Http\Controllers\LocationController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PeerReviewController;
 use App\Http\Controllers\PeerReviewIndicatorTemplateController;
@@ -50,7 +49,7 @@ use Illuminate\Support\Facades\Route;
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
-Route::middleware(['auth:sanctum'])->group(function () {
+Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
     Route::get('/user', function (Request $request) {
         $user = $request->user()->load('roles:id,name,slug');
         $activeRole = null;
@@ -144,6 +143,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/sempro/schedules/{id}/reject', [SemproController::class, 'reject']);
         Route::put('/sempro/schedules/{id}/cancel', [SemproController::class, 'cancel']);
         Route::put('/sempro/schedules/{id}', [SemproController::class, 'update']);
+        Route::put('/sempro/schedules/{id}/assign-examiners', [SemproController::class, 'assignExaminers']);
 
         // Expo scheduling (legacy — kept for backward compat)
         Route::get('/expo/schedules', [ExpoController::class, 'index']);
@@ -154,6 +154,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Custom routes MUST come before apiResource to avoid route conflicts
         Route::get('/ta-defense-schedules/eligible-students', [TaDefenseScheduleController::class, 'eligibleStudents']);
         Route::put('/ta-defense-schedules/{id}/cancel', [TaDefenseScheduleController::class, 'cancel']);
+        Route::put('/ta-defense-schedules/{id}/assign-examiners', [TaDefenseScheduleController::class, 'assignExaminers']);
         Route::apiResource('ta-defense-schedules', TaDefenseScheduleController::class);
 
         // Exception: approve member leave
@@ -213,8 +214,6 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/grade-consistency', [GradeConsistencyController::class, 'index']);
         Route::post('/grade-consistency/generate', [GradeConsistencyController::class, 'generate']);
         Route::put('/grade-consistency/{id}', [GradeConsistencyController::class, 'update']);
-
-
 
         // Document Types (admin)
         Route::apiResource('document-types', DocumentTypeController::class);
@@ -294,7 +293,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         // Title Approval Withdrawal & History
         Route::post('/titles/{title}/withdraw-approval', [TitleController::class, 'withdrawApproval']);
         Route::get('/titles/{title}/approval-history', [TitleController::class, 'getApprovalHistory']);
-        
+
         // Title Deletion History
         Route::get('/titles/{title}/deletion-history', [TitleController::class, 'getDeletionHistory']);
 
@@ -486,7 +485,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/locations/online', [LocationController::class, 'online']);
     Route::get('/locations/all', [LocationController::class, 'index']);
     Route::get('/locations/available', [LocationController::class, 'available']);
-    
+
     // Admin-only location management
     Route::middleware(['role:admin'])->group(function () {
         Route::apiResource('locations', LocationController::class)->except(['index']);

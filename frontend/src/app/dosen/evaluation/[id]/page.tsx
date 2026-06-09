@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { Skeleton } from '@/components/ui/skeleton'
+import { Loading } from '@/components/ui/loading'
 import { toast } from 'sonner'
 import { 
     ArrowLeft, 
@@ -93,8 +93,11 @@ export default function EvaluationDetailPage() {
             setLoading(true)
             const isTaDefenseWithSchedule = type === 'TA_DEFENSE' && Boolean(scheduleId)
             const contextId = isTaDefenseWithSchedule ? scheduleId : id
+            const studentId = searchParams.get('student_id')
             const response = await axios.get(`/dosen/evaluation-context/${type}/${contextId}`, {
-                params: isTaDefenseWithSchedule ? { schedule_id: scheduleId } : undefined,
+                params: isTaDefenseWithSchedule 
+                    ? { schedule_id: scheduleId, ...(studentId ? { student_id: studentId } : {}) } 
+                    : undefined,
             })
             const data = response.data as EvaluationContext
             setContext(data)
@@ -204,10 +207,17 @@ export default function EvaluationDetailPage() {
                 ? `/dosen/sempro/${context.schedule.id}/evaluate`
                 : `/dosen/ta-defense/${context.schedule.id}/evaluate`
 
-            await axios.post(finalizeEndpoint, {
+            const finalizePayload: { rubric_json: { scores: Record<string, number>; notes: Record<string, string> }; score: number; student_id?: number } = {
                 rubric_json: { scores, notes },
-                score: avgScore
-            })
+                score: avgScore,
+            }
+
+            // Include student_id for TA_DEFENSE
+            if (type === 'TA_DEFENSE' && context.student) {
+                finalizePayload.student_id = context.student.id
+            }
+
+            await axios.post(finalizeEndpoint, finalizePayload)
 
             toast.success('Penilaian berhasil disimpan')
             router.push('/dosen/evaluation')
@@ -229,17 +239,7 @@ export default function EvaluationDetailPage() {
         return context?.schedule?.type || 'Seminar'
     }
 
-    if (loading) {
-        return (
-            <div className="space-y-6 container py-6">
-                <Skeleton className="h-10 w-1/4" />
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <Skeleton className="h-[400px] md:col-span-1" />
-                    <Skeleton className="h-[600px] md:col-span-2" />
-                </div>
-            </div>
-        )
-    }
+    if (loading) return <Loading variant="section" />
 
     if (!context) {
         return (

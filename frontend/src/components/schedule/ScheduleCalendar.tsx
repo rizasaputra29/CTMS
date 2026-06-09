@@ -35,6 +35,7 @@ export interface ScheduleEvent {
     examiner1?: { name: string } | null;
     examiner2?: { name: string } | null;
     examiners?: { name: string; role?: string }[];
+    students?: { id: number; name: string }[];
     start_time?: string;
     end_time?: string;
     online_link?: string;
@@ -473,12 +474,16 @@ export default function ScheduleCalendar({
                                                 </span>
                                             </div>
 
-                                            {/* Student */}
+                                             {/* Student/Students */}
                                             {(event.student_name || event.type === 'TA_DEFENSE') && (
                                                 <div className="flex items-center gap-2 text-gray-600">
                                                     <User className="h-4 w-4 text-gray-400" />
                                                     <span>
-                                                        {event.student_name ? (
+                                                        {event.students && event.students.length > 0 ? (
+                                                            <span className="font-medium text-gray-900">
+                                                                {event.students.map(s => s.name).join(', ')}
+                                                            </span>
+                                                        ) : event.student_name ? (
                                                             <span className="font-medium text-gray-900">{event.student_name}</span>
                                                         ) : (
                                                             <span className="text-gray-400">No student assigned</span>

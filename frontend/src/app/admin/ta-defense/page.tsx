@@ -22,9 +22,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
-    Loader2, Plus, Search, GraduationCap, AlertCircle,
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock,
+    Plus, Search, GraduationCap, AlertCircle,
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock, Loader2,
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { taDefenseSchema, type TaDefenseFormData } from '@/lib/validations/ta-defense';
@@ -43,7 +44,7 @@ interface Location {
 
 interface TaDefenseSchedule {
     id: number;
-    student: Student;
+    student?: Student;
     students?: Student[];
     group: { id: number; name: string; code: string };
     period: Period;
@@ -151,6 +152,8 @@ export default function AdminTaDefensePage() {
             }
             
             const res = await api.get('/admin/ta-defense-schedules', { params });
+            console.log('API Response:', res.data);
+            console.log('First schedule students:', res.data.data?.[0]?.students);
             setSchedules(res.data.data || []);
         } catch (error) {
             console.error('Fetch schedules error:', error);
@@ -777,11 +780,7 @@ export default function AdminTaDefensePage() {
     };
 
     if (loading) {
-        return (
-            <div className="flex items-center justify-center h-96">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        );
+        return <Loading variant="section" />;
     }
 
     return (
@@ -1215,7 +1214,12 @@ export default function AdminTaDefensePage() {
                     </DialogHeader>
                     {cancelSchedule && (
                         <div className="py-4">
-                            <p className="font-medium">{cancelSchedule.student.name}</p>
+                            <p className="font-medium">
+                                {cancelSchedule.student?.name || 
+                                 (cancelSchedule.students && cancelSchedule.students.length > 0 
+                                    ? cancelSchedule.students.map(s => s.name).join(', ') 
+                                    : 'Multiple Students')}
+                            </p>
                             <p className="text-sm text-muted-foreground">
                                 Group {cancelSchedule.group.id} - {formatDate(cancelSchedule.date)}
                             </p>

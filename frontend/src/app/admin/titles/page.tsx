@@ -5,7 +5,8 @@ import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Loader2, BookOpen, Users, Search } from 'lucide-react';
+import { BookOpen, Users, Search } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import {
     Select,
     SelectContent,
@@ -76,11 +77,7 @@ export default function AdminTitlesPage() {
     }, [groups, searchQuery]);
 
     if (loading && !groups.length) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
+        return <Loading variant="section" />;
     }
 
     // State machine status map for progress calculation

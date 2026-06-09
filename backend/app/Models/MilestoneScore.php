@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Milestone Score Model
- * 
+ *
  * Stores assessment scores for MILESTONE evaluation type.
  * This model replaces evaluation_type='MILESTONE' records from the old assessment_scores table.
  */

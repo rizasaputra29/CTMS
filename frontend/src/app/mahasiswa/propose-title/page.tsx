@@ -27,9 +27,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Loader2, Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle, Trash2 } from 'lucide-react';
+import { Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, AlertTriangle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
+import { Loading } from '@/components/ui/loading';
 import type { Bid } from '@/types/bid';
 import { proposeTitleSchema, type ProposeTitleFormData } from '@/lib/validations/proposals';
 
@@ -268,13 +269,7 @@ export default function ProposeTitlePage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">
@@ -572,7 +567,7 @@ export default function ProposeTitlePage() {
                                 Cancel
                             </Button>
                             <Button type="submit" disabled={isSubmitting}>
-                                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                                {isSubmitting ? <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Send className="mr-2 h-4 w-4" />}
                                 {editingProposal ? (editingProposal.supervisor_approval_status === 'PENDING' ? 'Update Proposal' : 'Resubmit Proposal') : 'Submit Proposal'}
                             </Button>
                         </CardFooter>

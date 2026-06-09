@@ -6,8 +6,8 @@ use App\Models\Role;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
@@ -124,7 +124,7 @@ class UserSeeder extends Seeder
         foreach ($periodStudents as $periodId => $emails) {
             foreach ($emails as $email) {
                 $userId = User::where('email', $email)->value('id');
-                if (!$userId) {
+                if (! $userId) {
                     continue;
                 }
 

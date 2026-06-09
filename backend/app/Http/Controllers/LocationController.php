@@ -14,6 +14,7 @@ class LocationController extends Controller
     public function index()
     {
         $locations = Location::orderBy('name')->get();
+
         return response()->json(['data' => $locations]);
     }
 
@@ -23,6 +24,7 @@ class LocationController extends Controller
     public function active()
     {
         $locations = Location::active()->orderBy('name')->get();
+
         return response()->json(['data' => $locations]);
     }
 
@@ -32,6 +34,7 @@ class LocationController extends Controller
     public function offline()
     {
         $locations = Location::offline()->active()->orderBy('name')->get();
+
         return response()->json(['data' => $locations]);
     }
 
@@ -41,6 +44,7 @@ class LocationController extends Controller
     public function online()
     {
         $locations = Location::online()->active()->orderBy('name')->get();
+
         return response()->json(['data' => $locations]);
     }
 
@@ -49,7 +53,7 @@ class LocationController extends Controller
      */
     public function store(Request $request)
     {
-        if (!Auth::user()->hasRole('admin')) {
+        if (! Auth::user()->hasRole('admin')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -70,7 +74,7 @@ class LocationController extends Controller
 
         return response()->json([
             'message' => 'Location created successfully',
-            'data' => $location
+            'data' => $location,
         ], 201);
     }
 
@@ -80,6 +84,7 @@ class LocationController extends Controller
     public function show($id)
     {
         $location = Location::findOrFail($id);
+
         return response()->json(['data' => $location]);
     }
 
@@ -88,14 +93,14 @@ class LocationController extends Controller
      */
     public function update(Request $request, $id)
     {
-        if (!Auth::user()->hasRole('admin')) {
+        if (! Auth::user()->hasRole('admin')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
         $location = Location::findOrFail($id);
 
         $request->validate([
-            'name' => 'sometimes|string|max:255|unique:locations,name,' . $id,
+            'name' => 'sometimes|string|max:255|unique:locations,name,'.$id,
             'capacity' => 'nullable|integer|min:1',
             'type' => 'sometimes|string|in:offline,online',
             'description' => 'nullable|string|max:1000',
@@ -106,7 +111,7 @@ class LocationController extends Controller
 
         return response()->json([
             'message' => 'Location updated successfully',
-            'data' => $location
+            'data' => $location,
         ]);
     }
 
@@ -116,7 +121,7 @@ class LocationController extends Controller
      */
     public function destroy($id)
     {
-        if (!Auth::user()->hasRole('admin')) {
+        if (! Auth::user()->hasRole('admin')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -125,7 +130,7 @@ class LocationController extends Controller
         // Constraint: Must be inactive first
         if ($location->is_active) {
             return response()->json([
-                'message' => 'Location must be deactivated before it can be deleted. Please set is_active to false first.'
+                'message' => 'Location must be deactivated before it can be deleted. Please set is_active to false first.',
             ], 422);
         }
 
@@ -161,7 +166,7 @@ class LocationController extends Controller
             ->whereRaw('DATE(date) = ?', [$date])
             ->whereRaw('start_time < ?', [$endTime])
             ->whereRaw('end_time > ?', [$startTime])
-            ->when($request->exclude_schedule_id, fn($q) => $q->where('id', '!=', $request->exclude_schedule_id))
+            ->when($request->exclude_schedule_id, fn ($q) => $q->where('id', '!=', $request->exclude_schedule_id))
             ->pluck('room')
             ->toArray();
 
@@ -170,7 +175,7 @@ class LocationController extends Controller
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
-            ->when($request->exclude_seminar_id, fn($q) => $q->where('id', '!=', $request->exclude_seminar_id))
+            ->when($request->exclude_seminar_id, fn ($q) => $q->where('id', '!=', $request->exclude_seminar_id))
             ->pluck('room')
             ->toArray();
 
@@ -179,7 +184,7 @@ class LocationController extends Controller
             ->where('status', '!=', 'CANCELLED')
             ->where('start_time', '<', $endTime)
             ->where('end_time', '>', $startTime)
-            ->when($request->exclude_ta_defense_id, fn($q) => $q->where('id', '!=', $request->exclude_ta_defense_id))
+            ->when($request->exclude_ta_defense_id, fn ($q) => $q->where('id', '!=', $request->exclude_ta_defense_id))
             ->pluck('room')
             ->toArray();
 
@@ -188,7 +193,7 @@ class LocationController extends Controller
 
         // Filter out busy locations
         $availableLocations = $allLocations->filter(function ($location) use ($busyLocations) {
-            return !in_array($location->name, $busyLocations);
+            return ! in_array($location->name, $busyLocations);
         })->values();
 
         return response()->json([
