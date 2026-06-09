@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { getApiErrorMessage } from '@/lib/error-utils';
-import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -825,7 +824,7 @@ export default function TaSubmissionPage() {
                   </div>
                 )}
 
-                {/* Defense Schedule Summary (Collapsible) */}
+                {/* Defense Schedule Summary (Collapsible) - shown when completed */}
                 {defenseSchedule && (
                   <details className="border rounded-lg">
                     <summary className="px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer hover:bg-gray-50">
@@ -849,13 +848,6 @@ export default function TaSubmissionPage() {
                     </div>
                   </details>
                 )}
-
-                <Link href="/mahasiswa/ta-defense" className="block">
-                  <Button className="w-full" variant="outline">
-                    Lihat Detail Lengkap
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
               </div>
             )}
 
@@ -902,17 +894,9 @@ export default function TaSubmissionPage() {
                       </div>
                     </>
                   )}
-                </div>
-
-                <Link href="/mahasiswa/ta-defense" className="block">
-                  <Button className="w-full" variant="default">
-                    Lihat Detail Sidang
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </Link>
-              </>
-            )}
-
+                  </div>
+                </>
+              )}
             {/* No schedule found */}
             {!scheduleLoading && !gradesLoading && !['TA_DEFENDED', 'TA_REVISED'].includes(currentStatus) && !defenseSchedule && (
               <Alert className="bg-yellow-50 border-yellow-200">
