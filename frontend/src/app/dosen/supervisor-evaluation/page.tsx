@@ -86,7 +86,7 @@ const getEvaluationTypeColor = (type: string) => {
     case 'BIMBINGAN_SEMPRO':
       return 'bg-blue-100 text-blue-800';
     case 'NILAI_DOSEN':
-      return 'bg-purple-100 text-purple-800';
+      return 'bg-primary-100 text-primary-500';
     case 'MILESTONE':
       return 'bg-orange-100 text-orange-800';
     case 'EXPO':

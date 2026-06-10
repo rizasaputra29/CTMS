@@ -115,7 +115,7 @@ export default function NotificationsPage() {
             PROPOSAL_APPROVED: 'bg-green-50 text-green-600',
             PROPOSAL_REJECTED: 'bg-red-50 text-red-600',
             PROPOSAL_RESUBMITTED: 'bg-amber-50 text-amber-600',
-            EXPO_REGISTRATION: 'bg-purple-50 text-purple-600',
+            EXPO_REGISTRATION: 'bg-primary-50 text-primary-500',
             SCHEDULE_APPROVED: 'bg-emerald-50 text-emerald-600',
             SCHEDULE_REJECTED: 'bg-rose-50 text-rose-600',
             GROUP_INVITATION: 'bg-indigo-50 text-indigo-600',

@@ -18,6 +18,12 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
+        roleAdmin:
+          "bg-rose-50 text-rose-700 border-rose-200 [a&]:hover:bg-rose-100",
+        roleDosen:
+          "bg-teal-50 text-teal-700 border-teal-200 [a&]:hover:bg-teal-100",
+        roleMahasiswa:
+          "bg-amber-50 text-amber-700 border-amber-200 [a&]:hover:bg-amber-100",
       },
     },
     defaultVariants: {

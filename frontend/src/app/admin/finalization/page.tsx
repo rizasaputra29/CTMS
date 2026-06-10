@@ -597,14 +597,14 @@ export default function FinalizationPage() {
         className: 'bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-200',
       },
 
-      // 🟣 PDC1/PDC2 Active (Purple)
+      // 🔵 PDC1/PDC2 Active (Primary)
       PDC1_ACTIVE: {
         label: 'PDC1 Active',
-        className: 'bg-purple-100 text-purple-800 border-purple-300',
+        className: 'bg-primary-100 text-primary-500 border-primary-300',
       },
       PDC2_ACTIVE: {
         label: 'PDC2 Active',
-        className: 'bg-purple-100 text-purple-800 border-purple-300',
+        className: 'bg-primary-100 text-primary-500 border-primary-300',
       },
 
       // ⚪ Forming states (Gray)
@@ -1115,15 +1115,15 @@ export default function FinalizationPage() {
           GRUP PASCA FINALISASI
           ════════════════════════════════════════════ */}
       {stats?.total_post_finalization && stats.total_post_finalization > 0 && (
-        <Card className="border-purple-200 bg-purple-50/30">
+        <Card className="border-primary-200 bg-primary-50/30">
           <CardHeader className="pb-3">
             <div className="flex items-center gap-2">
-              <ArrowRight className="h-5 w-5 text-purple-600" />
-              <CardTitle className="text-sm font-medium text-purple-800">
+              <ArrowRight className="h-5 w-5 text-primary-500" />
+              <CardTitle className="text-sm font-medium text-primary-500">
                 Grup Pasca Finalisasi ({stats.total_post_finalization} grup)
               </CardTitle>
             </div>
-            <CardDescription className="text-purple-700">
+            <CardDescription className="text-primary-500">
               Grup yang sudah melewati tahap finalisasi dan sedang aktif di fase PDC1, PDC2, EXPO, atau TA.
             </CardDescription>
           </CardHeader>
@@ -1132,11 +1132,11 @@ export default function FinalizationPage() {
               {Object.entries(stats.post_finalization_breakdown || {}).map(([status, count]) => (
                 <div
                   key={status}
-                  className="p-3 rounded-lg border bg-white/60 border-purple-100"
+                  className="p-3 rounded-lg border bg-white/60 border-primary-100"
                 >
                   <div className="flex items-center justify-between mb-1">
                     {getStatusBadge(status)}
-                    <span className="text-lg font-bold text-purple-700">{count}</span>
+                    <span className="text-lg font-bold text-primary-500">{count}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {getStatusDescription(status)}

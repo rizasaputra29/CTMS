@@ -33,6 +33,7 @@ export interface ApiErrorWithResponse extends ApiError {
     data?: {
       message?: string;
       error?: string;
+      conflicts?: string[];
     };
     status?: number;
   };

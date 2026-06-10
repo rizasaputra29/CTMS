@@ -57,7 +57,7 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
 
 const SCHEDULE_COLORS: Record<string, string> = {
     BIMBINGAN: 'bg-blue-50 text-blue-700 border-blue-200',
-    SEMPRO: 'bg-purple-50 text-purple-700 border-purple-200',
+    SEMPRO: 'bg-primary-50 text-primary-500 border-primary-200',
     EXPO: 'bg-orange-50 text-orange-700 border-orange-200',
     TA_DEFENSE: 'bg-red-50 text-red-700 border-red-200',
 };

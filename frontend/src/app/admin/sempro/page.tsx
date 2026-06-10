@@ -54,7 +54,7 @@ interface Schedule {
 }
 
 interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[]; supervisor1?: { id: number; name: string } | null; supervisor2?: { id: number; name: string } | null; }
-interface User { id: number; name: string; email: string; role: string; }
+
 
 type SortKey = 'title' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
@@ -417,7 +417,7 @@ export default function AdminSemproPage() {
     const submitEdit = async () => {
         if (!editId) return;
         try {
-            const payload: any = {
+            const payload: Record<string, string | number | null> = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
@@ -494,14 +494,6 @@ export default function AdminSemproPage() {
         if (!watchedGroupId) return null;
         return groups.find(g => g.id.toString() === watchedGroupId);
     }, [groups, watchedGroupId]);
-
-    const supervisorIds = useMemo(() => {
-        if (!selectedGroup) return [];
-        const ids: number[] = [];
-        // Check supervisor1 and supervisor2 - adjust based on your GroupItem interface
-        // Assuming group data structure from line 55
-        return ids;
-    }, [selectedGroup]);
 
     // Filter dosens to exclude supervisors of selected group
     const availableDosens = useMemo(() => {

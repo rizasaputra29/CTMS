@@ -453,7 +453,7 @@ export function AppSidebar() {
                     {item.items?.map((subItem) => {
                         const disabled = isItemDisabled(subItem.title, subItem.url);
                         return (
-                        <SidebarMenuSubItem key={subItem.title}>
+                        <SidebarMenuSubItem key={subItem.title} isActive={pathname === subItem.url}>
                             <SidebarMenuSubButton
                                 asChild
                                 isActive={pathname === subItem.url}
@@ -685,7 +685,7 @@ export function AppSidebar() {
                                                                     }
                                                                 }
                                                                 return (
-                                                                    <SidebarMenuSubItem key={subItem.title}>
+                                                                    <SidebarMenuSubItem key={subItem.title} isActive={pathname === subItem.url}>
                                                                         <SidebarMenuSubButton
                                                                             asChild
                                                                             isActive={pathname === subItem.url}
@@ -693,7 +693,6 @@ export function AppSidebar() {
                                                                         >
                                                                             <Link href={subItem.url} className={`flex items-center justify-between w-full gap-2 min-w-0 ${subItemDisabled ? 'pointer-events-none' : ''}`}>
                                                                                 <div className="flex items-center min-w-0">
-                                                                                    {subItem.icon && <subItem.icon className="mr-2 h-4 w-4 shrink-0" />}
                                                                                     <span className="truncate">{subItem.title}</span>
                                                                                 </div>
                                                                                 {subItem.title === 'Supervisor Evaluation' && supervisorEvalCount > 0 && (

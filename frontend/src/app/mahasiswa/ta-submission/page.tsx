@@ -110,7 +110,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   },
   TA_DRAFT: { 
     label: 'Draft Uploaded', 
-    color: 'bg-purple-100 text-purple-800', 
+    color: 'bg-primary-100 text-primary-500', 
     icon: FileText,
     description: 'TA draft uploaded and under review.'
   },
@@ -140,7 +140,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   },
   TA_SCHEDULED: { 
     label: 'Scheduled', 
-    color: 'bg-violet-100 text-violet-800', 
+    color: 'bg-primary-100 text-primary-500', 
     icon: Calendar,
     description: 'TA defense has been scheduled.'
   },

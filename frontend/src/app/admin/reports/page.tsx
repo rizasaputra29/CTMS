@@ -408,9 +408,9 @@ export default function AdminReportsPage() {
                                     <div className="text-xl font-bold text-blue-600">{summary.final_grades.pdc1_complete}</div>
                                     <div className="text-xs text-blue-600">PDC1</div>
                                 </div>
-                                <div className="p-2 bg-purple-50 rounded-lg">
-                                    <div className="text-xl font-bold text-purple-600">{summary.final_grades.pdc2_complete}</div>
-                                    <div className="text-xs text-purple-600">PDC2</div>
+                                <div className="p-2 bg-primary-50 rounded-lg">
+                                    <div className="text-xl font-bold text-primary-500">{summary.final_grades.pdc2_complete}</div>
+                                    <div className="text-xs text-primary-500">PDC2</div>
                                 </div>
                                 <div className="p-2 bg-amber-50 rounded-lg">
                                     <div className="text-xl font-bold text-amber-600">{summary.final_grades.ta_complete}</div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { titleSchema, TitleFormData } from '@/lib/validations/title';
+import { titleSchema, type TitleFormData } from '@/lib/validations/title';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

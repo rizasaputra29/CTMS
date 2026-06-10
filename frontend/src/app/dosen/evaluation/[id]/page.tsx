@@ -15,15 +15,13 @@ import { toast } from 'sonner'
 import { 
     ArrowLeft, 
     Save, 
-    AlertCircle, 
-    CheckCircle2, 
-    User, 
+    AlertCircle,
+    User,
     BookOpen, 
     Calendar as CalendarIcon, 
     Clock,
     Eye
 } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { format } from 'date-fns'
 import { id as idLocale } from 'date-fns/locale'
 
