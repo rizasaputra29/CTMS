@@ -10,8 +10,20 @@ import { type VariantProps } from 'class-variance-authority';
 type BadgeVariant = VariantProps<typeof badgeVariants>['variant'];
 
 /**
- * Get badge variant for TA Defense schedule status
+ * Get badge variant for user role
  */
+export function getRoleBadgeVariant(roleSlug: string): NonNullable<BadgeVariant> {
+  switch (roleSlug) {
+    case 'admin':
+      return 'roleAdmin';
+    case 'dosen':
+      return 'roleDosen';
+    case 'mahasiswa':
+      return 'roleMahasiswa';
+    default:
+      return 'outline';
+  }
+}
 export function getTaDefenseStatusBadgeVariant(status: string): NonNullable<BadgeVariant> {
   switch (status) {
     case 'SCHEDULED':

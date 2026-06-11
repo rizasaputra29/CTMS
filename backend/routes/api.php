@@ -98,6 +98,8 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'admin']);
         Route::apiResource('periods', PeriodController::class);
         Route::apiResource('users', UserController::class);
+        Route::post('/users/import', [UserController::class, 'import']);
+        Route::get('/users/import-template', [UserController::class, 'downloadImportTemplate']);
         Route::delete('/periods/{period}/students/{student}/registration', [UserController::class, 'kickStudentFromPeriod']);
         Route::get('/groups', [GroupController::class, 'listGroups']);
         Route::get('/groups/{group}', [GroupController::class, 'show']);

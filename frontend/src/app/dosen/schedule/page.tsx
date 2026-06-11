@@ -15,7 +15,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog"
-import { Plus, Loader2 } from 'lucide-react';
+import { Loader2, Plus } from 'lucide-react';
 import { Loading } from '@/components/ui/loading';
 import { toast } from "sonner";
 import { format, parseISO } from 'date-fns';
@@ -33,6 +33,7 @@ import { Trash2, Edit } from 'lucide-react';
 import { dosenScheduleSchema, type DosenScheduleFormData } from '@/lib/validations/schedule';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { toScheduleMode, toNumber } from '@/types';
+import { isApiErrorWithResponse } from '@/lib/error-utils';
 import ScheduleCalendar from '@/components/schedule/ScheduleCalendar';
 
 
@@ -88,7 +89,7 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: strin
     SEMPRO: { label: 'Sempro', color: 'text-amber-600', bgColor: 'bg-amber-50' },
     EXPO: { label: 'Expo', color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
     TA_DEFENSE: { label: 'TA Defense', color: 'text-rose-600', bgColor: 'bg-rose-50' },
-    SIDANG: { label: 'Sidang', color: 'text-purple-600', bgColor: 'bg-purple-50' },
+    SIDANG: { label: 'Sidang', color: 'text-primary-500', bgColor: 'bg-primary-50' },
 };
 
 export default function DosenSchedulePage() {
@@ -182,8 +183,8 @@ export default function DosenSchedulePage() {
                 start_time: string;
                 end_time: string;
                 room?: string;
-                mode?: string;
-                notes?: string;
+                mode?: string | null;
+                notes?: string | null;
             }
             const payload: SchedulePayload = {
                 group_id: data.group_id,
@@ -421,7 +422,7 @@ export default function DosenSchedulePage() {
                                     control={form.control}
                                     render={({ field }) => (
                                         <Select
-                                            value={field.value || ''}
+                                            value={field.value ? String(field.value) : ""}
                                             onValueChange={field.onChange}
                                         >
                                             <SelectTrigger data-invalid={form.formState.errors.group_id ? '' : undefined}>
@@ -527,7 +528,7 @@ export default function DosenSchedulePage() {
                                         control={form.control}
                                         render={({ field }) => (
                                             <Select
-                                                value={field.value || ''}
+                                            value={field.value || ""}
                                                 onValueChange={field.onChange}
                                             >
                                                 <SelectTrigger data-invalid={form.formState.errors.room ? '' : undefined}>

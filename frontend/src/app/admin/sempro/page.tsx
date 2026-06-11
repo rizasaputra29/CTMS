@@ -494,8 +494,6 @@ export default function AdminSemproPage() {
         return groups.find(g => g.id.toString() === watchedGroupId);
     }, [groups, watchedGroupId]);
 
-
-
     // Filter dosens to exclude supervisors of selected group
     const availableDosens = useMemo(() => {
         if (!selectedGroup) return dosens;

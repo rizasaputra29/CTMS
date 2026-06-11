@@ -164,7 +164,7 @@ function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; inde
 
     const colors = [
         { border: 'border-blue-200', bg: 'bg-blue-50', icon: 'bg-blue-100 text-blue-600' },
-        { border: 'border-purple-200', bg: 'bg-purple-50', icon: 'bg-purple-100 text-purple-600' },
+        { border: 'border-primary-200', bg: 'bg-primary-50', icon: 'bg-primary-100 text-primary-500' },
         { border: 'border-emerald-200', bg: 'bg-emerald-50', icon: 'bg-emerald-100 text-emerald-600' },
         { border: 'border-orange-200', bg: 'bg-orange-50', icon: 'bg-orange-100 text-orange-600' },
     ];

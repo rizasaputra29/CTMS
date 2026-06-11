@@ -49,13 +49,13 @@ interface StudentEvaluations {
 }
 
 const EVALUATION_CONFIG = [
-    { key: 'SEMPRO', label: 'Seminar Proposal', color: 'blue' },
-    { key: 'BIMBINGAN_SEMPRO', label: 'Bimbingan Sempro', color: 'cyan' },
-    { key: 'SIDANG_TA', label: 'Sidang TA', color: 'emerald' },
-    { key: 'BIMBINGAN_TA', label: 'Bimbingan TA', color: 'teal' },
-    { key: 'EXPO', label: 'Expo', color: 'amber' },
-    { key: 'MILESTONE', label: 'Milestone', color: 'orange' },
-    { key: 'NILAI_DOSEN', label: 'Nilai Dosen', color: 'violet' },
+    { key: 'SEMPRO', label: 'Seminar Proposal', iconClass: 'bg-blue-100 text-blue-600' },
+    { key: 'BIMBINGAN_SEMPRO', label: 'Bimbingan Sempro', iconClass: 'bg-cyan-100 text-cyan-600' },
+    { key: 'SIDANG_TA', label: 'Sidang TA', iconClass: 'bg-emerald-100 text-emerald-600' },
+    { key: 'BIMBINGAN_TA', label: 'Bimbingan TA', iconClass: 'bg-teal-100 text-teal-600' },
+    { key: 'EXPO', label: 'Expo', iconClass: 'bg-amber-100 text-amber-600' },
+    { key: 'MILESTONE', label: 'Milestone', iconClass: 'bg-orange-100 text-orange-600' },
+    { key: 'NILAI_DOSEN', label: 'Nilai Dosen', iconClass: 'bg-primary-100 text-primary-500' },
 ];
 
 const getStatusConfig = (status: string) => {
@@ -323,7 +323,7 @@ export default function StudentAssessmentDetailPage() {
                             <CardHeader className="pb-3">
                                 <div className="flex items-start justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg bg-${config.color}-100 text-${config.color}-600`}>
+                                        <div className={`p-2 rounded-lg ${config.iconClass}`}>
                                             <ClipboardCheck className="h-5 w-5" />
                                         </div>
                                         <div>

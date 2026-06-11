@@ -238,7 +238,7 @@ export default function FinalGradesReportPage() {
                     </Card>
                     <Card>
                         <CardContent className="pt-6">
-                            <div className="text-2xl font-bold text-purple-600">{pdc2CompleteCount}</div>
+                            <div className="text-2xl font-bold text-primary-500">{pdc2CompleteCount}</div>
                             <div className="text-sm text-muted-foreground">PDC2 Complete</div>
                         </CardContent>
                     </Card>

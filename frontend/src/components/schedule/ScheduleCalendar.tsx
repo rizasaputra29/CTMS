@@ -28,7 +28,7 @@ export interface ScheduleEvent {
     date: string;
     room: string;
     mode?: string | null;
-    notes?: string | null;
+    notes?: string | null | undefined;
     status?: string;
     period_name?: string;
     student_name?: string;
@@ -38,7 +38,7 @@ export interface ScheduleEvent {
     students?: { id: number; name: string }[];
     start_time?: string;
     end_time?: string;
-    online_link?: string;
+    online_link?: string | undefined;
     rejection_reason?: string;
     group: {
         title: {
@@ -83,9 +83,9 @@ const TYPE_CONFIG: Record<string, {
     },
     SIDANG: {
         label: 'Sidang TA',
-        textColor: 'text-purple-700',
-        bgColor: 'bg-purple-100',
-        borderColor: 'border-purple-200',
+        textColor: 'text-primary-500',
+        bgColor: 'bg-primary-100',
+        borderColor: 'border-primary-200',
     },
     EXPO: {
         label: 'Expo',

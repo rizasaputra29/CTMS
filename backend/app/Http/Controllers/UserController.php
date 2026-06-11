@@ -33,6 +33,12 @@ class UserController extends Controller
             });
         }
 
+        // Filter by active status
+        $statusFilter = $request->input('status');
+        if ($statusFilter !== null && in_array($statusFilter, ['active', 'inactive'])) {
+            $query->where('is_active', $statusFilter === 'active');
+        }
+
         // Load registeredPeriods untuk mahasiswa
         if ($roleFilter === 'mahasiswa' || $roleFilter === 'all') {
             $query->with(['registeredPeriods' => function ($q) {
@@ -60,10 +66,17 @@ class UserController extends Controller
             $query->orderBy($sortBy, $sortOrder);
         }
 
-        // Pagination: 20 item per halaman
-        $users = $query->paginate(20);
+        // Pagination: dynamic per_page with max 100
+        $perPage = (int) $request->input('per_page', 20);
+        $perPage = min(max($perPage, 5), 100);
+        $users = $query->paginate($perPage);
 
         return response()->json($users);
+    }
+
+    public function show(User $user)
+    {
+        return response()->json($user->load('roles'));
     }
 
     public function store(Request $request)
@@ -405,5 +418,132 @@ class UserController extends Controller
                 'message' => 'Gagal mengeluarkan mahasiswa dari periode: '.$e->getMessage(),
             ], 500);
         }
+    }
+
+    /**
+     * Import users from CSV file.
+     * Expected columns: name, email, role, nim, nip, password (optional)
+     */
+    public function import(Request $request)
+    {
+        $request->validate([
+            'file' => 'required|file|mimes:csv,txt|max:5120',
+        ]);
+
+        $file = $request->file('file');
+        $handle = fopen($file->getPathname(), 'r');
+        if (!$handle) {
+            return response()->json(['message' => 'Failed to read file.'], 400);
+        }
+
+        // Read and normalize header
+        $header = fgetcsv($handle);
+        if (!$header) {
+            fclose($handle);
+            return response()->json(['message' => 'CSV file is empty or invalid.'], 400);
+        }
+        $header = array_map(fn ($h) => strtolower(trim($h)), $header);
+
+        $allowedRoles = ['admin', 'dosen', 'mahasiswa'];
+        $created = 0;
+        $skipped = 0;
+        $failed = 0;
+        $errors = [];
+        $rowNum = 1;
+
+        while (($row = fgetcsv($handle)) !== false) {
+            $rowNum++;
+            if (count($row) < count($header)) {
+                continue;
+            }
+            $data = array_combine($header, $row);
+            if ($data === false) {
+                continue;
+            }
+
+            $name = trim($data['name'] ?? '');
+            $email = trim($data['email'] ?? '');
+            $role = strtolower(trim($data['role'] ?? ''));
+            $nim = trim($data['nim'] ?? '');
+            $nip = trim($data['nip'] ?? '');
+            $password = trim($data['password'] ?? '');
+
+            if (!$name || !$email || !$role) {
+                $failed++;
+                $errors[] = "Row {$rowNum}: name, email, and role are required.";
+                continue;
+            }
+
+            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $failed++;
+                $errors[] = "Row {$rowNum}: invalid email format.";
+                continue;
+            }
+
+            if (User::where('email', $email)->exists()) {
+                $skipped++;
+                continue;
+            }
+
+            if (!in_array($role, $allowedRoles, true)) {
+                $failed++;
+                $errors[] = "Row {$rowNum}: invalid role '{$role}'.";
+                continue;
+            }
+
+            if ($role === 'mahasiswa' && (empty($nim) || strlen($nim) < 8)) {
+                $failed++;
+                $errors[] = "Row {$rowNum}: NIM required for mahasiswa and must be at least 8 characters.";
+                continue;
+            }
+
+            $roleIds = \App\Models\Role::whereIn('slug', [$role])->pluck('id');
+            if ($roleIds->isEmpty()) {
+                $failed++;
+                $errors[] = "Row {$rowNum}: role '{$role}' not found in database.";
+                continue;
+            }
+
+            $rawPassword = $password ?: ($nim ?: ($nip ?: $email));
+
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'password' => Hash::make($rawPassword),
+                'role' => $role,
+                'nim' => $role === 'mahasiswa' ? $nim : null,
+                'nip' => $role === 'dosen' ? $nip : null,
+                'is_active' => true,
+            ]);
+            $user->roles()->sync($roleIds);
+            $created++;
+        }
+
+        fclose($handle);
+
+        return response()->json([
+            'message' => "Import complete: {$created} created, {$skipped} skipped, {$failed} failed.",
+            'created' => $created,
+            'skipped' => $skipped,
+            'failed' => $failed,
+            'errors' => array_slice($errors, 0, 20),
+        ]);
+    }
+
+    /**
+     * Download CSV import template.
+     */
+    public function downloadImportTemplate()
+    {
+        $headers = ['name', 'email', 'role', 'nim', 'nip', 'password'];
+        $csv = implode(',', $headers) . "\n";
+        $csv .= "Budi Santoso,budi@example.com,mahasiswa,12345678,,\n";
+        $csv .= "Dr. Siti Aminah,siti@example.com,dosen,,1987654321,\n";
+        $csv .= "Admin Utama,admin@example.com,admin,,,secret123\n";
+
+        return response($csv, 200, [
+            'Content-Type' => 'text/csv',
+            'Content-Disposition' => 'attachment; filename="users_import_template.csv"',
+        ]);
     }
 }

@@ -138,7 +138,7 @@ export default function AdminSchedulePage() {
                     title: s.group?.title ? { title: s.group.title.title } : null,
                     members: [],
                 },
-                ...(s.online_link ? { online_link: s.online_link } : {}),
+                online_link: s.online_link || undefined,
                 notes: s.notes ?? null,
             });
         }
