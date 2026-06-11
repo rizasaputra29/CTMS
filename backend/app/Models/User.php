@@ -155,4 +155,26 @@ class User extends Authenticatable
         return $this->belongsToMany(Period::class, 'period_registrations')
             ->withTimestamps();
     }
+
+    /**
+     * Periods where this student is flagged.
+     *
+     * A student is flagged if they have soft-deleted group_members
+     * but no active period_registration.
+     */
+    public function flaggedPeriods()
+    {
+        return Period::whereIn('id', function ($query) {
+            $query->select('period_id')
+                ->from('group_members')
+                ->where('student_id', $this->id)
+                ->where('status', 'flagged')
+                ->whereNotNull('deleted_at');
+        })
+            ->whereNotIn('id', function ($query) {
+                $query->select('period_id')
+                    ->from('period_registrations')
+                    ->where('user_id', $this->id);
+            });
+    }
 }

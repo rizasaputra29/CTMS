@@ -9,10 +9,21 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { 
     ArrowLeft, Users, BookOpen, GraduationCap, 
-    Calendar, Loader2, Mail, User 
+    Calendar, Loader2, Mail, User, Flag 
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Textarea } from '@/components/ui/textarea';
 
 interface GroupDetail {
     id: number;
@@ -30,7 +41,8 @@ interface GroupDetail {
     members: { 
         id: number; 
         student: { id: number; name: string; nim: string; email: string }; 
-        is_leader: boolean 
+        is_leader: boolean;
+        status?: string;
     }[];
     supervisions: { 
         id: number;
@@ -45,6 +57,12 @@ export default function GroupDetailPage() {
     
     const [group, setGroup] = useState<GroupDetail | null>(null);
     const [loading, setLoading] = useState(true);
+
+    // Flag dialog state
+    const [flagDialogOpen, setFlagDialogOpen] = useState(false);
+    const [memberToFlag, setMemberToFlag] = useState<GroupDetail['members'][0] | null>(null);
+    const [flagReason, setFlagReason] = useState('');
+    const [flagLoading, setFlagLoading] = useState(false);
 
     const fetchGroup = useCallback(async () => {
         if (!groupId) {
@@ -67,6 +85,44 @@ export default function GroupDetailPage() {
     useEffect(() => {
         fetchGroup();
     }, [fetchGroup]);
+
+    // Flag handlers
+    const handleFlagClick = (member: GroupDetail['members'][0]) => {
+        setMemberToFlag(member);
+        setFlagReason('');
+        setFlagDialogOpen(true);
+    };
+
+    const handleFlagConfirm = async () => {
+        if (!memberToFlag || !groupId) return;
+
+        setFlagLoading(true);
+        try {
+            await api.post(`/dosen/groups/${groupId}/flag-student`, {
+                student_id: memberToFlag.student.id,
+                reason: flagReason.trim() || undefined
+            });
+
+            toast.success(`Successfully flagged ${memberToFlag.student.name}`);
+            setFlagDialogOpen(false);
+            setMemberToFlag(null);
+            setFlagReason('');
+
+            // Refresh group data
+            await fetchGroup();
+        } catch (error) {
+            console.error('Failed to flag student', error);
+            toast.error('Failed to flag student. Please try again.');
+        } finally {
+            setFlagLoading(false);
+        }
+    };
+
+    const handleFlagCancel = () => {
+        setFlagDialogOpen(false);
+        setMemberToFlag(null);
+        setFlagReason('');
+    };
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -189,7 +245,14 @@ export default function GroupDetailPage() {
                                                 <User className="h-5 w-5 text-primary" />
                                             </div>
                                             <div>
-                                                <p className="font-medium">{member.student.name}</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="font-medium">{member.student.name}</p>
+                                                    {member.status === 'flagged' && (
+                                                        <Badge variant="destructive" className="text-xs">
+                                                            Flagged
+                                                        </Badge>
+                                                    )}
+                                                </div>
                                                 <p className="text-xs text-muted-foreground">{member.student.nim}</p>
                                             </div>
                                         </div>
@@ -203,6 +266,18 @@ export default function GroupDetailPage() {
                                             >
                                                 <Mail className="h-4 w-4" />
                                             </a>
+                                            {/* Flag button - hide if already flagged */}
+                                            {member.status !== 'flagged' && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                                                    onClick={() => handleFlagClick(member)}
+                                                    title="Flag Student"
+                                                >
+                                                    <Flag className="h-4 w-4" />
+                                                </Button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
@@ -298,6 +373,58 @@ export default function GroupDetailPage() {
                     </Card>
                 </div>
             </div>
+
+            {/* Flag Student Dialog */}
+            <AlertDialog open={flagDialogOpen} onOpenChange={setFlagDialogOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Flag Student</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to flag <strong>{memberToFlag?.student.name}</strong> from this group?
+                            <br /><br />
+                            This will disable evaluation access for this student.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+
+                    <div className="py-4">
+                        <label htmlFor="flag-reason" className="text-sm font-medium mb-2 block">
+                            Reason (optional)
+                        </label>
+                        <Textarea
+                            id="flag-reason"
+                            placeholder="Enter reason for flagging this student..."
+                            value={flagReason}
+                            onChange={(e) => setFlagReason(e.target.value)}
+                            maxLength={500}
+                            className="resize-none"
+                            rows={3}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                            {flagReason.length}/500 characters
+                        </p>
+                    </div>
+
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={handleFlagCancel} disabled={flagLoading}>
+                            Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleFlagConfirm}
+                            disabled={flagLoading}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            {flagLoading ? (
+                                <>
+                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                    Flagging...
+                                </>
+                            ) : (
+                                'Flag Student'
+                            )}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

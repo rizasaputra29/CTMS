@@ -20,7 +20,10 @@ use App\Models\Title;
 use App\Models\User;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
+use App\Services\StudentFlagService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -1397,5 +1400,64 @@ class GroupController extends Controller
 
             return response()->json(['message' => 'Failed to delete group: '.$e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Flag a student from the group's period.
+     *
+     * Only supervisors (supervisor_1 or supervisor_2) of this group can flag students.
+     * The student will be soft-removed from their group while preserving their scores.
+     *
+     * @param  Request  $request  The HTTP request containing student_id and optional reason
+     * @param  Group  $group  The group being supervised
+     * @return JsonResponse Success response with flagging confirmation
+     *
+     * @throws \Illuminate\Validation\ValidationException If validation fails
+     * @throws \Illuminate\Auth\Access\AuthorizationException If user is not a supervisor
+     */
+    public function flagStudent(Request $request, Group $group): JsonResponse
+    {
+        $user = Auth::user();
+
+        // Only dosen role can flag students
+        if (! $user->hasRole('dosen')) {
+            return response()->json(['message' => 'Only lecturers can flag students.'], 403);
+        }
+
+        // Verify the dosen is a supervisor of this group
+        $isSupervisor = $group->supervisor_1_id === $user->id || $group->supervisor_2_id === $user->id;
+        if (! $isSupervisor) {
+            return response()->json(['message' => 'You are not a supervisor of this group.'], 403);
+        }
+
+        // Validate request
+        $validated = $request->validate([
+            'student_id' => ['required', 'exists:users,id'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        // Load the student user
+        $student = User::findOrFail($validated['student_id']);
+
+        // Get the period from the group
+        $period = $group->period;
+        if (! $period) {
+            return response()->json(['message' => 'Group is not associated with a period.'], 400);
+        }
+
+        // Call StudentFlagService to flag the student
+        $flagService = app(StudentFlagService::class);
+        $flagService->flagStudent(
+            $period,
+            $student,
+            $user,
+            $validated['reason'] ?? 'Flagged by supervisor'
+        );
+
+        return response()->json([
+            'message' => 'Student flagged successfully.',
+            'student_id' => $student->id,
+            'period_id' => $period->id,
+        ]);
     }
 }

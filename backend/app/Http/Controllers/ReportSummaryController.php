@@ -155,7 +155,9 @@ class ReportSummaryController extends Controller
         $gradeService->preloadPeriodData($periodId);
 
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student'])
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }])
             ->get();
 
         // Build student-group pairs for batch processing

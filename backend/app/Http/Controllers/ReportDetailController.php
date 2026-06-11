@@ -183,7 +183,9 @@ class ReportDetailController extends Controller
         $gradeService->preloadPeriodData($periodId);
 
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student']);
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }]);
 
         if ($request->filled('group_id')) {
             $groups->where('id', $request->group_id);
@@ -210,6 +212,7 @@ class ReportDetailController extends Controller
                 $studentInfo[$student->id] = [
                     'student' => $student,
                     'group' => $group,
+                    'is_flagged' => $member->status === 'flagged' || $member->deleted_at !== null,
                 ];
             }
         }
@@ -287,6 +290,7 @@ class ReportDetailController extends Controller
                 'pdc1_complete' => $isPDC1Complete,
                 'pdc2_complete' => $isPDC2Complete,
                 'ta_complete' => $isTAComplete,
+                'is_flagged' => $info['is_flagged'],
             ];
         }
 
@@ -339,7 +343,9 @@ class ReportDetailController extends Controller
         $gradeService->preloadPeriodData($periodId);
 
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student'])
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }])
             ->get();
 
         // Build student-group pairs for batch calculation
@@ -463,7 +469,9 @@ class ReportDetailController extends Controller
         $perPage = $request->input('per_page', 50);
 
         $query = Group::where('period_id', $periodId)
-            ->with(['title', 'supervisor1', 'supervisor2', 'members.student']);
+            ->with(['title', 'supervisor1', 'supervisor2', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }]);
 
         // Sort by creation date
         $query->orderBy('created_at', 'desc');
@@ -673,8 +681,10 @@ class ReportDetailController extends Controller
         $sortBy = $request->input('sort_by', 'group');
         $search = $request->input('student_search', '');
 
-        // Get all groups in period with students
-        $groupsQuery = Group::with(['members.student', 'title'])
+        // Get all groups in period with students (include soft-deleted members)
+        $groupsQuery = Group::with(['members' => function ($query) {
+            $query->withTrashed()->with('student');
+        }, 'title'])
             ->where('period_id', $periodId);
 
         $groups = $groupsQuery->get();
@@ -842,12 +852,14 @@ class ReportDetailController extends Controller
             return response()->json(['error' => 'Invalid evaluation type'], 400);
         }
 
-        // Get student and group info
+        // Get student and group info (include soft-deleted members)
         $group = Group::where('period_id', $periodId)
             ->whereHas('members', function ($q) use ($studentId) {
-                $q->where('student_id', $studentId);
+                $q->withTrashed()->where('student_id', $studentId);
             })
-            ->with(['members.student', 'title'])
+            ->with(['members' => function ($q) {
+                $q->withTrashed()->with('student');
+            }, 'title'])
             ->first();
 
         if (! $group) {
@@ -1057,8 +1069,10 @@ class ReportDetailController extends Controller
         $sortBy = $request->input('sort_by', 'group');
         $search = $request->input('student_search', '');
 
-        // Get all data (no pagination for export)
-        $groups = Group::with(['members.student', 'title'])
+        // Get all data (no pagination for export) - include soft-deleted members
+        $groups = Group::with(['members' => function ($query) {
+            $query->withTrashed()->with('student');
+        }, 'title'])
             ->where('period_id', $periodId)
             ->get();
 

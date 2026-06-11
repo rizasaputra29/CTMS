@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Jobs\RefreshGroupReadiness;
+use App\Models\AuditLog;
 use App\Models\Group;
 use Illuminate\Support\Facades\Cache;
 
@@ -24,6 +25,38 @@ class GroupObserver
     public function updated(Group $group): void
     {
         $this->clearGroupCaches($group);
+
+        // Log status changes before checking readiness_status
+        if ($group->wasChanged('status')) {
+            $oldStatus = $group->getOriginal('status');
+            $newStatus = $group->status;
+
+            // Log the status change
+            AuditLog::create([
+                'action' => 'GROUP_STATUS_CHANGED',
+                'target_type' => Group::class,
+                'target_id' => $group->id,
+                'payload' => [
+                    'old_status' => $oldStatus,
+                    'new_status' => $newStatus,
+                    'period_id' => $group->period_id,
+                ],
+            ]);
+
+            // If new status is DISSOLVED, also log GROUP_DISSOLVED
+            if ($newStatus === 'DISSOLVED') {
+                AuditLog::create([
+                    'action' => 'GROUP_DISSOLVED',
+                    'target_type' => Group::class,
+                    'target_id' => $group->id,
+                    'payload' => [
+                        'old_status' => $oldStatus,
+                        'new_status' => $newStatus,
+                        'period_id' => $group->period_id,
+                    ],
+                ]);
+            }
+        }
 
         // Don't trigger if only readiness_status changed (avoid infinite loop)
         if ($group->wasChanged('readiness_status')) {

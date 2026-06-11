@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\GroupInvitation;
 use App\Models\GroupMember;
@@ -10,6 +11,7 @@ use App\Models\Notification;
 use App\Models\Period;
 use App\Models\PeriodRegistration;
 use App\Models\User;
+use App\Services\StudentFlagService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -285,8 +287,9 @@ class UserController extends Controller
     /**
      * Admin: Kick a student from a specific period.
      *
-     * This removes period registration, removes period-scoped group memberships,
-     * invalidates pending invitations/join requests, and re-evaluates affected groups.
+     * This flags the student from the period, which soft-removes them from groups
+     * while preserving their scores, invalidates pending invitations/join requests,
+     * and re-evaluates affected groups.
      */
     public function kickStudentFromPeriod(Request $request, Period $period, User $student)
     {
@@ -304,59 +307,59 @@ class UserController extends Controller
             return response()->json(['message' => 'Mahasiswa tidak terdaftar pada periode ini.'], 404);
         }
 
-        DB::beginTransaction();
+        // Get group memberships for affected groups tracking
+        $membershipRows = GroupMember::where('student_id', $student->id)
+            ->where('period_id', $period->id)
+            ->get(['id', 'group_id']);
+
+        $affectedGroupIds = $membershipRows
+            ->pluck('group_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        // Count pending invitations and join requests before flagging
+        $invalidatedInvitationsCount = GroupInvitation::where('student_id', $student->id)
+            ->where('status', 'PENDING')
+            ->whereHas('group', function ($q) use ($period) {
+                $q->where('period_id', $period->id);
+            })
+            ->count();
+
+        $invalidatedJoinRequestsCount = JoinRequest::where('requester_id', $student->id)
+            ->where('status', 'PENDING')
+            ->whereHas('group', function ($q) use ($period) {
+                $q->where('period_id', $period->id);
+            })
+            ->count();
+
         try {
-            $membershipRows = GroupMember::where('student_id', $student->id)
-                ->where('period_id', $period->id)
-                ->get(['id', 'group_id']);
+            $flagService = app(StudentFlagService::class);
 
-            $affectedGroupIds = $membershipRows
-                ->pluck('group_id')
-                ->filter()
-                ->unique()
-                ->values();
+            $flagService->flagStudent(
+                $period,
+                $student,
+                $admin,
+                'Kicked from period by admin'
+            );
 
-            $removedGroupMemberships = GroupMember::where('student_id', $student->id)
-                ->where('period_id', $period->id)
-                ->delete();
+            // Log MEMBER_KICKED action (StudentFlagService already logs STUDENT_FLAGGED)
+            AuditLog::create([
+                'user_id' => $admin->id,
+                'action' => 'MEMBER_KICKED',
+                'target_type' => User::class,
+                'target_id' => $student->id,
+                'payload' => [
+                    'period_id' => $period->id,
+                    'reason' => 'Admin kicked student from period',
+                    'memberships_count' => $membershipRows->count(),
+                    'affected_groups' => $affectedGroupIds->toArray(),
+                    'invalidated_invitations' => $invalidatedInvitationsCount,
+                    'invalidated_join_requests' => $invalidatedJoinRequestsCount,
+                ],
+            ]);
 
-            $removedRegistration = PeriodRegistration::where('user_id', $student->id)
-                ->where('period_id', $period->id)
-                ->delete();
-
-            $invalidatedInvitations = GroupInvitation::where('student_id', $student->id)
-                ->where('status', 'PENDING')
-                ->whereHas('group', function ($q) use ($period) {
-                    $q->where('period_id', $period->id);
-                })
-                ->update(['status' => 'REJECTED']);
-
-            $invalidatedJoinRequests = JoinRequest::where('requester_id', $student->id)
-                ->where('status', 'PENDING')
-                ->whereHas('group', function ($q) use ($period) {
-                    $q->where('period_id', $period->id);
-                })
-                ->update(['status' => 'INVALIDATED']);
-
-            $groupService = app(\App\Services\GroupService::class);
-
-            foreach ($affectedGroupIds as $groupId) {
-                $group = Group::find($groupId);
-                if (! $group) {
-                    continue;
-                }
-
-                $remainingMembers = GroupMember::where('group_id', $groupId)->count();
-                if ($remainingMembers === 0) {
-                    $group->update(['status' => 'DISSOLVED']);
-                    Log::info('group.lifecycle.dissolved', ['group_id' => $group->id]);
-
-                    continue;
-                }
-
-                $groupService->evaluateGroupReadiness($group);
-            }
-
+            // Send notification to student
             Notification::create([
                 'user_id' => $student->id,
                 'type' => 'PERIOD_REGISTRATION_REMOVED',
@@ -366,15 +369,12 @@ class UserController extends Controller
                 'related_id' => $period->id,
             ]);
 
-            DB::commit();
-
             return response()->json([
                 'message' => "Mahasiswa {$student->name} berhasil dikeluarkan dari periode {$period->name}.",
-                'removed_registration' => $removedRegistration,
-                'removed_group_memberships' => $removedGroupMemberships,
+                'removed_group_memberships' => $membershipRows->count(),
                 'affected_groups' => $affectedGroupIds->values(),
-                'invalidated_invitations' => $invalidatedInvitations,
-                'invalidated_join_requests' => $invalidatedJoinRequests,
+                'invalidated_invitations' => $invalidatedInvitationsCount,
+                'invalidated_join_requests' => $invalidatedJoinRequestsCount,
                 'kicked_student' => [
                     'id' => $student->id,
                     'name' => $student->name,
@@ -389,8 +389,11 @@ class UserController extends Controller
                     'name' => $admin->name,
                 ],
             ]);
+        } catch (\DomainException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 400);
         } catch (\Exception $e) {
-            DB::rollBack();
             Log::error('admin.period.kick_student.failed', [
                 'period_id' => $period->id,
                 'student_id' => $student->id,

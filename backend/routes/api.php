@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Admin\AuditLogController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 use App\Http\Controllers\AssessmentComponentController;
@@ -281,6 +282,11 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/student-state/{studentId}', [StudentStateController::class, 'getStudentTAStatus']);
         Route::post('/student-state/{studentId}/force-unlock', [StudentStateController::class, 'forceUnlockTA']);
         Route::get('/groups/{groupId}/ta-statuses', [StudentStateController::class, 'getGroupTAStatus']);
+
+        // Audit Logs (admin)
+        Route::get('/audit-logs', [AuditLogController::class, 'index']);
+        Route::get('/audit-logs/action-types', [AuditLogController::class, 'actionTypes']);
+        Route::get('/audit-logs/{id}', [AuditLogController::class, 'show']);
     });
 
     // ────────────────────────────────
@@ -362,6 +368,9 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
 
         // Digital Signatures (dosen)
         Route::get('/digital-signatures', [DigitalSignatureController::class, 'mySignatures']);
+
+        // Student Flagging (dosen)
+        Route::post('/groups/{group}/flag-student', [GroupController::class, 'flagStudent']);
     });
 
     // ────────────────────────────────

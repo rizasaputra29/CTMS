@@ -573,8 +573,8 @@ class SupervisorEvaluationController extends Controller
             'evaluation_type' => $evaluationType,
             'supervisor_role' => $supervision->role,
             'schedule' => $scheduleInfo,
-            'components' => $components,
-            'students' => $students,
+            'components' => $components->toArray(),
+            'students' => $students->values()->toArray(),
         ]);
     }
 

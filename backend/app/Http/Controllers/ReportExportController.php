@@ -252,7 +252,9 @@ class ReportExportController extends Controller
     private function exportGroups($periodId): StreamedResponse
     {
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student', 'supervisor1', 'supervisor2'])
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }, 'supervisor1', 'supervisor2'])
             ->get();
 
         return $this->streamCsv('groups.csv', [
@@ -282,9 +284,11 @@ class ReportExportController extends Controller
     {
         $gradeService = new GradeCalculationService;
 
-        // Get all groups in the period with their members
+        // Get all groups in the period with their members (include soft-deleted)
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student'])
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }])
             ->get();
 
         // Build student-group pairs for batch calculation

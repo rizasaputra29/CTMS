@@ -662,6 +662,12 @@ class GradeCalculationService
      */
     private function getStudentEvaluationScore(int $studentId, int $groupId, string $evaluationType): ?float
     {
+        // Check if student is flagged from this period - flagged students cannot receive new scores
+        $flagService = app(StudentFlagService::class);
+        if (! $flagService->canBeScored($studentId, $groupId)) {
+            return null;
+        }
+
         if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return null;
         }
@@ -969,5 +975,31 @@ class GradeCalculationService
             'NILAI_DOSEN', 'EXPO', 'MILESTONE' => $this->calculatePDC2($groupId),
             default => null,
         };
+    }
+
+    /**
+     * Get grades using only the latest active period's scores.
+     * Called when a student has been flagged in previous periods.
+     */
+    public function calculateGradesForLatestPeriod(int $studentId): ?array
+    {
+        $flagService = app(StudentFlagService::class);
+        $latestPeriodId = $flagService->getLatestPeriodIdForStudent($studentId);
+
+        if (! $latestPeriodId) {
+            return null;
+        }
+
+        // Get the student's group in the latest period
+        $latestGroup = \App\Models\Group::where('period_id', $latestPeriodId)
+            ->whereHas('members', fn ($q) => $q->where('student_id', $studentId))
+            ->first();
+
+        if (! $latestGroup) {
+            return null;
+        }
+
+        // Calculate final grade using only this group's scores
+        return $this->calculateFinalGradeForStudent($studentId, $latestGroup->id);
     }
 }
