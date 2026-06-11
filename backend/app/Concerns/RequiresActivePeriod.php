@@ -12,7 +12,7 @@ trait RequiresActivePeriod
     {
         $period = $group->relationLoaded('period') ? $group->period : Period::find($group->period_id);
 
-        if (!$period || !$period->is_active) {
+        if (! $period || ! $period->is_active) {
             abort(403, 'Periode tidak aktif. Operasi tidak diizinkan.');
         }
     }
@@ -21,7 +21,7 @@ trait RequiresActivePeriod
     {
         $period = Period::find($periodId);
 
-        if (!$period || !$period->is_active) {
+        if (! $period || ! $period->is_active) {
             abort(403, 'Periode tidak aktif. Operasi tidak diizinkan.');
         }
     }
@@ -30,13 +30,13 @@ trait RequiresActivePeriod
     {
         $periodRel = $model->relationLoaded('period') ? $model->period : null;
 
-        if ($periodRel && !$periodRel->is_active) {
+        if ($periodRel && ! $periodRel->is_active) {
             abort(403, 'Periode tidak aktif. Operasi tidak diizinkan.');
         }
 
-        if (!$periodRel && $model->period_id) {
+        if (! $periodRel && $model->period_id) {
             $period = Period::find($model->period_id);
-            if (!$period || !$period->is_active) {
+            if (! $period || ! $period->is_active) {
                 abort(403, 'Periode tidak aktif. Operasi tidak diizinkan.');
             }
         }

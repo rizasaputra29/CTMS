@@ -20,7 +20,7 @@ return new class extends Migration
         foreach ($titles as $title) {
             // Check if group exists and is in correct status
             $group = DB::table('groups')->find($title->pre_assigned_group_id);
-            
+
             if ($group && $group->title_id !== $title->id) {
                 // Only update if group is READY_FOR_BIDDING and in same period
                 if ($group->status === 'READY_FOR_BIDDING' && $group->period_id === $title->period_id) {
@@ -31,7 +31,7 @@ return new class extends Migration
                             'status' => 'TITLE_APPROVED',
                             'updated_at' => now(),
                         ]);
-                    
+
                     // Create audit log
                     DB::table('finalization_audits')->insert([
                         'period_id' => $group->period_id,

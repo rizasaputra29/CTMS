@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '@/lib/api';
-import { Loader2, CalendarPlus } from 'lucide-react';
+import { CalendarPlus } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
@@ -54,6 +55,7 @@ interface ApiSchedule {
 interface ApiTaDefenseSchedule {
     id: number;
     student: { id: number; name: string };
+    students?: { id: number; name: string; nim?: string; email?: string }[];
     group: { id: number; title?: { title: string }; period?: { id: number; name: string } };
     period?: { id: number; name: string };
     date: string;
@@ -137,7 +139,7 @@ export default function AdminSchedulePage() {
                     members: [],
                 },
                 online_link: s.online_link || undefined,
-                notes: s.notes || undefined,
+                notes: s.notes ?? null,
             });
         }
 
@@ -149,6 +151,18 @@ export default function AdminSchedulePage() {
             const dateStr = s.start_time 
                 ? `${dateOnly}T${s.start_time}` 
                 : `${dateOnly}T00:00:00`;
+            
+            // Build students array and joined student name
+            const students = s.students?.map(st => ({
+                id: st.id,
+                name: st.name,
+                nim: st.nim,
+                email: st.email,
+            })) || [];
+            
+            const studentName = students.length > 1 
+                ? `${students[0].name} +${students.length - 1} more`
+                : (students[0]?.name || s.student?.name || 'N/A');
                 
             mapped.push({
                 id: `ta_${s.id}`,
@@ -161,7 +175,8 @@ export default function AdminSchedulePage() {
                 start_time: s.start_time || '',
                 end_time: s.end_time || '',
                 period_name: s.group?.period?.name || '',
-                student_name: s.student?.name,
+                student_name: studentName,
+                students: students,
                 examiner1: s.examiner1 ? { name: s.examiner1.name } : null,
                 examiner2: s.examiner2 ? { name: s.examiner2.name } : null,
                 group: {
@@ -296,11 +311,7 @@ export default function AdminSchedulePage() {
     };
 
     if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
+        return <Loading variant="section" />;
     }
 
     return (

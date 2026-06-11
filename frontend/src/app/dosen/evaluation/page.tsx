@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { 
-    Loader2, 
     GraduationCap, 
     CalendarDays, 
     CheckCircle2, 
@@ -30,6 +29,7 @@ import {
     Eye,
     Play
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
 import { id as idLocale } from 'date-fns/locale';
 import { toViewMode } from '@/types/guards';
@@ -73,6 +73,8 @@ interface SeminarData {
         score: number;
         feedback?: string;
         updated_at?: string;
+        // For multi-student TA defense
+        student_id?: number;
     }[];
     group: {
         id: number;
@@ -80,8 +82,10 @@ interface SeminarData {
         title?: { title: string; name: string };
         members?: { student: { id: number; name: string; nim?: string } }[];
     };
-    // TA Defense fields
+    // TA Defense fields - backward compat
     student?: { id: number; name: string; nim?: string };
+    // TA Defense fields - multi-student support
+    students?: { id: number; name: string; nim?: string }[];
 }
 
 const getStatusBadge = (status: string) => {
@@ -318,7 +322,7 @@ export default function DosenExaminerPage() {
                             points: myEval.score,
                             notes: myEval.feedback || '',
                             deadline: s.evaluation_deadline || null,
-                            ...(myEval.updated_at ? { updated_at: myEval.updated_at } : {}),
+                            updated_at: myEval.updated_at ?? '',
                             group: s.group,
                             student: null
                         });
@@ -326,26 +330,61 @@ export default function DosenExaminerPage() {
                 });
 
                 // Map TA Defense (per-student)
-                // Show even if evaluation doesn't exist - backend will auto-create it
+                // Iterate through all evaluations, one card per evaluation-student pair
                 taDefenses.forEach((t) => {
-                    const myEval = t.evaluations?.[0];
-                    mapped.push({
-                        id: myEval?.id ?? t.id,
-                        type: 'TA_DEFENSE',
-                        schedule_type: 'SIDANG_TA',
-                        schedule_id: t.id,
-                        date: t.date,
-                        start_time: t.start_time,
-                        end_time: t.end_time,
-                        room: t.room,
-                        status: normalizeEvaluationStatus(myEval?.status),
-                        points: myEval?.score || 0,
-                        notes: myEval?.feedback || '',
-                        deadline: t.evaluation_deadline || null,
-                        ...(myEval?.updated_at ? { updated_at: myEval.updated_at } : {}),
-                        group: t.group,
-                        student: t.student || null
-                    });
+                    // If there are evaluations, create a card for each one
+                    if (t.evaluations && t.evaluations.length > 0) {
+                        t.evaluations.forEach((evalItem) => {
+                            // Find the student that matches this evaluation
+                            let student = t.student;
+                            if (t.students && t.students.length > 0) {
+                                student = t.students.find(s => s.id === evalItem.student_id) || t.student;
+                            }
+                            mapped.push({
+                                id: evalItem.id,
+                                type: 'TA_DEFENSE',
+                                schedule_type: 'SIDANG_TA',
+                                schedule_id: t.id,
+                                date: t.date,
+                                start_time: t.start_time,
+                                end_time: t.end_time,
+                                room: t.room,
+                                status: normalizeEvaluationStatus(evalItem.status),
+                                points: evalItem.score || 0,
+                                notes: evalItem.feedback || '',
+                                deadline: t.evaluation_deadline || null,
+                                updated_at: evalItem.updated_at ?? '',
+                                group: t.group,
+                                student: student || null
+                            });
+                        });
+                    } else {
+                        // No evaluations yet - show a placeholder card
+                        // For each student in the defense schedule
+                        const students = t.students && t.students.length > 0 
+                            ? t.students 
+                            : (t.student ? [t.student] : []);
+                        
+                        students.forEach((student) => {
+                            mapped.push({
+                                id: t.id,
+                                type: 'TA_DEFENSE',
+                                schedule_type: 'SIDANG_TA',
+                                schedule_id: t.id,
+                                date: t.date,
+                                start_time: t.start_time,
+                                end_time: t.end_time,
+                                room: t.room,
+                                status: 'PENDING',
+                                points: 0,
+                                notes: '',
+                                deadline: t.evaluation_deadline || null,
+                                updated_at: '',
+                                group: t.group,
+                                student: student || null
+                            });
+                        });
+                    }
                 });
 
                 if (isMounted) {
@@ -414,6 +453,10 @@ export default function DosenExaminerPage() {
         const query = new URLSearchParams({ type: evalItem.type });
         if (evalItem.type === 'TA_DEFENSE') {
             query.set('schedule_id', String(evalItem.schedule_id));
+            // Pass student_id for multi-student TA defense support
+            if (evalItem.student) {
+                query.set('student_id', String(evalItem.student.id));
+            }
         }
         router.push(`/dosen/evaluation/${evalItem.id}?${query.toString()}`);
     };
@@ -431,13 +474,7 @@ export default function DosenExaminerPage() {
         return isPast(parseISO(deadline));
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[400px]">
-                <Loader2 className="w-8 h-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="container mx-auto py-6 max-w-7xl">
@@ -539,7 +576,7 @@ export default function DosenExaminerPage() {
                             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                 {completedEvaluations.map((evalItem) => (
                                     <EvaluationCard
-                                        key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                        key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                         evalItem={evalItem}
                                         onEvaluate={() => handleEvaluate(evalItem)}
                                         isUrgent={false}
@@ -562,7 +599,7 @@ export default function DosenExaminerPage() {
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {todayEvaluations.map((evalItem) => (
                                             <EvaluationCard
-                                                key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                                key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                                 evalItem={evalItem}
                                                 onEvaluate={() => handleEvaluate(evalItem)}
                                                 isUrgent={isDeadlineUrgent(evalItem.deadline)}
@@ -582,7 +619,7 @@ export default function DosenExaminerPage() {
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {upcomingEvaluations.map((evalItem) => (
                                             <EvaluationCard
-                                                key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                                key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                                 evalItem={evalItem}
                                                 onEvaluate={() => handleEvaluate(evalItem)}
                                                 isUrgent={isDeadlineUrgent(evalItem.deadline)}
@@ -602,7 +639,7 @@ export default function DosenExaminerPage() {
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {pastEvaluations.map((evalItem) => (
                                             <EvaluationCard
-                                                key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                                key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                                 evalItem={evalItem}
                                                 onEvaluate={() => handleEvaluate(evalItem)}
                                                 isUrgent={false}
@@ -623,7 +660,7 @@ export default function DosenExaminerPage() {
                                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {completedEvaluations.map((evalItem) => (
                                             <EvaluationCard
-                                                key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                                key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                                 evalItem={evalItem}
                                                 onEvaluate={() => handleEvaluate(evalItem)}
                                                 isUrgent={false}
@@ -667,7 +704,7 @@ export default function DosenExaminerPage() {
                         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                             {filteredEvaluations.map((evalItem) => (
                                 <EvaluationCard
-                                    key={`${evalItem.schedule_id}-${evalItem.type}`}
+                                    key={`${evalItem.schedule_id}-${evalItem.type}-${evalItem.student?.id ?? evalItem.id}`}
                                     evalItem={evalItem}
                                     onEvaluate={() => handleEvaluate(evalItem)}
                                     isUrgent={isDeadlineUrgent(evalItem.deadline)}

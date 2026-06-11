@@ -3,7 +3,8 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
         // CPMK Templates untuk BIMBINGAN_SEMPRO, BIMBINGAN_EXPO, BIMBINGAN_TA

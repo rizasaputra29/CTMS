@@ -106,9 +106,10 @@ class TaDefenseSchedule extends Model
      */
     public function isDeadlinePassed(): bool
     {
-        if (!$this->evaluation_deadline) {
+        if (! $this->evaluation_deadline) {
             return false;
         }
+
         return now()->gt($this->evaluation_deadline);
     }
 

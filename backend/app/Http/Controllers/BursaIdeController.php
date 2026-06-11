@@ -7,7 +7,6 @@ use App\Models\GroupMember;
 use App\Models\JoinRequest;
 use App\Models\Notification;
 use App\Models\Title;
-use App\Models\Supervision;
 use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +22,7 @@ class BursaIdeController extends Controller
     private const SOLO_STATUSES = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL', 'TITLE_APPROVED'];
 
     protected GroupStateMachine $stateMachine;
+
     protected \App\Services\GroupService $groupService;
 
     public function __construct(GroupStateMachine $stateMachine, \App\Services\GroupService $groupService)
@@ -52,7 +52,7 @@ class BursaIdeController extends Controller
             $query->where('period_id', $periodId);
         } else {
             // Default to current active period if no period_id provided
-            $query->whereHas('period', function($q) {
+            $query->whereHas('period', function ($q) {
                 $q->where('is_active', true);
             });
         }
@@ -62,11 +62,11 @@ class BursaIdeController extends Controller
 
         // Determine if current user can request to join
         $userMembership = GroupMember::where('student_id', $user->id)
-            ->whereHas('group', fn($q) => $q->whereNotIn('status', ['CLOSED']))
+            ->whereHas('group', fn ($q) => $q->whereNotIn('status', ['CLOSED']))
             ->first();
 
         $canRequestJoin = false;
-        if (!$userMembership) {
+        if (! $userMembership) {
             // Ghost student — no group at all
             $canRequestJoin = true;
         } elseif ($userMembership) {
@@ -109,14 +109,14 @@ class BursaIdeController extends Controller
         }
 
         // Guard: Only solo seekers can receive join requests
-        if (!$group->is_solo) {
+        if (! $group->is_solo) {
             return response()->json([
-                'message' => 'Grup ini tidak menerima permintaan bergabung.'
+                'message' => 'Grup ini tidak menerima permintaan bergabung.',
             ], 400);
         }
 
         // Guard: only Solo Seeker groups can be joined
-        if (!in_array($group->status, self::SOLO_STATUSES)) {
+        if (! in_array($group->status, self::SOLO_STATUSES)) {
             return response()->json(['message' => 'This group is not accepting join requests.'], 400);
         }
 
@@ -133,10 +133,10 @@ class BursaIdeController extends Controller
 
         if ($userMembership) {
             $userGroup = Group::find($userMembership->group_id);
-            if (!$userGroup || !in_array($userGroup->status, self::SOLO_STATUSES)) {
+            if (! $userGroup || ! in_array($userGroup->status, self::SOLO_STATUSES)) {
                 return response()->json(['message' => 'Anda sudah terdaftar di grup permanen atau sedang melakukan bidding.'], 400);
             }
-            if (!$userMembership->is_leader) {
+            if (! $userMembership->is_leader) {
                 return response()->json(['message' => 'Hanya Ketua Kelompok yang dapat mengajukan penggabungan ke ide lain.'], 400);
             }
             // Solo seekers can't request to join their own group
@@ -159,7 +159,7 @@ class BursaIdeController extends Controller
         $sourceMembership = GroupMember::where('student_id', $user->id)
             ->where('period_id', $group->period_id)
             ->first();
-        
+
         $sourceCount = $sourceMembership ? GroupMember::where('group_id', $sourceMembership->group_id)->count() : 1;
         $targetCount = GroupMember::where('group_id', $group->id)->count();
         $maxMembers = $group->period->max_group_size ?? 4;
@@ -211,10 +211,10 @@ class BursaIdeController extends Controller
 
         $membership = GroupMember::where('student_id', $user->id)
             ->where('is_leader', true)
-            ->whereHas('group', fn($q) => $q->whereIn('status', self::SOLO_STATUSES))
+            ->whereHas('group', fn ($q) => $q->whereIn('status', self::SOLO_STATUSES))
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['data' => []]);
         }
 
@@ -233,7 +233,7 @@ class BursaIdeController extends Controller
      * - DB Transaction + lockForUpdate()
      * - Auto-cleanup of requester's solo group
      * - Invalidation of other pending requests
-    * - Quota validation on UNDER_REVIEW → APPROVED transition
+     * - Quota validation on UNDER_REVIEW → APPROVED transition
      */
     public function acceptRequest(Request $request, $id)
     {
@@ -243,7 +243,7 @@ class BursaIdeController extends Controller
             ->where('status', 'PENDING')
             ->first();
 
-        if (!$joinRequest) {
+        if (! $joinRequest) {
             return response()->json(['message' => 'Join request not found or already processed.'], 404);
         }
 
@@ -253,13 +253,13 @@ class BursaIdeController extends Controller
             ->where('is_leader', true)
             ->first();
 
-        if (!$leaderMembership) {
+        if (! $leaderMembership) {
             return response()->json(['message' => 'Only the group leader can accept join requests.'], 403);
         }
 
         $group = Group::with('period')->find($joinRequest->group_id);
 
-        if (!$group || !in_array($group->status, self::SOLO_STATUSES)) {
+        if (! $group || ! in_array($group->status, self::SOLO_STATUSES)) {
             return response()->json(['message' => 'Group is not accepting members.'], 400);
         }
 
@@ -273,7 +273,7 @@ class BursaIdeController extends Controller
         // Prevent joining if the title has been withdrawn by lecturer
         if ($group->is_solo && $group->title_id) {
             $title = \App\Models\Title::find($group->title_id);
-            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+            if (! $title || $title->supervisor_approval_status !== 'APPROVED') {
                 return response()->json(['message' => 'Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat menerima anggota baru.'], 400);
             }
         }
@@ -285,13 +285,15 @@ class BursaIdeController extends Controller
             $this->groupService->handleJoinGroup($joinRequest->requester, $group);
 
             DB::commit();
+
             return response()->json([
                 'message' => 'Join request accepted. Student has been added to your group.',
                 'group' => $group->fresh()->load('members.student'),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to accept: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to accept: '.$e->getMessage()], 500);
         }
     }
 
@@ -306,7 +308,7 @@ class BursaIdeController extends Controller
             ->where('status', 'PENDING')
             ->first();
 
-        if (!$joinRequest) {
+        if (! $joinRequest) {
             return response()->json(['message' => 'Join request not found or already processed.'], 404);
         }
 
@@ -316,7 +318,7 @@ class BursaIdeController extends Controller
             ->where('is_leader', true)
             ->first();
 
-        if (!$leaderMembership) {
+        if (! $leaderMembership) {
             return response()->json(['message' => 'Only the group leader can reject join requests.'], 403);
         }
 
@@ -338,10 +340,10 @@ class BursaIdeController extends Controller
     private function buildBursaFlowPayload($user): array
     {
         $membership = GroupMember::where('student_id', $user->id)
-            ->whereHas('group', fn($q) => $q->whereNotIn('status', ['CLOSED']))
+            ->whereHas('group', fn ($q) => $q->whereNotIn('status', ['CLOSED']))
             ->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return [
                 'can_request_join' => true,
                 'can_accept_join_requests' => false,
@@ -351,7 +353,7 @@ class BursaIdeController extends Controller
         }
 
         $group = Group::with('period')->find($membership->group_id);
-        if (!$group) {
+        if (! $group) {
             return [
                 'can_request_join' => false,
                 'can_accept_join_requests' => false,
@@ -380,7 +382,7 @@ class BursaIdeController extends Controller
             ];
         }
 
-        if (!$isSoloLeader) {
+        if (! $isSoloLeader) {
             return [
                 'can_request_join' => false,
                 'can_accept_join_requests' => false,
@@ -396,6 +398,4 @@ class BursaIdeController extends Controller
             'reason' => null,
         ];
     }
-
-
 }

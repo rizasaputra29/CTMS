@@ -28,7 +28,7 @@ class CleanupMultiAcceptedBidsCommand extends Command
     public function handle()
     {
         $this->info('Starting cleanup of multi-accepted bids...');
-        
+
         DB::beginTransaction();
         try {
             // Find all titles that have multiple ACCEPT recommendations
@@ -41,11 +41,12 @@ class CleanupMultiAcceptedBidsCommand extends Command
             if ($multiAcceptedTitles->isEmpty()) {
                 $this->info('No multi-accepted titles found. Database is clean.');
                 DB::commit();
+
                 return 0;
             }
 
             $this->warn("Found {$multiAcceptedTitles->count()} titles with multiple ACCEPT recommendations.");
-            
+
             $totalReset = 0;
 
             foreach ($multiAcceptedTitles as $titleId) {
@@ -58,7 +59,7 @@ class CleanupMultiAcceptedBidsCommand extends Command
                 $firstBid = $acceptedBids->first();
                 $otherBids = $acceptedBids->slice(1);
 
-                $this->line("Title ID {$titleId}: Keeping bid #{$firstBid->id}, resetting " . $otherBids->count() . " others");
+                $this->line("Title ID {$titleId}: Keeping bid #{$firstBid->id}, resetting ".$otherBids->count().' others');
 
                 // Reset other accepted bids to NULL (pending)
                 foreach ($otherBids as $bid) {
@@ -68,14 +69,15 @@ class CleanupMultiAcceptedBidsCommand extends Command
             }
 
             DB::commit();
-            
+
             $this->info("✅ Cleanup complete! Reset {$totalReset} bids to pending state.");
-            $this->info("Each title now has at most 1 ACCEPT recommendation.");
-            
+            $this->info('Each title now has at most 1 ACCEPT recommendation.');
+
             return 0;
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->error("Error during cleanup: " . $e->getMessage());
+            $this->error('Error during cleanup: '.$e->getMessage());
+
             return 1;
         }
     }

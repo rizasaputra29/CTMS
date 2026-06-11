@@ -2,26 +2,26 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-use App\Models\User;
-use App\Models\Period;
-use App\Models\Title;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Period;
 use App\Models\Role;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class GroupManagementTest extends TestCase
 {
     use RefreshDatabase;
 
     protected Period $period;
+
     protected Role $studentRole;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Setup Roles
         $this->studentRole = Role::firstOrCreate(['name' => 'Mahasiswa', 'slug' => 'mahasiswa']);
         Role::firstOrCreate(['name' => 'Dosen', 'slug' => 'dosen']);
@@ -42,6 +42,7 @@ class GroupManagementTest extends TestCase
     {
         $user = User::factory()->create(array_merge(['role' => 'mahasiswa'], $attributes));
         $user->roles()->attach($this->studentRole->id);
+
         return $user;
     }
 
@@ -84,11 +85,11 @@ class GroupManagementTest extends TestCase
         ]);
 
         $response->assertStatus(200);
-        
+
         $this->assertDatabaseHas('group_invitations', [
             'group_id' => $group->id,
             'student_id' => $memberToAdd->id,
-            'status' => 'PENDING'
+            'status' => 'PENDING',
         ]);
 
         $invite = \App\Models\GroupInvitation::where('student_id', $memberToAdd->id)->first();
@@ -100,7 +101,7 @@ class GroupManagementTest extends TestCase
             'student_id' => $memberToAdd->id,
             'is_leader' => false,
         ]);
-        
+
         $this->assertEquals('READY_FOR_BIDDING', $group->fresh()->status);
     }
 

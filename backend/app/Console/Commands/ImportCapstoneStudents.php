@@ -2,16 +2,16 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Group;
+use App\Models\GroupMember;
+use App\Models\Period;
+use App\Models\Role;
+use App\Models\Title;
+use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Carbon\Carbon;
-use App\Models\Period;
-use App\Models\User;
-use App\Models\Group;
-use App\Models\GroupMember;
-use App\Models\Title;
-use App\Models\Role;
 
 class ImportCapstoneStudents extends Command
 {
@@ -51,6 +51,7 @@ class ImportCapstoneStudents extends Command
 
         if (! file_exists($csvPath)) {
             $this->error("CSV file not found: {$csvPath}");
+
             return Command::FAILURE;
         }
 
@@ -60,10 +61,11 @@ class ImportCapstoneStudents extends Command
 
         // Parse CSV
         $groups = $this->parseCsv($csvPath);
-        $this->info("Parsed " . count($groups) . " groups with " . array_sum(array_map(fn($g) => count($g['students']), $groups)) . " students");
+        $this->info('Parsed '.count($groups).' groups with '.array_sum(array_map(fn ($g) => count($g['students']), $groups)).' students');
 
         if (count($groups) === 0) {
-            $this->error("No valid groups found in CSV.");
+            $this->error('No valid groups found in CSV.');
+
             return Command::FAILURE;
         }
 
@@ -71,13 +73,14 @@ class ImportCapstoneStudents extends Command
         $mahasiswaRole = Role::where('slug', 'mahasiswa')->first();
         if (! $mahasiswaRole) {
             $this->error("Role 'mahasiswa' not found in database.");
+
             return Command::FAILURE;
         }
 
         // Get admin user for placeholder lecturer
-        $adminUser = User::where('role', 'admin')->orWhereHas('roles', fn($q) => $q->where('slug', 'admin'))->first();
+        $adminUser = User::where('role', 'admin')->orWhereHas('roles', fn ($q) => $q->where('slug', 'admin'))->first();
         if (! $adminUser) {
-            $this->warn("No admin user found. Title lecturer_id will be null (may cause issues).");
+            $this->warn('No admin user found. Title lecturer_id will be null (may cause issues).');
         }
 
         DB::beginTransaction();
@@ -96,7 +99,7 @@ class ImportCapstoneStudents extends Command
 
             // Print stats
             $this->newLine();
-            $this->info("=== IMPORT SUMMARY ===");
+            $this->info('=== IMPORT SUMMARY ===');
             $this->info("Periods created: {$this->stats['periods_created']}");
             $this->info("Users created: {$this->stats['users_created']}");
             $this->info("Users already existed: {$this->stats['users_existing']}");
@@ -106,19 +109,21 @@ class ImportCapstoneStudents extends Command
             $this->info("Members assigned: {$this->stats['members_assigned']}");
 
             if (! empty($this->stats['errors'])) {
-                $this->warn("Errors encountered:");
+                $this->warn('Errors encountered:');
                 foreach ($this->stats['errors'] as $error) {
                     $this->warn("  - {$error}");
                 }
             }
 
-            $this->info("Import completed successfully!");
+            $this->info('Import completed successfully!');
+
             return Command::SUCCESS;
 
         } catch (\Exception $e) {
             DB::rollBack();
-            $this->error("Import failed: " . $e->getMessage());
+            $this->error('Import failed: '.$e->getMessage());
             $this->error($e->getTraceAsString());
+
             return Command::FAILURE;
         }
     }
@@ -142,10 +147,10 @@ class ImportCapstoneStudents extends Command
 
         while (($row = fgetcsv($handle)) !== false) {
             // Clean up the row
-            $row = array_map(fn($cell) => trim($cell ?? ''), $row);
+            $row = array_map(fn ($cell) => trim($cell ?? ''), $row);
 
             // Skip empty rows
-            if (empty(array_filter($row, fn($v) => $v !== ''))) {
+            if (empty(array_filter($row, fn ($v) => $v !== ''))) {
                 continue;
             }
 
@@ -259,7 +264,7 @@ class ImportCapstoneStudents extends Command
         $titleText = trim($groupData['title']);
         $hasTitle = ! empty($titleText) && strtolower($titleText) !== 'belum ada judul';
 
-        $this->info("Processing Group {$groupNumber} (" . count($groupData['students']) . " students)");
+        $this->info("Processing Group {$groupNumber} (".count($groupData['students']).' students)');
 
         // Step 1: Create or find students
         $studentIds = [];
@@ -275,6 +280,7 @@ class ImportCapstoneStudents extends Command
 
         if (empty($studentIds)) {
             $this->stats['errors'][] = "Group {$groupNumber}: No valid students found";
+
             return;
         }
 
@@ -298,7 +304,7 @@ class ImportCapstoneStudents extends Command
 
         // Step 3: Create Group
         $status = $hasTitle ? 'READY_FOR_FINALIZATION' : 'READY_FOR_BIDDING';
-        $groupCode = 'S1T26K' . str_pad((string) $groupNumber, 2, '0', STR_PAD_LEFT);
+        $groupCode = 'S1T26K'.str_pad((string) $groupNumber, 2, '0', STR_PAD_LEFT);
 
         $group = Group::create([
             'code' => $groupCode,
@@ -331,7 +337,7 @@ class ImportCapstoneStudents extends Command
     {
         $nim = $studentData['nim'];
         $name = $studentData['name'];
-        $email = $nim . '@student.undip.ac.id';
+        $email = $nim.'@student.undip.ac.id';
 
         // Check if user already exists by NIM or email
         $user = User::where('nim', $nim)->orWhere('email', $email)->first();
@@ -342,6 +348,7 @@ class ImportCapstoneStudents extends Command
             if (! $user->roles()->where('role_id', $mahasiswaRole->id)->exists()) {
                 $user->roles()->attach($mahasiswaRole->id);
             }
+
             return $user;
         }
 

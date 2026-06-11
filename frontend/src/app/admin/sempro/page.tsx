@@ -5,6 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { semproScheduleSchema, type SemproScheduleFormData } from '@/lib/validations/sempro';
 import api from '@/lib/api';
+import type { ScheduleUpdatePayload } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +27,7 @@ import {
     Loader2, Plus, Search, FileText, ClipboardCheck,
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 
 
 interface Period { id: number; name: string; is_active: boolean; is_finalized?: boolean; }
@@ -55,7 +57,6 @@ interface Schedule {
 
 interface GroupItem { id: number; status: string; period_id?: number; title?: { title: string }; members: { student: { id: number; name: string } }[]; supervisor1?: { id: number; name: string } | null; supervisor2?: { id: number; name: string } | null; }
 
-
 type SortKey = 'title' | 'date' | 'status';
 type SortDir = 'asc' | 'desc';
 const PAGE_SIZES = [10, 25, 50];
@@ -68,6 +69,7 @@ export default function AdminSemproPage() {
     const [locations, setLocations] = useState<Location[]>([]);
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const selectedPeriodRef = useRef(selectedPeriod);
+    const hasInitializedPeriod = useRef(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
 
@@ -141,10 +143,9 @@ export default function AdminSemproPage() {
                 setPeriods(perData);
                 const active = perData.find((p: Period) => p.is_active);
 
-                // Determine which period to use for other fetches
-                const periodToUse = active && selectedPeriod !== 'all'
-                    ? active.id.toString()
-                    : selectedPeriod;
+                // Determine which period to use for other fetches on initial load
+                // Use active period if available, otherwise use 'all'
+                const periodToUse = active?.id.toString() || 'all';
 
                 // Fetch all data in parallel
                 const query = periodToUse !== 'all' && periodToUse ? `?period_id=${periodToUse}` : '';
@@ -163,7 +164,9 @@ export default function AdminSemproPage() {
                 setDosens(dosensRes.data.data || []);
                 setLocations(locationsRes.data.data || []);
 
-                if (active && selectedPeriod !== 'all') {
+                // Only set active period on initial load
+                if (active && !hasInitializedPeriod.current) {
+                    hasInitializedPeriod.current = true;
                     setSelectedPeriod(active.id.toString());
                 }
             } catch (err) {
@@ -417,20 +420,16 @@ export default function AdminSemproPage() {
     const submitEdit = async () => {
         if (!editId) return;
         try {
-            const payload: Record<string, string | number | null> = {
+            const payload: ScheduleUpdatePayload = {
                 date: approveData.date,
                 start_time: approveData.start_time,
                 end_time: approveData.end_time,
                 examiner_1_id: Number(approveData.examiner_1_id),
                 examiner_2_id: Number(approveData.examiner_2_id),
+                location_id: approveData.location_id && approveData.location_id !== ''
+                    ? Number(approveData.location_id)
+                    : null,
             };
-            
-            // Only include location_id if it has a value, otherwise send null
-            if (approveData.location_id && approveData.location_id !== '') {
-                payload.location_id = Number(approveData.location_id);
-            } else {
-                payload.location_id = null;
-            }
             
             // Include room if location_id is not set or if room has value
             if (approveData.room && approveData.room !== '') {
@@ -565,11 +564,7 @@ export default function AdminSemproPage() {
                 </div>
             </div>
 
-            {loading && (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-            )}
+            {loading && <Loading variant="section" />}
 
             {!loading && !selectedPeriod && (
                 <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">

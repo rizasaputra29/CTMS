@@ -62,13 +62,8 @@ import {
   GraduationCap,
   ShieldCheck,
   Stethoscope,
-  Upload,
   Filter,
   Plus,
-  UserPlus,
-  Download,
-  FileText,
-  X,
 } from 'lucide-react';
 import { toast } from "sonner";
 import { type RoleTab } from "@/types/guards";
@@ -180,12 +175,6 @@ export default function AdminUsersPage() {
     // Create/Edit State
     const [open, setOpen] = useState(false);
     const [editingUser, setEditingUser] = useState<User | null>(null);
-
-    // Import State
-    const [importOpen, setImportOpen] = useState(false);
-    const [importFile, setImportFile] = useState<File | null>(null);
-    const [importing, setImporting] = useState(false);
-    const [importResult, setImportResult] = useState<{ message: string; created: number; skipped: number; failed: number; errors: string[] } | null>(null);
 
     // Schema
     const getSchema = () => {
@@ -640,9 +629,6 @@ export default function AdminUsersPage() {
                                                         {fieldState.error && (
                                                             <FieldError>{fieldState.error.message}</FieldError>
                                                         )}
-                                                        {!fieldState.error && field.value && field.value.length > 0 && field.value.length < 8 && (
-                                                            <FieldError>NIM must be at least 8 characters</FieldError>
-                                                        )}
                                                     </Field>
                                                 )}
                                             />
@@ -819,12 +805,12 @@ export default function AdminUsersPage() {
                                                         </DropdownMenuTrigger>
                                                         <DropdownMenuContent align="end" className="w-40">
                                                             <DropdownMenuItem
-                                                                                onClick={() => router.push(`/admin/users/${user.id}`)}
-                                                                            >
-                                                                                <ExternalLink className="mr-2 h-4 w-4" />
-                                                                                Lihat Detail
-                                                                            </DropdownMenuItem>
-                                                                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); startEdit(user); }}>
+                                                                onClick={() => router.push(`/admin/users/${user.id}`)}
+                                                            >
+                                                                <ExternalLink className="mr-2 h-4 w-4" />
+                                                                Lihat Detail
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); startEdit(user); }}>
                                                                 <Edit className="mr-2 h-4 w-4" />
                                                                 Edit
                                                             </DropdownMenuItem>

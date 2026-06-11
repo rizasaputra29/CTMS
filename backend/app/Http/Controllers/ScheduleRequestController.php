@@ -6,11 +6,9 @@ use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\SeminarSchedule;
-use App\Models\Supervision;
-use App\Models\TaDefenseSchedule;
 use App\Models\TaDefenseExaminer;
+use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
-use App\Models\User;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 
@@ -33,7 +31,7 @@ class ScheduleRequestController extends Controller
         $user = $request->user();
 
         $group = $this->getStudentGroup($user->id);
-        if (!$group) {
+        if (! $group) {
             return response()->json(['data' => ['seminars' => [], 'ta_defense' => null]]);
         }
 
@@ -87,7 +85,7 @@ class ScheduleRequestController extends Controller
         $user = $request->user();
         $group = $this->getStudentGroup($user->id);
 
-        if (!$group) {
+        if (! $group) {
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
 
@@ -166,7 +164,7 @@ class ScheduleRequestController extends Controller
             ->where('status', 'TA_REGISTERED')
             ->first();
 
-        if (!$taSubmission) {
+        if (! $taSubmission) {
             return response()->json(['message' => 'Must have a TA submission in TA_REGISTERED status.'], 400);
         }
 
@@ -175,7 +173,7 @@ class ScheduleRequestController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Eligibility: group status
-        if (!in_array($group->status, ['PDC2_COMPLETE', 'EXPO_DONE'])) {
+        if (! in_array($group->status, ['PDC2_COMPLETE', 'EXPO_DONE'])) {
             return response()->json(['message' => 'Student not eligible for TA defense. Group must be in PDC2_COMPLETE or EXPO_DONE.'], 400);
         }
 
@@ -231,6 +229,7 @@ class ScheduleRequestController extends Controller
     private function getStudentGroup(int $studentId): ?Group
     {
         $membership = GroupMember::where('student_id', $studentId)->first();
+
         return $membership ? Group::with('period')->find($membership->group_id) : null;
     }
 }

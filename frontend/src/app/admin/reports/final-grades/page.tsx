@@ -39,6 +39,7 @@ interface FinalGrade {
     pdc1_complete: boolean;
     pdc2_complete: boolean;
     ta_complete: boolean;
+    is_flagged?: boolean;
 }
 
 interface Meta {
@@ -370,7 +371,16 @@ export default function FinalGradesReportPage() {
                                                 <TableCell className="font-medium">
                                                     {grade.group_title || `Group ${grade.group_id}`}
                                                 </TableCell>
-                                                <TableCell className="font-medium">{grade.student_name}</TableCell>
+                                                <TableCell className="font-medium">
+                                                    <div className="flex items-center gap-2">
+                                                        {grade.student_name}
+                                                        {grade.is_flagged && (
+                                                            <Badge variant="destructive" className="text-xs">
+                                                                Flagged
+                                                            </Badge>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
                                                 <TableCell className="text-muted-foreground">{grade.student_nim}</TableCell>
                                                 <TableCell className={`text-right font-bold ${getScoreColor(grade.pdc1_score)}`}>
                                                     {grade.pdc1_score !== null && !Number.isNaN(grade.pdc1_score) ? Number(grade.pdc1_score).toFixed(1) : 'N/A'}

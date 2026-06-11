@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Expo Score Model
- * 
+ *
  * Stores assessment scores for EXPO evaluation type.
  * This model replaces evaluation_type='EXPO' records from the old assessment_scores table.
  */

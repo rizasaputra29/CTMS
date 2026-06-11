@@ -2,11 +2,11 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class UserSeeder extends Seeder
 {
@@ -19,11 +19,11 @@ class UserSeeder extends Seeder
         // ADMIN (1 user)
         // ════════════════════════════════════════════
         $admin = User::create([
-            'name'              => 'Admin CTMS',
-            'email'             => 'admin@ctms.com',
-            'password'          => $pass,
+            'name' => 'Admin CTMS',
+            'email' => 'admin@ctms.com',
+            'password' => $pass,
             'email_verified_at' => $now,
-            'role'              => 'admin',
+            'role' => 'admin',
         ]);
         $admin->assignRole('admin');
 
@@ -44,12 +44,12 @@ class UserSeeder extends Seeder
         $dosens = [];
         foreach ($dosenData as $d) {
             $user = User::create([
-                'name'              => $d['name'],
-                'email'             => $d['email'],
-                'password'          => $pass,
+                'name' => $d['name'],
+                'email' => $d['email'],
+                'password' => $pass,
                 'email_verified_at' => $now,
-                'role'              => 'dosen',
-                'nidn'              => $d['nidn'],
+                'role' => 'dosen',
+                'nidn' => $d['nidn'],
             ]);
             $user->assignRole('dosen');
             $dosens[$d['email']] = $user;
@@ -128,12 +128,12 @@ class UserSeeder extends Seeder
 
         foreach ($p1students as $s) {
             $user = User::create([
-                'name'              => $s['name'],
-                'email'             => $s['email'],
-                'password'          => $pass,
+                'name' => $s['name'],
+                'email' => $s['email'],
+                'password' => $pass,
                 'email_verified_at' => $now,
-                'role'              => 'mahasiswa',
-                'nim'               => $s['nim'],
+                'role' => 'mahasiswa',
+                'nim' => $s['nim'],
             ]);
             $user->assignRole('mahasiswa');
             $mhsP1[$s['email']] = $user;
@@ -158,12 +158,12 @@ class UserSeeder extends Seeder
 
         foreach ($p2students as $s) {
             $user = User::create([
-                'name'              => $s['name'],
-                'email'             => $s['email'],
-                'password'          => $pass,
+                'name' => $s['name'],
+                'email' => $s['email'],
+                'password' => $pass,
                 'email_verified_at' => $now,
-                'role'              => 'mahasiswa',
-                'nim'               => $s['nim'],
+                'role' => 'mahasiswa',
+                'nim' => $s['nim'],
             ]);
             $user->assignRole('mahasiswa');
             $mhsP2[$s['email']] = $user;
@@ -180,18 +180,18 @@ class UserSeeder extends Seeder
 
         foreach ($p3students as $s) {
             $user = User::create([
-                'name'              => $s['name'],
-                'email'             => $s['email'],
-                'password'          => $pass,
+                'name' => $s['name'],
+                'email' => $s['email'],
+                'password' => $pass,
                 'email_verified_at' => $now,
-                'role'              => 'mahasiswa',
-                'nim'               => $s['nim'],
+                'role' => 'mahasiswa',
+                'nim' => $s['nim'],
             ]);
             $user->assignRole('mahasiswa');
         }
 
         // Simpan referensi untuk dipakai GroupSeeder & TitleSeeder
         // via DB langsung karena seeder terpisah
-        $this->command->info('✅ UserSeeder done — ' . User::count() . ' users created');
+        $this->command->info('✅ UserSeeder done — '.User::count().' users created');
     }
 }

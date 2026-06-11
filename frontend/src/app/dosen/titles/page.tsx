@@ -34,7 +34,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit, ArrowUpDown, Search, Loader2, X, History } from 'lucide-react';
+import { Plus, Trash2, Edit, ArrowUpDown, Search, X, History, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
@@ -103,11 +104,11 @@ export default function DosenTitlesPage() {
 
     const [historyDialog, setHistoryDialog] = useState<{
         open: boolean;
-        title?: Title;
+        title: Title | undefined;
         loading: boolean;
         approvalHistory: TitleApprovalHistoryItem[];
         deletionHistory: TitleDeletionHistoryItem[];
-    }>({ open: false, loading: false, approvalHistory: [], deletionHistory: [] });
+    }>({ open: false, title: undefined, loading: false, approvalHistory: [], deletionHistory: [] });
 
     const fetchTitles = useCallback(async (periodId?: string) => {
         setTitlesLoading(true);
@@ -496,7 +497,7 @@ export default function DosenTitlesPage() {
                                             <Field data-invalid={!!fieldState.error}>
                                                 <FieldLabel htmlFor="pre_assigned_group_id">Tugaskan ke Kelompok (Opsional)</FieldLabel>
                                                 <Select 
-                                                    value={field.value} 
+                                                    value={field.value || ''}
                                                     onValueChange={field.onChange}
                                                 >
                                                     <SelectTrigger>
@@ -573,9 +574,7 @@ export default function DosenTitlesPage() {
 
             {/* Table */}
             {titlesLoading ? (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
+                <Loading variant="section" />
             ) : filteredTitles.length === 0 ? (
                 <div className="text-center py-12 text-muted-foreground">
                     {titles.length === 0 ? 'No titles found. Create one to get started.' : 'No titles match your search/filter.'}
@@ -822,7 +821,7 @@ export default function DosenTitlesPage() {
                     <DialogFooter>
                         <Button 
                             variant="outline"
-                            onClick={() => setHistoryDialog({ open: false, title: undefined, loading: false, approvalHistory: [], deletionHistory: [] })}
+                            onClick={() => setHistoryDialog({ open: false, title: undefined, loading: false, approvalHistory: [], deletionHistory: [] } as const)}
                         >
                             Close
                         </Button>

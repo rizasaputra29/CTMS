@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Users, BookOpen } from 'lucide-react';
+import { Users, BookOpen, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { formatDistanceToNow } from 'date-fns';
 import { id as localeId } from 'date-fns/locale';
 import {
@@ -117,9 +118,7 @@ export default function DosenSupervisedGroupsPage() {
             </div>
 
             {groupsLoading ? (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin" />
-                </div>
+                <Loading variant="section" />
             ) : groups.length === 0 ? (
                 <div className="text-center py-12 border rounded-lg border-dashed">
                     <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />

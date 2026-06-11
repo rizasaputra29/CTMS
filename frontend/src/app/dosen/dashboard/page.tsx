@@ -12,6 +12,7 @@ import {
   SelectLabel, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Users, Calendar, FileText, Star, Gavel, BookOpen, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 
 interface Period {
   id: number;
@@ -106,7 +107,7 @@ export default function DosenDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedPeriod]);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -117,13 +118,7 @@ export default function DosenDashboard() {
     fetchData(value);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-      </div>
-    );
-  }
+  if (loading) return <Loading variant="section" />;
 
   if (!data) {
     return <div className="py-20 text-center text-muted-foreground">Failed to load dashboard data.</div>;

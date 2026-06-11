@@ -24,6 +24,7 @@ import type {
     SupervisorInEvaluation,
     EvaluationWithSupervisors,
 } from '@/types';
+import { Loading } from '@/components/ui/loading';
 
 interface ScheduleItem {
     id: string | number;
@@ -158,13 +159,7 @@ export default function MahasiswaDashboard() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center py-20">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     if (!stats) {
         return (
@@ -473,7 +468,7 @@ export default function MahasiswaDashboard() {
                                       : '—'}
                             </p>
                         </div>
-                        <Separator className="!-mx-0" />
+                        <Separator className="mx-0!" />
                         <div>
                             <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">
                                 Periode

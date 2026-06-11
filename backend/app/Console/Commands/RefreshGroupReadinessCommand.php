@@ -39,14 +39,15 @@ class RefreshGroupReadinessCommand extends Command
 
         try {
             if ($this->option('group')) {
-                $this->refreshSingleGroup((int)$this->option('group'));
+                $this->refreshSingleGroup((int) $this->option('group'));
             } else {
                 $this->refreshPeriodGroups();
             }
 
             $this->info('✅ Refresh complete!');
         } catch (\Exception $e) {
-            $this->error('❌ Error: ' . $e->getMessage());
+            $this->error('❌ Error: '.$e->getMessage());
+
             return 1;
         }
 
@@ -64,7 +65,8 @@ class RefreshGroupReadinessCommand extends Command
         $oldReady = data_get($oldSnapshot, 'is_ready');
 
         if ($this->option('verify')) {
-            $this->info("  [DRY-RUN] Would refresh this group");
+            $this->info('  [DRY-RUN] Would refresh this group');
+
             return;
         }
 
@@ -76,10 +78,10 @@ class RefreshGroupReadinessCommand extends Command
         if ($oldReady === $newReady) {
             $this->info("  ✓ Snapshot unchanged (ready: {$newReady})");
         } else {
-            $this->warn("  ⚠ Snapshot changed: was " . ($oldReady ? 'ready' : 'not ready') . ", now " . ($newReady ? 'ready' : 'not ready'));
+            $this->warn('  ⚠ Snapshot changed: was '.($oldReady ? 'ready' : 'not ready').', now '.($newReady ? 'ready' : 'not ready'));
         }
 
-        if (!empty(data_get($newSnapshot, 'issues.critical'))) {
+        if (! empty(data_get($newSnapshot, 'issues.critical'))) {
             foreach (data_get($newSnapshot, 'issues.critical') as $issue) {
                 $this->line("    - {$issue}");
             }
@@ -106,6 +108,7 @@ class RefreshGroupReadinessCommand extends Command
 
         if ($groups->isEmpty()) {
             $this->warn('No groups to refresh');
+
             return;
         }
 
@@ -174,15 +177,15 @@ class RefreshGroupReadinessCommand extends Command
     {
         $periodCode = $this->option('period');
 
-        if (!$periodCode) {
+        if (! $periodCode) {
             // Default: latest active period
             $period = Period::where('is_active', true)->orderBy('start_date', 'desc')->first();
 
-            if (!$period) {
+            if (! $period) {
                 $period = Period::orderBy('start_date', 'desc')->first();
             }
 
-            if (!$period) {
+            if (! $period) {
                 throw new \RuntimeException('No period found. Create one first.');
             }
 
@@ -191,9 +194,10 @@ class RefreshGroupReadinessCommand extends Command
 
         if ($periodCode === 'latest') {
             $period = Period::orderBy('start_date', 'desc')->first();
-            if (!$period) {
+            if (! $period) {
                 throw new \RuntimeException('No period found');
             }
+
             return $period;
         }
 
@@ -202,7 +206,7 @@ class RefreshGroupReadinessCommand extends Command
             ->orWhere('id', $periodCode)
             ->first();
 
-        if (!$period) {
+        if (! $period) {
             throw new \RuntimeException("Period '{$periodCode}' not found");
         }
 

@@ -120,8 +120,19 @@ export function ScheduleTable({
             accessorKey: 'student_name',
             header: 'Student',
             cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const student = row.original.student_name;
-                return <span className="text-sm">{student || '-'}</span>;
+                const students = row.original.students;
+                const studentName = row.original.student_name;
+                
+                if (students && students.length > 1) {
+                    return (
+                        <div className="text-sm">
+                            <span>{students[0].name}</span>
+                            <span className="text-muted-foreground text-xs ml-1">+{students.length - 1} more</span>
+                        </div>
+                    );
+                }
+                
+                return <span className="text-sm">{studentName || '-'}</span>;
             },
         },
         {

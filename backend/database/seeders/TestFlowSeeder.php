@@ -48,7 +48,7 @@ class TestFlowSeeder extends Seeder
         // ========================================
         $this->createOrUpdateGroup(17, 1, 'READY_FOR_BIDDING', false);
         $this->syncMembers(17, 1, ['andi@ctms.com', 'bela@ctms.com', 'citra@ctms.com'], $userByEmail);
-        
+
         Bid::updateOrCreate(
             ['group_id' => 17, 'title_id' => 1],
             [
@@ -177,7 +177,7 @@ class TestFlowSeeder extends Seeder
                 'status' => $status,
                 'group_mode' => $isSolo ? 'INDIVIDUAL' : 'GROUP',
                 'is_solo' => $isSolo,
-                'has_existing_group' => !$isSolo,
+                'has_existing_group' => ! $isSolo,
                 'has_active_proposal' => false,
                 'assignment_type' => null,
                 'title_id' => null,
@@ -210,7 +210,7 @@ class TestFlowSeeder extends Seeder
     private function requireUser($userByEmail, string $email): int
     {
         $id = $userByEmail->get($email);
-        if (!$id) {
+        if (! $id) {
             throw new RuntimeException("Required user {$email} not found for seeding.");
         }
 

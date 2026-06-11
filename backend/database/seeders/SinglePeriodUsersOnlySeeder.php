@@ -70,7 +70,7 @@ class SinglePeriodUsersOnlySeeder extends Seeder
         ];
 
         foreach ($tables as $table) {
-            if (!Schema::hasTable($table)) {
+            if (! Schema::hasTable($table)) {
                 continue;
             }
 
@@ -83,7 +83,7 @@ class SinglePeriodUsersOnlySeeder extends Seeder
         $now = Carbon::now();
 
         return Period::create([
-            'name' => 'TA Seed Test ' . $now->format('Y') . '/' . $now->copy()->addYear()->format('Y'),
+            'name' => 'TA Seed Test '.$now->format('Y').'/'.$now->copy()->addYear()->format('Y'),
             'start_date' => $now->copy()->subWeeks(2)->toDateString(),
             'end_date' => $now->copy()->addMonths(5)->toDateString(),
             'is_active' => true,

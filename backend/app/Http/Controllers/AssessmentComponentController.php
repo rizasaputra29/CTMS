@@ -77,7 +77,7 @@ class AssessmentComponentController extends Controller
     public function store(Request $request)
     {
         return response()->json([
-            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.'
+            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.',
         ], 400);
     }
 
@@ -88,7 +88,7 @@ class AssessmentComponentController extends Controller
     public function bulkStore(Request $request)
     {
         return response()->json([
-            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.'
+            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.',
         ], 400);
     }
 

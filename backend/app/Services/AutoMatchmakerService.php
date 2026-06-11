@@ -7,7 +7,6 @@ use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use InvalidArgumentException;
 
 class AutoMatchmakerService
 {
@@ -53,7 +52,7 @@ class AutoMatchmakerService
                 /** @var \App\Models\Group $group */
                 while ($group->members()->count() < $minSize && $ghosts->isNotEmpty()) {
                     $ghost = $ghosts->pop();
-                    
+
                     GroupMember::create([
                         'group_id' => $group->id,
                         'student_id' => $ghost->id,
@@ -62,9 +61,9 @@ class AutoMatchmakerService
                     ]);
 
                     $stats['ghosts_processed']++;
-                    
+
                     if ($group->members()->count() >= $minSize) {
-                        // Let the group controller transition logic handle the status upgrade and title 
+                        // Let the group controller transition logic handle the status upgrade and title
                         // by duplicating the checkAndTransitionToReady logic here for the matchmaker.
                         $this->promoteGroupToReady($group);
                         $stats['groups_filled']++;
@@ -90,6 +89,7 @@ class AutoMatchmakerService
                 /** @var \App\Models\Group $group */
                 if ($activeMergeGroup === null) {
                     $activeMergeGroup = $group;
+
                     continue;
                 }
 
@@ -127,12 +127,12 @@ class AutoMatchmakerService
             if ($ghosts->isNotEmpty()) {
                 // Chunk into blocks of exactly $minSize
                 $ghostChunks = $ghosts->chunk($minSize);
-                
+
                 foreach ($ghostChunks as $chunk) {
                     $newGroup = Group::create([
                         'title_id' => null,
                         'period_id' => $period->id,
-                        'status' => $chunk->count() < $minSize ? 'SOFT_FORMING' : 'FORMING', 
+                        'status' => $chunk->count() < $minSize ? 'SOFT_FORMING' : 'FORMING',
                         'group_mode' => 'GROUP',
                         'has_existing_group' => false,
                     ]);
@@ -173,31 +173,31 @@ class AutoMatchmakerService
     }
 
     /**
-    * Promotes a group to READY_FOR_BIDDING and approves any UNDER_REVIEW title.
+     * Promotes a group to READY_FOR_BIDDING and approves any UNDER_REVIEW title.
      * Identical logic to GroupController's transition.
      */
     private function promoteGroupToReady(Group $group): void
     {
         $stateMachine = app(GroupStateMachine::class);
-        
+
         $preApprovedTitle = \App\Models\Title::where('proposed_by_group_id', $group->id)
             ->where('supervisor_approval_status', 'UNDER_REVIEW')
             ->first();
-            
+
         if ($preApprovedTitle) {
             // Check Quota before auto-approving
             $lecturerId = $preApprovedTitle->proposed_supervisor_id;
             $maxLoad = $group->period->supervisorLoadLimit(8);
-            
+
             $currentLoad = \App\Models\Supervision::where('supervisor_id', $lecturerId)
-                ->whereHas('group', fn($q) => $q->where('period_id', $group->period_id))
+                ->whereHas('group', fn ($q) => $q->where('period_id', $group->period_id))
                 ->count();
-                
+
             $approvedProposals = \App\Models\Title::where('proposed_supervisor_id', $lecturerId)
                 ->where('supervisor_approval_status', 'APPROVED')
-                ->whereHas('proposedByGroup', fn($q) => $q->where('period_id', $group->period_id))
+                ->whereHas('proposedByGroup', fn ($q) => $q->where('period_id', $group->period_id))
                 ->count();
-                
+
             if (($currentLoad + $approvedProposals) < $maxLoad) {
                 // We only formally approve it if quota allows. Else we cancel the privilege to be fair.
                 $preApprovedTitle->update(['supervisor_approval_status' => 'APPROVED']);

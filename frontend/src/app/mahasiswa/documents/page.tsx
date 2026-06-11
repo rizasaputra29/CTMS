@@ -20,6 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Upload, FileText, Download, Check, Lock, Clock, AlertTriangle, Info } from 'lucide-react';
 import { toast } from "sonner";
 import { cn } from '@/lib/utils';
+import { Loading } from '@/components/ui/loading';
 
 interface Document {
     id: number;
@@ -252,11 +253,6 @@ export default function MahasiswaDocumentsPage() {
 
     useEffect(() => {
         fetchData();
-        
-        // Auto-refresh every 30 seconds to check supervisor evaluation updates
-        const interval = setInterval(fetchData, 30000);
-        
-        return () => clearInterval(interval);
     }, [fetchData]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -363,13 +359,7 @@ export default function MahasiswaDocumentsPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="p-4 flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     const isGroupApproved = groupStatus && ![
         'FORMING',

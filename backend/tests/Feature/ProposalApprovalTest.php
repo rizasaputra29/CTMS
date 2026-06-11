@@ -2,34 +2,42 @@
 
 namespace Tests\Feature;
 
-use Illuminate\Foundation\Testing\RefreshDatabase;
-use Tests\TestCase;
-use App\Models\Role;
-use App\Models\Period;
-use App\Models\Title;
-use App\Models\User;
 use App\Models\Group;
 use App\Models\GroupMember;
+use App\Models\Period;
+use App\Models\Role;
 use App\Models\Supervision;
+use App\Models\Title;
+use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
 
 class ProposalApprovalTest extends TestCase
 {
     use RefreshDatabase;
 
     protected Period $period;
+
     protected User $admin;
+
     protected User $lecturer;
+
     protected User $lecturer2;
+
     protected User $student1;
+
     protected User $student2;
+
     protected User $student3;
+
     protected Group $group;
+
     protected Title $title;
 
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Ensure roles exist
         Role::firstOrCreate(['name' => 'Mahasiswa', 'slug' => 'mahasiswa']);
         Role::firstOrCreate(['name' => 'Dosen', 'slug' => 'dosen']);

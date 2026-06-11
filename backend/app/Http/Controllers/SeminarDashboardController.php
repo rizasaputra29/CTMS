@@ -2,25 +2,22 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AssessmentComponent;
+use App\Models\BimbinganSemproScore;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\AssessmentComponent;
 use App\Models\PeriodAssessmentComponent;
 use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
+use App\Models\SemproScore;
 use App\Models\Supervision;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseExaminer;
 use App\Models\TaDefenseSchedule;
-use App\Models\SemproScore;
-use App\Models\SidangTaScore;
-use App\Models\BimbinganSemproScore;
-use App\Models\BimbinganTaScore;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\DB;
 
 class SeminarDashboardController extends Controller
 {
@@ -32,7 +29,7 @@ class SeminarDashboardController extends Controller
         $user = $request->user();
         $membership = GroupMember::where('student_id', $user->id)->first();
 
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['data' => ['seminars' => [], 'ta_defense' => null]]);
         }
 
@@ -106,10 +103,14 @@ class SeminarDashboardController extends Controller
                 // Calculate completion progress
                 $completedCount = 0;
                 foreach ($supervisors as $s) {
-                    if ($s['status'] === 'SUBMITTED') $completedCount++;
+                    if ($s['status'] === 'SUBMITTED') {
+                        $completedCount++;
+                    }
                 }
                 foreach ($examiners as $e) {
-                    if ($e['status'] === 'SUBMITTED') $completedCount++;
+                    if ($e['status'] === 'SUBMITTED') {
+                        $completedCount++;
+                    }
                 }
                 $totalCount = count($supervisors) + count($examiners);
 
@@ -129,32 +130,32 @@ class SeminarDashboardController extends Controller
                     $examinerScores = SemproScore::where('group_id', $group->id)
                         ->whereIn('examiner_id', [$seminar->examiner_1_id, $seminar->examiner_2_id])
                         ->get();
-                    
+
                     // Calculate final score from supervisor scores (bimbingan_sempro_scores table)
                     $supervisorScores = BimbinganSemproScore::where('group_id', $group->id)
                         ->whereIn('evaluator_id', $supervisorIds)
                         ->get();
-                    
+
                     // Calculate per-dosen averages
                     $dosenAverages = [];
-                    
+
                     // Group examiner scores by examiner
                     $examinerScoresByDosen = $examinerScores->groupBy('examiner_id');
                     foreach ($examinerScoresByDosen as $examinerId => $scores) {
                         $dosenAverages[] = $scores->avg('score');
                     }
-                    
+
                     // Group supervisor scores by supervisor
                     $supervisorScoresByDosen = $supervisorScores->groupBy('evaluator_id');
                     foreach ($supervisorScoresByDosen as $supervisorId => $scores) {
                         $dosenAverages[] = $scores->avg('score');
                     }
-                    
+
                     // Calculate final score (average of all dosen averages)
                     if (count($dosenAverages) > 0) {
                         $finalScore = round(array_sum($dosenAverages) / count($dosenAverages), 2);
                         $finalResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
-                        
+
                         // Store final score in database
                         $seminar->update(['final_score' => $finalScore]);
                     }
@@ -185,8 +186,10 @@ class SeminarDashboardController extends Controller
                 ];
             });
 
-        $taDefense = TaDefenseSchedule::with(['examiners.examiner', 'evaluations.examiner'])
-            ->where('student_id', $user->id)
+        $taDefense = TaDefenseSchedule::with(['examiners.examiner', 'evaluations.examiner', 'students'])
+            ->whereHas('students', function ($q) use ($user) {
+                $q->where('student_id', $user->id);
+            })
             ->first();
 
         return response()->json([
@@ -237,7 +240,7 @@ class SeminarDashboardController extends Controller
                     $user->id,
                     'BIMBINGAN_EXPO'
                 );
-                
+
                 $milestoneCompleted = AssessmentScoreRepository::existsForGroupAndEvaluator(
                     $schedule->group_id,
                     $user->id,
@@ -284,7 +287,7 @@ class SeminarDashboardController extends Controller
             'examiner2',
             'evaluations' => function ($q) use ($user) {
                 $q->where('examiner_id', $user->id);
-            }
+            },
         ]);
 
         if ($periodId) {
@@ -296,7 +299,7 @@ class SeminarDashboardController extends Controller
         // Only get schedules where I'm examiner (via evaluation or explicit column)
         $seminarScheduleIds = SeminarEvaluation::where('examiner_id', $user->id)
             ->pluck('schedule_id');
-        
+
         $seminars = $seminarQuery->whereIn('id', $seminarScheduleIds)
             ->orderByDesc('date')
             ->get();
@@ -304,12 +307,13 @@ class SeminarDashboardController extends Controller
         // TA defense schedules where I'm examiner
         $taQuery = TaDefenseSchedule::with([
             'student',
+            'students',
             'group.title',
             'group.members.student',
             'examiners.examiner',
             'evaluations' => function ($q) use ($user) {
                 $q->where('examiner_id', $user->id);
-            }
+            },
         ]);
 
         if ($periodId) {
@@ -322,6 +326,7 @@ class SeminarDashboardController extends Controller
             ->pluck('schedule_id');
 
         $taDefenses = $taQuery->whereIn('id', $taScheduleIds)
+            ->where('status', '!=', 'CANCELLED')
             ->orderByDesc('date')
             ->get();
 
@@ -347,7 +352,7 @@ class SeminarDashboardController extends Controller
                 ->firstOrFail();
             $schedule = SeminarSchedule::with(['group.title', 'group.members.student', 'examiner1', 'examiner2'])
                 ->findOrFail($evaluation->schedule_id);
-            
+
             $components = $this->resolveEvaluationComponents($schedule->group->period_id, $schedule->type);
 
             $existingScores = $this->resolveExistingScores(
@@ -362,18 +367,20 @@ class SeminarDashboardController extends Controller
                 'group' => $schedule->group,
                 'components' => $components,
                 'existing_scores' => $existingScores,
-                'type' => 'SEMINAR'
+                'type' => 'SEMINAR',
             ]);
         } else {
             $scheduleId = $request->query('schedule_id');
 
+            $studentId = $request->query('student_id');
+
             if ($scheduleId) {
-                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                $schedule = TaDefenseSchedule::with(['student', 'students', 'group.title', 'group.members.student', 'examiners.examiner'])
                     ->find($scheduleId);
 
-                if (!$schedule) {
+                if (! $schedule) {
                     return response()->json([
-                        'message' => 'Jadwal tidak ditemukan'
+                        'message' => 'Jadwal tidak ditemukan',
                     ], 404);
                 }
 
@@ -381,17 +388,23 @@ class SeminarDashboardController extends Controller
                     ->where('examiner_id', $user->id)
                     ->exists();
 
-                if (!$isExaminer) {
+                if (! $isExaminer) {
                     return response()->json([
-                        'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini'
+                        'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini',
                     ], 403);
+                }
+
+                // Determine student_id for evaluation - use query param or fall back to first student
+                if (! $studentId) {
+                    // Try to get from schedule's student pivot or fall back to backward-compat student_id
+                    $studentId = $schedule->students->first()?->id ?? $schedule->student_id;
                 }
 
                 $evaluation = TaDefenseEvaluation::firstOrCreate([
                     'schedule_id' => $schedule->id,
                     'examiner_id' => $user->id,
+                    'student_id' => $studentId,
                 ], [
-                    'student_id' => $schedule->student_id,
                     'status' => 'PENDING',
                     'score' => 0,
                     'rubric_json' => null,
@@ -399,19 +412,19 @@ class SeminarDashboardController extends Controller
             } else {
                 $evaluation = TaDefenseEvaluation::find($id);
 
-                if (!$evaluation) {
+                if (! $evaluation) {
                     return response()->json([
-                        'message' => 'Penilaian tidak ditemukan'
+                        'message' => 'Penilaian tidak ditemukan',
                     ], 404);
                 }
 
                 if ((int) $evaluation->examiner_id !== (int) $user->id) {
                     return response()->json([
-                        'message' => 'Anda tidak memiliki akses ke penilaian ini'
+                        'message' => 'Anda tidak memiliki akses ke penilaian ini',
                     ], 403);
                 }
 
-                $schedule = TaDefenseSchedule::with(['student', 'group.title', 'group.members.student', 'examiners.examiner'])
+                $schedule = TaDefenseSchedule::with(['student', 'students', 'group.title', 'group.members.student', 'examiners.examiner'])
                     ->findOrFail($evaluation->schedule_id);
             }
 
@@ -423,18 +436,26 @@ class SeminarDashboardController extends Controller
                 'SIDANG_TA'
             );
 
+            // Get the student being evaluated from the evaluation record
+            $student = $evaluation->student;
+            if (! $student) {
+                // Fallback to schedule students or backward-compat
+                $student = $schedule->students->firstWhere('id', $evaluation->student_id)
+                    ?? $schedule->student;
+            }
+
             return response()->json([
                 'evaluation' => $evaluation,
                 'schedule' => $schedule,
                 'group' => $schedule->group,
-                'student' => $schedule->student ? [
-                    'id' => $schedule->student->id,
-                    'name' => $schedule->student->name,
-                    'nim' => $schedule->student->nim ?? '',
+                'student' => $student ? [
+                    'id' => $student->id,
+                    'name' => $student->name,
+                    'nim' => $student->nim ?? '',
                 ] : null,
                 'components' => $components,
                 'existing_scores' => $existingScores,
-                'type' => 'TA_DEFENSE'
+                'type' => 'TA_DEFENSE',
             ]);
         }
     }
@@ -485,7 +506,7 @@ class SeminarDashboardController extends Controller
 
     private function resolveExistingScores(int $evaluatorId, int $groupId, string $evaluationType)
     {
-        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+        if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return collect();
         }
 
@@ -502,11 +523,11 @@ class SeminarDashboardController extends Controller
             // Use period_component_id if available, otherwise fall back to component_id
             $componentId = $score->period_component_id ?? $score->component_id;
 
-            return $componentId . '_' . $score->student_id;
+            return $componentId.'_'.$score->student_id;
         })->map(function ($score) {
             return [
                 'score' => (string) $score->score,
-                'notes' => $score->notes ?? ''
+                'notes' => $score->notes ?? '',
             ];
         });
     }

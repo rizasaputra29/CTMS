@@ -13,7 +13,7 @@ return new class extends Migration
             $table->foreignId('schedule_id')->constrained('ta_defense_schedules')->cascadeOnDelete();
             $table->foreignId('student_id')->constrained('users')->cascadeOnDelete();
             $table->timestamps();
-            
+
             $table->unique(['schedule_id', 'student_id'], 'uq_ta_defense_schedule_student');
             $table->index('schedule_id', 'idx_ta_defense_schedule_student_schedule');
             $table->index('student_id', 'idx_ta_defense_schedule_student_student');

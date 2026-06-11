@@ -22,7 +22,8 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { Plus, Trash2, Edit, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import { Plus, Trash2, Edit, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { PeriodStepperDialog } from '@/components/period/period-stepper-dialog';
 import api from '@/lib/api';
 import { toast } from "sonner";
@@ -267,9 +268,7 @@ export default function AdminPeriodsPage() {
             </div>
 
             {loading && (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
+                <Loading variant="section" />
             )}
 
             {!loading && filteredAndSorted.length === 0 && (

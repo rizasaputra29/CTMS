@@ -2,14 +2,15 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use App\Models\Period;
 use App\Models\User;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 
 class CleanupImportResidue extends Command
 {
     protected $signature = 'import:cleanup-residue';
+
     protected $description = 'Clean up residue data from previous import';
 
     public function handle(): int

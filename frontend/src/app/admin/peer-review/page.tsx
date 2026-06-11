@@ -10,7 +10,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Loader2, Save, CheckCircle, BarChart3, Users, Lock } from 'lucide-react';
+import { Save, CheckCircle, BarChart3, Users, Lock, Loader2 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { toast } from 'sonner';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import Link from 'next/link';
@@ -398,9 +399,7 @@ export default function AdminPeerReviewPage() {
                 </CardHeader>
                 <CardContent>
                   {loading ? (
-                    <div className="flex justify-center items-center h-64">
-                      <Loader2 className="h-8 w-8 animate-spin" />
-                    </div>
+                    <Loading variant="section" />
                   ) : allTemplates.length === 0 ? (
                     <div className="text-center py-12 border rounded-lg border-dashed text-muted-foreground">
                       No assessment templates available. Please create templates in the Assessment Bank first.
@@ -500,9 +499,7 @@ export default function AdminPeerReviewPage() {
               </CardContent>
             </Card>
           ) : scoresLoading ? (
-            <div className="flex justify-center items-center h-64">
-              <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
+            <Loading variant="section" />
           ) : scoresData.length === 0 ? (
             <Card>
               <CardContent className="py-12 text-center">

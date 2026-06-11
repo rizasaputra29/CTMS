@@ -17,11 +17,17 @@ class BidControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $leader;
+
     protected User $member;
+
     protected User $dosen;
+
     protected Group $group;
+
     protected Period $period;
+
     protected Title $title1;
+
     protected Title $title2;
 
     protected function setUp(): void

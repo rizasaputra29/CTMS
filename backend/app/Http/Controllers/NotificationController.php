@@ -53,29 +53,29 @@ class NotificationController extends Controller
         $isDosen = $user->hasRole('dosen');
         $isMahasiswa = $user->hasRole('mahasiswa');
 
-        $sub = fn($url) => $relId ? str_replace('{id}', $relId, $url) : null;
+        $sub = fn ($url) => $relId ? str_replace('{id}', $relId, $url) : null;
 
         $routes = [
             // ── Group-related ──
             'SUPERVISOR_ASSIGNED' => [
-                'admin'     => $sub('/admin/groups/{id}'),
-                'dosen'     => '/dosen/supervised-groups',
+                'admin' => $sub('/admin/groups/{id}'),
+                'dosen' => '/dosen/supervised-groups',
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'FINALIZATION_ROLLBACK' => [
-                'admin'     => '/admin/finalization',
-                'dosen'     => '/dosen/supervised-groups',
+                'admin' => '/admin/finalization',
+                'dosen' => '/dosen/supervised-groups',
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'GROUP_PROMOTED' => [
-                'admin'     => $sub('/admin/groups/{id}'),
+                'admin' => $sub('/admin/groups/{id}'),
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'LEADER_ASSIGNED' => [
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'BID_ACCEPTED' => [
-                'dosen'     => '/dosen/supervised-groups',
+                'dosen' => '/dosen/supervised-groups',
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'BID_TO_SOLO_TITLE' => [
@@ -91,7 +91,7 @@ class NotificationController extends Controller
                 'mahasiswa' => '/mahasiswa/group',
             ],
             'CANCEL_KELOMPOK_FINAL' => [
-                'admin'     => '/admin/finalization',
+                'admin' => '/admin/finalization',
                 'mahasiswa' => '/mahasiswa/group',
             ],
 
@@ -103,13 +103,13 @@ class NotificationController extends Controller
                 'mahasiswa' => '/mahasiswa/registration',
             ],
             'GROUP_DELETED_BY_ADMIN' => [
-                'admin'     => '/admin/groups',
+                'admin' => '/admin/groups',
                 'mahasiswa' => '/mahasiswa/registration',
             ],
 
             // ── TA Defense ──
             'TA_DEFENSE_SCHEDULED' => [
-                'admin'     => '/admin/ta-defense',
+                'admin' => '/admin/ta-defense',
                 'mahasiswa' => '/mahasiswa/ta-defense',
             ],
             'TA_DEFENSE_EXAMINER_ASSIGNED' => [
@@ -117,12 +117,12 @@ class NotificationController extends Controller
                 'dosen' => $sub('/dosen/ta-evaluation/{id}') ?? '/dosen/supervised-groups',
             ],
             'TA_DEFENSE_UPDATED' => [
-                'admin'     => '/admin/ta-defense',
-                'dosen'     => $sub('/dosen/ta-evaluation/{id}') ?? '/dosen/supervised-groups',
+                'admin' => '/admin/ta-defense',
+                'dosen' => $sub('/dosen/ta-evaluation/{id}') ?? '/dosen/supervised-groups',
                 'mahasiswa' => '/mahasiswa/ta-defense',
             ],
             'TA_DEFENSE_CANCELLED' => [
-                'admin'     => '/admin/ta-defense',
+                'admin' => '/admin/ta-defense',
                 'mahasiswa' => '/mahasiswa/ta-defense',
             ],
 
@@ -145,7 +145,7 @@ class NotificationController extends Controller
                 'dosen' => '/dosen/bids',
             ],
             'BID_REJECTED' => [
-                'dosen'     => '/dosen/bids',
+                'dosen' => '/dosen/bids',
                 'mahasiswa' => '/mahasiswa/bidding',
             ],
             'INVITE_REJECTED' => [
@@ -154,12 +154,12 @@ class NotificationController extends Controller
 
             // ── Schedule / SEMPRO / EXPO ──
             'SCHEDULE_APPROVED' => [
-                'admin'     => '/admin/sempro',
-                'dosen'     => $sub('/dosen/evaluation/{id}'),
+                'admin' => '/admin/sempro',
+                'dosen' => $sub('/dosen/evaluation/{id}'),
                 'mahasiswa' => '/mahasiswa/schedule',
             ],
             'SCHEDULE_REJECTED' => [
-                'admin'     => '/admin/sempro',
+                'admin' => '/admin/sempro',
                 'mahasiswa' => '/mahasiswa/schedule',
             ],
             'EVALUATION_DEADLINE_PASSED' => [
@@ -191,10 +191,17 @@ class NotificationController extends Controller
                 return '/admin/finalization';
             }
             if ($relType === 'Group') {
-                if ($isAdmin)    return $sub('/admin/groups/{id}');
-                if ($isDosen)    return '/dosen/supervised-groups';
-                if ($isMahasiswa) return '/mahasiswa/group';
+                if ($isAdmin) {
+                    return $sub('/admin/groups/{id}');
+                }
+                if ($isDosen) {
+                    return '/dosen/supervised-groups';
+                }
+                if ($isMahasiswa) {
+                    return '/mahasiswa/group';
+                }
             }
+
             return null;
         }
 
@@ -204,6 +211,7 @@ class NotificationController extends Controller
             if ($schedule?->group_id) {
                 return "/dosen/supervisor-evaluation/{$schedule->group_id}";
             }
+
             return '/dosen/supervised-groups';
         }
 
@@ -213,7 +221,7 @@ class NotificationController extends Controller
         }
 
         // Generic lookup
-        if (!isset($routes[$type])) {
+        if (! isset($routes[$type])) {
             return null;
         }
 
@@ -238,6 +246,7 @@ class NotificationController extends Controller
     public function unreadCount(Request $request)
     {
         $count = $this->notificationService->unreadCount($request->user()->id);
+
         return response()->json(['count' => $count]);
     }
 
@@ -261,6 +270,7 @@ class NotificationController extends Controller
     public function markAllAsRead(Request $request)
     {
         $this->notificationService->markAllAsRead($request->user()->id);
+
         return response()->json(['message' => 'All notifications marked as read.']);
     }
 }

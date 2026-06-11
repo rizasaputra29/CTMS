@@ -13,10 +13,10 @@ return new class extends Migration
     {
         Schema::table('schedules', function (Blueprint $table) {
             // Add time columns if they don't exist
-            if (!Schema::hasColumn('schedules', 'start_time')) {
+            if (! Schema::hasColumn('schedules', 'start_time')) {
                 $table->time('start_time')->nullable()->after('date');
             }
-            if (!Schema::hasColumn('schedules', 'end_time')) {
+            if (! Schema::hasColumn('schedules', 'end_time')) {
                 $table->time('end_time')->nullable()->after('start_time');
             }
         });

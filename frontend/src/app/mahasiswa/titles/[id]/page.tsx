@@ -6,9 +6,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { Loading } from '@/components/ui/loading';
 
 interface TitleDetail {
     id: number;
@@ -88,13 +89,7 @@ export default function MahasiswaTitleDetailPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     if (!title) {
         return (
@@ -121,7 +116,7 @@ export default function MahasiswaTitleDetailPage() {
                 </div>
                 {canBid && (
                     <Button onClick={handleBid} disabled={bidding}>
-                        {bidding && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {bidding && <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />}
                         Bid for This Title
                     </Button>
                 )}

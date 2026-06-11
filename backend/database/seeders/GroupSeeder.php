@@ -43,7 +43,7 @@ class GroupSeeder extends Seeder
                     'status' => $group['status'],
                     'group_mode' => $group['is_solo'] ? 'INDIVIDUAL' : 'GROUP',
                     'is_solo' => $group['is_solo'],
-                    'has_existing_group' => !$group['is_solo'],
+                    'has_existing_group' => ! $group['is_solo'],
                     'has_active_proposal' => $group['has_active_proposal'],
                     'assignment_type' => null,
                 ]
@@ -71,13 +71,13 @@ class GroupSeeder extends Seeder
 
         foreach ($members as $groupId => $emails) {
             $periodId = (int) Group::query()->whereKey($groupId)->value('period_id');
-            if (!$periodId) {
+            if (! $periodId) {
                 throw new RuntimeException("Group {$groupId} not found while seeding members.");
             }
 
             foreach ($emails as $email) {
                 $studentId = $userByEmail->get($email);
-                if (!$studentId) {
+                if (! $studentId) {
                     throw new RuntimeException("User {$email} not found while seeding group members.");
                 }
 
@@ -302,7 +302,7 @@ class GroupSeeder extends Seeder
     private function requireUser($userByEmail, string $email): int
     {
         $id = $userByEmail->get($email);
-        if (!$id) {
+        if (! $id) {
             throw new RuntimeException("Required user {$email} not found for seeding.");
         }
 

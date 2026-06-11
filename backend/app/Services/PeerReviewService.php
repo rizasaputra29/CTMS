@@ -3,11 +3,9 @@
 namespace App\Services;
 
 use App\Models\Group;
-use App\Models\GroupMember;
 use App\Models\PeerReview;
 use App\Models\PeriodPeerReviewIndicator;
 use App\Models\StudentPeerReviewStatus;
-use Illuminate\Support\Facades\DB;
 
 class PeerReviewService
 {
@@ -18,7 +16,7 @@ class PeerReviewService
     public function unlockPeerReview(int $groupId): void
     {
         $group = Group::with('members')->findOrFail($groupId);
-        
+
         // Initialize peer review status for all group members
         foreach ($group->members as $member) {
             StudentPeerReviewStatus::firstOrCreate([
@@ -39,7 +37,7 @@ class PeerReviewService
     {
         $group = Group::with('members')->findOrFail($groupId);
         $periodId = $group->period_id;
-        
+
         $indicatorsCount = PeriodPeerReviewIndicator::where('period_id', $periodId)->count();
         $otherMembersCount = $group->members->where('student_id', '!=', $studentId)->count();
         $expectedReviews = $indicatorsCount * $otherMembersCount;
@@ -145,7 +143,7 @@ class PeerReviewService
                 ->where('group_id', $groupId)
                 ->first();
 
-            if (!$status || !$status->has_completed_peer_review) {
+            if (! $status || ! $status->has_completed_peer_review) {
                 // TODO: Implement notification/email sending
                 // Notification::send($member->student, new PeerReviewReminder($group));
                 $reminderCount++;
@@ -187,7 +185,7 @@ class PeerReviewService
                 ->where('group_id', $groupId)
                 ->first();
 
-            if (!$status || !$status->has_completed_peer_review) {
+            if (! $status || ! $status->has_completed_peer_review) {
                 $incompleteStudents[] = [
                     'student_id' => $member->student_id,
                     'student_name' => $member->student->name,

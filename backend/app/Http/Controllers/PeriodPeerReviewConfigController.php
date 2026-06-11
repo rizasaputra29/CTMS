@@ -28,7 +28,7 @@ class PeriodPeerReviewConfigController extends Controller
             ->where('period_id', $periodId)
             ->orderBy('sort_order')
             ->get()
-            ->map(fn($i) => [
+            ->map(fn ($i) => [
                 'id' => $i->id,
                 'template_id' => $i->template_id,
                 'code' => $i->template->code,

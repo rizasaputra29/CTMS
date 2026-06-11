@@ -52,7 +52,7 @@ export function RoleSelector({ open, onOpenChange }: RoleSelectorProps) {
     };
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} {...(onOpenChange ? { onOpenChange } : {})}>
             <DialogContent className="sm:max-w-[480px]" showCloseButton={false}>
                 <DialogHeader>
                     <DialogTitle>Select Your Role</DialogTitle>

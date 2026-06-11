@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\JoinRequest;
 use App\Models\Period;
 use App\Models\Role;
 use App\Models\Title;
@@ -33,7 +32,7 @@ class GroupMergeTest extends TestCase
 
         $lA = User::create(['name' => 'LA', 'email' => 'la@t.com', 'password' => bcrypt('pw'), 'role' => 'mahasiswa']);
         $lA->roles()->attach($role->id);
-        
+
         $lB = User::create(['name' => 'LB', 'email' => 'lb@t.com', 'password' => bcrypt('pw'), 'role' => 'mahasiswa']);
         $lB->roles()->attach($role->id);
 
@@ -61,7 +60,7 @@ class GroupMergeTest extends TestCase
         $response = $this->actingAs($lA)->postJson("/api/mahasiswa/bursa-ide/{$gB->id}/request-join");
         $response->assertStatus(201);
         $jrId = $response->json('join_request.id');
-        
+
         // 3. Accept Merge
         $this->actingAs($lB)->postJson("/api/mahasiswa/join-requests/{$jrId}/accept")
             ->assertStatus(200);

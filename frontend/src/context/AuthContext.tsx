@@ -71,9 +71,17 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         checkAuth();
     }, []);
 
+    // Helper to set auth cookie for SSR
+    const setAuthCookie = (token: string) => {
+        // Set cookie for server components (2 hours expiration)
+        const expires = new Date(Date.now() + 2 * 60 * 60 * 1000).toUTCString();
+        document.cookie = `auth_token=${token}; expires=${expires}; path=/; SameSite=Strict`;
+    };
+
     const login = (token: string, userData: User, roles: string[]) => {
         localStorage.setItem('token', token);
         api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        setAuthCookie(token);
         
         const userWithRoles = { ...userData, roles };
         setUser(userWithRoles);
@@ -112,6 +120,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             localStorage.removeItem('activeRole');
             localStorage.removeItem('sidebar_sections');
             delete api.defaults.headers.common['Authorization'];
+            // Clear auth cookie
+            document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
             setUser(null);
             setActiveRole(null);
             router.push('/login');

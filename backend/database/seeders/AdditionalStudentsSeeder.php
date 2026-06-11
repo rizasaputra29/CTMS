@@ -13,7 +13,7 @@ class AdditionalStudentsSeeder extends Seeder
     {
         $password = Hash::make('password');
         $mahasiswaRole = Role::where('slug', 'mahasiswa')->first();
-        
+
         // Mahasiswa 21-30
         $newStudents = [];
         for ($i = 21; $i <= 30; $i++) {
@@ -29,6 +29,7 @@ class AdditionalStudentsSeeder extends Seeder
             $existingUser = User::where('email', $entry['email'])->first();
             if ($existingUser) {
                 $this->command->info("User {$entry['email']} sudah ada, skip...");
+
                 continue;
             }
 
@@ -41,7 +42,7 @@ class AdditionalStudentsSeeder extends Seeder
                 'nim' => $entry['nim'],
                 'is_active' => true,
             ]);
-            
+
             // Assign role
             if ($mahasiswaRole) {
                 $user->roles()->sync([$mahasiswaRole->id]);

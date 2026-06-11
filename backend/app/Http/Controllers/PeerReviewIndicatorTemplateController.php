@@ -64,18 +64,20 @@ class PeerReviewIndicatorTemplateController extends Controller
     public function destroy($id)
     {
         $template = PeerReviewIndicatorTemplate::findOrFail($id);
-        
+
         // Check if template is used in any period
         $usageCount = $template->periodIndicators()->count();
         if ($usageCount > 0) {
             // Soft delete by marking inactive
             $template->update(['is_active' => false]);
+
             return response()->json([
-                'message' => 'Template marked as inactive (has existing usage in ' . $usageCount . ' period configurations)'
+                'message' => 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)',
             ]);
         }
 
         $template->delete();
+
         return response()->json(['message' => 'Template deleted']);
     }
 }

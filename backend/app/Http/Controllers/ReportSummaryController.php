@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Repositories\AssessmentScoreRepository;
-use App\Models\PeerReview;
 use App\Models\Group;
+use App\Models\PeerReview;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -28,7 +28,7 @@ class ReportSummaryController extends Controller
                 'peer_reviews' => $this->getPeerReviewSummary($periodId),
                 'final_grades' => $this->getFinalGradesSummary($periodId),
                 'groups' => $this->getGroupsSummary($periodId),
-            ]
+            ],
         ]);
     }
 
@@ -41,7 +41,7 @@ class ReportSummaryController extends Controller
         $totalScores = 0;
         $totalScoreSum = 0;
         $allScores = collect();
-        
+
         foreach (AssessmentScoreRepository::getSupportedTypes() as $type) {
             $scores = AssessmentScoreRepository::forType($type)
                 ->with(['group.title'])
@@ -67,6 +67,7 @@ class ReportSummaryController extends Controller
             ->groupBy('group_id')
             ->map(function ($groupScores) {
                 $group = $groupScores->first()->group;
+
                 return (object) [
                     'group_id' => $group->id,
                     'group_name' => $group->code ?? "Group {$group->id}",
@@ -81,6 +82,7 @@ class ReportSummaryController extends Controller
         // Cast average_score to float for each group (DB returns it as string)
         $topGroups = $topGroups->map(function ($group) {
             $group->average_score = (float) $group->average_score;
+
             return $group;
         });
 
@@ -130,6 +132,7 @@ class ReportSummaryController extends Controller
         // Cast average_score to float for each group (DB returns it as string)
         $topGroups = $topGroups->map(function ($group) {
             $group->average_score = (float) $group->average_score;
+
             return $group;
         });
 
@@ -146,13 +149,15 @@ class ReportSummaryController extends Controller
      */
     private function getFinalGradesSummary(int $periodId): array
     {
-        $gradeService = new GradeCalculationService();
+        $gradeService = new GradeCalculationService;
 
         // Preload all period data (5 queries total instead of 3,200+)
         $gradeService->preloadPeriodData($periodId);
 
         $groups = Group::where('period_id', $periodId)
-            ->with(['title', 'members.student'])
+            ->with(['title', 'members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }])
             ->get();
 
         // Build student-group pairs for batch processing
@@ -162,7 +167,9 @@ class ReportSummaryController extends Controller
         foreach ($groups as $group) {
             foreach ($group->members as $member) {
                 $student = $member->student;
-                if (!$student) continue;
+                if (! $student) {
+                    continue;
+                }
 
                 $studentGroupPairs[] = [
                     'student_id' => $student->id,
@@ -215,9 +222,15 @@ class ReportSummaryController extends Controller
             $isComplete = $isPDC1Complete && $isPDC2Complete && $isTAComplete;
 
             // Count completions for each component
-            if ($isPDC1Complete) $pdc1CompleteCount++;
-            if ($isPDC2Complete) $pdc2CompleteCount++;
-            if ($isTAComplete) $taCompleteCount++;
+            if ($isPDC1Complete) {
+                $pdc1CompleteCount++;
+            }
+            if ($isPDC2Complete) {
+                $pdc2CompleteCount++;
+            }
+            if ($isTAComplete) {
+                $taCompleteCount++;
+            }
 
             if ($isComplete) {
                 $completeGrades++;
@@ -229,9 +242,15 @@ class ReportSummaryController extends Controller
             if ($pdc1Score !== null || $pdc2Score !== null || $taScore !== null) {
                 // Calculate average for ranking purposes (only from available scores)
                 $availableScores = [];
-                if ($pdc1Score !== null) $availableScores[] = $pdc1Score;
-                if ($pdc2Score !== null) $availableScores[] = $pdc2Score;
-                if ($taScore !== null) $availableScores[] = $taScore;
+                if ($pdc1Score !== null) {
+                    $availableScores[] = $pdc1Score;
+                }
+                if ($pdc2Score !== null) {
+                    $availableScores[] = $pdc2Score;
+                }
+                if ($taScore !== null) {
+                    $availableScores[] = $taScore;
+                }
                 $avgScore = count($availableScores) > 0 ? array_sum($availableScores) / count($availableScores) : 0;
 
                 $topStudents[] = [
@@ -253,11 +272,11 @@ class ReportSummaryController extends Controller
         }
 
         // Sort by average score descending and take top 5
-        usort($topStudents, fn($a, $b) => $b['_avg_score'] <=> $a['_avg_score']);
+        usort($topStudents, fn ($a, $b) => $b['_avg_score'] <=> $a['_avg_score']);
         $topStudents = array_slice($topStudents, 0, 5);
 
         // Remove internal ranking field from output
-        $topStudents = array_map(fn($s) => [
+        $topStudents = array_map(fn ($s) => [
             'group_id' => $s['group_id'],
             'group_name' => $s['group_name'],
             'student_id' => $s['student_id'],

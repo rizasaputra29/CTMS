@@ -19,7 +19,7 @@ class GradeConsistencyController extends Controller
         ]);
 
         $checks = GradeConsistencyCheck::with(['group.title', 'student', 'checker'])
-            ->whereHas('group', fn($q) => $q->where('period_id', $request->period_id))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $request->period_id))
             ->orderBy('deviation', 'desc')
             ->get();
 
@@ -46,7 +46,7 @@ class GradeConsistencyController extends Controller
                 'KELOMPOK_FINAL',
                 'READY_FOR_SEMPRO',
                 'PDC2_READY_FOR_EXPO',
-                'EXPO_REGISTERED'
+                'EXPO_REGISTERED',
             ])
             ->with('members')
             ->get();

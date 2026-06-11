@@ -3,14 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
-use App\Models\User;
-use App\Models\Period;
-use App\Models\Group;
-use App\Models\GroupMember;
-use App\Models\Title;
-use App\Models\Bid;
 
 class DatabaseSeeder extends Seeder
 {

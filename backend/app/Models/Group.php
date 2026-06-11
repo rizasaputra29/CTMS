@@ -202,7 +202,7 @@ class Group extends Model
         $period = $this->period;
         $minSize = $period->min_group_size ?? 3;
         $allowSolo = $period->allow_solo ?? false;
-        $memberCount = $this->members()->count();
+        $memberCount = $this->activeMembers()->count();
 
         // If members >= minimum, group is ready for bidding/proposing
         if ($memberCount >= $minSize) {
@@ -316,10 +316,11 @@ class Group extends Model
 
     /**
      * Get active members (non-deleted, current members).
+     * Excludes soft-deleted members.
      */
     public function activeMembers()
     {
-        return $this->hasMany(GroupMember::class);
+        return $this->hasMany(GroupMember::class)->whereNull('deleted_at');
     }
 
     public function seminarSchedules()
@@ -351,7 +352,7 @@ class Group extends Model
      */
     public function refreshReadinessSnapshot(): self
     {
-        $memberCount = $this->members()->count();
+        $memberCount = $this->activeMembers()->count();
 
         $snapshot = [
             'is_ready' => $this->isReadyForBidding(),
@@ -438,7 +439,7 @@ class Group extends Model
 
         $minSize = $period->min_group_size ?? 3;
         $maxSize = $period->max_group_size ?? 4;
-        $activeMembersCount = $this->members()->count();
+        $activeMembersCount = $this->activeMembers()->count();
 
         if ($activeMembersCount < $minSize) {
             $issues[] = "Anggota kurang dari batas minimum ({$activeMembersCount}/{$minSize})";
@@ -509,7 +510,7 @@ class Group extends Model
         $criteria = 3;
         $met = 0;
 
-        $activeMembersCount = $memberCount ?? $this->members()->count();
+        $activeMembersCount = $memberCount ?? $this->activeMembers()->count();
         $minSize = $this->period->min_group_size ?? 3;
         if ($activeMembersCount >= $minSize) {
             $met++;
@@ -554,7 +555,7 @@ class Group extends Model
     {
         $maxSize = $this->period->max_group_size ?? 4;
 
-        return $this->members()->count() < $maxSize;
+        return $this->activeMembers()->count() < $maxSize;
     }
 
     /**
@@ -564,7 +565,7 @@ class Group extends Model
     {
         $maxSize = $this->period->max_group_size ?? 4;
 
-        return $this->members()->count() >= $maxSize;
+        return $this->activeMembers()->count() >= $maxSize;
     }
 
     /**
@@ -577,13 +578,13 @@ class Group extends Model
 
     /**
      * Revert group to appropriate status after title loss (withdrawal/deletion).
-     * 
+     *
      * Logic by member count:
      * - 3+ members: READY_FOR_BIDDING
      * - 2 members: FORMING
      * - 1 member + is_solo: FORMING_SOLO
      * - 1 member (normal): FORMING
-     * 
+     *
      * Logic by action:
      * - withdraw: Groups that were approved go to WAITING_SUPERVISOR_APPROVAL
      * - delete: Always go to base status based on member count
@@ -592,7 +593,7 @@ class Group extends Model
     {
         $memberCount = $this->members()->count();
         $allowSolo = $this->period->allow_solo ?? false;
-        
+
         // Determine base status by member count
         if ($memberCount >= $minSize) {
             $baseStatus = 'READY_FOR_BIDDING';
@@ -603,7 +604,7 @@ class Group extends Model
         } else {
             $baseStatus = 'FORMING';
         }
-        
+
         // Apply action-specific logic
         if ($action === 'withdraw') {
             // For withdrawal: go to WAITING_SUPERVISOR_APPROVAL if group had approved title
@@ -616,9 +617,9 @@ class Group extends Model
             // For deletion: always go to base status
             $newStatus = $baseStatus;
         }
-        
+
         $this->update(['status' => $newStatus, 'title_id' => null]);
-        
+
         return $newStatus;
     }
 

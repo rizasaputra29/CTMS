@@ -9,7 +9,8 @@ import api from '@/lib/api';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, Loader2, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
+import { Users, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -165,12 +166,8 @@ export default function MahasiswaGroupPage() {
             }
         };
 
-        // Check immediately
+        // Check once on load
         checkWithdrawalNotification();
-        
-        // Then check periodically (every 10 seconds)
-        const interval = setInterval(checkWithdrawalNotification, 10000);
-        return () => clearInterval(interval);
     }, [fetchGroup]);
 
     const handleAcceptJoinRequest = async (requestId: number) => {
@@ -400,13 +397,7 @@ export default function MahasiswaGroupPage() {
         }
     };
 
-    if (authLoading || loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (authLoading || loading) return <Loading variant="section" />;
 
     // No Group — show create group options
     if (!myGroup) {
@@ -454,7 +445,7 @@ export default function MahasiswaGroupPage() {
                                 size="lg"
                                 className="flex-1"
                             >
-                                {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+                                {creating ? <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <PlusCircle className="mr-2 h-4 w-4" />}
                                 Create Group
                             </Button>
                             <Button 
@@ -464,7 +455,7 @@ export default function MahasiswaGroupPage() {
                                 variant="secondary"
                                 className="flex-1"
                             >
-                                {creatingSolo ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <BookOpen className="mr-2 h-4 w-4" />}
+                                {creatingSolo ? <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <BookOpen className="mr-2 h-4 w-4" />}
                                 Solo Seeker
                             </Button>
                         </div>
@@ -535,13 +526,13 @@ export default function MahasiswaGroupPage() {
                         <div className="flex gap-2">
                             {allowedActions.can_delete_group && (
                                 <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
-                                    {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                                    {deleting ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Trash2 className="h-4 w-4 mr-1" />}
                                     Delete Group
                                 </Button>
                             )}
                             {allowedActions.can_leave_group && (
                                 <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
-                                    {leaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4 mr-1" />}
+                                    {leaving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <LogOut className="h-4 w-4 mr-1" />}
                                     Leave Group
                                 </Button>
                             )}
@@ -631,14 +622,14 @@ export default function MahasiswaGroupPage() {
                                                     onClick={() => handleRejectJoinRequest(request.id)}
                                                     disabled={processingJoinRequest === request.id}
                                                 >
-                                                    {processingJoinRequest === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Reject'}
+                                                    {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Reject'}
                                                 </Button>
                                                 <Button 
                                                     size="sm"
                                                     onClick={() => handleAcceptJoinRequest(request.id)}
                                                     disabled={processingJoinRequest === request.id}
                                                 >
-                                                    {processingJoinRequest === request.id ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Accept'}
+                                                    {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Accept'}
                                                 </Button>
                                             </div>
                                         </div>
@@ -733,7 +724,7 @@ export default function MahasiswaGroupPage() {
                         <DialogFooter>
                             <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>Cancel</Button>
                             <Button type="submit" disabled={submitting}>
-                                {submitting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                                {submitting ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" /> : null}
                                 Add Member
                             </Button>
                         </DialogFooter>
@@ -753,7 +744,7 @@ export default function MahasiswaGroupPage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setConfirmDialogOpen(false)}>Cancel</Button>
                         <Button onClick={handleMarkReadyForFinalization} disabled={markingReady}>
-                            {markingReady ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            {markingReady ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" /> : null}
                             Confirm
                         </Button>
                     </DialogFooter>
@@ -772,7 +763,7 @@ export default function MahasiswaGroupPage() {
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setCancelDialogOpen(false)}>Cancel</Button>
                         <Button onClick={handleCancelFinalization} disabled={cancellingReady} variant="destructive">
-                            {cancellingReady ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            {cancellingReady ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" /> : null}
                             Confirm Cancel
                         </Button>
                     </DialogFooter>

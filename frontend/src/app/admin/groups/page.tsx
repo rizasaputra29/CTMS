@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { 
     Users, Search, Filter, 
-    Loader2, MoreHorizontal, Eye, Settings, Calendar, ShieldCheck, Crown,
+    MoreHorizontal, Eye, Settings, Calendar, ShieldCheck, Crown,
     ChevronDown, ChevronUp, Mail, Trash2
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
@@ -251,9 +252,7 @@ export default function AdminGroupsPage() {
                 </CardHeader>
                 <CardContent className="p-0">
                     {loading ? (
-                        <div className="flex justify-center items-center py-20">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                        </div>
+                        <Loading variant="section" />
                     ) : filteredGroups.length === 0 ? (
                         <div className="text-center py-20 text-muted-foreground">
                             No groups found for the selected criteria.

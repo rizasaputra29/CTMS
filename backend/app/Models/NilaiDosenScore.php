@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 
 /**
  * Nilai Dosen Score Model
- * 
+ *
  * Stores assessment scores for NILAI_DOSEN evaluation type.
  * This model replaces evaluation_type='NILAI_DOSEN' records from the old assessment_scores table.
  */

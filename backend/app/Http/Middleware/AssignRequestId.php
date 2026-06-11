@@ -22,7 +22,7 @@ class AssignRequestId
 
         // 2. Share context with Log system (Laravel 11 standard)
         Log::shareContext([
-            'request_id' => $requestId
+            'request_id' => $requestId,
         ]);
 
         // 3. Process the request

@@ -22,7 +22,7 @@ class DigitalSignatureController extends Controller
         $user = $request->user();
 
         // Generate unique hash for verification
-        $hash = hash('sha256', $user->id . $request->document_reference . now()->timestamp . Str::random(16));
+        $hash = hash('sha256', $user->id.$request->document_reference.now()->timestamp.Str::random(16));
 
         $signature = DigitalSignature::create([
             'user_id' => $user->id,
@@ -49,7 +49,7 @@ class DigitalSignatureController extends Controller
             ->where('hash', $hash)
             ->first();
 
-        if (!$signature) {
+        if (! $signature) {
             return response()->json([
                 'valid' => false,
                 'message' => 'Signature not found or invalid',

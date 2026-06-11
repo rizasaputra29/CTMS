@@ -19,8 +19,8 @@ return new class extends Migration
                 ->where('schedule_id', $schedule->id)
                 ->where('student_id', $schedule->student_id)
                 ->exists();
-            
-            if (!$exists) {
+
+            if (! $exists) {
                 DB::table('ta_defense_schedule_student')->insert([
                     'schedule_id' => $schedule->id,
                     'student_id' => $schedule->student_id,

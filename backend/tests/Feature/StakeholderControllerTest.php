@@ -15,7 +15,9 @@ class StakeholderControllerTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $lecturer;
+
     private Period $period;
 
     protected function setUp(): void

@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\StudentPeerReviewStatus;
 use App\Models\GroupMember;
 use App\Models\PeerReview;
+use App\Models\StudentPeerReviewStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -20,12 +20,12 @@ class StudentStateController extends Controller
             ->where('period_id', $request->user()->period_id ?? $request->input('period_id'))
             ->first();
 
-        if (!$status) {
+        if (! $status) {
             return response()->json([
                 'student_id' => $studentId,
                 'ta_status' => 'TA_BLOCKED',
                 'has_completed_peer_review' => false,
-                'message' => 'Student has not started peer review process'
+                'message' => 'Student has not started peer review process',
             ]);
         }
 
@@ -33,7 +33,7 @@ class StudentStateController extends Controller
             'student_id' => $studentId,
             'ta_status' => $status->ta_status,
             'has_completed_peer_review' => $status->has_completed_peer_review,
-            'updated_at' => $status->updated_at
+            'updated_at' => $status->updated_at,
         ]);
     }
 
@@ -44,18 +44,18 @@ class StudentStateController extends Controller
     {
         $validated = $request->validate([
             'ta_status' => 'required|in:TA_BLOCKED,TA_ACTIVE,TA_DONE',
-            'period_id' => 'required|exists:periods,id'
+            'period_id' => 'required|exists:periods,id',
         ]);
 
         $status = StudentPeerReviewStatus::firstOrCreate(
             [
                 'student_id' => $studentId,
-                'period_id' => $validated['period_id']
+                'period_id' => $validated['period_id'],
             ],
             [
                 'group_id' => GroupMember::where('student_id', $studentId)->first()?->group_id,
                 'has_completed_peer_review' => false,
-                'ta_status' => 'TA_BLOCKED'
+                'ta_status' => 'TA_BLOCKED',
             ]
         );
 
@@ -66,7 +66,7 @@ class StudentStateController extends Controller
             'message' => 'TA status updated successfully',
             'student_id' => $studentId,
             'old_status' => $oldStatus,
-            'new_status' => $validated['ta_status']
+            'new_status' => $validated['ta_status'],
         ]);
     }
 
@@ -85,16 +85,16 @@ class StudentStateController extends Controller
         foreach ($members as $member) {
             try {
                 $hasCompleted = $this->checkPeerReviewCompletion($member->student_id, $groupId);
-                
+
                 $status = StudentPeerReviewStatus::firstOrCreate(
                     [
                         'student_id' => $member->student_id,
                         'group_id' => $groupId,
-                        'period_id' => $member->group->period_id
+                        'period_id' => $member->group->period_id,
                     ],
                     [
                         'has_completed_peer_review' => false,
-                        'ta_status' => 'TA_BLOCKED'
+                        'ta_status' => 'TA_BLOCKED',
                     ]
                 );
 
@@ -103,13 +103,13 @@ class StudentStateController extends Controller
                     $updated[] = [
                         'student_id' => $member->student_id,
                         'student_name' => $member->student->name,
-                        'action' => 'activated'
+                        'action' => 'activated',
                     ];
                 }
             } catch (\Exception $e) {
                 $errors[] = [
                     'student_id' => $member->student_id,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ];
             }
         }
@@ -119,7 +119,7 @@ class StudentStateController extends Controller
             'group_id' => $groupId,
             'updated_count' => count($updated),
             'updated_students' => $updated,
-            'errors' => $errors
+            'errors' => $errors,
         ]);
     }
 
@@ -167,14 +167,14 @@ class StudentStateController extends Controller
                 'nim' => $member->student->nim,
                 'ta_status' => $status?->ta_status ?? 'TA_BLOCKED',
                 'has_completed_peer_review' => $status?->has_completed_peer_review ?? false,
-                'updated_at' => $status?->updated_at
+                'updated_at' => $status?->updated_at,
             ];
         });
 
         return response()->json([
             'group_id' => $groupId,
             'group_name' => $members->first()?->group?->code,
-            'students' => $students
+            'students' => $students,
         ]);
     }
 
@@ -184,16 +184,16 @@ class StudentStateController extends Controller
     public function getMyTAStatus(Request $request): JsonResponse
     {
         $user = Auth::user();
-        
+
         $member = GroupMember::where('student_id', $user->id)
             ->with('group')
             ->first();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json([
                 'ta_status' => 'TA_BLOCKED',
                 'has_completed_peer_review' => false,
-                'message' => 'You are not in any group'
+                'message' => 'You are not in any group',
             ], 403);
         }
 
@@ -206,7 +206,7 @@ class StudentStateController extends Controller
             'group_id' => $member->group_id,
             'ta_status' => $status?->ta_status ?? 'TA_BLOCKED',
             'has_completed_peer_review' => $status?->has_completed_peer_review ?? false,
-            'can_access_ta' => $status?->ta_status === 'TA_ACTIVE' || $status?->ta_status === 'TA_DONE'
+            'can_access_ta' => $status?->ta_status === 'TA_ACTIVE' || $status?->ta_status === 'TA_DONE',
         ]);
     }
 }

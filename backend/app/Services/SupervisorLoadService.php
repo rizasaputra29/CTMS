@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Models\Group;
 use App\Models\Period;
-use App\Models\User;
 use App\Models\Supervision;
+use App\Models\User;
 
 class SupervisorLoadService
 {
@@ -52,6 +52,7 @@ class SupervisorLoadService
     public function wouldExceedLoad(int $lecturerId, int $periodId, int $additionalGroups = 1): bool
     {
         $load = $this->getLoad($lecturerId, $periodId);
+
         return ($load['current_load'] + $additionalGroups) > $load['max_load'];
     }
 
@@ -63,11 +64,11 @@ class SupervisorLoadService
     {
         $lecturer = User::find($lecturerId);
 
-        if (!$lecturer) {
+        if (! $lecturer) {
             return ['valid' => false, 'message' => 'Dosen tidak ditemukan.'];
         }
 
-        if (!$lecturer->hasRole('dosen')) {
+        if (! $lecturer->hasRole('dosen')) {
             return ['valid' => false, 'message' => 'User bukan dosen.'];
         }
 
@@ -76,7 +77,7 @@ class SupervisorLoadService
         if ($load['is_full']) {
             return [
                 'valid' => false,
-                'message' => "Dosen {$lecturer->name} sudah mencapai batas maksimal beban ({$load['current_load']}/{$load['max_load']})."
+                'message' => "Dosen {$lecturer->name} sudah mencapai batas maksimal beban ({$load['current_load']}/{$load['max_load']}).",
             ];
         }
 

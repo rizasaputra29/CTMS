@@ -2,9 +2,9 @@
 
 namespace App\Console\Commands;
 
-use Illuminate\Console\Command;
 use App\Models\PeerReview;
 use App\Models\User;
+use Illuminate\Console\Command;
 
 class MigratePeerReviewScores extends Command
 {
@@ -37,7 +37,7 @@ class MigratePeerReviewScores extends Command
 
         if ($migrateAll) {
             $this->info('Migrating all peer review scores...');
-            
+
             // Use chunkById to avoid loading all records into memory
             PeerReview::query()->chunkById(1000, function ($reviews) use (&$migrated, &$skipped, &$errors, &$processed) {
                 foreach ($reviews as $review) {
@@ -55,12 +55,13 @@ class MigratePeerReviewScores extends Command
             });
         } else {
             $student = User::find($studentId);
-            if (!$student) {
+            if (! $student) {
                 $this->error("Student with ID {$studentId} not found.");
+
                 return 1;
             }
             $this->info("Migrating peer review scores for student: {$student->name} (ID: {$studentId})");
-            
+
             // Migrate reviews where student is reviewer or reviewee
             PeerReview::where('reviewer_id', $studentId)
                 ->orWhere('reviewee_id', $studentId)
@@ -77,7 +78,7 @@ class MigratePeerReviewScores extends Command
                         $processed++;
                     }
                 });
-            
+
             $this->info("Found {$processed} peer review records to migrate.");
         }
 
@@ -98,16 +99,16 @@ class MigratePeerReviewScores extends Command
     /**
      * Migrate a single peer review record.
      *
-     * @param PeerReview $review
      * @return string 'migrated', 'skipped', or 'error'
      */
     private function migrateReview(PeerReview $review): string
     {
         $oldScore = $review->score;
-        
+
         // Skip if score is already in 1-4 range
-        if ($oldScore >= 1 && $oldScore <= 4 && $oldScore == (int)$oldScore) {
+        if ($oldScore >= 1 && $oldScore <= 4 && $oldScore == (int) $oldScore) {
             $this->line("  Skipping review ID {$review->id}: Score {$oldScore} already in 1-4 range");
+
             return 'skipped';
         }
 
@@ -118,9 +119,11 @@ class MigratePeerReviewScores extends Command
         try {
             $review->update(['score' => $newScore]);
             $this->info("  Migrated review ID {$review->id}: {$oldScore} → {$newScore}");
+
             return 'migrated';
         } catch (\Exception $e) {
-            $this->error("  Error migrating review ID {$review->id}: " . $e->getMessage());
+            $this->error("  Error migrating review ID {$review->id}: ".$e->getMessage());
+
             return 'error';
         }
     }

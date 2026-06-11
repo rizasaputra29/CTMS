@@ -6,10 +6,10 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Drop Assessment Scores Table
- * 
+ *
  * Removes the old unified assessment_scores table after successful migration
  * to separate evaluation type tables.
- * 
+ *
  * WARNING: Ensure all data has been migrated and verified before running this migration!
  */
 return new class extends Migration
@@ -21,7 +21,7 @@ return new class extends Migration
     {
         // Drop the old table - all data should be migrated by now
         Schema::dropIfExists('assessment_scores');
-        
+
         // Note: If you need to restore, check the backup file:
         // storage/app/backups/assessment_scores_backup_*.json
     }
@@ -43,7 +43,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->string('evaluation_type'); // BIMBINGAN_SEMPRO, BIMBINGAN_TA, EXPO, MILESTONE, NILAI_DOSEN
             $table->timestamps();
-            
+
             $table->unique(['component_id', 'evaluator_id', 'student_id'], 'uq_assessment_scores_component_evaluator_student');
             $table->index(['group_id', 'evaluation_type'], 'idx_assessment_scores_group_type');
             $table->index(['evaluation_type'], 'idx_assessment_scores_type');

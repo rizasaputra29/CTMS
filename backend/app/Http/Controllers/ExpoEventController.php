@@ -33,6 +33,7 @@ class ExpoEventController extends Controller
         }
 
         $events = $query->orderBy('date', 'desc')->get();
+
         return $this->successResponse($events, 'Expo events retrieved successfully');
     }
 
@@ -106,6 +107,7 @@ class ExpoEventController extends Controller
         }
 
         $expoEvent->delete(); // soft delete
+
         return response()->json(['message' => 'Event deleted.']);
     }
 
@@ -116,7 +118,7 @@ class ExpoEventController extends Controller
     {
         $this->ensurePeriodActiveById($expoEvent->period_id);
 
-        $expoEvent->update(['is_published' => !$expoEvent->is_published]);
+        $expoEvent->update(['is_published' => ! $expoEvent->is_published]);
 
         return response()->json([
             'message' => $expoEvent->is_published ? 'Event published.' : 'Event unpublished.',
@@ -137,7 +139,7 @@ class ExpoEventController extends Controller
         $group = \App\Models\GroupMember::where('student_id', $user->id)
             ->first()?->group;
 
-        if (!$group) {
+        if (! $group) {
             return response()->json([]);
         }
 
@@ -168,7 +170,7 @@ class ExpoEventController extends Controller
         $user = $request->user();
         $groupMember = \App\Models\GroupMember::where('student_id', $user->id)->first();
 
-        if (!$groupMember) {
+        if (! $groupMember) {
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
 
@@ -196,7 +198,7 @@ class ExpoEventController extends Controller
         $user = $request->user();
         $groupMember = \App\Models\GroupMember::where('student_id', $user->id)->first();
 
-        if (!$groupMember) {
+        if (! $groupMember) {
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
 

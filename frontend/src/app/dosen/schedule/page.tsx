@@ -16,6 +16,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog"
 import { Loader2, Plus } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { toast } from "sonner";
 import { format, parseISO } from 'date-fns';
 import {
@@ -66,7 +67,7 @@ interface ScheduleEvent {
     end_time?: string;
     room: string;
     mode?: string | null;
-    notes?: string | null | undefined;
+    notes?: string | null;
     status?: string;
     period_name?: string;
     student_name?: string;
@@ -182,8 +183,8 @@ export default function DosenSchedulePage() {
                 start_time: string;
                 end_time: string;
                 room?: string;
-    mode?: string | null;
-    notes?: string | null | undefined;
+                mode?: string | null;
+                notes?: string | null;
             }
             const payload: SchedulePayload = {
                 group_id: data.group_id,
@@ -218,8 +219,9 @@ export default function DosenSchedulePage() {
         } catch (error) {
             console.error('Failed to save schedule', error);
             const message = api.getApiErrorMessage(error, 'Failed to save schedule');
-            const data = isApiErrorWithResponse(error) ? error.response?.data : null;
-            const conflicts = data?.conflicts;
+            // Use type guard to safely access axios error properties
+            const axiosError = api.isAxiosError(error) ? error : null;
+            const conflicts = axiosError?.response?.data?.conflicts;
             if (conflicts && conflicts.length > 0) {
                 toast.error(`${message}: ${conflicts.join(', ')}`);
             } else {
@@ -337,13 +339,7 @@ export default function DosenSchedulePage() {
         return stats;
     }, [filteredSchedules]);
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">
@@ -426,7 +422,7 @@ export default function DosenSchedulePage() {
                                     control={form.control}
                                     render={({ field }) => (
                                         <Select
-                                             value={field.value ? String(field.value) : ""}
+                                            value={field.value ? String(field.value) : ""}
                                             onValueChange={field.onChange}
                                         >
                                             <SelectTrigger data-invalid={form.formState.errors.group_id ? '' : undefined}>

@@ -3,9 +3,10 @@
 namespace App\Services;
 
 use App\Models\Group;
+use App\Models\PeerReview;
 use App\Models\Period;
 use App\Models\PeriodAssessmentComponent;
-use App\Models\PeerReview;
+use App\Models\TaDefenseSchedule;
 use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Support\Facades\Log;
 
@@ -42,7 +43,7 @@ class GradeCalculationService
 
         foreach ($allScores as $score) {
             $key = "{$score->student_id}:{$score->group_id}:{$score->evaluation_type}";
-            if (!isset($this->batchCache['assessment_scores'][$key])) {
+            if (! isset($this->batchCache['assessment_scores'][$key])) {
                 $this->batchCache['assessment_scores'][$key] = [];
             }
             $this->batchCache['assessment_scores'][$key][] = $score;
@@ -56,7 +57,7 @@ class GradeCalculationService
 
         foreach ($reviews as $review) {
             $key = "{$review->reviewee_id}:{$review->group_id}";
-            if (!isset($this->batchCache['peer_reviews'][$key])) {
+            if (! isset($this->batchCache['peer_reviews'][$key])) {
                 $this->batchCache['peer_reviews'][$key] = [];
             }
             $this->batchCache['peer_reviews'][$key][] = $review;
@@ -81,14 +82,14 @@ class GradeCalculationService
 
         // 6. Batch load period components
         $components = PeriodAssessmentComponent::with('template')
-            ->whereHas('period', fn($q) => $q->where('id', $periodId))
+            ->whereHas('period', fn ($q) => $q->where('id', $periodId))
             ->get();
 
         $this->batchCache['period_components'] = $components->keyBy('id');
 
         // 7. Batch load peer review indicators
         $indicators = \App\Models\PeriodPeerReviewIndicator::with('template')
-            ->whereHas('period', fn($q) => $q->where('id', $periodId))
+            ->whereHas('period', fn ($q) => $q->where('id', $periodId))
             ->get();
 
         $this->batchCache['peer_review_indicators'] = $indicators->keyBy('id');
@@ -113,6 +114,7 @@ class GradeCalculationService
             $groupId = $pair['group_id'];
             $results[$studentId] = $this->calculatePDC1FromCache($studentId, $groupId);
         }
+
         return $results;
     }
 
@@ -127,6 +129,7 @@ class GradeCalculationService
             $groupId = $pair['group_id'];
             $results[$studentId] = $this->calculatePDC2FromCache($studentId, $groupId);
         }
+
         return $results;
     }
 
@@ -141,6 +144,7 @@ class GradeCalculationService
             $groupId = $pair['group_id'];
             $results[$studentId] = $this->calculateSidangTAFromCache($studentId, $groupId);
         }
+
         return $results;
     }
 
@@ -161,15 +165,19 @@ class GradeCalculationService
         $hasSempro = $semproScore !== null;
         $hasBimbingan = $bimbinganSemproScore !== null;
 
-        if (!$hasSempro && !$hasBimbingan) {
+        if (! $hasSempro && ! $hasBimbingan) {
             return null;
         }
 
         $scores = [];
-        if ($hasSempro) $scores[] = $semproScore;
-        if ($hasBimbingan) $scores[] = $bimbinganSemproScore;
+        if ($hasSempro) {
+            $scores[] = $semproScore;
+        }
+        if ($hasBimbingan) {
+            $scores[] = $bimbinganSemproScore;
+        }
 
-        $average = !empty($scores) ? (array_sum($scores) / count($scores)) : 0;
+        $average = ! empty($scores) ? (array_sum($scores) / count($scores)) : 0;
 
         return [
             'grade' => round($average, 2),
@@ -206,10 +214,22 @@ class GradeCalculationService
         $componentCount = 0;
         $totalScore = 0;
 
-        if ($nilaiDosenScore !== null) { $componentCount++; $totalScore += $nilaiDosenScore; }
-        if ($milestoneScore !== null) { $componentCount++; $totalScore += $milestoneScore; }
-        if ($expoScore !== null) { $componentCount++; $totalScore += $expoScore; }
-        if ($peerReviewScore !== null) { $componentCount++; $totalScore += $peerReviewScore; }
+        if ($nilaiDosenScore !== null) {
+            $componentCount++;
+            $totalScore += $nilaiDosenScore;
+        }
+        if ($milestoneScore !== null) {
+            $componentCount++;
+            $totalScore += $milestoneScore;
+        }
+        if ($expoScore !== null) {
+            $componentCount++;
+            $totalScore += $expoScore;
+        }
+        if ($peerReviewScore !== null) {
+            $componentCount++;
+            $totalScore += $peerReviewScore;
+        }
 
         if ($componentCount === 0) {
             return null;
@@ -273,6 +293,7 @@ class GradeCalculationService
     private function getScoresFromCache(int $studentId, int $groupId, string $evaluationType): array
     {
         $key = "{$studentId}:{$groupId}:{$evaluationType}";
+
         return $this->batchCache['assessment_scores'][$key] ?? [];
     }
 
@@ -282,6 +303,7 @@ class GradeCalculationService
     private function getPeerReviewsFromCache(int $studentId, int $groupId): array
     {
         $key = "{$studentId}:{$groupId}";
+
         return $this->batchCache['peer_reviews'][$key] ?? [];
     }
 
@@ -346,7 +368,7 @@ class GradeCalculationService
             if ($score->evaluator) {
                 $evaluators[] = [
                     'name' => $score->evaluator->name,
-                    'role' => $score->evaluator_id !== null 
+                    'role' => $score->evaluator_id !== null
                         ? $this->getEvaluatorRoleFromCache($score->evaluator_id, $groupId)
                         : 'EXAMINER',
                 ];
@@ -388,7 +410,8 @@ class GradeCalculationService
                 'status' => 'COMPLETE',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate SIDANG_TA for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to calculate SIDANG_TA for student {$studentId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -421,7 +444,7 @@ class GradeCalculationService
                 $totalScore += $bimbinganSemproScore;
             }
 
-            if (!$hasScore) {
+            if (! $hasScore) {
                 return null;
             }
 
@@ -443,7 +466,8 @@ class GradeCalculationService
                 'status' => $componentCount === 2 ? 'COMPLETE' : 'PARTIAL',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate PDC1 for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to calculate PDC1 for student {$studentId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -490,7 +514,7 @@ class GradeCalculationService
                 $totalScore += $peerReviewScore;
             }
 
-            if (!$hasScore) {
+            if (! $hasScore) {
                 return null;
             }
 
@@ -520,7 +544,8 @@ class GradeCalculationService
                 'status' => $componentCount === 4 ? 'COMPLETE' : 'PARTIAL',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate PDC2 for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to calculate PDC2 for student {$studentId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -552,7 +577,7 @@ class GradeCalculationService
                 $totalScore += $sidangTaScore;
             }
 
-            if (!$hasScore) {
+            if (! $hasScore) {
                 return null;
             }
 
@@ -574,7 +599,8 @@ class GradeCalculationService
                 'status' => $componentCount === 2 ? 'COMPLETE' : 'PARTIAL',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate TA for student {$studentId}: " . $e->getMessage());
+            Log::error("Failed to calculate TA for student {$studentId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -590,7 +616,7 @@ class GradeCalculationService
         $pdc2 = $this->calculatePDC2ForStudent($studentId, $groupId);
         $ta = $this->calculateTAForStudent($studentId, $groupId);
 
-        if (!$pdc1 && !$pdc2 && !$ta) {
+        if (! $pdc1 && ! $pdc2 && ! $ta) {
             return null;
         }
 
@@ -598,8 +624,12 @@ class GradeCalculationService
         $pdc2Grade = $pdc2['grade'] ?? null;
 
         $grades = [];
-        if ($pdc1Grade !== null) $grades[] = $pdc1Grade;
-        if ($pdc2Grade !== null) $grades[] = $pdc2Grade;
+        if ($pdc1Grade !== null) {
+            $grades[] = $pdc1Grade;
+        }
+        if ($pdc2Grade !== null) {
+            $grades[] = $pdc2Grade;
+        }
 
         $finalGrade = count($grades) > 0 ? (array_sum($grades) / count($grades)) : 0;
 
@@ -632,7 +662,13 @@ class GradeCalculationService
      */
     private function getStudentEvaluationScore(int $studentId, int $groupId, string $evaluationType): ?float
     {
-        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+        // Check if student is flagged from this period - flagged students cannot receive new scores
+        $flagService = app(StudentFlagService::class);
+        if (! $flagService->canBeScored($studentId, $groupId)) {
+            return null;
+        }
+
+        if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return null;
         }
 
@@ -653,7 +689,7 @@ class GradeCalculationService
      */
     private function getEvaluatorsForStudent(int $studentId, int $groupId, string $evaluationType): array
     {
-        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+        if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return [];
         }
 
@@ -663,20 +699,43 @@ class GradeCalculationService
             ->where('group_id', $groupId)
             ->get();
 
-        $evaluators = [];
+        // Group scores by evaluator and calculate average
+        $evaluatorScores = [];
 
         foreach ($scores as $score) {
-            $component = PeriodAssessmentComponent::with('template')
-                ->find($score->period_component_id);
+            // Handle different column names: SidangTaScore uses examiner_id, BimbinganTaScore uses evaluator_id
+            $evaluatorId = $score->examiner_id ?? $score->evaluator_id;
+            $evaluatorName = $score->evaluator->name ?? 'Unknown';
+            $evaluatorRole = $this->getEvaluatorRole($evaluatorId, $groupId, $studentId);
 
-            if ($component && $component->template) {
-                $evaluators[] = [
-                    'name' => $score->evaluator->name ?? 'Unknown',
-                    'role' => $this->getEvaluatorRole($score->evaluator_id, $groupId),
-                    'score' => $score->score,
-                    'component' => $component->template->name,
+            $key = $evaluatorId ?? $evaluatorName;
+
+            if (! isset($evaluatorScores[$key])) {
+                $evaluatorScores[$key] = [
+                    'id' => $evaluatorId,
+                    'name' => $evaluatorName,
+                    'role' => $evaluatorRole,
+                    'totalScore' => 0,
+                    'count' => 0,
                 ];
             }
+
+            $evaluatorScores[$key]['totalScore'] += $score->score;
+            $evaluatorScores[$key]['count']++;
+        }
+
+        // Build final evaluators array with averaged scores
+        $evaluators = [];
+        foreach ($evaluatorScores as $evaluatorData) {
+            $avgScore = $evaluatorData['count'] > 0
+                ? round($evaluatorData['totalScore'] / $evaluatorData['count'], 2)
+                : null;
+
+            $evaluators[] = [
+                'name' => $evaluatorData['name'],
+                'role' => $evaluatorData['role'],
+                'score' => $avgScore,
+            ];
         }
 
         return $evaluators;
@@ -711,9 +770,10 @@ class GradeCalculationService
     }
 
     /**
-     * Get evaluator role (Supervisor 1/2, Examiner, etc.).
+     * Get evaluator role (Supervisor 1/2, Examiner 1/2, etc.).
+     * For examiners, determines EXAMINER_1 vs EXAMINER_2 based on the student's schedule.
      */
-    private function getEvaluatorRole(?int $evaluatorId, int $groupId): string
+    private function getEvaluatorRole(?int $evaluatorId, int $groupId, ?int $studentId = null): string
     {
         if ($evaluatorId === null) {
             return 'UNKNOWN';
@@ -721,7 +781,7 @@ class GradeCalculationService
 
         $group = Group::with(['supervisor1', 'supervisor2'])->find($groupId);
 
-        if (!$group) {
+        if (! $group) {
             return 'EVALUATOR';
         }
 
@@ -731,6 +791,28 @@ class GradeCalculationService
 
         if ($group->supervisor_2_id === $evaluatorId) {
             return 'SUPERVISOR_2';
+        }
+
+        // For examiners, check if this student has a TA defense schedule
+        // to determine if this is EXAMINER_1 or EXAMINER_2
+        if ($studentId !== null) {
+            $schedule = TaDefenseSchedule::where('group_id', $groupId)
+                ->where('status', '!=', 'CANCELLED')
+                ->whereHas('students', function ($query) use ($studentId) {
+                    $query->where('student_id', $studentId);
+                })
+                ->orderByDesc('id')
+                ->first();
+
+            if ($schedule) {
+                if ($schedule->examiner_1_id === $evaluatorId) {
+                    return 'EXAMINER_1';
+                }
+
+                if ($schedule->examiner_2_id === $evaluatorId) {
+                    return 'EXAMINER_2';
+                }
+            }
         }
 
         return 'EXAMINER';
@@ -789,7 +871,7 @@ class GradeCalculationService
                 $totalScore += $bimbinganSemproScore;
             }
 
-            if (!$hasScore) {
+            if (! $hasScore) {
                 return null;
             }
 
@@ -805,7 +887,8 @@ class GradeCalculationService
                 'status' => $componentCount === 2 ? 'COMPLETE' : 'PARTIAL',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate PDC1 for group {$groupId}: " . $e->getMessage());
+            Log::error("Failed to calculate PDC1 for group {$groupId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -842,7 +925,7 @@ class GradeCalculationService
                 $totalScore += $expoScore;
             }
 
-            if (!$hasScore) {
+            if (! $hasScore) {
                 return null;
             }
 
@@ -859,7 +942,8 @@ class GradeCalculationService
                 'status' => $componentCount === 3 ? 'COMPLETE' : 'PARTIAL',
             ];
         } catch (\Exception $e) {
-            Log::error("Failed to calculate PDC2 for group {$groupId}: " . $e->getMessage());
+            Log::error("Failed to calculate PDC2 for group {$groupId}: ".$e->getMessage());
+
             return null;
         }
     }
@@ -869,7 +953,7 @@ class GradeCalculationService
      */
     private function getAverageEvaluationScore(int $groupId, string $evaluationType): ?float
     {
-        if (!AssessmentScoreRepository::isSupportedType($evaluationType)) {
+        if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return null;
         }
 
@@ -891,5 +975,31 @@ class GradeCalculationService
             'NILAI_DOSEN', 'EXPO', 'MILESTONE' => $this->calculatePDC2($groupId),
             default => null,
         };
+    }
+
+    /**
+     * Get grades using only the latest active period's scores.
+     * Called when a student has been flagged in previous periods.
+     */
+    public function calculateGradesForLatestPeriod(int $studentId): ?array
+    {
+        $flagService = app(StudentFlagService::class);
+        $latestPeriodId = $flagService->getLatestPeriodIdForStudent($studentId);
+
+        if (! $latestPeriodId) {
+            return null;
+        }
+
+        // Get the student's group in the latest period
+        $latestGroup = \App\Models\Group::where('period_id', $latestPeriodId)
+            ->whereHas('members', fn ($q) => $q->where('student_id', $studentId))
+            ->first();
+
+        if (! $latestGroup) {
+            return null;
+        }
+
+        // Calculate final grade using only this group's scores
+        return $this->calculateFinalGradeForStudent($studentId, $latestGroup->id);
     }
 }

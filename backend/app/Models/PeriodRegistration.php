@@ -12,6 +12,13 @@ class PeriodRegistration extends Model
     protected $fillable = [
         'user_id',
         'period_id',
+        'status',
+        'flagged_at',
+        'flagged_by',
+    ];
+
+    protected $casts = [
+        'flagged_at' => 'datetime',
     ];
 
     public function user()
@@ -22,5 +29,29 @@ class PeriodRegistration extends Model
     public function period()
     {
         return $this->belongsTo(Period::class);
+    }
+
+    /**
+     * User who flagged this registration.
+     */
+    public function flaggedBy()
+    {
+        return $this->belongsTo(User::class, 'flagged_by');
+    }
+
+    /**
+     * Scope to get active registrations.
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    /**
+     * Scope to get flagged registrations.
+     */
+    public function scopeFlagged($query)
+    {
+        return $query->where('status', 'flagged');
     }
 }

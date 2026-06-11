@@ -1,12 +1,12 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\RateLimiter;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\RoleController;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
-use App\Http\Controllers\AuthController;
-use App\Http\Controllers\RoleController;
-use App\Http\Controllers\ProfileController;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -47,13 +47,13 @@ Route::middleware(['throttle:auth'])->group(function () {
 // Authenticated routes with standard API rate limiting
 Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
-    
+
     // User info and roles
     Route::get('/user', [AuthController::class, 'me']);
     Route::get('/user/roles', [RoleController::class, 'index']);
     Route::post('/user/active-role', [RoleController::class, 'setActiveRole']);
     Route::get('/user/current-role', [RoleController::class, 'currentRole']);
-    
+
     // Profile
     Route::put('/profile', [ProfileController::class, 'update']);
 });

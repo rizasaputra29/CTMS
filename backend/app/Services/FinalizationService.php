@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
+use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Bid;
 use App\Models\Group;
 use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\User;
-use App\Concerns\RequiresActivePeriod;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -30,8 +30,8 @@ class FinalizationService
     private function validateQuota(int $titleId): void
     {
         $title = Title::where('id', $titleId)->lockForUpdate()->first();
-        
-        if (!$title) {
+
+        if (! $title) {
             throw new InvalidArgumentException('Title not found.');
         }
 
@@ -82,9 +82,9 @@ class FinalizationService
      * V4: Batch finalize all eligible groups in a period.
      * ⚠ Atomic transaction — all-or-nothing.
      *
-     * @param int $periodId Period to finalize
-     * @param int $adminId Admin user ID performing this action
-     * @param bool $isSimulation If true, preview without committing. Default: false
+     * @param  int  $periodId  Period to finalize
+     * @param  int  $adminId  Admin user ID performing this action
+     * @param  bool  $isSimulation  If true, preview without committing. Default: false
      * @return array ['allocated' => [...], 'skipped' => [...], 'total_allocated' => int, 'total_skipped' => int, 'simulated' => bool]
      *
      * PATTERN:
@@ -105,7 +105,7 @@ class FinalizationService
 
             // Mark period finalized before transitioning groups to PDC1_ACTIVE.
             // This guarantees PDC1_ACTIVE only appears after admin finalization flow begins.
-            if (!$isSimulation) {
+            if (! $isSimulation) {
                 $period->update(['is_finalized' => true]);
             }
 
@@ -124,11 +124,11 @@ class FinalizationService
             $allocated = [];
             $skipped = [];
             $titleQuotaUsed = [];
-            
+
             // Pre-load all title quotas in a single query to avoid N+1
             $titleIds = $acceptBids->pluck('title_id')->unique()->values();
             $titleQuotas = Title::whereIn('id', $titleIds)->pluck('quota', 'id');
-            
+
             // Pre-count allocations for all titles in a single query
             $allocationCounts = Group::whereIn('title_id', $titleIds)
                 ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
@@ -147,13 +147,14 @@ class FinalizationService
                 }
 
                 // Check quota using pre-loaded data
-                if (!isset($titleQuotaUsed[$titleId])) {
+                if (! isset($titleQuotaUsed[$titleId])) {
                     $titleQuotaUsed[$titleId] = $allocationCounts[$titleId] ?? 0;
                 }
 
                 $titleQuota = $titleQuotas[$titleId] ?? 0;
                 if ($titleQuotaUsed[$titleId] >= $titleQuota) {
                     $skipped[] = ['bid_id' => $bid->id, 'reason' => 'Quota full', 'group_id' => $group->id];
+
                     continue;
                 }
 
@@ -204,16 +205,16 @@ class FinalizationService
                     'bid_id' => $bid->id,
                 ];
             }
-            
+
             // Batch refresh readiness snapshots after all allocations
-            if (!empty($allocated)) {
+            if (! empty($allocated)) {
                 $groupIds = array_column($allocated, 'group_id');
                 // Dispatch to queue for better performance
                 \App\Jobs\RefreshGroupReadinessBatch::dispatch($groupIds);
             }
 
             // ⚠️ CRITICAL: Only audit period finalization if NOT simulating
-            if (!$isSimulation) {
+            if (! $isSimulation) {
                 // Audit log the actual finalization
                 AuditLog::create([
                     'user_id' => $adminId,
@@ -245,18 +246,18 @@ class FinalizationService
     {
         // 1. Get current readiness overview
         $stats = $this->getReadinessStats($periodId);
-        
+
         $actionPreviews = [];
         $canFinalize = $stats['total_invalid_groups'] === 0 && $stats['total_unassigned'] === 0;
 
         if ($canFinalize) {
-            $actionPreviews[] = "Semua grup dan mahasiswa siap. Batch finalisasi akan memproses " . $stats['total_groups'] . " kelompok.";
+            $actionPreviews[] = 'Semua grup dan mahasiswa siap. Batch finalisasi akan memproses '.$stats['total_groups'].' kelompok.';
         } else {
             if ($stats['total_unassigned'] > 0) {
-                $actionPreviews[] = "PERLU TINDAKAN: " . $stats['total_unassigned'] . " mahasiswa belum memiliki kelompok.";
+                $actionPreviews[] = 'PERLU TINDAKAN: '.$stats['total_unassigned'].' mahasiswa belum memiliki kelompok.';
             }
             if ($stats['total_invalid_groups'] > 0) {
-                $actionPreviews[] = "PERLU TINDAKAN: " . $stats['total_invalid_groups'] . " kelompok memiliki masalah kritis (size/title/supervisor).";
+                $actionPreviews[] = 'PERLU TINDAKAN: '.$stats['total_invalid_groups'].' kelompok memiliki masalah kritis (size/title/supervisor).';
             }
         }
 
@@ -281,7 +282,7 @@ class FinalizationService
                 'unassigned_students' => $stats['total_unassigned'],
             ],
             'action_previews' => $actionPreviews,
-            'readiness_details' => $stats
+            'readiness_details' => $stats,
         ];
     }
 
@@ -296,16 +297,16 @@ class FinalizationService
 
         return DB::transaction(function () use ($periodId, $mode, $adminId) {
             $applied = [];
-            
+
             // 1. SAFE FIX: Auto-populate supervisors from Bids if recommended
             if ($mode === 'SAFE' || $mode === 'AGGRESSIVE') {
                 $groupsWithBids = Group::where('period_id', $periodId)
-                    ->where(function($q) {
+                    ->where(function ($q) {
                         $q->whereNull('supervisor_1_id')->orWhereNull('supervisor_2_id');
                     })
-                    ->with(['bids' => fn($q) => $q->where('lecturer_recommendation', 'ACCEPT')])
+                    ->with(['bids' => fn ($q) => $q->where('lecturer_recommendation', 'ACCEPT')])
                     ->get();
-                
+
                 /** @var \App\Models\Group $group */
                 foreach ($groupsWithBids as $group) {
                     $winningBid = $group->bids->first();
@@ -323,11 +324,11 @@ class FinalizationService
             if ($mode === 'AGGRESSIVE') {
                 $matchmaker = app(AutoMatchmakerService::class);
                 $matchmaker->executeMatchmaking($periodId, $adminId); // Forms SOFT_FORMING groups
-                $applied[] = "Unassigned students dikelompokkan secara otomatis (Incomplete Teams).";
+                $applied[] = 'Unassigned students dikelompokkan secara otomatis (Incomplete Teams).';
             }
 
             return [
-                'message' => 'Auto-fix completed in ' . $mode . ' mode.',
+                'message' => 'Auto-fix completed in '.$mode.' mode.',
                 'applied_actions' => $applied,
             ];
         });
@@ -336,13 +337,13 @@ class FinalizationService
     /**
      * V4-CHUNKED: Process finalization in chunks to avoid long-running transactions.
      * Use this for very large periods (>100 groups) to prevent transaction timeouts.
-     * 
+     *
      * NOTE: This is NOT atomic - if it fails mid-way, some groups may be finalized
      * and others not. Use finalizePeriod() for atomic all-or-nothing behavior.
-     * 
-     * @param int $periodId Period to finalize
-     * @param int $adminId Admin user ID performing this action
-     * @param int $chunkSize Number of groups to process per chunk (default: 50)
+     *
+     * @param  int  $periodId  Period to finalize
+     * @param  int  $adminId  Admin user ID performing this action
+     * @param  int  $chunkSize  Number of groups to process per chunk (default: 50)
      * @return array ['allocated' => [...], 'skipped' => [...], 'total_allocated' => int, 'total_skipped' => int]
      */
     public function finalizePeriodChunked(int $periodId, int $adminId, int $chunkSize = 50): array
@@ -382,15 +383,16 @@ class FinalizationService
                         }
 
                         // Check quota using accumulated data
-                        if (!isset($titleQuotaUsed[$titleId])) {
+                        if (! isset($titleQuotaUsed[$titleId])) {
                             $titleQuotaUsed[$titleId] = Group::where('title_id', $titleId)
                                 ->whereNotIn('status', ['FORMING', 'READY_FOR_BIDDING', 'READY_FOR_FINALIZATION', 'CLOSED'])
                                 ->count();
                         }
 
                         $title = $bid->title;
-                        if (!$title || $titleQuotaUsed[$titleId] >= $title->quota) {
+                        if (! $title || $titleQuotaUsed[$titleId] >= $title->quota) {
                             $skipped[] = ['bid_id' => $bid->id, 'reason' => 'Quota full', 'group_id' => $group->id];
+
                             continue;
                         }
 
@@ -439,7 +441,7 @@ class FinalizationService
             });
 
         // Batch refresh readiness snapshots after all allocations
-        if (!empty($allocated)) {
+        if (! empty($allocated)) {
             $groupIds = array_column($allocated, 'group_id');
             \App\Jobs\RefreshGroupReadinessBatch::dispatch($groupIds);
         }
@@ -470,34 +472,33 @@ class FinalizationService
     /**
      * V5: Validate that all groups and students in a period are ready for finalization.
      * Enforces the 4 strict rules requested by admin.
-     * 
-     * @param int $periodId
+     *
      * @throws InvalidArgumentException
      */
     public function validatePeriodReadiness(int $periodId): void
     {
         // ─── Pre-check period-level blockers ───
         $period = \App\Models\Period::findOrFail($periodId);
-        
+
         // Check document requirements
         $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $periodId)->exists();
-        if (!$docReqExists) {
-            throw new InvalidArgumentException("Dokumen requirement belum dikonfigurasi untuk periode ini. Konfigurasi di Periode > Document Requirements.");
+        if (! $docReqExists) {
+            throw new InvalidArgumentException('Dokumen requirement belum dikonfigurasi untuk periode ini. Konfigurasi di Periode > Document Requirements.');
         }
 
         // Check period config
         if ($period->min_group_size === null || $period->max_group_size === null) {
-            throw new InvalidArgumentException("Konfigurasi periode belum lengkap. Isi min/max group size di edit periode.");
+            throw new InvalidArgumentException('Konfigurasi periode belum lengkap. Isi min/max group size di edit periode.');
         }
 
         // Check peer review
         if ($period->peerReviewIndicators()->count() === 0) {
-            throw new InvalidArgumentException("Peer review belum dikonfigurasi. Atur indikator peer review di menu Assessment.");
+            throw new InvalidArgumentException('Peer review belum dikonfigurasi. Atur indikator peer review di menu Assessment.');
         }
 
         // Check grade config
         if ($period->grade_configuration === null || empty($period->grade_configuration)) {
-            throw new InvalidArgumentException("Konfigurasi nilai belum diatur. Isi grade configuration di edit periode.");
+            throw new InvalidArgumentException('Konfigurasi nilai belum diatur. Isi grade configuration di edit periode.');
         }
 
         // Check for groups ready for finalization
@@ -508,22 +509,22 @@ class FinalizationService
 
         $blockers = $this->collectPeriodReadinessBlockers($periodId);
 
-        if (!$blockers['has_blockers']) {
+        if (! $blockers['has_blockers']) {
             return;
         }
 
         $errors = [];
 
-        if (!empty($blockers['unassigned_students'])) {
-            $names = array_map(fn($s) => $s['name'], $blockers['unassigned_students']);
-            $errors[] = "Terdapat " . count($blockers['unassigned_students']) . " mahasiswa terdaftar yang belum memiliki kelompok: " . implode(', ', $names);
+        if (! empty($blockers['unassigned_students'])) {
+            $names = array_map(fn ($s) => $s['name'], $blockers['unassigned_students']);
+            $errors[] = 'Terdapat '.count($blockers['unassigned_students']).' mahasiswa terdaftar yang belum memiliki kelompok: '.implode(', ', $names);
         }
 
         foreach ($blockers['group_errors'] as $groupError) {
-            $errors[] = "Kelompok #{$groupError['group_id']}: " . implode(', ', $groupError['issues']);
+            $errors[] = "Kelompok #{$groupError['group_id']}: ".implode(', ', $groupError['issues']);
         }
 
-        throw new InvalidArgumentException("Finalisasi Gagal! Mohon lengkapi data berikut:\n- " . implode("\n- ", $errors));
+        throw new InvalidArgumentException("Finalisasi Gagal! Mohon lengkapi data berikut:\n- ".implode("\n- ", $errors));
     }
 
     /**
@@ -561,7 +562,7 @@ class FinalizationService
             if ($unassignedIds->isNotEmpty()) {
                 $blockers['unassigned_students'] = User::whereIn('id', $unassignedIds)
                     ->get(['id', 'name', 'email'])
-                    ->map(fn($u) => ['id' => $u->id, 'name' => $u->name, 'email' => $u->email])
+                    ->map(fn ($u) => ['id' => $u->id, 'name' => $u->name, 'email' => $u->email])
                     ->values()
                     ->toArray();
             }
@@ -587,7 +588,7 @@ class FinalizationService
                 ->where('lecturer_recommendation', 'ACCEPT')
                 ->exists();
 
-            if (!$hasTitle) {
+            if (! $hasTitle) {
                 $groupErrors[] = 'Belum memiliki judul (bursa ide/proposal)';
                 $blockers['groups_without_title'][] = $group->id;
             }
@@ -608,17 +609,17 @@ class FinalizationService
             $hasSup2 = $group->supervisor_2_id
                 || ($winningBid && $winningBid->proposed_supervisor_2_id);
 
-            if (!$hasSup1) {
+            if (! $hasSup1) {
                 $groupErrors[] = 'Belum memiliki Pembimbing 1';
                 $blockers['groups_without_supervisor_1'][] = $group->id;
             }
 
-            if (!$hasSup2) {
+            if (! $hasSup2) {
                 $groupErrors[] = 'Belum memiliki Pembimbing 2';
                 $blockers['groups_without_supervisor_2'][] = $group->id;
             }
 
-            if (!empty($groupErrors)) {
+            if (! empty($groupErrors)) {
                 $blockers['group_errors'][] = [
                     'group_id' => $group->id,
                     'issues' => $groupErrors,
@@ -631,11 +632,11 @@ class FinalizationService
         }
 
         $blockers['has_blockers'] =
-            !empty($blockers['unassigned_students'])
-            || !empty($blockers['groups_invalid_size'])
-            || !empty($blockers['groups_without_title'])
-            || !empty($blockers['groups_without_supervisor_1'])
-            || !empty($blockers['groups_without_supervisor_2']);
+            ! empty($blockers['unassigned_students'])
+            || ! empty($blockers['groups_invalid_size'])
+            || ! empty($blockers['groups_without_title'])
+            || ! empty($blockers['groups_without_supervisor_1'])
+            || ! empty($blockers['groups_without_supervisor_2']);
 
         return $blockers;
     }
@@ -649,7 +650,7 @@ class FinalizationService
         // 1. Student Registration Stats (always real-time)
         $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $periodId)
             ->pluck('user_id');
-        
+
         $assignedStudentIds = \App\Models\GroupMember::where('period_id', $periodId)
             ->pluck('student_id')
             ->unique();
@@ -664,7 +665,7 @@ class FinalizationService
 
         $invalidGroups = [];
         $totalProgress = 0;
-        
+
         foreach ($groups as $group) {
             $status = $group->readiness_status ?? $group->calculateReadiness();
             $progress = $status['progress'] ?? null;
@@ -692,13 +693,13 @@ class FinalizationService
 
                 $progress = (int) round(($metWeight / 4) * 100);
             }
-            
-            if (!$status['is_ready']) {
+
+            if (! $status['is_ready']) {
                 $invalidGroups[] = [
                     'id' => $group->id,
                     'status' => $group->status,
                     'progress' => $progress,
-                    'issues' => $status['issues']['critical'] ?? []
+                    'issues' => $status['issues']['critical'] ?? [],
                 ];
             }
             $totalProgress += $progress;
@@ -718,4 +719,3 @@ class FinalizationService
         ];
     }
 }
-

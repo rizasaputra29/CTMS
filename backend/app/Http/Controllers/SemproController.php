@@ -8,11 +8,13 @@ use App\Models\Location;
 use App\Models\Period;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
+use App\Models\User;
+use App\Repositories\AssessmentScoreRepository;
 use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use App\Services\SchedulingService;
-use App\Repositories\AssessmentScoreRepository;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -20,6 +22,7 @@ use Illuminate\Support\Facades\Log;
 class SemproController extends Controller
 {
     protected GroupStateMachine $stateMachine;
+
     protected SchedulingService $schedulingService;
 
     public function __construct(GroupStateMachine $stateMachine, SchedulingService $schedulingService)
@@ -94,7 +97,7 @@ class SemproController extends Controller
                     if ($studentId <= 0) {
                         continue;
                     }
-                    if (!isset($studentExamScores[$studentId])) {
+                    if (! isset($studentExamScores[$studentId])) {
                         $studentExamScores[$studentId] = [];
                     }
                     $studentExamScores[$studentId][] = (float) $score;
@@ -178,7 +181,7 @@ class SemproController extends Controller
             return response()->json([
                 'message' => 'Group already has an active SEMPRO schedule.',
                 'existing_schedule_id' => $existing->id,
-                'existing_status' => $existing->status
+                'existing_status' => $existing->status,
             ], 400);
         }
 
@@ -217,7 +220,7 @@ class SemproController extends Controller
             $room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -240,7 +243,7 @@ class SemproController extends Controller
         );
 
         // If schedule was reactivated (was CANCELLED or other status), clear old evaluations
-        if (!$schedule->wasRecentlyCreated) {
+        if (! $schedule->wasRecentlyCreated) {
             SeminarEvaluation::where('schedule_id', $schedule->id)->delete();
         }
 
@@ -344,7 +347,7 @@ class SemproController extends Controller
             $room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -374,7 +377,7 @@ class SemproController extends Controller
                 ->where('examiner_id', $examinerId)
                 ->exists();
 
-            if (!$exists) {
+            if (! $exists) {
                 SeminarEvaluation::create([
                     'schedule_id' => $schedule->id,
                     'examiner_id' => $examinerId,
@@ -459,7 +462,7 @@ class SemproController extends Controller
             ->where('examiner_id', $user->id)
             ->first();
 
-        if (!$evaluation) {
+        if (! $evaluation) {
             return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
         }
 
@@ -470,7 +473,7 @@ class SemproController extends Controller
         try {
             // Calculate result based on score threshold (60)
             $result = $request->score >= 60 ? 'PASS' : 'FAIL';
-            
+
             $evaluationResult = $this->schedulingService->submitSeminarEvaluation(
                 $evaluation->id,
                 $request->rubric_json,
@@ -486,7 +489,7 @@ class SemproController extends Controller
                     $group = Group::find($schedule->group_id);
                     $groupName = $group ? $group->name : "Group {$schedule->group_id}";
                     $deadlineFormatted = $schedule->evaluation_deadline ? date('d M Y H:i', strtotime($schedule->evaluation_deadline)) : 'Unknown';
-                    
+
                     $notificationService->send(
                         $user->id,
                         'EVALUATION_DEADLINE_PASSED',
@@ -496,7 +499,7 @@ class SemproController extends Controller
                         $scheduleId
                     );
                 } catch (\Exception $e) {
-                    Log::error("Failed to send deadline notification: " . $e->getMessage());
+                    Log::error('Failed to send deadline notification: '.$e->getMessage());
                 }
             }
 
@@ -549,7 +552,7 @@ class SemproController extends Controller
             $request->room
         );
 
-        if (!empty($conflicts)) {
+        if (! empty($conflicts)) {
             return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
         }
 
@@ -560,7 +563,7 @@ class SemproController extends Controller
             'room' => $request->room,
             'examiner_1_id' => $request->examiner_1_id,
             'examiner_2_id' => $request->examiner_2_id,
-            'status' => 'SCHEDULED'
+            'status' => 'SCHEDULED',
         ]);
 
         // Auto-generate evaluation rows
@@ -638,5 +641,122 @@ class SemproController extends Controller
             'message' => 'SEMPRO schedule request rejected.',
             'data' => $schedule,
         ]);
+    }
+
+    /**
+     * Assign examiners to an existing SEMPRO schedule (admin only).
+     * Validates that examiners are not supervisors and checks for conflicts.
+     */
+    public function assignExaminers(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        if (! $user->hasRole('admin')) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $schedule = SeminarSchedule::with('group')->findOrFail($id);
+
+        if ($schedule->type !== 'SEMPRO') {
+            return response()->json(['message' => 'This endpoint only updates SEMPRO schedules.'], 400);
+        }
+
+        if ($schedule->status === 'DONE') {
+            return response()->json(['message' => 'Cannot assign examiners to completed schedule.'], 400);
+        }
+
+        $request->validate([
+            'examiner_1_id' => 'required|exists:users,id',
+            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
+        ]);
+
+        $group = $schedule->group;
+
+        // Validate examiner cannot be supervisor
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        if (in_array($request->examiner_1_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        }
+
+        if (in_array($request->examiner_2_id, $supervisorIds)) {
+            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+        }
+
+        // Validate examiners are dosen
+        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $examiners = User::whereIn('id', $examinerIds)
+            ->whereHas('roles', fn ($q) => $q->where('slug', 'dosen'))
+            ->get();
+
+        if ($examiners->count() !== 2) {
+            return response()->json(['message' => 'Both examiners must be dosen (lecturers).'], 400);
+        }
+
+        // Validate examiner constraints
+        $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
+        if ($constraintError) {
+            return response()->json(['message' => $constraintError], 400);
+        }
+
+        // Double-booking & room conflict check
+        $conflicts = $this->schedulingService->validateScheduleConflicts(
+            $examinerIds,
+            $schedule->date,
+            $schedule->start_time,
+            $schedule->end_time,
+            $schedule->room,
+            null,
+            $schedule->id
+        );
+
+        if (! empty($conflicts)) {
+            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+        }
+
+        DB::beginTransaction();
+        try {
+            // Clear old evaluations if examiners changed
+            $oldExaminerIds = [$schedule->examiner_1_id, $schedule->examiner_2_id];
+            $newExaminerIds = array_filter($examinerIds);
+
+            if (array_diff($oldExaminerIds, $newExaminerIds) || array_diff($newExaminerIds, $oldExaminerIds)) {
+                SeminarEvaluation::where('schedule_id', $schedule->id)->delete();
+            }
+
+            $schedule->update([
+                'examiner_1_id' => $request->examiner_1_id,
+                'examiner_2_id' => $request->examiner_2_id,
+            ]);
+
+            // Auto-generate evaluation rows for new examiners
+            $this->schedulingService->autoGenerateSeminarEvaluations($schedule->fresh());
+
+            // Send notifications to new examiners
+            $notificationService = app(\App\Services\NotificationService::class);
+            $notificationService->sendToMany(
+                $examinerIds,
+                'SCHEDULE_APPROVED',
+                'You are assigned as an examiner',
+                "You have been assigned as an examiner for a SEMPRO on {$schedule->date} at {$schedule->start_time}.",
+                'seminar_schedules',
+                $schedule->id
+            );
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Examiners assigned successfully.',
+                'data' => $schedule->fresh()->load(['examiner1', 'examiner2', 'evaluations']),
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('Failed to assign examiners', ['error' => $e->getMessage()]);
+
+            return response()->json(['message' => 'Failed to assign examiners: '.$e->getMessage()], 500);
+        }
     }
 }

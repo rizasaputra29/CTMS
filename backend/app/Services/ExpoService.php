@@ -2,16 +2,15 @@
 
 namespace App\Services;
 
+use App\Concerns\RequiresActivePeriod;
+use App\Models\AuditLog;
 use App\Models\ExpoEvent;
 use App\Models\ExpoRegistration;
-use App\Models\Group;
-use App\Models\SeminarSchedule;
-use App\Models\AuditLog;
 use App\Models\ExpoScore;
+use App\Models\Group;
 use App\Models\MilestoneScore;
 use App\Models\NilaiDosenScore;
-use Illuminate\Support\Facades\Log;
-use App\Concerns\RequiresActivePeriod;
+use App\Models\SeminarSchedule;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -37,7 +36,7 @@ class ExpoService
             $event = ExpoEvent::lockForUpdate()->findOrFail($eventId);
 
             // Guard: event must be published
-            if (!$event->is_published) {
+            if (! $event->is_published) {
                 throw new InvalidArgumentException('This expo event is not open for registration.');
             }
 
@@ -55,10 +54,10 @@ class ExpoService
             $this->ensurePeriodIsActive($group);
 
             // ⚠ Validate state machine transition BEFORE attempting
-            if (!$this->stateMachine->canTransition($group->status, 'EXPO_REGISTERED')) {
+            if (! $this->stateMachine->canTransition($group->status, 'EXPO_REGISTERED')) {
                 throw new InvalidArgumentException(
-                    "Group is not eligible for expo registration. Current status: {$group->status}. " .
-                    "Required: PDC2_READY_FOR_EXPO."
+                    "Group is not eligible for expo registration. Current status: {$group->status}. ".
+                    'Required: PDC2_READY_FOR_EXPO.'
                 );
             }
 
@@ -72,9 +71,9 @@ class ExpoService
                 ->where('phase', 'TA_DRAFT')
                 ->where('status', 'APPROVED')
                 ->exists();
-            if (!$hasTaDraft) {
+            if (! $hasTaDraft) {
                 throw new InvalidArgumentException(
-                    "Group is not eligible for expo registration. TA Draft document must be approved."
+                    'Group is not eligible for expo registration. TA Draft document must be approved.'
                 );
             }
 
@@ -157,7 +156,7 @@ class ExpoService
 
             $this->ensurePeriodIsActive($group);
 
-            if (!$event->is_published) {
+            if (! $event->is_published) {
                 throw new InvalidArgumentException('This expo event is not open for withdrawal.');
             }
 
@@ -169,7 +168,7 @@ class ExpoService
                 ->where('group_id', $group->id)
                 ->first();
 
-            if (!$registration) {
+            if (! $registration) {
                 throw new InvalidArgumentException('No active expo registration found for this group.');
             }
 
@@ -230,7 +229,7 @@ class ExpoService
                 );
             }
 
-            if (!$this->stateMachine->canTransition($group->status, 'PDC2_READY_FOR_EXPO')) {
+            if (! $this->stateMachine->canTransition($group->status, 'PDC2_READY_FOR_EXPO')) {
                 throw new InvalidArgumentException(
                     'Failed to transition group after expo withdrawal.'
                 );

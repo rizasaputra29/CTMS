@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Schema;
 
 /**
  * Performance indexes for Neon PostgreSQL production environment.
- * 
+ *
  * These indexes address N+1 query issues and slow queries identified
  * during performance analysis for CTMS on Neon PostgreSQL.
  */
@@ -21,7 +21,7 @@ return new class extends Migration
         Schema::table('group_members', function (Blueprint $table) {
             // Composite index for student lookups by period (common query pattern)
             $table->index(['student_id', 'period_id'], 'idx_group_members_student_period');
-            
+
             // Composite index for group membership lookups
             $table->index(['group_id', 'period_id'], 'idx_group_members_group_period');
         });
@@ -30,7 +30,7 @@ return new class extends Migration
         Schema::table('groups', function (Blueprint $table) {
             // Composite index for period + status queries (finalization queries)
             $table->index(['period_id', 'status'], 'idx_groups_period_status');
-            
+
             // Composite index for title allocation queries
             $table->index(['title_id', 'status'], 'idx_groups_title_status');
         });
@@ -39,7 +39,7 @@ return new class extends Migration
         Schema::table('bids', function (Blueprint $table) {
             // Composite index for bid lookups by group and recommendation
             $table->index(['group_id', 'lecturer_recommendation'], 'idx_bids_group_recommendation');
-            
+
             // Composite index for title-based bid queries
             $table->index(['title_id', 'lecturer_recommendation'], 'idx_bids_title_recommendation');
         });
@@ -48,7 +48,7 @@ return new class extends Migration
         Schema::table('notifications', function (Blueprint $table) {
             // Composite index for unread notifications by user
             $table->index(['user_id', 'is_read'], 'idx_notifications_user_read');
-            
+
             // Index for notification type filtering
             $table->index(['user_id', 'type'], 'idx_notifications_user_type');
         });

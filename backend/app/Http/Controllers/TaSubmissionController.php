@@ -3,27 +3,23 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
-use App\Models\AuditLog;
-use App\Models\Group;
-use App\Models\GroupMember;
-use App\Models\TaSubmission;
-use App\Models\Period;
-use App\Models\Document;
-use App\Models\PhaseDocumentRequirement;
-use App\Models\PeriodAssessmentConfig;
-use App\Models\PeriodAssessmentIndicator;
-use App\Models\PeriodPeerReviewIndicator;
-use App\Models\StudentPeerReviewStatus;
-use App\Repositories\AssessmentScoreRepository;
-use App\Services\GroupStateMachine;
 use App\Exceptions\ConflictRuleException;
 use App\Exceptions\DomainRuleException;
+use App\Models\AuditLog;
+use App\Models\Document;
+use App\Models\Group;
+use App\Models\GroupMember;
+use App\Models\Period;
+use App\Models\PeriodPeerReviewIndicator;
+use App\Models\PhaseDocumentRequirement;
+use App\Models\StudentPeerReviewStatus;
+use App\Models\TaSubmission;
+use App\Repositories\AssessmentScoreRepository;
+use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
-use Illuminate\Database\QueryException;
 
 class TaSubmissionController extends Controller
 {
@@ -63,7 +59,7 @@ class TaSubmissionController extends Controller
 
         // Find student's group
         $membership = GroupMember::where('student_id', $user->id)->first();
-        if (!$membership) {
+        if (! $membership) {
             return response()->json(['message' => 'You are not in a group.'], 400);
         }
 
@@ -72,13 +68,13 @@ class TaSubmissionController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Gate: group must be at least PDC2_ACTIVE
-        if (!$this->stateMachine->isAtLeast($group, 'PDC2_ACTIVE')) {
+        if (! $this->stateMachine->isAtLeast($group, 'PDC2_ACTIVE')) {
             return response()->json(['message' => 'Group must be at least in PDC2_ACTIVE status.'], 400);
         }
 
         // Gate: Check if group is ready for TA Individual submission
         $readyCheck = $this->checkReadyForTaIndividual($group);
-        if (!$readyCheck['ready']) {
+        if (! $readyCheck['ready']) {
             return response()->json([
                 'message' => 'Your group is not ready for TA Individual submission. Please complete all requirements.',
                 'requirements' => $readyCheck['requirements'],
@@ -143,14 +139,14 @@ class TaSubmissionController extends Controller
                 ->first();
         });
 
-        if (!$activePeriod) {
-            throw new DomainRuleException("Tidak ada periode pendaftaran aktif saat ini.");
+        if (! $activePeriod) {
+            throw new DomainRuleException('Tidak ada periode pendaftaran aktif saat ini.');
         }
 
         // 2. Check TA Registration Window
         $now = now();
-        if (!$activePeriod->ta_start || !$activePeriod->ta_end || $now->lt($activePeriod->ta_start) || $now->gt($activePeriod->ta_end)) {
-            throw new DomainRuleException("Pendaftaran sidang TA saat ini sedang ditutup.");
+        if (! $activePeriod->ta_start || ! $activePeriod->ta_end || $now->lt($activePeriod->ta_start) || $now->gt($activePeriod->ta_end)) {
+            throw new DomainRuleException('Pendaftaran sidang TA saat ini sedang ditutup.');
         }
 
         return DB::transaction(function () use ($user, $activePeriod) {
@@ -160,23 +156,23 @@ class TaSubmissionController extends Controller
                 ->lockForUpdate()
                 ->first();
 
-            if (!$submission) {
-                throw new DomainRuleException("Data pendaftaran TA tidak ditemukan.");
+            if (! $submission) {
+                throw new DomainRuleException('Data pendaftaran TA tidak ditemukan.');
             }
 
             // Idempotency
             if ($submission->status === 'TA_REGISTERED') {
-                throw new ConflictRuleException("Anda sudah terdaftar untuk sidang TA.");
+                throw new ConflictRuleException('Anda sudah terdaftar untuk sidang TA.');
             }
 
             // B. Eligibility Check (Submission Status & Group Status)
             if ($submission->status !== 'TA_READY') {
-                throw new DomainRuleException("Status TA Anda belum mencapai TA_READY.");
+                throw new DomainRuleException('Status TA Anda belum mencapai TA_READY.');
             }
 
             $group = Group::where('id', $submission->group_id)->lockForUpdate()->first();
-            if (!in_array($group->status, ['READY_FOR_TA_INDIVIDUAL'])) {
-                throw new DomainRuleException("Grup Anda belum menyelesaikan fase READY_FOR_TA_INDIVIDUAL.");
+            if (! in_array($group->status, ['READY_FOR_TA_INDIVIDUAL'])) {
+                throw new DomainRuleException('Grup Anda belum menyelesaikan fase READY_FOR_TA_INDIVIDUAL.');
             }
 
             // C. Finalize Registration
@@ -190,7 +186,7 @@ class TaSubmissionController extends Controller
                 'target_id' => $submission->id,
                 'payload' => [
                     'request_id' => Log::getContext()['request_id'] ?? null,
-                    'period_id' => $activePeriod->id
+                    'period_id' => $activePeriod->id,
                 ],
             ]);
 
@@ -333,7 +329,7 @@ class TaSubmissionController extends Controller
             $requirements['peer_review_completed'] = $completedMembers >= $members->count();
         }
 
-        $allComplete = !in_array(false, $requirements, true);
+        $allComplete = ! in_array(false, $requirements, true);
 
         return [
             'ready' => $allComplete,
@@ -365,7 +361,7 @@ class TaSubmissionController extends Controller
             ->where('evaluation_type', $evaluationType)
             ->exists();
 
-        if (!$configExists) {
+        if (! $configExists) {
             return false;
         }
 
@@ -397,20 +393,20 @@ class TaSubmissionController extends Controller
     public function getDetailedStatus(Request $request)
     {
         $user = $request->user();
-        
+
         $submission = TaSubmission::with(['group.title', 'reviewer', 'group.supervisor1', 'group.supervisor2'])
             ->where('student_id', $user->id)
             ->first();
 
-        if (!$submission) {
+        if (! $submission) {
             // Check if group is ready for TA individual
             $membership = GroupMember::where('student_id', $user->id)->first();
-            if (!$membership) {
+            if (! $membership) {
                 return response()->json(['message' => 'You are not in a group.'], 400);
             }
 
             $group = Group::with(['title', 'supervisor1', 'supervisor2'])->find($membership->group_id);
-            
+
             if ($group->status !== 'READY_FOR_TA_INDIVIDUAL') {
                 return response()->json([
                     'can_access' => false,
@@ -447,6 +443,15 @@ class TaSubmissionController extends Controller
 
         $documentRequirements = $this->getTaDocumentRequirements($submission->group->period_id);
 
+        // Self-heal: re-evaluate document approval status on every page load
+        $this->checkAllDocumentsApproved($user->id, $submission->group_id);
+
+        // Self-heal: Check if student has completed all TA defense evaluations
+        $this->checkTaDefenseCompletion($user->id, $submission);
+
+        $submission = TaSubmission::with(['group.title', 'group.supervisor1', 'group.supervisor2'])
+            ->find($submission->id);
+
         return response()->json([
             'can_access' => true,
             'status' => $submission->status,
@@ -476,7 +481,7 @@ class TaSubmissionController extends Controller
         $user = $request->user();
 
         $submission = TaSubmission::where('student_id', $user->id)->first();
-        if (!$submission) {
+        if (! $submission) {
             return response()->json(['message' => 'TA submission not found.'], 404);
         }
 
@@ -505,21 +510,21 @@ class TaSubmissionController extends Controller
         $user = $request->user();
 
         $submission = TaSubmission::with('group.period')->where('student_id', $user->id)->first();
-        if (!$submission) {
+        if (! $submission) {
             return response()->json(['message' => 'TA submission not found.'], 404);
         }
 
         $this->ensurePeriodIsActive($submission->group);
 
         // Check if submission is in a valid state for document upload
-        if (!in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
+        if (! in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
             return response()->json(['message' => 'Cannot upload documents at this stage.'], 403);
         }
 
         // Handle file upload
         $file = $request->file('file');
-        $fileName = time() . '_' . $file->getClientOriginalName();
-        $path = $file->storeAs('ta-documents/' . $submission->group_id . '/' . $user->id, $fileName, 'public');
+        $fileName = time().'_'.$file->getClientOriginalName();
+        $path = $file->storeAs('ta-documents/'.$submission->group_id.'/'.$user->id, $fileName, 'public');
 
         // Check if document already exists
         $existingDoc = Document::where('student_id', $user->id)
@@ -579,8 +584,8 @@ class TaSubmissionController extends Controller
         $this->ensurePeriodIsActive($group);
 
         $isSupervisor = in_array($user->id, [$group->supervisor_1_id, $group->supervisor_2_id]);
-        
-        if (!$isSupervisor && !$user->hasRole('admin')) {
+
+        if (! $isSupervisor && ! $user->hasRole('admin')) {
             return response()->json(['message' => 'Unauthorized. Only supervisors or admin can review documents.'], 403);
         }
 
@@ -601,37 +606,101 @@ class TaSubmissionController extends Controller
 
     /**
      * Check if all required TA documents are approved.
+     * Only updates status if currently in document-related states.
      */
     private function checkAllDocumentsApproved(int $studentId, int $groupId): void
     {
-        $group = Group::find($groupId);
         $submission = TaSubmission::where('student_id', $studentId)->first();
 
-        if (!$submission || !$group) {
+        if (! $submission) {
             return;
         }
 
-        // Get required documents (using 'name' field from PhaseDocumentRequirement)
-        $requiredDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
+        // Only update if status is in a document-related state
+        if (! in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
+            return;
+        }
+
+        $totalCount = Document::where('student_id', $studentId)
             ->where('phase', 'TA')
-            ->where('is_required', true)
-            ->pluck('name');
+            ->count();
 
-        if ($requiredDocs->isEmpty()) {
-            // No required docs, auto-approve
-            $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
+        if ($totalCount === 0) {
             return;
         }
 
-        // Check approved documents
         $approvedCount = Document::where('student_id', $studentId)
             ->where('phase', 'TA')
-            ->whereIn('document_type', $requiredDocs)
             ->where('status', 'APPROVED')
             ->count();
 
-        if ($approvedCount >= $requiredDocs->count()) {
+        if ($approvedCount >= $totalCount) {
             $submission->update(['status' => 'TA_DOCUMENTS_APPROVED']);
         }
+    }
+
+    /**
+     * Check if student's TA defense evaluations are complete and update status accordingly.
+     * Self-healing: Called on status load to fix stale statuses from code changes.
+     */
+    private function checkTaDefenseCompletion(int $studentId, TaSubmission $submission): void
+    {
+        // Only check if currently in a defense-related state
+        if (! in_array($submission->status, ['TA_READY_FOR_SIDANG', 'TA_SCHEDULED', 'TA_DEFENDED', 'TA_REVISED'])) {
+            return;
+        }
+
+        // Already marked as complete
+        if (in_array($submission->status, ['TA_DEFENDED', 'TA_REVISED'])) {
+            return;
+        }
+
+        // Find if student is in any scheduled or completed TA defense
+        $schedule = \App\Models\TaDefenseSchedule::whereHas('students', function ($q) use ($studentId) {
+            $q->where('student_id', $studentId);
+        })
+            ->where('group_id', $submission->group_id)
+            ->whereIn('status', ['SCHEDULED', 'COMPLETED'])
+            ->first();
+
+        if (! $schedule) {
+            return;
+        }
+
+        // Check if all evaluations for this student are submitted
+        $totalEvals = \App\Models\TaDefenseEvaluation::where('schedule_id', $schedule->id)
+            ->where('student_id', $studentId)
+            ->count();
+
+        $submittedEvals = \App\Models\TaDefenseEvaluation::where('schedule_id', $schedule->id)
+            ->where('student_id', $studentId)
+            ->where('status', 'SUBMITTED')
+            ->count();
+
+        if ($totalEvals === 0 || $submittedEvals < $totalEvals) {
+            return;
+        }
+
+        // All evaluations submitted - calculate final score
+        $schedulingService = app(\App\Services\SchedulingService::class);
+        $finalScore = $schedulingService->calculateFinalTaDefenseScoreForStudent($schedule, $studentId);
+        $result = $finalScore >= 60 ? 'PASS' : 'FAIL';
+
+        // Update status
+        $newStatus = $result === 'PASS' ? 'TA_DEFENDED' : 'TA_REVISED';
+        $submission->update(['status' => $newStatus]);
+
+        AuditLog::create([
+            'user_id' => $studentId,
+            'action' => "TA_DEFENSE_{$result}_SELF_HEALED",
+            'target_type' => 'TaSubmission',
+            'target_id' => $submission->id,
+            'payload' => [
+                'student_id' => $studentId,
+                'schedule_id' => $schedule->id,
+                'final_score' => $finalScore,
+                'previous_status' => $submission->getOriginal('status') ?? 'TA_READY_FOR_SIDANG',
+            ],
+        ]);
     }
 }

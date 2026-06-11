@@ -14,10 +14,10 @@ return new class extends Migration
         Schema::table('users', function (Blueprint $table) {
             // NIP for lecturers (dosen)
             $table->string('nip')->nullable()->after('email');
-            
+
             // NIM for students (mahasiswa)
             $table->string('nim')->nullable()->after('nip');
-            
+
             // Active status
             $table->boolean('is_active')->default(true)->after('nim');
         });

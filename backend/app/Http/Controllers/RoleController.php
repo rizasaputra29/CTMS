@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
+use App\Http\Requests\Auth\SetActiveRoleRequest;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class RoleController extends Controller
 {
@@ -17,17 +18,13 @@ class RoleController extends Controller
         ]);
     }
 
-    public function setActiveRole(Request $request): JsonResponse
+    public function setActiveRole(SetActiveRoleRequest $request): JsonResponse
     {
-        $request->validate([
-            'role' => 'required|string',
-        ]);
-
         $user = $request->user();
         $availableRoles = $user->roleSlugs();
         $requestedRole = $request->input('role');
 
-        if (!in_array($requestedRole, $availableRoles, true)) {
+        if (! in_array($requestedRole, $availableRoles, true)) {
             return response()->json([
                 'message' => 'Invalid role. You do not have this role.',
             ], 422);

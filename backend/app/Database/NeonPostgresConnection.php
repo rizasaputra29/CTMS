@@ -22,9 +22,6 @@ class NeonPostgresConnection extends PostgresConnection
      * Overrides the parent method to convert boolean values to 'true'/'false' strings
      * instead of integers (1/0), which is necessary for proper PostgreSQL boolean
      * handling with emulated prepared statements.
-     *
-     * @param  array  $bindings
-     * @return array
      */
     public function prepareBindings(array $bindings): array
     {

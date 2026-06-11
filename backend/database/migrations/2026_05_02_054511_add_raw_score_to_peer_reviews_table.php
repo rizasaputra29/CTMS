@@ -2,8 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
@@ -27,10 +27,10 @@ return new class extends Migration
     private function migrateExistingData(): void
     {
         $reviews = DB::table('peer_reviews')->get();
-        
+
         foreach ($reviews as $review) {
             $currentScore = $review->score;
-            
+
             // Check if score is already in 1-4 range (integer values)
             if ($currentScore >= 1 && $currentScore <= 4 && $currentScore == round($currentScore)) {
                 // Already in new format: raw_score = current, score = converted
@@ -41,7 +41,7 @@ return new class extends Migration
                 $rawScore = max(1, min(4, round($currentScore / 25)));
                 $convertedScore = $currentScore; // Keep original as converted
             }
-            
+
             DB::table('peer_reviews')
                 ->where('id', $review->id)
                 ->update([
@@ -49,8 +49,8 @@ return new class extends Migration
                     'score' => $convertedScore,
                 ]);
         }
-        
-        echo "Migrated " . count($reviews) . " peer review records.\n";
+
+        echo 'Migrated '.count($reviews)." peer review records.\n";
     }
 
     /**

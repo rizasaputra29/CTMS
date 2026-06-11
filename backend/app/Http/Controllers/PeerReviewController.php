@@ -2,12 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\GroupMember;
 use App\Models\PeerReview;
 use App\Models\PeriodPeerReviewIndicator;
-use App\Models\GroupMember;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
 
 class PeerReviewController extends Controller
 {
@@ -19,7 +18,7 @@ class PeerReviewController extends Controller
         $user = $request->user();
         $member = GroupMember::where('student_id', $user->id)->first();
 
-        if (!$member) {
+        if (! $member) {
             return response()->json(['message' => 'You are not in any group'], 404);
         }
 
@@ -32,7 +31,7 @@ class PeerReviewController extends Controller
             ->get();
 
         // Map to indicator format
-        $indicators = $periodIndicators->map(fn($i) => [
+        $indicators = $periodIndicators->map(fn ($i) => [
             'id' => $i->id,
             'code' => $i->template->code,
             'name' => $i->template->name,
@@ -54,8 +53,8 @@ class PeerReviewController extends Controller
             ->get();
 
         // Check if locked
-        $stateMachine = new \App\Services\GroupStateMachine();
-        $isLocked = !$stateMachine->isAtLeast($group, 'EXPO_REGISTERED');
+        $stateMachine = new \App\Services\GroupStateMachine;
+        $isLocked = ! $stateMachine->isAtLeast($group, 'EXPO_REGISTERED');
 
         // Check if student has already submitted peer reviews
         $peerReviewStatus = \App\Models\StudentPeerReviewStatus::where('student_id', $user->id)
@@ -82,11 +81,11 @@ class PeerReviewController extends Controller
         $user = $request->user();
         $member = GroupMember::where('student_id', $user->id)->with('group')->first();
 
-        if (!$member || !$member->group) {
+        if (! $member || ! $member->group) {
             return response()->json(['active' => false, 'expo_registered' => false]);
         }
 
-        $stateMachine = new \App\Services\GroupStateMachine();
+        $stateMachine = new \App\Services\GroupStateMachine;
         $expoRegistered = $stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED');
         $hasIndicators = PeriodPeerReviewIndicator::where('period_id', $member->group->period_id)->exists();
 
@@ -115,9 +114,9 @@ class PeerReviewController extends Controller
         $user = $request->user();
         $member = GroupMember::with('group')->where('student_id', $user->id)->firstOrFail();
 
-        $stateMachine = new \App\Services\GroupStateMachine();
+        $stateMachine = new \App\Services\GroupStateMachine;
         // Peer review unlocks once group is registered for EXPO (EXPO_REGISTERED status)
-        if (!$stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED')) {
+        if (! $stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED')) {
             return response()->json(['message' => 'Peer review is locked until your group is registered for EXPO.'], 403);
         }
 
@@ -126,7 +125,7 @@ class PeerReviewController extends Controller
         $existingStatus = \App\Models\StudentPeerReviewStatus::where('student_id', $user->id)
             ->where('group_id', $member->group_id)
             ->first();
-        
+
         if ($existingStatus && $existingStatus->has_completed_peer_review) {
             return response()->json(['message' => 'You have already completed peer review. Changes are not allowed after final submission.'], 403);
         }
@@ -134,7 +133,7 @@ class PeerReviewController extends Controller
         // OPTIMIZED: Use upsert instead of updateOrCreate in loop
         $reviewsData = [];
         $now = now();
-        
+
         foreach ($request->reviews as $review) {
             $rawScore = $review['score']; // 1-4 scale from frontend
             $convertedScore = $rawScore * 25; // Convert to 0-100 scale
@@ -212,16 +211,16 @@ class PeerReviewController extends Controller
         ]);
 
         $periodId = $request->input('period_id');
-        
+
         // Get groups with their peer review data
         $query = \App\Models\Group::with(['members.student', 'period', 'title']);
-        
+
         if ($periodId) {
             $query->where('period_id', $periodId);
         }
-        
+
         $groups = $query->get();
-        
+
         if ($groups->isEmpty()) {
             return response()->json([
                 'period_id' => $periodId,
@@ -229,17 +228,17 @@ class PeerReviewController extends Controller
                 'groups' => [],
             ]);
         }
-        
+
         // OPTIMIZED: Pre-load all peer reviews for all groups in a single query
         $groupIds = $groups->pluck('id');
         $allReviews = PeerReview::with(['reviewer', 'reviewee', 'periodIndicator.template'])
             ->whereIn('group_id', $groupIds)
             ->where('is_final_submission', true)
             ->get();
-        
+
         // Group reviews by group_id for efficient access
         $reviewsByGroup = $allReviews->groupBy('group_id');
-        
+
         // OPTIMIZED: Pre-load all indicators for all periods in a single query
         $periodIds = $groups->pluck('period_id')->unique();
         $allIndicators = PeriodPeerReviewIndicator::with('template')
@@ -247,38 +246,38 @@ class PeerReviewController extends Controller
             ->orderBy('sort_order')
             ->get()
             ->groupBy('period_id');
-        
+
         $result = [];
-        
+
         foreach ($groups as $group) {
             // Get pre-loaded reviews for this group
             $reviews = $reviewsByGroup->get($group->id, collect());
-            
+
             if ($reviews->isEmpty()) {
                 continue; // Skip groups with no peer reviews
             }
-            
+
             // Get pre-loaded indicators for this period
             $indicators = $allIndicators->get($group->period_id, collect());
-            
+
             // Group reviews by reviewee for processing
             $reviewsByReviewee = $reviews->groupBy('reviewee_id');
-            
+
             // Group reviews by reviewee
             $memberScores = [];
-            
+
             foreach ($group->members as $member) {
                 $revieweeReviews = $reviewsByReviewee->get($member->student_id, collect());
-                
+
                 if ($revieweeReviews->isEmpty()) {
                     continue;
                 }
-                
+
                 // Calculate weighted average with 1-4 scale converted to 0-100
                 $totalWeighted = 0;
                 $totalWeight = 0;
                 $scoresByIndicator = [];
-                
+
                 foreach ($revieweeReviews as $review) {
                     $weight = $review->periodIndicator->template->weight;
                     // Use the stored values: raw_score (1-4) and score (0-100)
@@ -296,9 +295,9 @@ class PeerReviewController extends Controller
                         'reviewer_name' => $review->reviewer->name,
                     ];
                 }
-                
+
                 $weightedAvg = $totalWeight > 0 ? round($totalWeighted / $totalWeight, 2) : 0;
-                
+
                 $memberScores[] = [
                     'student' => $member->student,
                     'is_leader' => $member->is_leader,
@@ -307,8 +306,8 @@ class PeerReviewController extends Controller
                     'scores_by_indicator' => $scoresByIndicator,
                 ];
             }
-            
-            if (!empty($memberScores)) {
+
+            if (! empty($memberScores)) {
                 $result[] = [
                     'group_id' => $group->id,
                     'group_code' => $group->code,
@@ -320,7 +319,7 @@ class PeerReviewController extends Controller
                 ];
             }
         }
-        
+
         return response()->json([
             'period_id' => $periodId,
             'groups_count' => count($result),
@@ -343,7 +342,7 @@ class PeerReviewController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        return response()->json($periodIndicators->map(fn($i) => [
+        return response()->json($periodIndicators->map(fn ($i) => [
             'id' => $i->id,
             'code' => $i->template->code,
             'name' => $i->template->name,
@@ -361,7 +360,7 @@ class PeerReviewController extends Controller
     public function storeIndicator(Request $request)
     {
         return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.'
+            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
         ], 400);
     }
 
@@ -372,7 +371,7 @@ class PeerReviewController extends Controller
     public function updateIndicator(Request $request, $id)
     {
         return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.'
+            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
         ], 400);
     }
 
@@ -383,7 +382,7 @@ class PeerReviewController extends Controller
     public function destroyIndicator($id)
     {
         return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.'
+            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
         ], 400);
     }
 
@@ -429,7 +428,9 @@ class PeerReviewController extends Controller
     private function checkGroupPeerReviewCompletion(int $groupId): void
     {
         $group = \App\Models\Group::with('members')->find($groupId);
-        if (!$group) return;
+        if (! $group) {
+            return;
+        }
 
         $totalMembers = $group->members()->count();
         $completedCount = \App\Models\StudentPeerReviewStatus::where('group_id', $groupId)
@@ -437,12 +438,12 @@ class PeerReviewController extends Controller
             ->count();
 
         if ($completedCount === $totalMembers) {
-            $stateMachine = new \App\Services\GroupStateMachine();
+            $stateMachine = new \App\Services\GroupStateMachine;
             try {
                 // Transition to READY_FOR_TA_INDIVIDUAL
                 $stateMachine->transition($group, 'READY_FOR_TA_INDIVIDUAL');
             } catch (\Exception $e) {
-                Log::info("Could not transition group {$groupId}: " . $e->getMessage());
+                Log::info("Could not transition group {$groupId}: ".$e->getMessage());
             }
         }
     }
@@ -455,7 +456,7 @@ class PeerReviewController extends Controller
         $user = $request->user();
         $member = GroupMember::with('group')->where('student_id', $user->id)->first();
 
-        if (!$member || !$member->group) {
+        if (! $member || ! $member->group) {
             return response()->json([
                 'has_completed' => false,
                 'ta_status' => null,
@@ -467,7 +468,7 @@ class PeerReviewController extends Controller
             ->where('group_id', $member->group_id)
             ->first();
 
-        $stateMachine = new \App\Services\GroupStateMachine();
+        $stateMachine = new \App\Services\GroupStateMachine;
         $expoDone = $stateMachine->isAtLeast($member->group, 'EXPO_DONE');
 
         return response()->json([
@@ -499,25 +500,25 @@ class PeerReviewController extends Controller
         }
 
         $groups = $query->get();
-        
+
         if ($groups->isEmpty()) {
             return response()->json([]);
         }
-        
+
         // OPTIMIZED: Pre-load all completion counts and statuses
         $groupIds = $groups->pluck('id');
-        
+
         // Get completion counts for all groups in a single query
         $completionCounts = \App\Models\StudentPeerReviewStatus::whereIn('group_id', $groupIds)
             ->where('has_completed_peer_review', true)
             ->selectRaw('group_id, COUNT(*) as count')
             ->groupBy('group_id')
             ->pluck('count', 'group_id');
-        
+
         // Get all statuses for all groups in a single query
         $allStatuses = \App\Models\StudentPeerReviewStatus::whereIn('group_id', $groupIds)
             ->get()
-            ->keyBy(fn($s) => $s->group_id . '_' . $s->student_id);
+            ->keyBy(fn ($s) => $s->group_id.'_'.$s->student_id);
 
         $result = $groups->map(function ($group) use ($completionCounts, $allStatuses) {
             $members = $group->members;
@@ -535,7 +536,7 @@ class PeerReviewController extends Controller
                 'completed_count' => $completedCount,
                 'completion_percentage' => $completionPercentage,
                 'members' => $members->map(function ($member) use ($allStatuses) {
-                    $statusKey = $member->group_id . '_' . $member->student_id;
+                    $statusKey = $member->group_id.'_'.$member->student_id;
                     $status = $allStatuses->get($statusKey);
 
                     return [

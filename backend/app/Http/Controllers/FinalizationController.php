@@ -2,15 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Bid;
+use App\Concerns\RequiresActivePeriod;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
 use App\Models\Title;
-use App\Concerns\RequiresActivePeriod;
+use App\Services\AutoMatchmakerService;
 use App\Services\BiddingService;
 use App\Services\FinalizationService;
-use App\Services\AutoMatchmakerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -18,13 +17,15 @@ use Illuminate\Support\Facades\Log;
 class FinalizationController extends Controller
 {
     protected FinalizationService $finalizationService;
+
     protected BiddingService $biddingService;
+
     protected AutoMatchmakerService $autoMatchmakerService;
 
     use RequiresActivePeriod;
 
     public function __construct(
-        FinalizationService $finalizationService, 
+        FinalizationService $finalizationService,
         BiddingService $biddingService,
         AutoMatchmakerService $autoMatchmakerService
     ) {
@@ -42,12 +43,13 @@ class FinalizationController extends Controller
         // If period_id provided in request, use it
         if ($request->has('period_id')) {
             $period = Period::find($request->input('period_id'));
-            if (!$period) {
+            if (! $period) {
                 abort(404, 'Period not found');
             }
-            if (!$period->is_active) {
+            if (! $period->is_active) {
                 abort(400, 'Period is not active');
             }
+
             return $period;
         }
 
@@ -171,7 +173,7 @@ class FinalizationController extends Controller
         $period = Period::findOrFail($request->period_id);
 
         // ⚠ Guard: don't finalize archived/inactive period
-        if (!$period->is_active) {
+        if (! $period->is_active) {
             return response()->json(['message' => 'Cannot finalize an inactive period.'], 400);
         }
 
@@ -184,7 +186,7 @@ class FinalizationController extends Controller
                     'blockers' => $blockers,
                 ], 422);
             }
-            
+
             $result = $this->finalizationService->finalizePeriod(
                 $period->id,
                 $request->user()->id
@@ -195,7 +197,7 @@ class FinalizationController extends Controller
                 'data' => $result,
             ]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Batch finalization failed: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Batch finalization failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -209,9 +211,10 @@ class FinalizationController extends Controller
 
         try {
             $simulation = $this->finalizationService->validateSimulation($period->id);
+
             return response()->json(['data' => $simulation]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Simulation failed: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Simulation failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -235,7 +238,7 @@ class FinalizationController extends Controller
 
             return response()->json(['data' => $result]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Auto-fix failed: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Auto-fix failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -250,7 +253,7 @@ class FinalizationController extends Controller
 
         $period = Period::findOrFail($request->period_id);
 
-        if (!$period->is_active) {
+        if (! $period->is_active) {
             return response()->json(['message' => 'Cannot run matchmaker on an inactive period.'], 400);
         }
 
@@ -265,7 +268,7 @@ class FinalizationController extends Controller
                 'stats' => $stats,
             ]);
         } catch (\Exception $e) {
-            return response()->json(['message' => 'Auto-Matchmaker failed: ' . $e->getMessage()], 500);
+            return response()->json(['message' => 'Auto-Matchmaker failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -283,7 +286,7 @@ class FinalizationController extends Controller
 
         $this->ensurePeriodIsActive($group);
 
-        if (!in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
+        if (! in_array($group->status, ['FORMING', 'FORMING_SOLO', 'WAITING_SUPERVISOR_APPROVAL'])) {
             return response()->json([
                 'message' => 'Only groups in FORMING, FORMING_SOLO or WAITING_SUPERVISOR_APPROVAL status can be force-promoted.',
             ], 400);
@@ -297,7 +300,7 @@ class FinalizationController extends Controller
         $group->status = 'READY_FOR_BIDDING';
         $group->save();
 
-        // Handle UNDER_REVIEW title if exists  
+        // Handle UNDER_REVIEW title if exists
         $preApprovedTitle = Title::where('proposed_by_group_id', $group->id)
             ->where('supervisor_approval_status', 'UNDER_REVIEW')
             ->first();
@@ -337,7 +340,7 @@ class FinalizationController extends Controller
 
         $period = Period::findOrFail($request->period_id);
 
-        if (!$period->is_active) {
+        if (! $period->is_active) {
             return response()->json(['message' => 'Cannot reopen an inactive period.'], 400);
         }
 
@@ -357,7 +360,7 @@ class FinalizationController extends Controller
             ->whereIn('status', $finalizedStatuses)
             ->exists();
 
-        if (!$period->is_finalized && !$hasFinalizedGroups) {
+        if (! $period->is_finalized && ! $hasFinalizedGroups) {
             return response()->json(['message' => 'Period is not finalized and has no executed finalization groups.'], 400);
         }
 
@@ -396,7 +399,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Failed to reopen period: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Failed to reopen period: '.$e->getMessage()], 500);
         }
     }
 
@@ -731,7 +735,7 @@ class FinalizationController extends Controller
     private function resolveAdminAllowedActions(Group $group, Period $period): array
     {
         $isPeriodFinalized = (bool) $period->is_finalized;
-        $canSetSupervisor = !$isPeriodFinalized && $group->status === 'READY_FOR_FINALIZATION';
+        $canSetSupervisor = ! $isPeriodFinalized && $group->status === 'READY_FOR_FINALIZATION';
         $canMarkKelompokFinal = $canSetSupervisor
             && (bool) ($group->supervisor_1_id || $group->title?->lecturer?->id)
             && (bool) $group->supervisor_2_id;
@@ -739,10 +743,10 @@ class FinalizationController extends Controller
         $reason = null;
         if ($isPeriodFinalized) {
             $reason = 'PERIOD_FINALIZED';
-        } elseif ($group->status === 'READY_FOR_FINALIZATION' && !$canMarkKelompokFinal) {
-            if (!$group->supervisor_1_id && !$group->title?->lecturer?->id) {
+        } elseif ($group->status === 'READY_FOR_FINALIZATION' && ! $canMarkKelompokFinal) {
+            if (! $group->supervisor_1_id && ! $group->title?->lecturer?->id) {
                 $reason = 'SUPERVISOR_1_REQUIRED';
-            } elseif (!$group->supervisor_2_id) {
+            } elseif (! $group->supervisor_2_id) {
                 $reason = 'SUPERVISOR_2_REQUIRED';
             }
         }
@@ -750,9 +754,9 @@ class FinalizationController extends Controller
         return [
             'can_set_supervisor' => $canSetSupervisor,
             'can_mark_kelompok_final' => $canMarkKelompokFinal,
-            'can_cancel_kelompok_final' => !$isPeriodFinalized && $group->status === 'KELOMPOK_FINAL',
-            'can_assign_title' => !$isPeriodFinalized && $group->status === 'READY_FOR_BIDDING' && !$group->title_id,
-            'can_promote_to_ready_for_finalization' => !$isPeriodFinalized && $group->status === 'TITLE_APPROVED',
+            'can_cancel_kelompok_final' => ! $isPeriodFinalized && $group->status === 'KELOMPOK_FINAL',
+            'can_assign_title' => ! $isPeriodFinalized && $group->status === 'READY_FOR_BIDDING' && ! $group->title_id,
+            'can_promote_to_ready_for_finalization' => ! $isPeriodFinalized && $group->status === 'TITLE_APPROVED',
             'reason' => $reason,
         ];
     }
@@ -803,7 +807,7 @@ class FinalizationController extends Controller
 
         // ─── 4. Document Requirements ───
         $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $period->id)->exists();
-        if (!$docReqExists) {
+        if (! $docReqExists) {
             $blockers[] = [
                 'type' => 'DOC_REQ_MISSING',
                 'message' => 'Dokumen requirement belum dikonfigurasi',
@@ -878,7 +882,7 @@ class FinalizationController extends Controller
             : 0;
         $docReqExists = \App\Models\PhaseDocumentRequirement::where('period_id', $period->id)->exists();
         $peerReviewConfigured = $period->peerReviewIndicators()->count() > 0;
-        $gradeConfigConfigured = $period->grade_configuration !== null && !empty($period->grade_configuration);
+        $gradeConfigConfigured = $period->grade_configuration !== null && ! empty($period->grade_configuration);
         $periodConfigComplete = $period->min_group_size !== null && $period->max_group_size !== null;
 
         return [
@@ -968,7 +972,7 @@ class FinalizationController extends Controller
 
     /**
      * Set Supervisor 1 and 2 for a group (Admin only).
-     * 
+     *
      * When mark_final=true, also promotes group to KELOMPOK_FINAL.
      * When mark_final=false (default), only updates supervisor fields (stays READY_FOR_FINALIZATION).
      */
@@ -988,7 +992,7 @@ class FinalizationController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Only admin can set supervisors
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menetapkan supervisor.'], 403);
         }
 
@@ -996,7 +1000,7 @@ class FinalizationController extends Controller
         if ($group->status !== 'READY_FOR_FINALIZATION') {
             return response()->json([
                 'message' => 'Grup harus dalam status READY_FOR_FINALIZATION untuk menetapkan supervisor.',
-                'current_status' => $group->status
+                'current_status' => $group->status,
             ], 400);
         }
 
@@ -1005,14 +1009,14 @@ class FinalizationController extends Controller
 
         if ($request->supervisor_1_id) {
             $validation = $loadService->validateAssignment($request->supervisor_1_id, $group->period_id);
-            if (!$validation['valid']) {
+            if (! $validation['valid']) {
                 return response()->json(['message' => $validation['message']], 400);
             }
         }
 
         if ($request->supervisor_2_id) {
             $validation = $loadService->validateAssignment($request->supervisor_2_id, $group->period_id);
-            if (!$validation['valid']) {
+            if (! $validation['valid']) {
                 return response()->json(['message' => $validation['message']], 400);
             }
         }
@@ -1026,7 +1030,7 @@ class FinalizationController extends Controller
         $markFinal = $request->boolean('mark_final', false);
 
         // If marking final, supervisor_1 is required
-        if ($markFinal && !$request->supervisor_1_id) {
+        if ($markFinal && ! $request->supervisor_1_id) {
             return response()->json(['message' => 'Supervisor 1 wajib untuk menandai Kelompok Final.'], 400);
         }
 
@@ -1091,7 +1095,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal menetapkan supervisor: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal menetapkan supervisor: '.$e->getMessage()], 500);
         }
     }
 
@@ -1105,7 +1110,7 @@ class FinalizationController extends Controller
             'confirmation' => 'required|boolean',
         ]);
 
-        if (!$request->confirmation) {
+        if (! $request->confirmation) {
             return response()->json(['message' => 'Konfirmasi diperlukan untuk mengeksekusi finalisasi.'], 400);
         }
 
@@ -1113,12 +1118,12 @@ class FinalizationController extends Controller
         $period = Period::findOrFail($request->period_id);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat mengeksekusi finalisasi.'], 403);
         }
 
         // Check if period is active
-        if (!$period->is_active) {
+        if (! $period->is_active) {
             return response()->json(['message' => 'Periode tidak aktif.'], 400);
         }
 
@@ -1216,7 +1221,7 @@ class FinalizationController extends Controller
             }
 
             // Batch upsert supervision records
-            if (!empty($supervisionData)) {
+            if (! empty($supervisionData)) {
                 \App\Models\Supervision::upsert(
                     $supervisionData,
                     ['group_id', 'role'],
@@ -1225,7 +1230,7 @@ class FinalizationController extends Controller
             }
 
             // Batch insert audit logs
-            if (!empty($auditLogs)) {
+            if (! empty($auditLogs)) {
                 \App\Models\FinalizationAudit::insert($auditLogs);
             }
 
@@ -1243,7 +1248,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Finalisasi gagal: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Finalisasi gagal: '.$e->getMessage()], 500);
         }
     }
 
@@ -1265,7 +1271,7 @@ class FinalizationController extends Controller
         $this->ensurePeriodActiveById($period->id);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan rollback.'], 403);
         }
 
@@ -1328,12 +1334,12 @@ class FinalizationController extends Controller
             }
 
             // Batch insert audit logs
-            if (!empty($auditLogs)) {
+            if (! empty($auditLogs)) {
                 \App\Models\FinalizationAudit::insert($auditLogs);
             }
 
             // Batch insert notifications
-            if (!empty($notifications)) {
+            if (! empty($notifications)) {
                 \App\Models\Notification::insert($notifications);
             }
 
@@ -1345,7 +1351,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Rollback gagal: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Rollback gagal: '.$e->getMessage()], 500);
         }
     }
 
@@ -1367,7 +1374,7 @@ class FinalizationController extends Controller
         $this->ensurePeriodActiveById($period->id);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan cancel.'], 403);
         }
 
@@ -1436,7 +1443,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Cancel Kelompok Final gagal: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Cancel Kelompok Final gagal: '.$e->getMessage()], 500);
         }
     }
 
@@ -1474,7 +1482,7 @@ class FinalizationController extends Controller
                 'No' => $index + 1,
                 'Group ID' => $group->id,
                 'Judul' => $group->title ? $group->title->title : '-',
-                'Anggota' => $group->members->map(fn($m) => $m->student->name)->join(', '),
+                'Anggota' => $group->members->map(fn ($m) => $m->student->name)->join(', '),
                 'Supervisor 1' => $group->supervisor1 ? $group->supervisor1->name : '-',
                 'Supervisor 2' => $group->supervisor2 ? $group->supervisor2->name : '-',
                 'Status' => $group->status,
@@ -1482,7 +1490,7 @@ class FinalizationController extends Controller
         }
 
         // Simple CSV export for now
-        $filename = "finalisasi_periode_{$period->id}_" . now()->format('Y-m-d') . '.csv';
+        $filename = "finalisasi_periode_{$period->id}_".now()->format('Y-m-d').'.csv';
         $headers = [
             'Content-Type' => 'text/csv',
             'Content-Disposition' => "attachment; filename={$filename}",
@@ -1507,25 +1515,25 @@ class FinalizationController extends Controller
     {
         // For now, return simple HTML table as PDF alternative
         $html = '<h1>Laporan Finalisasi</h1>';
-        $html .= '<p>Periode: ' . ($period->name ?? $period->id) . '</p>';
+        $html .= '<p>Periode: '.($period->name ?? $period->id).'</p>';
         $html .= '<table border="1" cellpadding="5">';
         $html .= '<tr><th>No</th><th>Group ID</th><th>Judul</th><th>Anggota</th><th>Supervisor 1</th><th>Supervisor 2</th><th>Status</th></tr>';
 
         foreach ($groups as $index => $group) {
             $html .= '<tr>';
-            $html .= '<td>' . ($index + 1) . '</td>';
-            $html .= '<td>' . $group->id . '</td>';
-            $html .= '<td>' . ($group->title ? $group->title->title : '-') . '</td>';
-            $html .= '<td>' . $group->members->map(fn($m) => $m->student->name)->join(', ') . '</td>';
-            $html .= '<td>' . ($group->supervisor1 ? $group->supervisor1->name : '-') . '</td>';
-            $html .= '<td>' . ($group->supervisor2 ? $group->supervisor2->name : '-') . '</td>';
-            $html .= '<td>' . $group->status . '</td>';
+            $html .= '<td>'.($index + 1).'</td>';
+            $html .= '<td>'.$group->id.'</td>';
+            $html .= '<td>'.($group->title ? $group->title->title : '-').'</td>';
+            $html .= '<td>'.$group->members->map(fn ($m) => $m->student->name)->join(', ').'</td>';
+            $html .= '<td>'.($group->supervisor1 ? $group->supervisor1->name : '-').'</td>';
+            $html .= '<td>'.($group->supervisor2 ? $group->supervisor2->name : '-').'</td>';
+            $html .= '<td>'.$group->status.'</td>';
             $html .= '</tr>';
         }
 
         $html .= '</table>';
 
-        $filename = "finalisasi_periode_{$period->id}_" . now()->format('Y-m-d') . '.html';
+        $filename = "finalisasi_periode_{$period->id}_".now()->format('Y-m-d').'.html';
 
         return response($html, 200, [
             'Content-Type' => 'text/html',
@@ -1541,8 +1549,8 @@ class FinalizationController extends Controller
         $period = $this->resolvePeriod($request);
 
         $lecturers = \App\Models\User::whereHas('roles', function ($q) {
-                $q->whereIn('slug', ['dosen', 'kaprodi', 'admin']);
-            })
+            $q->whereIn('slug', ['dosen', 'kaprodi', 'admin']);
+        })
             ->select('id', 'name', 'email', 'nip')
             ->orderBy('name', 'asc')
             ->get();
@@ -1581,7 +1589,7 @@ class FinalizationController extends Controller
         $user = $request->user();
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menetapkan supervisor.'], 403);
         }
 
@@ -1604,31 +1612,34 @@ class FinalizationController extends Controller
             foreach ($request->group_ids as $groupId) {
                 $group = Group::with('period')->find($groupId);
 
-                if (!$group || $group->status !== 'READY_FOR_FINALIZATION') {
+                if (! $group || $group->status !== 'READY_FOR_FINALIZATION') {
                     $results['failed'][] = [
                         'group_id' => $groupId,
                         'reason' => 'Grup tidak ditemukan atau tidak dalam status READY_FOR_FINALIZATION',
                     ];
+
                     continue;
                 }
 
                 // Validate supervisor load
                 $validation = $loadService->validateAssignment($request->supervisor_1_id, $group->period_id);
-                if (!$validation['valid']) {
+                if (! $validation['valid']) {
                     $results['failed'][] = [
                         'group_id' => $groupId,
                         'reason' => $validation['message'],
                     ];
+
                     continue;
                 }
 
                 if ($request->supervisor_2_id) {
                     $validation2 = $loadService->validateAssignment($request->supervisor_2_id, $group->period_id);
-                    if (!$validation2['valid']) {
+                    if (! $validation2['valid']) {
                         $results['failed'][] = [
                             'group_id' => $groupId,
-                            'reason' => 'Supervisor 2: ' . $validation2['message'],
+                            'reason' => 'Supervisor 2: '.$validation2['message'],
                         ];
+
                         continue;
                     }
                 }
@@ -1693,7 +1704,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Batch assignment failed: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Batch assignment failed: '.$e->getMessage()], 500);
         }
     }
 
@@ -1769,7 +1781,7 @@ class FinalizationController extends Controller
 
     /**
      * Create a new group manually with selected students and title options.
-     * 
+     *
      * Three options:
      * 1. Tanpa Judul (no_title): Members >= min_size → READY_FOR_BIDDING, < min_size → FORMING
      * 2. Assign Judul (assign_title): min_size <= members <= max_size → READY_FOR_FINALIZATION
@@ -1799,7 +1811,7 @@ class FinalizationController extends Controller
         $option = $request->option;
 
         // Only admin can do manual grouping
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan grouping manual.'], 403);
         }
 
@@ -1810,7 +1822,7 @@ class FinalizationController extends Controller
         // Validate student count doesn't exceed max
         if ($studentCount > $maxSize) {
             return response()->json([
-                'message' => "Jumlah mahasiswa ({$studentCount}) melebihi batas maksimal grup ({$maxSize})."
+                'message' => "Jumlah mahasiswa ({$studentCount}) melebihi batas maksimal grup ({$maxSize}).",
             ], 400);
         }
 
@@ -1818,7 +1830,7 @@ class FinalizationController extends Controller
         if (in_array($option, ['assign_title', 'add_title'])) {
             if ($studentCount < $minSize || $studentCount > $maxSize) {
                 return response()->json([
-                    'message' => "Untuk opsi judul, jumlah anggota harus antara {$minSize} dan {$maxSize}."
+                    'message' => "Untuk opsi judul, jumlah anggota harus antara {$minSize} dan {$maxSize}.",
                 ], 400);
             }
         }
@@ -1826,9 +1838,9 @@ class FinalizationController extends Controller
         // Validate students are registered for this period and don't have groups
         $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
             $q->where('period_id', $period->id)
-              ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+                ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
         })->whereIn('student_id', $request->student_ids)
-          ->pluck('student_id');
+            ->pluck('student_id');
 
         if ($studentsWithGroups->isNotEmpty()) {
             return response()->json([
@@ -1922,7 +1934,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal membuat grup: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal membuat grup: '.$e->getMessage()], 500);
         }
     }
 
@@ -1943,7 +1956,7 @@ class FinalizationController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menambahkan anggota.'], 403);
         }
 
@@ -1959,16 +1972,16 @@ class FinalizationController extends Controller
         // Validate capacity
         if ($currentCount + $newCount > $maxSize) {
             return response()->json([
-                'message' => "Kapasitas grup tidak cukup. Saat ini: {$currentCount}, ditambah: {$newCount}, maksimal: {$maxSize}."
+                'message' => "Kapasitas grup tidak cukup. Saat ini: {$currentCount}, ditambah: {$newCount}, maksimal: {$maxSize}.",
             ], 400);
         }
 
         // Validate students don't have groups in this period
         $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($group) {
             $q->where('period_id', $group->period_id)
-              ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+                ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
         })->whereIn('student_id', $request->student_ids)
-          ->pluck('student_id');
+            ->pluck('student_id');
 
         if ($studentsWithGroups->isNotEmpty()) {
             return response()->json([
@@ -2026,7 +2039,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal menambahkan anggota: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal menambahkan anggota: '.$e->getMessage()], 500);
         }
     }
 
@@ -2071,7 +2085,7 @@ class FinalizationController extends Controller
                     ->whereNotIn('status', ['CLOSED', 'DISSOLVED'])
                     ->count();
                 $hasQuota = $currentAllocations < $title->quota;
-                
+
                 Log::debug('Title quota check', [
                     'title_id' => $title->id,
                     'title' => $title->title,
@@ -2079,7 +2093,7 @@ class FinalizationController extends Controller
                     'quota' => $title->quota,
                     'has_quota' => $hasQuota,
                 ]);
-                
+
                 return $hasQuota;
             })
             ->values();
@@ -2111,7 +2125,7 @@ class FinalizationController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat menetapkan judul.'], 403);
         }
 
@@ -2175,7 +2189,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal menetapkan judul: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal menetapkan judul: '.$e->getMessage()], 500);
         }
     }
 
@@ -2195,21 +2210,21 @@ class FinalizationController extends Controller
         $this->ensurePeriodIsActive($group);
 
         // Only admin
-        if (!$user->hasRole('admin')) {
+        if (! $user->hasRole('admin')) {
             return response()->json(['message' => 'Hanya admin yang dapat melakukan ini.'], 403);
         }
 
         // Validate group is in TITLE_APPROVED status
         if ($group->status !== 'TITLE_APPROVED') {
             return response()->json([
-                'message' => 'Grup harus dalam status TITLE_APPROVED untuk dipromosikan.'
+                'message' => 'Grup harus dalam status TITLE_APPROVED untuk dipromosikan.',
             ], 400);
         }
 
         // Validate group has title assigned
-        if (!$group->title_id) {
+        if (! $group->title_id) {
             return response()->json([
-                'message' => 'Grup harus memiliki judul untuk dipromosikan.'
+                'message' => 'Grup harus memiliki judul untuk dipromosikan.',
             ], 400);
         }
 
@@ -2220,7 +2235,7 @@ class FinalizationController extends Controller
 
         if ($memberCount < $minSize || $memberCount > $maxSize) {
             return response()->json([
-                'message' => "Jumlah anggota ({$memberCount}) harus antara {$minSize} dan {$maxSize}."
+                'message' => "Jumlah anggota ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
             ], 400);
         }
 
@@ -2262,7 +2277,8 @@ class FinalizationController extends Controller
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Gagal mempromosikan grup: ' . $e->getMessage()], 500);
+
+            return response()->json(['message' => 'Gagal mempromosikan grup: '.$e->getMessage()], 500);
         }
     }
 }

@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import { Loader2 } from 'lucide-react';
 import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
+import { Loading } from '@/components/ui/loading';
 import { ScheduleDetailModal } from '@/components/schedule/ScheduleDetailModal';
 
 export default function MahasiswaSchedulePage() {
@@ -39,13 +39,7 @@ export default function MahasiswaSchedulePage() {
         setModalOpen(true);
     };
 
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
-    }
+    if (loading) return <Loading variant="section" />;
 
     return (
         <div className="space-y-6">

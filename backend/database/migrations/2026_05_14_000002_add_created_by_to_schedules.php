@@ -12,13 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('schedules', function (Blueprint $table) {
-            if (!Schema::hasColumn('schedules', 'created_by')) {
+            if (! Schema::hasColumn('schedules', 'created_by')) {
                 $table->foreignId('created_by')
                     ->nullable()
                     ->after('notes')
                     ->constrained('users')
                     ->onDelete('set null');
-                
+
                 $table->index('created_by');
             }
         });

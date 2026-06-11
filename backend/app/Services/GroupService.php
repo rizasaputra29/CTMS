@@ -2,19 +2,17 @@
 
 namespace App\Services;
 
-use App\Models\Group;
-use App\Models\GroupMember;
-use App\Models\GroupInvitation;
-use App\Models\Title;
-use App\Models\User;
-use App\Models\Period;
-use App\Models\Supervision;
-use App\Models\JoinRequest;
 use App\Concerns\RequiresActivePeriod;
 use App\Exceptions\ConflictRuleException;
 use App\Exceptions\DomainRuleException;
+use App\Models\Group;
+use App\Models\GroupInvitation;
+use App\Models\GroupMember;
+use App\Models\JoinRequest;
+use App\Models\Supervision;
+use App\Models\Title;
+use App\Models\User;
 use Illuminate\Database\QueryException;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -26,13 +24,19 @@ class GroupService
 
     // Status Constants
     public const STATUS_FORMING = 'FORMING';
+
     public const STATUS_FORMING_SOLO = 'FORMING_SOLO';
+
     public const STATUS_WAITING_SUPERVISOR_APPROVAL = 'WAITING_SUPERVISOR_APPROVAL';
+
     public const STATUS_READY_FOR_TITLE_BIDDING = 'READY_FOR_BIDDING';
+
     public const STATUS_KELOMPOK_FINAL = 'KELOMPOK_FINAL';
+
     public const STATUS_DISSOLVED = 'DISSOLVED';
 
     protected GroupStateMachine $stateMachine;
+
     protected NotificationService $notificationService;
 
     public function __construct(GroupStateMachine $stateMachine, NotificationService $notificationService)
@@ -48,7 +52,7 @@ class GroupService
     public function handleJoinGroup(User $student, Group $targetGroup): void
     {
         $startTime = microtime(true);
-        
+
         // 1. Unified Logging Context (Tracing)
         Log::shareContext([
             'request_id' => Str::uuid(),
@@ -60,7 +64,7 @@ class GroupService
 
         // SAFETY CHECK: Locked groups cannot accept new members
         if ($this->stateMachine->isAtLeast($targetGroup, 'READY_FOR_FINALIZATION')) {
-            throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.");
+            throw new DomainRuleException('Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.');
         }
 
         $this->ensurePeriodIsActive($targetGroup);
@@ -73,7 +77,7 @@ class GroupService
             ->exists();
 
         if ($isAlreadyMember) {
-            throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi ketua kelompok jika ada masalah.");
+            throw new ConflictRuleException('Anda sudah terdaftar di kelompok ini. Hubungi ketua kelompok jika ada masalah.');
         }
 
         // 3. Selective Retry with Exponential Backoff
@@ -83,23 +87,23 @@ class GroupService
                     // A. Global Lock Order (User -> Group -> Pivot)
                     $lockedStudent = User::where('id', $student->id)->lockForUpdate()->first();
                     $lockedGroup = Group::where('id', $targetGroup->id)->lockForUpdate()->first();
-                    
+
                     // Re-check idempotency inside transaction (Hard Guarantee)
                     if (GroupMember::where('student_id', $lockedStudent->id)->where('group_id', $lockedGroup->id)->exists()) {
-throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi ketua kelompok jika ada masalah.");
+                        throw new ConflictRuleException('Anda sudah terdaftar di kelompok ini. Hubungi ketua kelompok jika ada masalah.');
                     }
 
                     // B. Validate Capacity (Source Team + Target Team)
                     $sourceMembership = GroupMember::where('student_id', $lockedStudent->id)
                         ->where('period_id', $lockedGroup->period_id)
                         ->first();
-                    
+
                     $sourceMemberCount = $sourceMembership ? GroupMember::where('group_id', $sourceMembership->group_id)->count() : 1;
                     $targetMemberCount = GroupMember::where('group_id', $lockedGroup->id)->count();
 
                     $maxMembers = $lockedGroup->period->max_group_size ?? 4;
                     if (($sourceMemberCount + $targetMemberCount) > $maxMembers) {
-                        throw new DomainRuleException("Kelompok penuh. Total anggota akan melebihi batas maksimal (" . ($maxMembers) . " orang). Kurangi anggota yang dibawa atau cari kelompok lain.");
+                        throw new DomainRuleException('Kelompok penuh. Total anggota akan melebihi batas maksimal ('.($maxMembers).' orang). Kurangi anggota yang dibawa atau cari kelompok lain.');
                     }
 
                     // C. Migrate & Attach
@@ -107,12 +111,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
                     $this->attachToGroup($lockedStudent, $lockedGroup);
                     $this->evaluateGroupReadiness($lockedGroup);
                 });
-            }, fn($attempt) => 100 * $attempt, function ($e) {
+            }, fn ($attempt) => 100 * $attempt, function ($e) {
                 return $e instanceof QueryException;
             });
 
             $durationMs = (microtime(true) - $startTime) * 1000;
-            DB::afterCommit(fn() => Log::info('group.join.success', ['duration_ms' => round($durationMs, 2)]));
+            DB::afterCommit(fn () => Log::info('group.join.success', ['duration_ms' => round($durationMs, 2)]));
 
         } catch (Throwable $e) {
             Log::error('group.join.failed', ['error' => $e->getMessage()]);
@@ -137,13 +141,13 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
             retry(3, function () use ($student) {
                 DB::transaction(function () use ($student) {
                     $lockedStudent = User::where('id', $student->id)->lockForUpdate()->first();
-                    
+
                     $membership = GroupMember::where('student_id', $lockedStudent->id)
-                        ->whereHas('group', fn($q) => $q->where('status', '!=', 'CLOSED'))
+                        ->whereHas('group', fn ($q) => $q->where('status', '!=', 'CLOSED'))
                         ->lockForUpdate()
                         ->first();
 
-                    if (!$membership) {
+                    if (! $membership) {
                         return; // Idempotency
                     }
 
@@ -153,7 +157,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
                     // LOCKED: After READY_FOR_FINALIZATION, cannot leave group
                     if ($this->stateMachine->isAtLeast($oldGroup, 'READY_FOR_FINALIZATION')) {
-                        throw new DomainRuleException("Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.");
+                        throw new DomainRuleException('Kelompok sudah terkunci (Ready for Finalization). Tidak dapat keluar dari kelompok.');
                     }
 
                     $periodId = $oldGroup->period_id;
@@ -184,12 +188,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
                         $this->evaluateGroupReadiness($oldGroup);
                     }
                 });
-            }, fn($attempt) => 100 * $attempt, function ($e) {
+            }, fn ($attempt) => 100 * $attempt, function ($e) {
                 return $e instanceof QueryException;
             });
 
             $durationMs = (microtime(true) - $startTime) * 1000;
-            DB::afterCommit(fn() => Log::info('group.leave.success', ['duration_ms' => round($durationMs, 2)]));
+            DB::afterCommit(fn () => Log::info('group.leave.success', ['duration_ms' => round($durationMs, 2)]));
 
         } catch (Throwable $e) {
             Log::error('group.leave.failed', ['error' => $e->getMessage()]);
@@ -203,19 +207,19 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
     public function validateJoinRequest(User $student, Group $group): void
     {
         if ($student->role !== 'mahasiswa') {
-            throw new DomainRuleException("Hanya mahasiswa yang dapat bergabung ke dalam kelompok. Login sebagai mahasiswa terlebih dahulu.");
+            throw new DomainRuleException('Hanya mahasiswa yang dapat bergabung ke dalam kelompok. Login sebagai mahasiswa terlebih dahulu.');
         }
 
         if ($group->period->is_finalized) {
-            throw new DomainRuleException("Periode pendaftaran ini sudah ditutup. Hubungi admin jika ada kebutuhan khusus.");
+            throw new DomainRuleException('Periode pendaftaran ini sudah ditutup. Hubungi admin jika ada kebutuhan khusus.');
         }
 
-        if (!$group->period->is_active) {
-            throw new DomainRuleException("Periode tidak aktif. Operasi tidak diizinkan.");
+        if (! $group->period->is_active) {
+            throw new DomainRuleException('Periode tidak aktif. Operasi tidak diizinkan.');
         }
 
         if ($this->stateMachine->isAtLeast($group, self::STATUS_KELOMPOK_FINAL)) {
-            throw new DomainRuleException("Kelompok sudah difinalisasi dan tidak menerima anggota baru. Hubungi admin jika ada kebutuhan khusus.");
+            throw new DomainRuleException('Kelompok sudah difinalisasi dan tidak menerima anggota baru. Hubungi admin jika ada kebutuhan khusus.');
         }
 
         // 4. Already In Group (Idempotency)
@@ -227,15 +231,15 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
             return; // Idempotent success
         }
 
-        if ($existingMembership && !in_array($existingMembership->group->status, [self::STATUS_FORMING, self::STATUS_FORMING_SOLO, self::STATUS_WAITING_SUPERVISOR_APPROVAL])) {
-            throw new DomainRuleException("Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.");
+        if ($existingMembership && ! in_array($existingMembership->group->status, [self::STATUS_FORMING, self::STATUS_FORMING_SOLO, self::STATUS_WAITING_SUPERVISOR_APPROVAL])) {
+            throw new DomainRuleException('Anda sudah terdaftar di kelompok lain pada periode ini. Keluar dari kelompok lama terlebih dahulu.');
         }
-        
+
         // If they have a "FORMING" group but it's not a solo group (more than 1 member), they can't leave easily by joining another
         if ($existingMembership && $existingMembership->group->status === self::STATUS_FORMING) {
             $memberCount = GroupMember::where('group_id', $existingMembership->group_id)->count();
-            if ($memberCount > 1 && !$existingMembership->is_leader) {
-                throw new DomainRuleException("Hanya ketua kelompok yang dapat memindahkan seluruh anggota ke kelompok lain.");
+            if ($memberCount > 1 && ! $existingMembership->is_leader) {
+                throw new DomainRuleException('Hanya ketua kelompok yang dapat memindahkan seluruh anggota ke kelompok lain.');
             }
         }
     }
@@ -249,10 +253,14 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
             ->where('period_id', $targetGroup->period_id)
             ->first();
 
-        if (!$membership) return;
+        if (! $membership) {
+            return;
+        }
 
         $sourceGroup = Group::with('members')->find($membership->group_id);
-        if (!$sourceGroup) return;
+        if (! $sourceGroup) {
+            return;
+        }
 
         // Cleanup Data (Source Group)
         $this->cleanupSoloGroupData($sourceGroup, $student);
@@ -267,7 +275,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
                 // Team members: Bulk move to target group
                 $m->update([
                     'group_id' => $targetGroup->id,
-                    'is_leader' => false // Hard rule: Target idea owner remains leader
+                    'is_leader' => false, // Hard rule: Target idea owner remains leader
                 ]);
             }
         }
@@ -279,7 +287,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
             'student_id' => $student->id,
             'source_group_id' => $sourceGroup->id,
             'target_group_id' => $targetGroup->id,
-            'member_count' => $members->count()
+            'member_count' => $members->count(),
         ]);
     }
 
@@ -342,7 +350,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         GroupInvitation::where('student_id', $student->id)
             ->where('status', 'PENDING')
-            ->whereHas('group', fn($q) => $q->where('period_id', $group->period_id))
+            ->whereHas('group', fn ($q) => $q->where('period_id', $group->period_id))
             ->update(['status' => 'REJECTED']);
 
         Log::info('group.attach.success', ['student_id' => $student->id, 'group_id' => $group->id]);
@@ -357,7 +365,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         // IMPORTANT: Refresh to get latest status from DB (avoid stale data from eager loading)
         $group->refresh();
-        
+
         // Guard: Skip if already finalized, dissolved, or has approved title (solo seeker waiting for leader to finalize)
         if ($this->stateMachine->isAtLeast($group, self::STATUS_KELOMPOK_FINAL) || $group->status === 'TITLE_APPROVED' || $group->status === self::STATUS_DISSOLVED) {
             return;
@@ -365,12 +373,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
 
         if ($this->canBecomeReady($group)) {
             $this->transitionToReady($group);
-         } else {
-             // Case: group was READY but member left -> demote back to FORMING or FORMING_SOLO based on is_solo flag
-             $memberCount = GroupMember::where('group_id', $group->id)->count();
-             $revertStatus = ($memberCount === 1 && $group->is_solo) ? self::STATUS_FORMING_SOLO : self::STATUS_FORMING;
-             $group->update(['status' => $revertStatus]);
-         }
+        } else {
+            // Case: group was READY but member left -> demote back to FORMING or FORMING_SOLO based on is_solo flag
+            $memberCount = GroupMember::where('group_id', $group->id)->count();
+            $revertStatus = ($memberCount === 1 && $group->is_solo) ? self::STATUS_FORMING_SOLO : self::STATUS_FORMING;
+            $group->update(['status' => $revertStatus]);
+        }
     }
 
     private function canBecomeReady(Group $group): bool
@@ -387,7 +395,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
         // Prevent transition to READY if title has been withdrawn
         if ($group->is_solo && $group->title_id) {
             $title = Title::find($group->title_id);
-            if (!$title || $title->supervisor_approval_status !== 'APPROVED') {
+            if (! $title || $title->supervisor_approval_status !== 'APPROVED') {
                 return false; // Title not approved, cannot become ready
             }
         }
@@ -402,12 +410,12 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
             $maxLoad = $period->supervisorLoadLimit(8);
 
             $currentLoad = Supervision::where('supervisor_id', $lecturerId)
-                ->whereHas('group', fn($q) => $q->where('period_id', $period->id))
+                ->whereHas('group', fn ($q) => $q->where('period_id', $period->id))
                 ->count();
 
             $approvedProposals = Title::where('proposed_supervisor_id', $lecturerId)
                 ->where('supervisor_approval_status', 'APPROVED')
-                ->whereHas('proposedByGroup', fn($q) => $q->where('period_id', $period->id))
+                ->whereHas('proposedByGroup', fn ($q) => $q->where('period_id', $period->id))
                 ->count();
 
             if (($currentLoad + $approvedProposals) >= $maxLoad) {
@@ -423,9 +431,10 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
         // Guard: Skip if already at target status (avoid same-state transition error)
         if ($group->status === self::STATUS_READY_FOR_TITLE_BIDDING) {
             Log::info('group.readiness.skipped', ['group_id' => $group->id, 'reason' => 'already_ready']);
+
             return;
         }
-        
+
         $preApprovedTitle = Title::where('proposed_by_group_id', $group->id)
             ->where('supervisor_approval_status', 'UNDER_REVIEW')
             ->first();
@@ -436,7 +445,7 @@ throw new ConflictRuleException("Anda sudah terdaftar di kelompok ini. Hubungi k
         }
 
         $this->stateMachine->transition($group, self::STATUS_READY_FOR_TITLE_BIDDING);
-        
+
         Log::info('group.readiness.transitioned', ['group_id' => $group->id, 'status' => self::STATUS_READY_FOR_TITLE_BIDDING]);
     }
 

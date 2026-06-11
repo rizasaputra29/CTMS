@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
-use App\Models\Group;
 use App\Models\Bid;
+use App\Models\Group;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -24,6 +24,7 @@ use InvalidArgumentException;
 class GroupAutoFixService
 {
     protected FinalizationService $finalizationService;
+
     protected GroupStateMachine $stateMachine;
 
     public function __construct(
@@ -37,16 +38,16 @@ class GroupAutoFixService
     /**
      * Safely fix a single group readiness issue.
      *
-     * @param Group $group The group to fix
-     * @param string $mode 'safe' (only use valid existing data) or 'aggressive' (may reassign)
-     * @param int|null $adminId Admin user ID (for audit log)
+     * @param  Group  $group  The group to fix
+     * @param  string  $mode  'safe' (only use valid existing data) or 'aggressive' (may reassign)
+     * @param  int|null  $adminId  Admin user ID (for audit log)
      * @return array ['success' => bool, 'message' => string, 'fixed_issues' => [...]]
      *
      * @throws InvalidArgumentException If mode is invalid or group cannot be fixed
      */
     public function fixGroupReadiness(Group $group, string $mode = 'safe', ?int $adminId = null): array
     {
-        if (!in_array($mode, ['safe', 'aggressive'])) {
+        if (! in_array($mode, ['safe', 'aggressive'])) {
             throw new InvalidArgumentException("Mode must be 'safe' or 'aggressive'");
         }
 
@@ -100,7 +101,7 @@ class GroupAutoFixService
                 'success' => $group->isReadyForBidding(),
                 'message' => empty($fixedIssues)
                     ? 'Tidak ada issue yang bisa diperbaiki secara otomatis'
-                    : 'Berhasil memperbaiki ' . count($fixedIssues) . ' issue(s)',
+                    : 'Berhasil memperbaiki '.count($fixedIssues).' issue(s)',
                 'fixed_issues' => $fixedIssues,
                 'is_ready' => $group->isReadyForBidding(),
             ];
@@ -125,7 +126,7 @@ class GroupAutoFixService
                 // Use FinalizationService to allocate (reuse logic)
                 // This will assign title and supervisors if available
                 // For now, just mark that we found a candidate
-                return 'Ditemukan bid yang diterima lecturer untuk judul: ' . $acceptedBid->title->title;
+                return 'Ditemukan bid yang diterima lecturer untuk judul: '.$acceptedBid->title->title;
             }
 
             return null;
@@ -153,13 +154,13 @@ class GroupAutoFixService
             $hasUpdated = false;
 
             foreach ($supervisions as $supervision) {
-                if ($supervision->role === 'SUPERVISOR_1' && !$group->supervisor_1_id) {
+                if ($supervision->role === 'SUPERVISOR_1' && ! $group->supervisor_1_id) {
                     $group->supervisor_1_id = $supervision->supervisor_id;
                     $group->save();
                     $hasUpdated = true;
                 }
 
-                if ($supervision->role === 'SUPERVISOR_2' && !$group->supervisor_2_id) {
+                if ($supervision->role === 'SUPERVISOR_2' && ! $group->supervisor_2_id) {
                     $group->supervisor_2_id = $supervision->supervisor_id;
                     $group->save();
                     $hasUpdated = true;
@@ -209,9 +210,9 @@ class GroupAutoFixService
     /**
      * [BATCH OPERATION] Fix readiness for multiple groups in a period.
      *
-     * @param int $periodId Period to fix
-     * @param string $mode 'safe' or 'aggressive'
-     * @param int|null $adminId Admin user ID
+     * @param  int  $periodId  Period to fix
+     * @param  string  $mode  'safe' or 'aggressive'
+     * @param  int|null  $adminId  Admin user ID
      * @return array Summary of fixes
      */
     public function fixPeriodGroupsReadiness(int $periodId, string $mode = 'safe', ?int $adminId = null): array
@@ -245,7 +246,7 @@ class GroupAutoFixService
                 $results['details'][] = [
                     'group_id' => $group->id,
                     'success' => false,
-                    'message' => 'Error: ' . $e->getMessage(),
+                    'message' => 'Error: '.$e->getMessage(),
                 ];
             }
         }

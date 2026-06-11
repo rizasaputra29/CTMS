@@ -3,8 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use App\Models\Group;
-use App\Models\User;
 
 class Document extends Model
 {

@@ -3,26 +3,17 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
-use App\Models\Bid;
 use App\Models\Document;
-use App\Models\Evaluation;
 use App\Models\Group;
 use App\Models\GroupInvitation;
 use App\Models\GroupMember;
 use App\Models\JoinRequest;
-use App\Models\Notification;
 use App\Models\Period;
 use App\Models\PeriodAssessmentComponent;
 use App\Models\PeriodPeerReviewIndicator;
 use App\Models\PeriodRegistration;
 use App\Models\PhaseDocumentRequirement;
-use App\Models\Schedule;
-use App\Models\SeminarSchedule;
-use App\Models\Supervision;
-use App\Models\TaDefenseSchedule;
-use App\Models\TaSubmission;
 use App\Models\Title;
-use App\Models\TitleApprovalAudit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -45,6 +36,7 @@ class PeriodController extends Controller
         }
 
         $periods = $query->get();
+
         return $this->successResponse($periods, 'Periods retrieved successfully');
     }
 
@@ -270,7 +262,8 @@ class PeriodController extends Controller
             return $this->successResponse(null, "Period '{$period->name}' and {$groupCount} associated groups deleted. Students are now unregistered and can join new periods.");
         } catch (\Exception $e) {
             DB::rollBack();
-            return $this->errorResponse('Failed to delete period: ' . $e->getMessage(), 500);
+
+            return $this->errorResponse('Failed to delete period: '.$e->getMessage(), 500);
         }
     }
 
@@ -299,7 +292,7 @@ class PeriodController extends Controller
         ];
 
         foreach ($optionalColumns as $column) {
-            if (array_key_exists($column, $payload) && !$this->hasPeriodColumn($column)) {
+            if (array_key_exists($column, $payload) && ! $this->hasPeriodColumn($column)) {
                 unset($payload[$column]);
             }
         }
@@ -319,14 +312,14 @@ class PeriodController extends Controller
             }
         }
 
-        if (array_key_exists('max_supervise_load', $payload) && !array_key_exists('max_supervisor_load', $payload)) {
+        if (array_key_exists('max_supervise_load', $payload) && ! array_key_exists('max_supervisor_load', $payload)) {
             $maxLoad = $payload['max_supervise_load'];
 
             if ($this->hasPeriodColumn('max_supervisor_load')) {
                 $payload['max_supervisor_load'] = $maxLoad;
             }
 
-            if (!$this->hasPeriodColumn('max_supervise_load')) {
+            if (! $this->hasPeriodColumn('max_supervise_load')) {
                 unset($payload['max_supervise_load']);
             }
         }

@@ -22,9 +22,10 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import {
-    Loader2, Plus, Search, GraduationCap, AlertCircle,
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock,
+    Plus, Search, GraduationCap, AlertCircle,
+    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText, Lock, Loader2,
 } from 'lucide-react';
+import { Loading } from '@/components/ui/loading';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { taDefenseSchema, type TaDefenseFormData } from '@/lib/validations/ta-defense';
@@ -43,7 +44,7 @@ interface Location {
 
 interface TaDefenseSchedule {
     id: number;
-    student: Student;
+    student?: Student;
     students?: Student[];
     group: { id: number; name: string; code: string };
     period: Period;
@@ -99,6 +100,7 @@ export default function AdminTaDefensePage() {
 
     const [createOpen, setCreateOpen] = useState(false);
     const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
+    const [editingScheduleId, setEditingScheduleId] = useState<number | null>(null);
     const [examinerError, setExaminerError] = useState('');
 
     const [cancelOpen, setCancelOpen] = useState(false);
@@ -150,6 +152,8 @@ export default function AdminTaDefensePage() {
             }
             
             const res = await api.get('/admin/ta-defense-schedules', { params });
+            console.log('API Response:', res.data);
+            console.log('First schedule students:', res.data.data?.[0]?.students);
             setSchedules(res.data.data || []);
         } catch (error) {
             console.error('Fetch schedules error:', error);
@@ -312,6 +316,7 @@ export default function AdminTaDefensePage() {
 
     const handleEdit = (schedule: TaDefenseSchedule) => {
         setDialogMode('edit');
+        setEditingScheduleId(schedule.id);
         // Format date/time properly - extract just the date part and HH:MM for time
         const formattedDate = schedule.date ? schedule.date.split('T')[0] : '';
         const formattedStartTime = schedule.start_time ? schedule.start_time.substring(0, 5) : '';
@@ -338,16 +343,17 @@ export default function AdminTaDefensePage() {
 
     const handleUpdate = async (data: TaDefenseFormData) => {
         if (!validateExaminers()) return;
-        // Find the current schedule being edited
-        const currentSchedule = schedules.find(s => 
-            s.group?.id?.toString() === data.group_id && s.status === 'SCHEDULED'
-        );
+        if (!editingScheduleId) {
+            toast.error('Schedule not found');
+            return;
+        }
+        const currentSchedule = schedules.find(s => s.id === editingScheduleId);
         if (!currentSchedule) {
             toast.error('Schedule not found');
             return;
         }
         try {
-            await api.put(`/admin/ta-defense-schedules/${currentSchedule.id}`, {
+            await api.put(`/admin/ta-defense-schedules/${editingScheduleId}`, {
                 period_id: currentSchedule.period?.id, // Include period_id from existing schedule
                 date: data.date,
                 start_time: data.start_time,
@@ -384,6 +390,7 @@ export default function AdminTaDefensePage() {
         });
         setExaminerError('');
         setEligibleGroups([]);
+        setEditingScheduleId(null);
     };
 
     const filteredAndSorted = useMemo(() => {
@@ -773,11 +780,7 @@ export default function AdminTaDefensePage() {
     };
 
     if (loading) {
-        return (
-            <div className="flex items-center justify-center h-96">
-                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-        );
+        return <Loading variant="section" />;
     }
 
     return (
@@ -1052,7 +1055,7 @@ export default function AdminTaDefensePage() {
                                     render={({ field, fieldState }) => (
                                         <Field>
                                             <FieldLabel>Location <span className="text-destructive">*</span></FieldLabel>
-                                            <Select value={field.value || ''} onValueChange={field.onChange}>
+                                            <Select value={field.value ?? ''} onValueChange={field.onChange}>
                                             <SelectTrigger className={fieldState.error ? 'border-destructive' : ''}>
                                                     <SelectValue placeholder="Select location..." />
                                                 </SelectTrigger>
@@ -1211,7 +1214,12 @@ export default function AdminTaDefensePage() {
                     </DialogHeader>
                     {cancelSchedule && (
                         <div className="py-4">
-                            <p className="font-medium">{cancelSchedule.student.name}</p>
+                            <p className="font-medium">
+                                {cancelSchedule.student?.name || 
+                                 (cancelSchedule.students && cancelSchedule.students.length > 0 
+                                    ? cancelSchedule.students.map(s => s.name).join(', ') 
+                                    : 'Multiple Students')}
+                            </p>
                             <p className="text-sm text-muted-foreground">
                                 Group {cancelSchedule.group.id} - {formatDate(cancelSchedule.date)}
                             </p>
