@@ -522,13 +522,13 @@ export default function AdminTaDefensePage() {
                                 <TableHead className="w-10" />
                                 <SortHeader label="Student" sortKeyName="name" />
                                 <TableHead>NIM</TableHead>
-                                <TableHead className="w-[80px]">Group</TableHead>
+                                <TableHead className="w-20">Group</TableHead>
                                 <SortHeader label="Date" sortKeyName="date" />
-                                <TableHead className="w-[120px]">Time</TableHead>
+                                <TableHead className="w-30">Time</TableHead>
                                 <TableHead>Location</TableHead>
-                                <TableHead className="w-[180px]">Examiners</TableHead>
+                                <TableHead className="w-45">Examiners</TableHead>
                                 <SortHeader label="Status" sortKeyName="status" />
-                                <TableHead className="w-[80px] text-right">Actions</TableHead>
+                                <TableHead className="w-20 text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -740,7 +740,7 @@ export default function AdminTaDefensePage() {
                         <div className="flex items-center gap-1.5">
                             <span className="text-[12px] text-muted-foreground/60">Rows</span>
                             <Select value={String(pageSize)} onValueChange={(v) => handlePageSizeChange(Number(v))}>
-                                <SelectTrigger className="h-7 w-[60px] text-[12px]">
+                                <SelectTrigger className="h-7 w-15 text-[12px]">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -815,7 +815,7 @@ export default function AdminTaDefensePage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Period</span>
                     <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                        <SelectTrigger className="w-[220px]">
+                        <SelectTrigger className="w-55">
                             <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                         <SelectContent>
@@ -832,7 +832,7 @@ export default function AdminTaDefensePage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
                     <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
-                        <SelectTrigger className="w-[160px]">
+                        <SelectTrigger className="w-40">
                             <SelectValue placeholder="Filter by status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -874,7 +874,7 @@ export default function AdminTaDefensePage() {
             {selectedPeriod && filteredSchedules.length > 0 && <ScheduleTable data={filteredSchedules} />}
 
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-                <DialogContent className="sm:max-w-[600px]">
+                <DialogContent className="sm:max-w-150">
                     <DialogHeader>
                         <DialogTitle>Schedule TA Defense</DialogTitle>
                         <DialogDescription>

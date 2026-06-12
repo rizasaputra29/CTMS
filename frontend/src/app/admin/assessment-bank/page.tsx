@@ -1,16 +1,36 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Plus, Search } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { Plus, Search, Filter, ArrowUpDown, MoreHorizontal, Trash2, Archive, ArchiveRestore, Edit } from 'lucide-react';
 import { toast } from 'sonner';
-import { TemplateDialog } from './components/TemplateDialog';
-import { TemplateList } from './components/TemplateList';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Loading } from '@/components/ui/loading';
 import { getApiErrorMessage } from '@/lib/error-utils';
 
 interface Template {
@@ -24,21 +44,32 @@ interface Template {
   updated_at: string;
 }
 
+type SortKey = 'code' | 'description' | 'status' | 'weight';
+type SortDir = 'asc' | 'desc';
+type StatusFilter = 'all' | 'active' | 'inactive';
+
+const PAGE_SIZES = [10, 25, 50];
+
 export default function AssessmentBankPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<Template | null>(null);
-  const [activeTab, setActiveTab] = useState('active');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('code');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+
+  const router = useRouter();
 
   const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
       const res = await api.get('/admin/assessment-templates');
-      setTemplates(res.data || []);
+      setTemplates(res.data?.data || []);
     } catch (error) {
-      toast.error('Failed to load assessment templates');
+      toast.error('Gagal memuat data komponen penilaian');
       console.error(error);
     } finally {
       setLoading(false);
@@ -49,219 +80,483 @@ export default function AssessmentBankPage() {
     fetchTemplates();
   }, [fetchTemplates]);
 
+  // Reset page when filters change
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds(new Set());
+  }, [searchQuery, statusFilter, pageSize, sortKey, sortDir]);
+
+  const filteredAndSorted = useMemo(() => {
+    let result = [...templates];
+
+    // Search filter
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(t =>
+        t.code.toLowerCase().includes(q) ||
+        (t.description?.toLowerCase() || '').includes(q)
+      );
+    }
+
+    // Status filter
+    if (statusFilter === 'active') {
+      result = result.filter(t => t.is_active);
+    } else if (statusFilter === 'inactive') {
+      result = result.filter(t => !t.is_active);
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'code') {
+        cmp = a.code.localeCompare(b.code);
+      } else if (sortKey === 'description') {
+        cmp = (a.description || '').localeCompare(b.description || '');
+      } else if (sortKey === 'status') {
+        cmp = Number(a.is_active) - Number(b.is_active);
+      } else if (sortKey === 'weight') {
+        cmp = a.weight - b.weight;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+
+    return result;
+  }, [templates, searchQuery, statusFilter, sortKey, sortDir]);
+
+  // Pagination
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const paginated = useMemo(() => {
+    const start = (safePage - 1) * pageSize;
+    return filteredAndSorted.slice(start, start + pageSize);
+  }, [filteredAndSorted, safePage, pageSize]);
+
+  const showingStart = filteredAndSorted.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
+
+  // Selection handlers
+  const toggleSelectAll = () => {
+    if (selectedIds.size === paginated.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginated.map(t => t.id)));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    const newSelected = new Set(selectedIds);
+    if (newSelected.has(id)) {
+      newSelected.delete(id);
+    } else {
+      newSelected.add(id);
+    }
+    setSelectedIds(newSelected);
+  };
+
+  const handleBulkActivate = async () => {
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map(id => 
+        api.put(`/admin/assessment-templates/${id}`, { is_active: true })
+      ));
+      toast.success(`${ids.length} komponen diaktifkan`);
+      setSelectedIds(new Set());
+      fetchTemplates();
+    } catch (error) {
+      toast.error('Gagal mengaktifkan komponen');
+    }
+  };
+
+  const handleBulkDeactivate = async () => {
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map(id => 
+        api.put(`/admin/assessment-templates/${id}`, { is_active: false })
+      ));
+      toast.success(`${ids.length} komponen dinonaktifkan`);
+      setSelectedIds(new Set());
+      fetchTemplates();
+    } catch (error) {
+      toast.error('Gagal menonaktifkan komponen');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus ${selectedIds.size} komponen?`)) {
+      return;
+    }
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(ids.map(id => api.delete(`/admin/assessment-templates/${id}`)));
+      toast.success(`${ids.length} komponen dihapus`);
+      setSelectedIds(new Set());
+      fetchTemplates();
+    } catch (error) {
+      toast.error('Gagal menghapus komponen');
+    }
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
   const handleCreate = () => {
-    setEditingTemplate(null);
-    setDialogOpen(true);
+    router.push('/admin/assessment-bank/new');
   };
 
   const handleEdit = (template: Template) => {
-    setEditingTemplate(template);
-    setDialogOpen(true);
+    router.push(`/admin/assessment-bank/${template.id}/edit`);
   };
 
   const handleDelete = async (template: Template) => {
-    if (!confirm(`Are you sure you want to delete "${template.name}"?`)) {
+    if (!confirm(`Apakah Anda yakin ingin menghapus "${template.code}"?`)) {
       return;
     }
-
     try {
       await api.delete(`/admin/assessment-templates/${template.id}`);
-      toast.success('Template deleted successfully');
+      toast.success('Komponen berhasil dihapus');
       fetchTemplates();
     } catch (error) {
-      toast.error(getApiErrorMessage(error) || 'Failed to delete template');
+      toast.error(getApiErrorMessage(error) || 'Gagal menghapus komponen');
     }
   };
 
   const handleToggleActive = async (template: Template) => {
     try {
       await api.put(`/admin/assessment-templates/${template.id}`, {
-        ...template,
         is_active: !template.is_active,
       });
-      toast.success(template.is_active ? 'Template archived' : 'Template activated');
+      toast.success(template.is_active ? 'Komponen dinonaktifkan' : 'Komponen diaktifkan');
       fetchTemplates();
     } catch (error) {
-      toast.error(getApiErrorMessage(error) || 'Failed to update template');
+      toast.error(getApiErrorMessage(error) || 'Gagal mengubah status komponen');
     }
   };
 
-  const handleSave = async (data: Partial<Template>) => {
-    try {
-      if (editingTemplate) {
-        await api.put(`/admin/assessment-templates/${editingTemplate.id}`, data);
-        toast.success('Template updated successfully');
-      } else {
-        await api.post('/admin/assessment-templates', data);
-        toast.success('Template created successfully');
-      }
-      setDialogOpen(false);
-      fetchTemplates();
-    } catch (error) {
-      toast.error(getApiErrorMessage(error) || 'Failed to save template');
-    }
+  const getWeightBadgeColor = (weight: number) => {
+    if (weight > 50) return 'bg-red-50 text-red-700 border-red-200';
+    if (weight >= 25) return 'bg-amber-50 text-amber-700 border-amber-200';
+    return 'bg-green-50 text-green-700 border-green-200';
   };
 
-  const filteredTemplates = templates.filter((template) => {
-    const matchesSearch = 
-      template.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (template.description && template.description.toLowerCase().includes(searchQuery.toLowerCase()));
-    
-    const matchesTab = activeTab === 'all' 
-      ? true 
-      : activeTab === 'active' 
-        ? template.is_active 
-        : !template.is_active;
-    
-    return matchesSearch && matchesTab;
-  });
-
-  const activeCount = templates.filter(t => t.is_active).length;
-  const archivedCount = templates.filter(t => !t.is_active).length;
+  const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
+    <TableHead 
+      className="cursor-pointer select-none hover:bg-gray-50 whitespace-nowrap" 
+      onClick={() => handleSort(sortKeyName)}
+    >
+      <div className="flex items-center gap-1">
+        {label}
+        <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100 text-gray-900' : 'opacity-40'}`} />
+      </div>
+    </TableHead>
+  );
 
   return (
-    <div className="container mx-auto py-6 max-w-7xl">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-gray-50/50">
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        {/* Page Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Assessment Bank</h1>
-            <p className="text-muted-foreground mt-1">
-              Manage master assessment component templates (CPMK/CPL) that can be used across periods.
+            <h1 className="text-2xl font-bold text-gray-900">Bank Asesmen</h1>
+            <p className="text-sm text-gray-500 mt-1">
+              Kelola template master komponen penilaian (CPMK/CPL) yang dapat digunakan di berbagai periode.
             </p>
           </div>
-          <Button onClick={handleCreate}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Template
+          <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700 gap-2">
+            <Plus className="h-4 w-4" />
+            Tambah Penilaian
           </Button>
         </div>
-      </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-3 mb-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Templates</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{templates.length}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Active</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{activeCount}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Archived</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-500">{archivedCount}</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search and Filter */}
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by code, name, or description..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8"
-              />
+        {/* White Card Container */}
+        <div className="bg-white rounded-xl border shadow-sm">
+          {/* Table Header with Controls */}
+          <div className="p-6 border-b">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-gray-900">Tabel Komponen</h2>
+              </div>
+              
+              <div className="flex flex-1 flex-col sm:flex-row gap-3 sm:justify-end">
+                {/* Search */}
+                <div className="relative w-full sm:w-72">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9 h-10"
+                  />
+                </div>
+                
+                {/* Status Filter */}
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-gray-400" />
+                  <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                    <SelectTrigger className="w-[140px] h-10">
+                      <SelectValue placeholder="Filter status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Status</SelectItem>
+                      <SelectItem value="active">Aktif</SelectItem>
+                      <SelectItem value="inactive">Nonaktif</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                
+                {/* Sort */}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={() => handleSort('code')}
+                  className="h-10 w-10"
+                >
+                  <ArrowUpDown className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Templates List */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="active">
-            Active
-            {activeCount > 0 && (
-              <Badge variant="secondary" className="ml-2">{activeCount}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="archived">
-            Archived
-            {archivedCount > 0 && (
-              <Badge variant="secondary" className="ml-2">{archivedCount}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="all">
-            All
-            {templates.length > 0 && (
-              <Badge variant="secondary" className="ml-2">{templates.length}</Badge>
-            )}
-          </TabsTrigger>
-        </TabsList>
+          {/* Bulk Actions Toolbar */}
+          {selectedIds.size > 0 && (
+            <div className="px-6 py-3 bg-indigo-50 border-b flex items-center justify-between">
+              <span className="text-sm font-medium text-indigo-900">
+                {selectedIds.size} terpilih
+              </span>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBulkActivate}
+                  className="h-8"
+                >
+                  <ArchiveRestore className="h-3.5 w-3.5 mr-1.5" />
+                  Aktifkan
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleBulkDeactivate}
+                  className="h-8"
+                >
+                  <Archive className="h-3.5 w-3.5 mr-1.5" />
+                  Nonaktifkan
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={handleBulkDelete}
+                  className="h-8"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                  Hapus
+                </Button>
+              </div>
+            </div>
+          )}
 
-        <TabsContent value={activeTab}>
-          <Card>
-            <CardHeader>
-              <CardTitle>Component Templates</CardTitle>
-              <CardDescription>
-                {activeTab === 'active' && 'Templates available for use in period configuration'}
-                {activeTab === 'archived' && 'Inactive templates not available for selection'}
-                {activeTab === 'all' && 'All assessment component templates'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading ? (
-                <div className="flex justify-center items-center h-64">
-                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          {/* Table Content */}
+          <div className="p-6">
+            {loading ? (
+              <div className="py-16">
+                <Loading variant="section" />
+              </div>
+            ) : filteredAndSorted.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Search className="h-8 w-8 text-gray-400" />
                 </div>
-              ) : filteredTemplates.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                  <p className="text-muted-foreground">
-                    {searchQuery 
-                      ? 'No templates match your search'
-                      : activeTab === 'archived' 
-                        ? 'No archived templates'
-                        : 'No templates available. Create your first template to get started.'
-                    }
-                  </p>
-                  {!searchQuery && activeTab !== 'archived' && (
-                    <Button 
-                      variant="outline" 
-                      className="mt-4"
-                      onClick={handleCreate}
+                <p className="text-gray-500 font-medium">Tidak ada komponen ditemukan</p>
+                <p className="text-sm text-gray-400 mt-1">
+                  {searchQuery || statusFilter !== 'all'
+                    ? 'Coba ubah filter pencarian'
+                    : 'Buat komponen pertama untuk memulai'}
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-gray-50 hover:bg-gray-50">
+                        <TableHead className="w-[40px]">
+                          <Checkbox 
+                            checked={paginated.length > 0 && selectedIds.size === paginated.length}
+                            onCheckedChange={toggleSelectAll}
+                          />
+                        </TableHead>
+                        <SortHeader label="Kode" sortKeyName="code" />
+                        <SortHeader label="Deskripsi" sortKeyName="description" />
+                        <SortHeader label="Status" sortKeyName="status" />
+                        <SortHeader label="Bobot" sortKeyName="weight" />
+                        <TableHead className="w-[60px] text-right">Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginated.map((template) => (
+                        <TableRow 
+                          key={template.id} 
+                          className={!template.is_active ? 'bg-gray-50/50' : ''}
+                        >
+                          <TableCell>
+                            <Checkbox 
+                              checked={selectedIds.has(template.id)}
+                              onCheckedChange={() => toggleSelect(template.id)}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <span className={`font-medium ${!template.is_active ? 'text-gray-500' : 'text-gray-900'}`}>
+                              {template.code}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <span className={`text-sm ${!template.is_active ? 'text-gray-400' : 'text-gray-700'}`}>
+                              {template.description || '-'}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            {template.is_active ? (
+                              <Badge className="bg-green-50 text-green-700 border-green-200 hover:bg-green-50 text-xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-green-500 mr-1.5"></span>
+                                Aktif
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-gray-600 border-gray-300 hover:bg-gray-50 text-xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1.5"></span>
+                                Nonaktif
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge 
+                              variant="outline" 
+                              className={`text-xs ${getWeightBadgeColor(template.weight)}`}
+                            >
+                              {template.weight}%
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => handleEdit(template)}>
+                                  <Edit className="h-4 w-4 mr-2" />
+                                  Edit
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleToggleActive(template)}>
+                                  {template.is_active ? (
+                                    <>
+                                      <Archive className="h-4 w-4 mr-2" />
+                                      Nonaktifkan
+                                    </>
+                                  ) : (
+                                    <>
+                                      <ArchiveRestore className="h-4 w-4 mr-2" />
+                                      Aktifkan
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem 
+                                  onClick={() => handleDelete(template)}
+                                  className="text-red-600"
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Hapus
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 pt-6 border-t">
+                  <div className="flex items-center gap-4">
+                    <p className="text-sm text-gray-600">
+                      Showing {showingStart} to {showingEnd} of {filteredAndSorted.length} results
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-gray-500">Per page:</span>
+                      <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                        <SelectTrigger className="h-8 w-[70px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PAGE_SIZES.map(s => (
+                            <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
                     >
-                      <Plus className="mr-2 h-4 w-4" />
-                      Create Template
+                      Previous
                     </Button>
-                  )}
+                    
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        const pageNum = i + 1;
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={safePage === pageNum ? 'default' : 'outline'}
+                            size="icon"
+                            onClick={() => setPage(pageNum)}
+                            className="h-8 w-8"
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                      {totalPages > 5 && (
+                        <>
+                          <span className="px-2 text-gray-400">...</span>
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => setPage(totalPages)}
+                            className="h-8 w-8"
+                          >
+                            {totalPages}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
-              ) : (
-                <TemplateList
-                  templates={filteredTemplates}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  onToggleActive={handleToggleActive}
-                />
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Dialog */}
-      <TemplateDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        template={editingTemplate}
-        onSave={handleSave}
-      />
+              </>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

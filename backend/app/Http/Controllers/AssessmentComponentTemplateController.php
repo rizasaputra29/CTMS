@@ -17,7 +17,7 @@ class AssessmentComponentTemplateController extends Controller
             ->orderBy('code')
             ->get();
 
-        return response()->json($templates);
+        return response()->json(['data' => $templates]);
     }
 
     /**
@@ -38,6 +38,16 @@ class AssessmentComponentTemplateController extends Controller
         $template = AssessmentComponentTemplate::create($data);
 
         return response()->json($template, 201);
+    }
+
+    /**
+     * Get a single assessment component template.
+     */
+    public function show($id)
+    {
+        $template = AssessmentComponentTemplate::findOrFail($id);
+
+        return response()->json(['data' => $template]);
     }
 
     /**

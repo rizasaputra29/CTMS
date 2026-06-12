@@ -8,11 +8,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { 
-    ArrowLeft, Users, BookOpen, GraduationCap, 
-    Calendar, Loader2, Mail, User, Flag 
+    ChevronLeft, Users, BookOpen, GraduationCap, 
+    Calendar, Loader2, Mail, User, Flag, ShieldCheck,
+    ArrowUpDown, MoreHorizontal, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
 import Link from 'next/link';
+import { getGroupStatusBadgeVariant } from '@/lib/badge-variants';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -24,6 +26,52 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+
+const AVATAR_COLORS = [
+  'bg-emerald-100 text-emerald-700 border-emerald-200',
+  'bg-sky-100 text-sky-700 border-sky-200',
+  'bg-violet-100 text-violet-700 border-violet-200',
+  'bg-amber-100 text-amber-700 border-amber-200',
+  'bg-rose-100 text-rose-700 border-rose-200',
+  'bg-teal-100 text-teal-700 border-teal-200',
+  'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'bg-orange-100 text-orange-700 border-orange-200',
+];
+
+function avatarColorClass(name: string): string {
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const idx = Math.abs(hash) % AVATAR_COLORS.length;
+    return AVATAR_COLORS[idx];
+}
+
+function generateInitials(name: string): string {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function getStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+        'APPROVED': 'Approved',
+        'READY_FOR_BIDDING': 'Ready for Bidding',
+        'FORMING': 'Forming',
+        'FORMING_SOLO': 'Solo Forming',
+        'READY_FOR_FINALIZATION': 'Ready for Finalization',
+        'KELOMPOK_FINAL': 'Kelompok Final',
+        'REJECTED': 'Rejected',
+    };
+    return labels[status] || status;
+}
 
 interface GroupDetail {
     id: number;
@@ -108,7 +156,6 @@ export default function GroupDetailPage() {
             setMemberToFlag(null);
             setFlagReason('');
 
-            // Refresh group data
             await fetchGroup();
         } catch (error) {
             console.error('Failed to flag student', error);
@@ -124,131 +171,137 @@ export default function GroupDetailPage() {
         setFlagReason('');
     };
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
-            case 'APPROVED': return <Badge className="bg-green-500">Approved</Badge>;
-            case 'READY_FOR_BIDDING': return <Badge variant="secondary">Ready for Bidding</Badge>;
-            case 'FORMING': return <Badge variant="outline">Forming</Badge>;
-            case 'READY_FOR_FINALIZATION': return <Badge variant="secondary">Ready for Finalization</Badge>;
-            case 'KELOMPOK_FINAL': return <Badge className="bg-blue-500">Kelompok Final</Badge>;
-            case 'REJECTED': return <Badge variant="destructive">Rejected</Badge>;
-            default: return <Badge variant="outline">{status}</Badge>;
-        }
-    };
-
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
+                <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
         );
     }
 
     if (!group) {
         return (
-            <div className="text-center py-12">
-                <p className="text-muted-foreground">Group not found</p>
+            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+                <Users className="h-10 w-10 mb-3 opacity-40" />
+                <p className="text-sm font-medium">Group not found</p>
                 <Button variant="outline" className="mt-4" asChild>
                     <Link href="/admin/groups">
-                        <ArrowLeft className="mr-2 h-4 w-4" /> Back to Groups
+                        <ChevronLeft className="mr-2 h-4 w-4" /> Back to Groups
                     </Link>
                 </Button>
             </div>
         );
     }
 
+    const leader = group.members.find(m => m.is_leader);
+
     return (
         <div className="space-y-6">
-            {/* Header */}
+            {/* Page Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Button variant="outline" size="icon" asChild>
+                    <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="border-grey-100 text-grey-600 hover:bg-grey-25"
+                        asChild
+                    >
                         <Link href="/admin/groups">
-                            <ArrowLeft className="h-4 w-4" />
+                            <ChevronLeft className="mr-2 h-4 w-4" />
+                            Kembali
                         </Link>
                     </Button>
-                    <div>
-                        <h1 className="text-2xl font-bold tracking-tight">Group Details</h1>
-                        <p className="text-muted-foreground text-sm">
-                            {group.code || `Group ${group.id}`} • {group.period.name}
-                        </p>
-                    </div>
                 </div>
                 <div className="flex items-center gap-2">
-                    {getStatusBadge(group.status)}
+                    <Badge variant={getGroupStatusBadgeVariant(group.status)} className="text-xs font-medium px-2.5 py-0.5">
+                        {getStatusLabel(group.status)}
+                    </Badge>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                            <DropdownMenuItem asChild>
+                                <Link href={`/admin/finalization?group_id=${group.id}`}>
+                                    <ShieldCheck className="mr-2 h-4 w-4" />
+                                    Finalization
+                                </Link>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem asChild>
+                                <Link href={`/admin/schedule?period_id=${group.period_id}`}>
+                                    <Calendar className="mr-2 h-4 w-4" />
+                                    View Schedule
+                                </Link>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
+            {/* Group Info Cards */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Column - Group Info */}
-                <div className="lg:col-span-2 space-y-6">
-                    {/* Title Card */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-lg flex items-center gap-2">
-                                <BookOpen className="h-5 w-5" />
+                {/* Main Info */}
+                <Card className="lg:col-span-2">
+                    <CardHeader>
+                        <CardTitle className="text-[32px] font-semibold text-grey-600 flex items-center gap-3">
+                            <span>Group Details</span>
+                        </CardTitle>
+                        <CardDescription>
+                            {group.code || `Group ${group.id}`} • {group.period.name}
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* Title Section */}
+                        <div>
+                            <h3 className="text-sm font-medium text-grey-400 mb-2 flex items-center gap-2">
+                                <BookOpen className="h-4 w-4" />
                                 Project Title
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
+                            </h3>
                             {group.title ? (
-                                <div className="space-y-4">
-                                    <div>
-                                        <h3 className="font-semibold text-lg">{group.title.title}</h3>
-                                        <p className="text-sm text-muted-foreground">
-                                            Status: <Badge variant={group.title.supervisor_approval_status === 'APPROVED' ? 'default' : 'secondary'}>
-                                                {group.title.supervisor_approval_status}
-                                            </Badge>
-                                        </p>
+                                <div className="space-y-3">
+                                    <p className="text-lg font-semibold text-grey-600">{group.title.title}</p>
+                                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                        <span>Proposed by:</span>
+                                        <span className="font-medium">{group.title.lecturer.name}</span>
                                     </div>
-                                    <Separator />
-                                    <div>
-                                        <p className="text-sm font-medium text-muted-foreground mb-2">Proposed By</p>
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                                <User className="h-4 w-4 text-primary" />
-                                            </div>
-                                            <div>
-                                                <p className="font-medium">{group.title.lecturer.name}</p>
-                                                <p className="text-xs text-muted-foreground">{group.title.lecturer.email}</p>
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <Badge className={`${group.title.supervisor_approval_status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} text-xs border`}>
+                                        {group.title.supervisor_approval_status}
+                                    </Badge>
                                 </div>
                             ) : (
-                                <div className="text-center py-8 text-muted-foreground">
-                                    <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                                    <p>No title assigned yet</p>
-                                    <p className="text-sm">This group is still in bidding phase</p>
-                                </div>
+                                <p className="text-muted-foreground italic">No title assigned yet</p>
                             )}
-                        </CardContent>
-                    </Card>
+                        </div>
 
-                    {/* Members Card */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle className="text-lg flex items-center gap-2">
-                                <Users className="h-5 w-5" />
-                                Group Members
-                            </CardTitle>
-                            <CardDescription>
-                                {group.group_mode} mode • {group.members.length} member(s)
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="space-y-4">
+                        <Separator />
+
+                        {/* Members Section */}
+                        <div>
+                            <h3 className="text-sm font-medium text-grey-400 mb-3 flex items-center gap-2">
+                                <Users className="h-4 w-4" />
+                                Group Members ({group.members.length})
+                            </h3>
+                            <div className="space-y-3">
                                 {group.members.map((member) => (
-                                    <div key={member.id} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                                    <div key={member.id} className="flex items-center justify-between p-3 bg-grey-25 rounded-lg">
                                         <div className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                                <User className="h-5 w-5 text-primary" />
-                                            </div>
+                                            <Avatar className={`h-10 w-10 ${avatarColorClass(member.student.name)}`}>
+                                                <AvatarFallback className={`${avatarColorClass(member.student.name)} font-semibold text-xs`}>
+                                                    {generateInitials(member.student.name)}
+                                                </AvatarFallback>
+                                            </Avatar>
                                             <div>
                                                 <div className="flex items-center gap-2">
-                                                    <p className="font-medium">{member.student.name}</p>
+                                                    <span className="font-medium text-sm">{member.student.name}</span>
+                                                    {member.is_leader && (
+                                                        <Badge variant="outline" className="text-[10px] h-5">
+                                                            Leader
+                                                        </Badge>
+                                                    )}
                                                     {member.status === 'flagged' && (
-                                                        <Badge variant="destructive" className="text-xs">
+                                                        <Badge variant="destructive" className="text-[10px] h-5">
                                                             Flagged
                                                         </Badge>
                                                     )}
@@ -257,16 +310,12 @@ export default function GroupDetailPage() {
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            {member.is_leader && (
-                                                <Badge variant="secondary">Leader</Badge>
-                                            )}
                                             <a 
                                                 href={`mailto:${member.student.email}`}
                                                 className="text-muted-foreground hover:text-primary"
                                             >
                                                 <Mail className="h-4 w-4" />
                                             </a>
-                                            {/* Flag button - hide if already flagged */}
                                             {member.status !== 'flagged' && (
                                                 <Button
                                                     variant="ghost"
@@ -282,13 +331,13 @@ export default function GroupDetailPage() {
                                     </div>
                                 ))}
                             </div>
-                        </CardContent>
-                    </Card>
-                </div>
+                        </div>
+                    </CardContent>
+                </Card>
 
-                {/* Right Column - Supervisors & Metadata */}
+                {/* Sidebar Info */}
                 <div className="space-y-6">
-                    {/* Supervisors Card */}
+                    {/* Supervisors */}
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-lg flex items-center gap-2">
@@ -301,12 +350,13 @@ export default function GroupDetailPage() {
                                 <div className="space-y-4">
                                     {group.supervisions.map((supervision) => (
                                         <div key={supervision.id} className="flex items-center gap-3">
-                                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                                <User className="h-5 w-5 text-primary" />
-                                            </div>
+                                            <Avatar className={`h-10 w-10 ${avatarColorClass(supervision.supervisor.name)}`}>
+                                                <AvatarFallback className={`${avatarColorClass(supervision.supervisor.name)} font-semibold text-xs`}>
+                                                    {generateInitials(supervision.supervisor.name)}
+                                                </AvatarFallback>
+                                            </Avatar>
                                             <div className="flex-1">
-                                                <p className="font-medium">{supervision.supervisor.name}</p>
-                                                <p className="text-xs text-muted-foreground">{supervision.supervisor.email}</p>
+                                                <p className="font-medium text-sm">{supervision.supervisor.name}</p>
                                                 <Badge variant="outline" className="mt-1 text-[10px]">
                                                     {supervision.role}
                                                 </Badge>
@@ -315,15 +365,12 @@ export default function GroupDetailPage() {
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center py-6 text-muted-foreground">
-                                    <GraduationCap className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                                    <p className="text-sm">No supervisors assigned</p>
-                                </div>
+                                <p className="text-sm text-muted-foreground text-center py-4">No supervisors assigned</p>
                             )}
                         </CardContent>
                     </Card>
 
-                    {/* Metadata Card */}
+                    {/* Group Info */}
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-lg flex items-center gap-2">
@@ -343,7 +390,7 @@ export default function GroupDetailPage() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Mode</span>
-                                    <Badge variant="outline">{group.group_mode}</Badge>
+                                    <Badge variant="outline" className="text-xs">{group.group_mode}</Badge>
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Created</span>
@@ -353,19 +400,21 @@ export default function GroupDetailPage() {
                         </CardContent>
                     </Card>
 
-                    {/* Actions Card */}
+                    {/* Quick Actions */}
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-lg">Actions</CardTitle>
+                            <CardTitle className="text-lg">Quick Actions</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-2">
                             <Button className="w-full" asChild>
                                 <Link href={`/admin/finalization?group_id=${group.id}`}>
-                                    Manage in Finalization
+                                    <ShieldCheck className="mr-2 h-4 w-4" />
+                                    Manage Finalization
                                 </Link>
                             </Button>
                             <Button variant="outline" className="w-full" asChild>
                                 <Link href={`/admin/schedule?period_id=${group.period_id}`}>
+                                    <Calendar className="mr-2 h-4 w-4" />
                                     View Schedule
                                 </Link>
                             </Button>

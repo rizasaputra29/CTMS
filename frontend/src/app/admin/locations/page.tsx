@@ -18,11 +18,12 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Plus, Trash2, Edit, Loader2, Search, ArrowUpDown, MapPin } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, Filter, ArrowUpDown, MapPin } from 'lucide-react';
 import { toast } from 'sonner';
 import { locationSchema, type LocationFormData } from '@/lib/validations/location';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
 import { isScheduleMode, toScheduleMode } from '@/types';
+import { Loading } from '@/components/ui/loading';
 
 interface Location {
     id: number;
@@ -78,7 +79,7 @@ export default function AdminLocationsPage() {
     const fetchLocations = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await api.get('/locations');
+            const res = await api.get('/locations/all');
             setLocations(res.data?.data || []);
         } catch (err) {
             console.error('Failed to fetch locations', err);
@@ -249,345 +250,385 @@ export default function AdminLocationsPage() {
     };
 
     const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort(sortKeyName)}>
+        <TableHead className="cursor-pointer px-4 select-none hover:bg-gray-50" onClick={() => handleSort(sortKeyName)}>
             <div className="flex items-center gap-1">
                 {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100 text-gray-900' : 'opacity-40'}`} />
             </div>
         </TableHead>
     );
 
     return (
-        <div className="space-y-6">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-semibold tracking-tight">Locations</h1>
-                    <p className="text-muted-foreground text-sm mt-0.5">
-                        Manage rooms, labs, and virtual locations for schedules.
-                    </p>
-                </div>
-                <Button onClick={openCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> Add Location
-                </Button>
-            </div>
-
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-3">
-                <div className="relative flex-1 sm:max-w-xs">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search locations..."
-                        className="pl-9"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                    />
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">Type</span>
-                    <Select value={typeFilter} onValueChange={(v) => setTypeFilter(isScheduleMode(v) ? v : 'all')}>
-                        <SelectTrigger className="w-[140px]">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Types</SelectItem>
-                            <SelectItem value="offline">Offline</SelectItem>
-                            <SelectItem value="online">Online</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground whitespace-nowrap">Status</span>
-                    <Select value={statusFilter} onValueChange={(v) => { if (isStatusFilter(v)) setStatusFilter(v); }}>
-                        <SelectTrigger className="w-[140px]">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Status</SelectItem>
-                            <SelectItem value="active">Active</SelectItem>
-                            <SelectItem value="inactive">Inactive</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            </div>
-
-            {/* Loading State */}
-            {loading && (
-                <div className="flex justify-center items-center h-64">
-                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                </div>
-            )}
-
-            {/* Empty State */}
-            {!loading && filteredAndSorted.length === 0 && (
-                <div className="text-center py-16 text-muted-foreground border rounded-lg border-dashed">
-                    <MapPin className="h-8 w-8 mx-auto mb-3 text-muted-foreground/40" />
-                    <p className="text-sm font-medium">No Locations Found</p>
-                    <p className="text-[13px] text-muted-foreground/60 mt-1">
-                        {searchQuery || typeFilter !== 'all' || statusFilter !== 'all'
-                            ? 'Try adjusting your filters.'
-                            : 'Create your first location to get started.'}
-                    </p>
-                </div>
-            )}
-
-            {/* Table */}
-            {!loading && filteredAndSorted.length > 0 && (
-                <>
-                    <div className="rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <SortHeader label="Name" sortKeyName="name" />
-                                    <SortHeader label="Type" sortKeyName="type" />
-                                    <SortHeader label="Capacity" sortKeyName="capacity" />
-                                    <SortHeader label="Status" sortKeyName="status" />
-                                    <TableHead className="w-[200px] text-right">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {paginated.map((location) => (
-                                    <TableRow key={location.id} className={!location.is_active ? 'bg-muted/20' : ''}>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <MapPin className={`h-4 w-4 ${location.is_active ? 'text-primary' : 'text-muted-foreground'}`} />
-                                                <span className={`font-medium ${!location.is_active ? 'text-muted-foreground' : ''}`}>
-                                                    {location.name}
-                                                </span>
-                                            </div>
-                                            {location.description && (
-                                                <p className="text-xs text-muted-foreground mt-0.5 ml-6">
-                                                    {location.description}
-                                                </p>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Badge variant={location.type === 'offline' ? 'default' : 'secondary'} className="text-[11px]">
-                                                {location.type === 'offline' ? 'Offline' : 'Online'}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell>
-                                            <span className="text-sm text-muted-foreground">
-                                                {location.capacity ? location.capacity : '—'}
-                                            </span>
-                                        </TableCell>
-                                        <TableCell>
-                                            <div className="flex items-center gap-2">
-                                                <Switch
-                                                    checked={location.is_active}
-                                                    onCheckedChange={() => handleToggleActive(location)}
-                                                />
-                                                <Badge variant={location.is_active ? 'default' : 'secondary'} className="text-[11px]">
-                                                    {location.is_active ? 'Active' : 'Inactive'}
-                                                </Badge>
-                                            </div>
-                                        </TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex items-center justify-end gap-1">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className="text-[13px] h-7 px-2"
-                                                    onClick={() => openEdit(location)}
-                                                >
-                                                    <Edit className="h-3.5 w-3.5" />
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="destructive"
-                                                    className="text-[13px] h-7 px-2"
-                                                    onClick={() => handleDelete(location)}
-                                                    disabled={location.is_active || deleting === location.id}
-                                                    title={location.is_active ? 'Deactivate before deleting' : 'Delete location'}
-                                                >
-                                                    {deleting === location.id ? (
-                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                                    ) : (
-                                                        <Trash2 className="h-3.5 w-3.5" />
-                                                    )}
-                                                </Button>
-                                            </div>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+        <div className="min-h-screen bg-gray-50/50 p-6">
+            <div className="max-w-7xl mx-auto space-y-6">
+                {/* Page Header */}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                        <h1 className="text-2xl font-bold text-gray-900">Locations</h1>
+                        <p className="text-sm text-gray-500 mt-1">Manage rooms, labs, and virtual locations for schedules</p>
                     </div>
+                    <Button onClick={openCreate} className="gap-2">
+                        <Plus className="h-4 w-4" />
+                        Tambah Lokasi
+                    </Button>
+                </div>
 
-                    {/* Pagination */}
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <p className="text-sm text-muted-foreground">
-                                Showing {showingStart}–{showingEnd} of {filteredAndSorted.length}
-                            </p>
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                                    <SelectTrigger className="h-7 w-[60px] text-[12px]">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {PAGE_SIZES.map(s => (
-                                            <SelectItem key={s} value={String(s)}>{s}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                {/* White Card Container */}
+                <div className="bg-white rounded-xl border shadow-sm">
+                    {/* Table Header with Controls */}
+                    <div className="p-6">
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-lg font-semibold text-gray-900">Location Table</h2>
+                            </div>
+                            
+                            <div className="flex flex-1 flex-col sm:flex-row gap-3 sm:justify-end">
+                                {/* Search */}
+                                <div className="relative w-full sm:w-72">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                    <Input
+                                        placeholder="Search locations..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="pl-9 h-10"
+                                    />
+                                </div>
+                                
+                                {/* Type Filter */}
+                                <div className="flex items-center gap-2">
+                                    <Filter className="h-4 w-4 text-gray-400" />
+                                    <Select value={typeFilter} onValueChange={(v) => setTypeFilter(isScheduleMode(v) ? v : 'all')}>
+                                        <SelectTrigger className="w-[140px] h-10">
+                                            <SelectValue placeholder="All Types" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Types</SelectItem>
+                                            <SelectItem value="offline">Offline</SelectItem>
+                                            <SelectItem value="online">Online</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Status Filter */}
+                                <div className="flex items-center gap-2">
+                                    <Select value={statusFilter} onValueChange={(v) => { if (isStatusFilter(v)) setStatusFilter(v); }}>
+                                        <SelectTrigger className="w-[140px] h-10">
+                                            <SelectValue placeholder="All Status" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="all">All Status</SelectItem>
+                                            <SelectItem value="active">Active</SelectItem>
+                                            <SelectItem value="inactive">Inactive</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                
+                                {/* Sort */}
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={() => handleSort('name')}
+                                    className="h-10 w-10"
+                                >
+                                    <ArrowUpDown className="h-4 w-4" />
+                                </Button>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={safePage === 1}
-                            >
-                                Previous
-                            </Button>
-                            <span className="text-sm text-muted-foreground px-2">
-                                Page {safePage} of {totalPages}
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={safePage === totalPages}
-                            >
-                                Next
-                            </Button>
-                        </div>
                     </div>
-                </>
-            )}
+
+                    {/* Table Content */}
+                    <div>
+                        {loading ? (
+                            <div className="py-16">
+                                <Loading variant="section" />
+                            </div>
+                        ) : filteredAndSorted.length === 0 ? (
+                            <div className="text-center py-16">
+                                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                    <MapPin className="h-8 w-8 text-gray-400" />
+                                </div>
+                                <p className="text-gray-500 font-medium">No Locations Found</p>
+                                <p className="text-sm text-gray-400 mt-1">
+                                    {searchQuery || typeFilter !== 'all' || statusFilter !== 'all'
+                                        ? 'Try adjusting your filters.'
+                                        : 'Create your first location to get started.'}
+                                </p>
+                            </div>
+                        ) : (
+                            <>
+                                <div className="border-y">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow className="bg-gray-50 hover:bg-gray-50">
+                                                <SortHeader label="Name" sortKeyName="name"/>
+                                                <SortHeader label="Type" sortKeyName="type" />
+                                                <SortHeader label="Capacity" sortKeyName="capacity" />
+                                                <SortHeader label="Status" sortKeyName="status" />
+                                                <TableHead className="max-w-[200px] text-center">Actions</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {paginated.map((location) => (
+                                                <TableRow key={location.id} className={!location.is_active ? 'bg-gray-50/50' : ''}>
+                                                    <TableCell className='px-4'>
+                                                        <div className="flex items-center gap-2">
+                                                            <MapPin className={`h-4 w-4 ${location.is_active ? 'text-blue-600' : 'text-gray-400'}`} />
+                                                            <span className={`font-medium ${!location.is_active ? 'text-gray-500' : ''}`}>
+                                                                {location.name}
+                                                            </span>
+                                                        </div>
+                                                        {location.description && (
+                                                            <p className="text-xs text-gray-500 mt-0.5 ml-6">
+                                                                {location.description}
+                                                            </p>
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Badge variant={location.type === 'offline' ? 'default' : 'secondary'} className="text-[11px]">
+                                                            {location.type === 'offline' ? 'Offline' : 'Online'}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <span className="text-sm text-gray-600">
+                                                            {location.capacity ? location.capacity : '—'}
+                                                        </span>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-2">
+                                                            <Switch
+                                                                checked={location.is_active}
+                                                                onCheckedChange={() => handleToggleActive(location)}
+                                                            />
+                                                            <Badge variant={location.is_active ? 'default' : 'secondary'} className="text-[11px]">
+                                                                {location.is_active ? 'Active' : 'Inactive'}
+                                                            </Badge>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell className="text-right px-4">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            <Button
+                                                                size="sm"
+                                                                variant="outline"
+                                                                className="text-[13px] h-7 px-2"
+                                                                onClick={() => openEdit(location)}
+                                                            >
+                                                                <Edit className="h-3.5 w-3.5" />
+                                                            </Button>
+                                                            <Button
+                                                                size="sm"
+                                                                variant="destructive"
+                                                                className="text-[13px] h-7 px-2"
+                                                                onClick={() => handleDelete(location)}
+                                                                disabled={location.is_active || deleting === location.id}
+                                                                title={location.is_active ? 'Deactivate before deleting' : 'Delete location'}
+                                                            >
+                                                                {deleting === location.id ? (
+                                                                    <span className="animate-spin">⟳</span>
+                                                                ) : (
+                                                                    <Trash2 className="h-3.5 w-3.5" />
+                                                                )}
+                                                            </Button>
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+
+                                {/* Pagination */}
+                                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4">
+                                    <div className="flex items-center gap-4">
+                                        <p className="text-sm text-gray-600">
+                                            Showing {showingStart} to {showingEnd} of {filteredAndSorted.length} results
+                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-gray-500">Per page:</span>
+                                            <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                                                <SelectTrigger className="h-8 w-[70px]">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {PAGE_SIZES.map(s => (
+                                                        <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setPage(p => Math.max(1, p - 1))}
+                                            disabled={safePage === 1}
+                                        >
+                                            Previous
+                                        </Button>
+                                        
+                                        <div className="flex items-center gap-1">
+                                            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                                const pageNum = i + 1;
+                                                return (
+                                                    <Button
+                                                        key={pageNum}
+                                                        variant={safePage === pageNum ? 'default' : 'outline'}
+                                                        size="icon"
+                                                        onClick={() => setPage(pageNum)}
+                                                        className="h-8 w-8"
+                                                    >
+                                                        {pageNum}
+                                                    </Button>
+                                                );
+                                            })}
+                                        </div>
+                                        
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                            disabled={safePage === totalPages}
+                                        >
+                                            Next
+                                        </Button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            </div>
 
             {/* Create/Edit Dialog */}
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                    <DialogContent className="sm:max-w-[500px]">
-                        <DialogHeader>
-                            <DialogTitle>{editing ? 'Edit Location' : 'Add Location'}</DialogTitle>
-                            <DialogDescription>
-                                {editing
-                                    ? 'Update the location details below.'
-                                    : 'Create a new location for scheduling events and sessions.'}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <form onSubmit={form.handleSubmit(onSubmit)}>
-                            <div className="space-y-4 py-4">
+                <DialogContent className="sm:max-w-[500px]">
+                    <DialogHeader>
+                        <DialogTitle>{editing ? 'Edit Location' : 'Add Location'}</DialogTitle>
+                        <DialogDescription>
+                            {editing
+                                ? 'Update the location details below.'
+                                : 'Create a new location for scheduling events and sessions.'}
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form onSubmit={form.handleSubmit(onSubmit)}>
+                        <div className="space-y-4 py-4">
+                            <Controller
+                                name="name"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Name *</FieldLabel>
+                                        <Input
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="e.g., Lab IF-101, Zoom Meeting Room"
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                    </Field>
+                                )}
+                            />
+                            <div className="grid grid-cols-2 gap-4">
                                 <Controller
-                                    name="name"
+                                    name="type"
                                     control={form.control}
                                     render={({ field, fieldState }) => (
                                         <Field data-invalid={fieldState.invalid}>
-                                            <FieldLabel htmlFor={field.name}>Name *</FieldLabel>
+                                            <FieldLabel htmlFor={field.name}>Type *</FieldLabel>
+                                            <Select
+                                                value={field.value}
+                                                onValueChange={(v) => field.onChange(toScheduleMode(v))}
+                                            >
+                                                <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="offline">Offline</SelectItem>
+                                                    <SelectItem value="online">Online</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                        </Field>
+                                    )}
+                                />
+                                <Controller
+                                    name="capacity"
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                        <Field data-invalid={fieldState.invalid}>
+                                            <FieldLabel htmlFor={field.name}>Capacity (optional)</FieldLabel>
                                             <Input
                                                 {...field}
                                                 id={field.name}
-                                                placeholder="e.g., Lab IF-101, Zoom Meeting Room"
+                                                type="number"
+                                                min="1"
+                                                placeholder="e.g., 30"
                                                 aria-invalid={fieldState.invalid}
                                             />
                                             {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
                                         </Field>
                                     )}
                                 />
-                                <div className="grid grid-cols-2 gap-4">
-                                    <Controller
-                                        name="type"
-                                        control={form.control}
-                                        render={({ field, fieldState }) => (
-                                            <Field data-invalid={fieldState.invalid}>
-                                                <FieldLabel htmlFor={field.name}>Type *</FieldLabel>
-                                                <Select
-                                                    value={field.value}
-                                                    onValueChange={(v) => field.onChange(toScheduleMode(v))}
-                                                >
-                                                    <SelectTrigger id={field.name} aria-invalid={fieldState.invalid}>
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="offline">Offline</SelectItem>
-                                                        <SelectItem value="online">Online</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                                {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
-                                            </Field>
-                                        )}
-                                    />
-                                    <Controller
-                                        name="capacity"
-                                        control={form.control}
-                                        render={({ field, fieldState }) => (
-                                            <Field data-invalid={fieldState.invalid}>
-                                                <FieldLabel htmlFor={field.name}>Capacity (optional)</FieldLabel>
-                                                <Input
-                                                    {...field}
-                                                    id={field.name}
-                                                    type="number"
-                                                    min="1"
-                                                    placeholder="e.g., 30"
-                                                    aria-invalid={fieldState.invalid}
-                                                />
-                                                {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
-                                            </Field>
-                                        )}
-                                    />
-                                </div>
-                                <Controller
-                                    name="description"
-                                    control={form.control}
-                                    render={({ field, fieldState }) => (
-                                        <Field data-invalid={fieldState.invalid}>
-                                            <FieldLabel htmlFor={field.name}>Description (optional)</FieldLabel>
-                                            <Textarea
-                                                {...field}
-                                                id={field.name}
-                                                placeholder="Additional details about this location..."
-                                                rows={3}
-                                                aria-invalid={fieldState.invalid}
-                                            />
-                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
-                                        </Field>
-                                    )}
-                                />
-                                <Controller
-                                    name="is_active"
-                                    control={form.control}
-                                    render={({ field, fieldState }) => (
-                                        <Field orientation="horizontal" data-invalid={fieldState.invalid}>
-                                            <FieldLabel htmlFor={field.name}>Active</FieldLabel>
-                                            <Switch
-                                                id={field.name}
-                                                checked={field.value}
-                                                onCheckedChange={field.onChange}
-                                                aria-invalid={fieldState.invalid}
-                                            />
-                                            {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
-                                        </Field>
-                                    )}
-                                />
-                                {editing && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Tip: Set to inactive to prevent this location from appearing in schedule dropdowns.
-                                    </p>
-                                )}
                             </div>
-                            <DialogFooter>
-                                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={form.formState.isSubmitting}>
-                                    Cancel
-                                </Button>
-                                <Button type="submit" disabled={form.formState.isSubmitting}>
-                                    {form.formState.isSubmitting ? (
-                                        <>
-                                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                            Saving...
-                                        </>
-                                    ) : editing ? (
-                                        'Save Changes'
-                                    ) : (
-                                        'Create Location'
-                                    )}
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    </DialogContent>
+                            <Controller
+                                name="description"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Description (optional)</FieldLabel>
+                                        <Textarea
+                                            {...field}
+                                            id={field.name}
+                                            placeholder="Additional details about this location..."
+                                            rows={3}
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                    </Field>
+                                )}
+                            />
+                            <Controller
+                                name="is_active"
+                                control={form.control}
+                                render={({ field, fieldState }) => (
+                                    <Field orientation="horizontal" data-invalid={fieldState.invalid}>
+                                        <FieldLabel htmlFor={field.name}>Active</FieldLabel>
+                                        <Switch
+                                            id={field.name}
+                                            checked={field.value}
+                                            onCheckedChange={field.onChange}
+                                            aria-invalid={fieldState.invalid}
+                                        />
+                                        {fieldState.invalid && <FieldError>{fieldState.error?.message}</FieldError>}
+                                    </Field>
+                                )}
+                            />
+                            {editing && (
+                                <p className="text-xs text-gray-500">
+                                    Tip: Set to inactive to prevent this location from appearing in schedule dropdowns.
+                                </p>
+                            )}
+                        </div>
+                        <DialogFooter>
+                            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)} disabled={form.formState.isSubmitting}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" disabled={form.formState.isSubmitting}>
+                                {form.formState.isSubmitting ? (
+                                    <>
+                                        <span className="mr-2 animate-spin">⟳</span>
+                                        Saving...
+                                    </>
+                                ) : editing ? (
+                                    'Save Changes'
+                                ) : (
+                                    'Create Location'
+                                )}
+                            </Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
             </Dialog>
         </div>
     );

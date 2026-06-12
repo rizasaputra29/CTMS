@@ -1,18 +1,9 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/layout/AppSidebar"
-import { Separator } from "@/components/ui/separator"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb"
-import { Button } from "@/components/ui/button"
-import { ChevronDown } from "lucide-react"
-
+import { TopBar } from "@/components/layout/TopBar"
 import { Toaster } from "@/components/ui/sonner"
 import { usePathname, useRouter } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
@@ -74,15 +65,6 @@ export default function DashboardLayout({
         }
     }, [isLoading, user, activeRole, roleFromPath, router, switchRole, isMultiRole]);
 
-    const getPageTitle = (path: string) => {
-        const segments = path.split('/').filter(Boolean);
-        const lastSegment = segments[segments.length - 1];
-        if (!lastSegment) return 'Dashboard';
-        return lastSegment.charAt(0).toUpperCase() + lastSegment.slice(1);
-    };
-
-    const pageTitle = getPageTitle(pathname);
-
     if (isLoading) {
         return <div className="p-6 text-sm text-muted-foreground">Loading dashboard...</div>;
     }
@@ -94,43 +76,23 @@ export default function DashboardLayout({
     return (
         <SidebarProvider>
             <AppSidebar />
-            <main className="w-full flex flex-col h-screen overflow-hidden">
-                <header className="flex items-center justify-between gap-2 border-b px-4 py-3 shrink-0 bg-background z-10">
-                    <div className="flex items-center gap-2">
-                        <SidebarTrigger className="-ml-1" />
-                        <Separator orientation="vertical" className="mr-2 h-4" />
-                        <Breadcrumb>
-                            <BreadcrumbList>
-                                <BreadcrumbItem>
-                                    <BreadcrumbPage className="font-semibold">{pageTitle}</BreadcrumbPage>
-                                </BreadcrumbItem>
-                            </BreadcrumbList>
-                        </Breadcrumb>
+            <main className="w-full flex flex-col h-screen overflow-hidden bg-background">
+                <div className="flex-1 overflow-y-auto p-4">
+                    <div className="bg-background border border-grey-100 rounded-xl shadow-small overflow-hidden min-h-full">
+                        <TopBar />
+                        <div className="px-6 pt-6 pb-6">
+                            {children}
+                        </div>
                     </div>
-                    
-                    {/* Role Selector - only for non-combined multi-role users on dashboard pages */}
-                    {user?.roles && user.roles.length > 1 && !isMultiRole && pathname.endsWith('/dashboard') && (
-                        <>
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => setRoleSelectorOpen(true)}
-                                className="text-xs"
-                            >
-                                {activeRole && activeRole.charAt(0).toUpperCase() + activeRole.slice(1)}
-                                <ChevronDown className="ml-1 h-3 w-3" />
-                            </Button>
-                            <RoleSelector 
-                                open={roleSelectorOpen} 
-                                onOpenChange={setRoleSelectorOpen}
-                            />
-                        </>
-                    )}
-                </header>
-                <div className="flex-1 overflow-y-auto p-4 md:p-6 bg-muted/50">
-                    {children}
                 </div>
                 <Toaster />
+                {/* Role Selector Dialog - only for non-combined multi-role users */}
+                {user?.roles && user.roles.length > 1 && !isMultiRole && (
+                    <RoleSelector 
+                        open={roleSelectorOpen} 
+                        onOpenChange={setRoleSelectorOpen}
+                    />
+                )}
             </main>
         </SidebarProvider>
     )

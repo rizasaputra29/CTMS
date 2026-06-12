@@ -57,25 +57,25 @@ export function getSemproStatusBadgeVariant(status: string): NonNullable<BadgeVa
 
 /**
  * Get badge variant for group status
+ * Uses color-coded variants matching the design system
  */
 export function getGroupStatusBadgeVariant(status: string): NonNullable<BadgeVariant> {
   switch (status) {
     case 'APPROVED':
-      return 'default';
+    case 'KELOMPOK_FINAL':
+      return 'statusApproved';
     case 'REJECTED':
-      return 'destructive';
+      return 'statusRejected';
     case 'PENDING':
-      return 'secondary';
+      return 'statusPending';
     case 'FORMING':
-      return 'secondary';
     case 'FORMING_SOLO':
-      return 'secondary';
+      return 'statusForming';
     case 'READY_FOR_BIDDING':
-      return 'outline';
     case 'READY_FOR_FINALIZATION':
-      return 'outline';
+      return 'statusReady';
     case 'CLOSED':
-      return 'secondary';
+      return 'statusClosed';
     default:
       return 'secondary';
   }

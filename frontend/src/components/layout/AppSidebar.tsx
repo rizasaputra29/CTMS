@@ -87,8 +87,7 @@ const navItems: Record<string, NavItem[]> = {
             icon: ListChecks,
             items: [
                 { title: 'Assessment Bank', url: '/admin/assessment-bank', icon: BookOpen },
-                { title: 'Active Components', url: '/admin/assessments', icon: ListChecks },
-                { title: 'Period Config', url: '/admin/period-assessment-config', icon: Settings },
+                { title: 'Tipe Penilaian', url: '/admin/period-assessment-config', icon: ListChecks },
                 { title: 'Peer Review', url: '/admin/peer-review', icon: Star },
                 { title: 'Grade Config', url: '/admin/evaluation-setup/grade-configuration', icon: GraduationCap },
             ]

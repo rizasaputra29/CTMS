@@ -24,6 +24,19 @@ const badgeVariants = cva(
           "bg-teal-50 text-teal-700 border-teal-200 [a&]:hover:bg-teal-100",
         roleMahasiswa:
           "bg-amber-50 text-amber-700 border-amber-200 [a&]:hover:bg-amber-100",
+        // Status badges
+        statusApproved:
+          "bg-emerald-50 text-emerald-700 border-emerald-200 [a&]:hover:bg-emerald-100",
+        statusRejected:
+          "bg-rose-50 text-rose-700 border-rose-200 [a&]:hover:bg-rose-100",
+        statusPending:
+          "bg-amber-50 text-amber-700 border-amber-200 [a&]:hover:bg-amber-100",
+        statusForming:
+          "bg-sky-50 text-sky-700 border-sky-200 [a&]:hover:bg-sky-100",
+        statusReady:
+          "bg-violet-50 text-violet-700 border-violet-200 [a&]:hover:bg-violet-100",
+        statusClosed:
+          "bg-grey-50 text-grey-700 border-grey-200 [a&]:hover:bg-grey-100",
       },
     },
     defaultVariants: {

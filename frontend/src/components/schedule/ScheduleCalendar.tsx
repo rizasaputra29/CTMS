@@ -223,7 +223,7 @@ export default function ScheduleCalendar({
     return (
         <div className="flex flex-col gap-6">
             {/* Calendar Card */}
-            <Card className="w-full overflow-hidden">
+            <Card className="w-full overflow-hidden pt-0">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b">
                     <div className="flex items-center gap-4">

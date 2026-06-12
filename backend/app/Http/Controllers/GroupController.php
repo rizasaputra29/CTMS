@@ -109,13 +109,18 @@ class GroupController extends Controller
 
     public function listGroups(Request $request)
     {
+        $page = $request->input('page', 1);
+        $perPage = $request->input('per_page', 10);
+
         $query = Group::with(['title', 'members.student', 'period', 'supervisions.supervisor']);
 
-        if ($request->has('period_id')) {
+        if ($request->has('period_id') && $request->period_id !== 'all') {
             $query->where('period_id', $request->period_id);
         }
 
-        $groups = $query->latest()->get()->map(function (Group $group) {
+        $paginatedGroups = $query->latest()->paginate($perPage, ['*'], 'page', $page);
+
+        $transformedGroups = $paginatedGroups->getCollection()->map(function (Group $group) {
             $groupArray = $group->toArray();
             $groupArray['name'] = $this->resolveAdminGroupName($group);
             $groupArray['status_label'] = $this->resolveAdminStatusLabel($group->status);
@@ -128,7 +133,13 @@ class GroupController extends Controller
             return $groupArray;
         });
 
-        return response()->json(['data' => $groups]);
+        return response()->json([
+            'data' => $transformedGroups,
+            'current_page' => $paginatedGroups->currentPage(),
+            'last_page' => $paginatedGroups->lastPage(),
+            'per_page' => $paginatedGroups->perPage(),
+            'total' => $paginatedGroups->total(),
+        ]);
     }
 
     /**

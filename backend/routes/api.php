@@ -169,6 +169,7 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         // Assessment Component Templates (Bank Soal)
         Route::get('/assessment-templates', [AssessmentComponentTemplateController::class, 'index']);
         Route::post('/assessment-templates', [AssessmentComponentTemplateController::class, 'store']);
+        Route::get('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'show']);
         Route::put('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'update']);
         Route::delete('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'destroy']);
 
@@ -224,6 +225,7 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         // Phase Document Requirements (admin)
         Route::get('/document-requirements', [PhaseDocumentRequirementController::class, 'index']);
         Route::get('/document-requirements/period/{periodId}', [PhaseDocumentRequirementController::class, 'byPeriod']);
+        Route::get('/document-requirements/period/{periodId}/summary', [PhaseDocumentRequirementController::class, 'summary']);
         Route::post('/document-requirements', [PhaseDocumentRequirementController::class, 'store']);
         Route::put('/document-requirements/bulk', [PhaseDocumentRequirementController::class, 'bulkUpdate']);
         Route::put('/document-requirements/{id}', [PhaseDocumentRequirementController::class, 'update']);

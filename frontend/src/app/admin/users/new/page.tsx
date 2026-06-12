@@ -5,13 +5,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, Save, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Field, FieldLabel, FieldError } from "@/components/ui/field"
@@ -84,212 +77,185 @@ export default function NewUserPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-grey-100 text-grey-600 hover:bg-grey-25 hover:text-grey-600"
+              onClick={() => router.push("/admin/users")}
+            >
+              <ChevronLeft className="size-4" />
+              Kembali
+            </Button>
+          </div>
           <Button
-            variant="outline"
+            type="submit"
+            form="new-user-form"
+            disabled={isSubmitting}
             size="sm"
-            className="border-grey-100 text-grey-600 hover:bg-grey-25 hover:text-grey-600"
-            onClick={() => router.push("/admin/users")}
           >
-            <ChevronLeft className="size-4" />
-            Kembali
+            {isSubmitting ? (
+              <>
+                <Loader2 className="size-4 animate-spin" />
+                Menyimpan...
+              </>
+            ) : (
+              <>
+                <Save className="size-4" />
+                Simpan
+              </>
+            )}
           </Button>
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  href="/admin/users"
-                  className="text-sm font-normal text-grey-400 hover:text-grey-600"
-                >
-                  SICATA
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="text-grey-400" />
-              <BreadcrumbItem>
-                <BreadcrumbLink
-                  href="/admin/users"
-                  className="text-sm font-normal text-grey-400 hover:text-grey-600"
-                >
-                  User Management
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator className="text-grey-400" />
-              <BreadcrumbItem>
-                <span className="text-sm font-semibold text-grey-600">
-                  Tambah User
-                </span>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
         </div>
-        <Button
-          type="submit"
-          form="new-user-form"
-          disabled={isSubmitting}
-          size="sm"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="size-4 animate-spin" />
-              Menyimpan...
-            </>
-          ) : (
-            <>
-              <Save className="size-4" />
-              Simpan
-            </>
-          )}
-        </Button>
-      </div>
 
-      <Card className="shadow-small rounded-[8px] border-grey-100">
-        <CardContent className="p-6">
-          <h2 className="text-xl font-semibold text-grey-600 mb-6">
-            Tambah User Baru
-          </h2>
-          <form
-            id="new-user-form"
-            onSubmit={handleSubmit(onSubmit)}
-            className="grid grid-cols-1 gap-6 md:grid-cols-2"
-          >
-            <Controller
-              name="name"
-              control={control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="name">Full Name</FieldLabel>
-                  <Input
-                    {...field}
-                    id="name"
-                    placeholder="Enter full name"
-                    aria-invalid={fieldState.invalid}
-                  />
-                  {fieldState.error && (
-                    <FieldError>{fieldState.error.message}</FieldError>
-                  )}
-                </Field>
-              )}
-            />
-
-            <Controller
-              name="email"
-              control={control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="email">Email</FieldLabel>
-                  <Input
-                    {...field}
-                    id="email"
-                    type="email"
-                    placeholder="Enter email address"
-                    aria-invalid={fieldState.invalid}
-                  />
-                  {fieldState.error && (
-                    <FieldError>{fieldState.error.message}</FieldError>
-                  )}
-                </Field>
-              )}
-            />
-
-            <Controller
-              name="password"
-              control={control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="password">Password</FieldLabel>
-                  <Input
-                    {...field}
-                    id="password"
-                    type="password"
-                    placeholder="Enter password (min 8 characters)"
-                    aria-invalid={fieldState.invalid}
-                  />
-                  {fieldState.error && (
-                    <FieldError>{fieldState.error.message}</FieldError>
-                  )}
-                </Field>
-              )}
-            />
-
-            <Controller
-              name="roles"
-              control={control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel>Roles</FieldLabel>
-                  <div className="flex flex-wrap gap-4 mt-2">
-                    {(["admin", "dosen", "mahasiswa"] as const).map(
-                      (roleSlug) => (
-                        <div
-                          key={roleSlug}
-                          className="flex items-center space-x-2"
-                        >
-                          <Checkbox
-                            id={`role-${roleSlug}`}
-                            checked={field.value?.includes(roleSlug)}
-                            onCheckedChange={(checked) => {
-                              const newRoles = handleRoleToggle(
-                                field.value || [],
-                                roleSlug,
-                                checked as boolean
-                              )
-                              field.onChange(newRoles)
-                            }}
-                            aria-invalid={fieldState.invalid}
-                          />
-                          <label
-                            htmlFor={`role-${roleSlug}`}
-                            className="text-sm font-medium capitalize cursor-pointer text-grey-600"
-                          >
-                            {roleSlug}
-                          </label>
-                        </div>
-                      )
-                    )}
-                  </div>
-                  {fieldState.error && (
-                    <FieldError>{fieldState.error.message}</FieldError>
-                  )}
-                  <p className="text-xs text-grey-400 mt-1">
-                    Role mahasiswa harus berdiri sendiri (tidak bisa digabung
-                    dengan admin/dosen).
-                  </p>
-                </Field>
-              )}
-            />
-
-            {watchedRoles?.includes("mahasiswa") && (
+        <Card className="shadow-small rounded-xl border-grey-100">
+          <CardContent className="p-6">
+            <h2 className="text-xl font-semibold text-grey-600 mb-6">
+              Tambah User Baru
+            </h2>
+            <form
+              id="new-user-form"
+              onSubmit={handleSubmit(onSubmit)}
+              className="grid grid-cols-1 gap-6 md:grid-cols-2"
+            >
               <Controller
-                name="nim"
+                name="name"
                 control={control}
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="nim">NIM</FieldLabel>
+                    <FieldLabel htmlFor="name">Full Name</FieldLabel>
                     <Input
                       {...field}
-                      id="nim"
-                      placeholder="Enter NIM (min 8 characters)"
+                      id="name"
+                      placeholder="Enter full name"
                       aria-invalid={fieldState.invalid}
                     />
-                    {fieldState.error ? (
+                    {fieldState.error && (
                       <FieldError>{fieldState.error.message}</FieldError>
-                    ) : (
-                      field.value &&
-                      field.value.length > 0 &&
-                      field.value.length < 8 && (
-                        <FieldError>
-                          NIM must be at least 8 characters
-                        </FieldError>
-                      )
                     )}
                   </Field>
                 )}
               />
-            )}
-          </form>
-        </CardContent>
-      </Card>
+
+              <Controller
+                name="email"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="email">Email</FieldLabel>
+                    <Input
+                      {...field}
+                      id="email"
+                      type="email"
+                      placeholder="Enter email address"
+                      aria-invalid={fieldState.invalid}
+                    />
+                    {fieldState.error && (
+                      <FieldError>{fieldState.error.message}</FieldError>
+                    )}
+                  </Field>
+                )}
+              />
+
+              <Controller
+                name="password"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="password">Password</FieldLabel>
+                    <Input
+                      {...field}
+                      id="password"
+                      type="password"
+                      placeholder="Enter password (min 8 characters)"
+                      aria-invalid={fieldState.invalid}
+                    />
+                    {fieldState.error && (
+                      <FieldError>{fieldState.error.message}</FieldError>
+                    )}
+                  </Field>
+                )}
+              />
+
+              <Controller
+                name="roles"
+                control={control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel>Roles</FieldLabel>
+                    <div className="flex flex-wrap gap-4 mt-2">
+                      {(["admin", "dosen", "mahasiswa"] as const).map(
+                        (roleSlug) => (
+                          <div
+                            key={roleSlug}
+                            className="flex items-center space-x-2"
+                          >
+                            <Checkbox
+                              id={`role-${roleSlug}`}
+                              checked={field.value?.includes(roleSlug)}
+                              onCheckedChange={(checked) => {
+                                const newRoles = handleRoleToggle(
+                                  field.value || [],
+                                  roleSlug,
+                                  checked as boolean
+                                )
+                                field.onChange(newRoles)
+                              }}
+                              aria-invalid={fieldState.invalid}
+                            />
+                            <label
+                              htmlFor={`role-${roleSlug}`}
+                              className="text-sm font-medium capitalize cursor-pointer text-grey-600"
+                            >
+                              {roleSlug}
+                            </label>
+                          </div>
+                        )
+                      )}
+                    </div>
+                    {fieldState.error && (
+                      <FieldError>{fieldState.error.message}</FieldError>
+                    )}
+                    <p className="text-xs text-grey-400 mt-1">
+                      Role mahasiswa harus berdiri sendiri (tidak bisa digabung
+                      dengan admin/dosen).
+                    </p>
+                  </Field>
+                )}
+              />
+
+              {watchedRoles?.includes("mahasiswa") && (
+                <Controller
+                  name="nim"
+                  control={control}
+                  render={({ field, fieldState }) => (
+                    <Field data-invalid={fieldState.invalid}>
+                      <FieldLabel htmlFor="nim">NIM</FieldLabel>
+                      <Input
+                        {...field}
+                        id="nim"
+                        placeholder="Enter NIM (min 8 characters)"
+                        aria-invalid={fieldState.invalid}
+                      />
+                      {fieldState.error ? (
+                        <FieldError>{fieldState.error.message}</FieldError>
+                      ) : (
+                        field.value &&
+                        field.value.length > 0 &&
+                        field.value.length < 8 && (
+                          <FieldError>
+                            NIM must be at least 8 characters
+                          </FieldError>
+                        )
+                      )}
+                    </Field>
+                  )}
+                />
+              )}
+            </form>
+          </CardContent>
+        </Card>
     </div>
   )
 }

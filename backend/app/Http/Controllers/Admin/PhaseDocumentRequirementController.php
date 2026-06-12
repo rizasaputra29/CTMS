@@ -158,4 +158,38 @@ class PhaseDocumentRequirementController extends Controller
 
         return $this->successResponse($created, 'Document requirements updated successfully');
     }
+
+    /**
+     * Get summary of document requirements grouped by phase
+     * Returns aggregated data for the list view
+     */
+    public function summary($periodId)
+    {
+        $period = Period::find($periodId);
+        if (! $period) {
+            return $this->errorResponse('Period not found', 404);
+        }
+
+        $requirements = PhaseDocumentRequirement::where('period_id', $periodId)
+            ->orderByRaw("CASE phase WHEN 'PDC1' THEN 1 WHEN 'SEMPRO' THEN 2 WHEN 'PDC2' THEN 3 WHEN 'EXPO' THEN 4 WHEN 'TA' THEN 5 WHEN 'SIDANG' THEN 6 ELSE 7 END")
+            ->get();
+
+        // Group by phase and calculate aggregates
+        $summary = collect(self::PHASES)->map(function ($phase) use ($requirements, $period) {
+            $phaseRequirements = $requirements->where('phase', $phase);
+
+            return [
+                'phase' => $phase,
+                'document_count' => $phaseRequirements->count(),
+                'required_count' => $phaseRequirements->where('is_required', true)->count(),
+                'document_names' => $phaseRequirements->pluck('name')->toArray(),
+                'has_configured' => $phaseRequirements->count() > 0,
+                'period_id' => $period->id,
+                'period_name' => $period->name,
+                'is_finalized' => $period->is_finalized,
+            ];
+        })->toArray();
+
+        return $this->successResponse($summary, 'Document requirements summary retrieved successfully');
+    }
 }

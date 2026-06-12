@@ -539,7 +539,7 @@ export default function AdminSemproPage() {
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Period</span>
                     <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                        <SelectTrigger className="w-[220px]">
+                        <SelectTrigger className="w-55">
                             <SelectValue placeholder="Select period" />
                         </SelectTrigger>
                         <SelectContent>
@@ -594,12 +594,12 @@ export default function AdminSemproPage() {
                                     <TableHead className="w-10" />
                                     <SortHeader label="Group" sortKeyName="title" />
                                     <SortHeader label="Date" sortKeyName="date" />
-                                    <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead className="w-30">Time</TableHead>
                                     <TableHead>Room</TableHead>
-                                    <TableHead className="w-[160px]">Supervisors</TableHead>
-                                    <TableHead className="w-[180px]">Examiners</TableHead>
+                                    <TableHead className="w-40">Supervisors</TableHead>
+                                    <TableHead className="w-45">Examiners</TableHead>
                                     <SortHeader label="Status" sortKeyName="status" />
-                                    <TableHead className="w-[140px] text-right">Actions</TableHead>
+                                    <TableHead className="w-35 text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -827,7 +827,7 @@ export default function AdminSemproPage() {
                             <div className="flex items-center gap-1.5">
                                 <span className="text-[12px] text-muted-foreground/60">Rows</span>
                                 <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                                    <SelectTrigger className="h-7 w-[60px] text-[12px]">
+                                    <SelectTrigger className="h-7 w-15 text-[12px]">
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -867,7 +867,7 @@ export default function AdminSemproPage() {
 
             {/* --- Create Schedule Dialog --- */}
             <Dialog open={scheduleOpen} onOpenChange={(v) => { setScheduleOpen(v); if (!v) resetForm(); }}>
-                <DialogContent className="sm:max-w-[480px]">
+                <DialogContent className="sm:max-w-120">
                     <form onSubmit={form.handleSubmit(handleSchedule)}>
                         <DialogHeader>
                             <DialogTitle>New SEMPRO Schedule</DialogTitle>
@@ -1073,7 +1073,7 @@ export default function AdminSemproPage() {
 
             {/* --- Approve Dialog --- */}
             <Dialog open={approveDialogOpen} onOpenChange={(v) => { if (!v) { setApproveDialogOpen(false); setApproveId(null); } }}>
-                <DialogContent className="sm:max-w-[480px]">
+                <DialogContent className="sm:max-w-120">
                     <DialogHeader>
                         <DialogTitle>Approve SEMPRO Schedule</DialogTitle>
                         <DialogDescription>
@@ -1187,7 +1187,7 @@ export default function AdminSemproPage() {
 
             {/* --- Reject Dialog --- */}
             <Dialog open={rejectId !== null} onOpenChange={(v) => { if (!v) { setRejectId(null); setRejectReason(''); } }}>
-                <DialogContent className="sm:max-w-[420px]">
+                <DialogContent className="sm:max-w-105">
                     <DialogHeader>
                         <DialogTitle>Reject Schedule Request</DialogTitle>
                         <DialogDescription>
@@ -1216,7 +1216,7 @@ export default function AdminSemproPage() {
 
             {/* --- Edit Dialog --- */}
             <Dialog open={editDialogOpen} onOpenChange={(v) => { if (!v) { setEditDialogOpen(false); setEditId(null); } }}>
-                <DialogContent className="sm:max-w-[480px]">
+                <DialogContent className="sm:max-w-120">
                     <DialogHeader>
                         <DialogTitle>Edit SEMPRO Schedule</DialogTitle>
                         <DialogDescription>
@@ -1339,7 +1339,7 @@ export default function AdminSemproPage() {
 
             {/* --- Cancel/Delete Dialog --- */}
             <Dialog open={cancelId !== null} onOpenChange={(v) => { if (!v) setCancelId(null); }}>
-                <DialogContent className="sm:max-w-[420px]">
+                <DialogContent className="sm:max-w-105">
                     <DialogHeader>
                         <DialogTitle>Delete Schedule</DialogTitle>
                         <DialogDescription>
