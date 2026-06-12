@@ -1,7 +1,7 @@
 "use client"
 
 import { usePathname, useRouter } from "next/navigation"
-import { Bell, User, Settings, LogOut } from "lucide-react"
+import { Bell, User, Settings, LogOut, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -62,7 +62,7 @@ export function TopBar() {
   const breadcrumbItems = generateBreadcrumb()
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 bg-background border-b border-grey-100">
+    <header className="sticky top-0 z-30 flex items-center justify-between gap-4 px-6 py-4 border-b border-grey-100">
       {/* Breadcrumb */}
       <nav aria-label="breadcrumb">
         <ol className="flex flex-wrap items-center gap-2 text-sm">
@@ -83,9 +83,14 @@ export function TopBar() {
       <div className="flex items-center gap-2">
         {/* Notifications */}
         <Button
-          variant="ghost"
           size="icon"
-          className="h-9 w-9 text-grey-400 hover:text-grey-600 hover:bg-grey-25 rounded-full relative"
+          className="h-9 w-9 text-grey-600 hover:text-grey-600 hover:bg-grey-25 rounded-full relative bg-white border"
+        >
+          <Search className="h-5 w-5" />
+        </Button>
+        <Button
+          size="icon"
+          className="h-9 w-9 text-grey-600 hover:text-grey-600 hover:bg-grey-25 rounded-full relative bg-white border"
         >
           <Bell className="h-5 w-5" />
           {/* Notification badge - red dot */}

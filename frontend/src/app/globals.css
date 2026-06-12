@@ -132,11 +132,11 @@
 
 .dark {
   --background: #0d0d12;
-  --foreground: #f8f9fb;
+  --foreground: #ffffff;
   --card: #1a1b25;
-  --card-foreground: #f8f9fb;
+  --card-foreground: #ffffff;
   --popover: #1a1b25;
-  --popover-foreground: #f8f9fb;
+  --popover-foreground: #ffffff;
   --primary: #6f7da4;
   --primary-foreground: #ffffff;
   --secondary: #272835;

@@ -853,22 +853,6 @@ export function AppSidebar() {
     const safeRoleKey = toNavRoleKey(currentRole);
     const roleItems = navItems[safeRoleKey] || [];
 
-    const [openItem, setOpenItem] = useState<string | null>(() => {
-      // Initialize with the item that has active subitem
-      const activeItem = items.find((item) =>
-        item.items?.some((sub) => pathname === sub.url)
-      );
-      return activeItem?.title || null;
-    });
-
-    const handleItemOpenChange = (itemTitle: string, isOpen: boolean) => {
-      if (isOpen) {
-        setOpenItem(itemTitle);
-      } else if (openItem === itemTitle) {
-        setOpenItem(null);
-      }
-    };
-
     const items: NavItem[] = roleItems.map((item) => {
       if (
         currentRole === "mahasiswa" &&
@@ -891,6 +875,22 @@ export function AppSidebar() {
       }
       return item;
     });
+
+    const [openItem, setOpenItem] = useState<string | null>(() => {
+      // Initialize with the item that has active subitem
+      const activeItem = items.find((item) =>
+        item.items?.some((sub) => pathname === sub.url)
+      );
+      return activeItem?.title || null;
+    });
+
+    const handleItemOpenChange = (itemTitle: string, isOpen: boolean) => {
+      if (isOpen) {
+        setOpenItem(itemTitle);
+      } else if (openItem === itemTitle) {
+        setOpenItem(null);
+      }
+    };
 
     return (
       <Sidebar collapsible="icon">

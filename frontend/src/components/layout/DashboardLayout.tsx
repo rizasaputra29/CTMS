@@ -85,9 +85,9 @@ export default function DashboardLayout({
   return (
     <SidebarProvider>
       <AppSidebar />
-      <main className="bg-background flex h-screen w-full flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-4">
-          <div className="bg-background border-grey-100 shadow-small min-h-full overflow-hidden rounded-xl border">
+      <main className="flex h-screen w-full flex-col overflow-hidden">
+        <div className="flex-1 overflow-y-auto p-4 bg-white">
+          <div className="border-grey-100 shadow-small min-h-full overflow-hidden rounded-xl border">
             <TopBar />
             <div className="px-6 pt-6 pb-6">
               {!isReady ? (
