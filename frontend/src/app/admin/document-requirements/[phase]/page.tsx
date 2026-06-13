@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Loader2, ChevronLeft, Save, Plus, Trash2, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -11,20 +11,16 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
-import {
     Select,
     SelectContent,
     SelectItem,
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    DataTable,
+    DataTableColumn,
+} from '@/components/ui/data-table';
 import { toast } from 'sonner';
 import api from '@/lib/api';
 
@@ -228,6 +224,71 @@ export default function PhaseDocumentRequirementsPage() {
         }
     };
 
+    const columns: DataTableColumn<PhaseRequirement>[] = useMemo(() => [
+        {
+            key: 'required',
+            header: '',
+            width: 'w-10',
+            render: (_req, index) => (
+                <Checkbox
+                    checked={requirements[index]?.is_required ?? false}
+                    onCheckedChange={() => handleToggleRequired(index)}
+                    disabled={isPeriodFinalized}
+                />
+            ),
+        },
+        {
+            key: 'name',
+            header: 'Nama Dokumen',
+            render: (_req, index) => (
+                isPeriodFinalized ? (
+                    <span className="font-medium">{requirements[index]?.name}</span>
+                ) : (
+                    <Input
+                        value={requirements[index]?.name || ''}
+                        onChange={(e) => handleUpdateName(index, e.target.value)}
+                        className="h-8 text-sm"
+                    />
+                )
+            ),
+        },
+        {
+            key: 'description',
+            header: 'Deskripsi',
+            render: (_req, index) => (
+                isPeriodFinalized ? (
+                    <span className="text-sm text-muted-foreground">
+                        {requirements[index]?.description || '-'}
+                    </span>
+                ) : (
+                    <Input
+                        value={requirements[index]?.description || ''}
+                        onChange={(e) => handleUpdateDescription(index, e.target.value)}
+                        className="h-8 text-sm"
+                        placeholder="Deskripsi"
+                    />
+                )
+            ),
+        },
+        {
+            key: 'action',
+            header: 'Aksi',
+            align: 'center',
+            width: 'w-20',
+            render: (_req, index) => (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    onClick={() => handleRemoveDocument(index)}
+                    disabled={isPeriodFinalized}
+                >
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            ),
+        },
+    ], [requirements, isPeriodFinalized]);
+
     if (!phase) {
         return (
             <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
@@ -285,7 +346,6 @@ export default function PhaseDocumentRequirementsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] gap-6">
                 {/* Left Column - Phase Info */}
                 <div className="space-y-6">
-                    {/* Phase Info Card */}
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-lg">Informasi Fase</CardTitle>
@@ -388,77 +448,16 @@ export default function PhaseDocumentRequirementsPage() {
                             )}
 
                             {/* Documents Table */}
-                            {loading ? (
-                                <div className="flex justify-center items-center h-32">
-                                    <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                                </div>
-                            ) : requirements.length === 0 ? (
-                                <div className="text-center py-8 text-muted-foreground border rounded-lg border-dashed">
-                                    <FileText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                                    <p className="text-sm">Belum ada dokumen yang dikonfigurasi</p>
-                                    <p className="text-xs mt-1">Tambahkan dokumen menggunakan form di atas</p>
-                                </div>
-                            ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow className="hover:bg-transparent bg-grey-25">
-                                            <TableHead className="w-10 text-[#666D80]"></TableHead>
-                                            <TableHead className="text-[#666D80]">Nama Dokumen</TableHead>
-                                            <TableHead className="text-[#666D80]">Deskripsi</TableHead>
-                                            <TableHead className="w-20 text-center text-[#666D80]">Aksi</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {requirements.map((req, index) => (
-                                            <TableRow key={index} className="hover:bg-muted/30">
-                                                <TableCell className="py-2">
-                                                    <Checkbox
-                                                        checked={req.is_required}
-                                                        onCheckedChange={() => handleToggleRequired(index)}
-                                                        disabled={isPeriodFinalized}
-                                                    />
-                                                </TableCell>
-                                                <TableCell className="py-2">
-                                                    {isPeriodFinalized ? (
-                                                        <span className="font-medium">{req.name}</span>
-                                                    ) : (
-                                                        <Input
-                                                            value={req.name}
-                                                            onChange={(e) => handleUpdateName(index, e.target.value)}
-                                                            className="h-8 text-sm"
-                                                        />
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="py-2">
-                                                    {isPeriodFinalized ? (
-                                                        <span className="text-sm text-muted-foreground">
-                                                            {req.description || '-'}
-                                                        </span>
-                                                    ) : (
-                                                        <Input
-                                                            value={req.description || ''}
-                                                            onChange={(e) => handleUpdateDescription(index, e.target.value)}
-                                                            className="h-8 text-sm"
-                                                            placeholder="Deskripsi"
-                                                        />
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="py-2 text-center">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8 text-destructive hover:text-destructive"
-                                                        onClick={() => handleRemoveDocument(index)}
-                                                        disabled={isPeriodFinalized}
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            )}
+                            <DataTable<PhaseRequirement>
+                                title=""
+                                data={requirements}
+                                columns={columns}
+                                loading={loading}
+                                emptyMessage="Belum ada dokumen yang dikonfigurasi"
+                                emptySubMessage="Tambahkan dokumen menggunakan form di atas"
+                                emptyIcon={<FileText className="h-8 w-8" />}
+                                className="border rounded-lg border-dashed"
+                            />
                         </CardContent>
                     </Card>
                 </div>
