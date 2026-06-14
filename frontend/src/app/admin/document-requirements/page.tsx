@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, Search, Filter, ArrowUpDown, MoreHorizontal, FileText, ChevronLeft, ChevronRight, Settings, Plus } from 'lucide-react';
+import { Loader2, Search, Filter, ArrowUpDown, MoreHorizontal, FileText, Settings, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -15,13 +15,9 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table";
+    DataTable,
+    DataTableColumn,
+} from '@/components/ui/data-table';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -44,13 +40,6 @@ interface PhaseSummary {
     required_count: number;
     document_names: string[];
     has_configured: boolean;
-}
-
-interface PaginationData {
-    current_page: number;
-    last_page: number;
-    per_page: number;
-    total: number;
 }
 
 type SortKey = 'phase' | 'count';
@@ -76,18 +65,6 @@ export default function AdminDocumentRequirementsPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('phase');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    
-    // Pagination state
-    const [pagination, setPagination] = useState<PaginationData>({
-        current_page: 1,
-        last_page: 1,
-        per_page: 10,
-        total: 6, // Always 6 phases
-    });
-
-    const selectedPeriod = useMemo(() => {
-        return periods.find(p => p.id.toString() === selectedPeriodId);
-    }, [periods, selectedPeriodId]);
 
     const fetchPeriods = useCallback(async () => {
         try {
@@ -119,7 +96,6 @@ export default function AdminDocumentRequirementsPage() {
                 has_configured: phaseMap.get(phase)?.has_configured || false,
             }));
             setSummaries(fullSummaries);
-            setPagination(prev => ({ ...prev, total: 6, last_page: 1 }));
         } catch (error) {
             console.error('Failed to fetch summaries', error);
             // Fallback to empty summaries for all phases
@@ -177,14 +153,6 @@ export default function AdminDocumentRequirementsPage() {
         }
     };
 
-    const sortLabel = () => {
-        const labels: Record<SortKey, string> = { 
-            phase: 'Phase', 
-            count: 'Document Count', 
-        };
-        return `${labels[sortKey]} ${sortDir === 'asc' ? '↑' : '↓'}`;
-    };
-
     const handleLoadDefaults = async () => {
         if (!selectedPeriodId) {
             toast.error('Please select a period');
@@ -235,6 +203,68 @@ export default function AdminDocumentRequirementsPage() {
         return colors[phase] || 'bg-grey-100 text-grey-700 border-grey-200';
     };
 
+    const columns: DataTableColumn<PhaseSummary>[] = useMemo(() => [
+        { key: 'no', header: 'No', width: 'w-12' },
+        {
+            key: 'phase',
+            header: 'Fase',
+            sortable: true,
+            render: (summary) => (
+                <Badge variant="outline" className={getPhaseColor(summary.phase)}>
+                    {PHASE_LABELS[summary.phase] || summary.phase}
+                </Badge>
+            ),
+        },
+        {
+            key: 'syarat',
+            header: 'Syarat Dokumen',
+            render: (summary) => (
+                <span className="text-sm text-muted-foreground">
+                    {summary.document_count} document{summary.document_count !== 1 ? 's' : ''}
+                    {summary.required_count > 0 && (
+                        <span className="text-xs text-emerald-600 ml-1">
+                            ({summary.required_count} required)
+                        </span>
+                    )}
+                </span>
+            ),
+        },
+        {
+            key: 'types',
+            header: 'Tipe Dokumen',
+            render: (summary) => (
+                summary.document_names.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                        {summary.document_names.map((name, i) => (
+                            <Badge key={i} variant="secondary" className="text-xs">
+                                {name}
+                            </Badge>
+                        ))}
+                    </div>
+                ) : (
+                    <span className="text-xs text-muted-foreground italic">
+                        Not configured
+                    </span>
+                )
+            ),
+        },
+        {
+            key: 'action',
+            header: 'Action',
+            align: 'right',
+            render: (summary) => (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => router.push(`/admin/document-requirements/${summary.phase.toLowerCase()}`)}
+                >
+                    <MoreHorizontal className="h-4 w-4" />
+                </Button>
+            ),
+        },
+    ], []);
+
     return (
         <div className="space-y-6">
             {/* Page Header */}
@@ -256,15 +286,23 @@ export default function AdminDocumentRequirementsPage() {
                 </div>
             </div>
 
-            {/* Card */}
-            <Card className="py-0 gap-0">
-                {/* Card Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-5 p-5 border-b">
-                    <div className="flex items-center gap-4">
-                        <h3 className="text-[20px] leading-[1.4] font-semibold text-[#353849]">
-                            Phase Configuration
-                        </h3>
-                        {/* Period Selector */}
+            {/* DataTable */}
+            <DataTable<PhaseSummary>
+                title="Phase Configuration"
+                data={filteredSummaries}
+                columns={columns}
+                loading={loading}
+                emptyMessage="No phases found"
+                emptySubMessage="Try adjusting your search."
+                emptyIcon={<FileText className="h-10 w-10" />}
+                searchValue={searchQuery}
+                onSearchChange={setSearchQuery}
+                searchPlaceholder="Search..."
+                sortKey={sortKey}
+                sortDir={sortDir}
+                onSort={(key) => handleSort(key as SortKey)}
+                filterSlot={
+                    <div className="flex items-center gap-2">
                         <Select value={selectedPeriodId} onValueChange={setSelectedPeriodId}>
                             <SelectTrigger className="w-48">
                                 <SelectValue placeholder="Select period" />
@@ -277,19 +315,6 @@ export default function AdminDocumentRequirementsPage() {
                                 ))}
                             </SelectContent>
                         </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="relative">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                            <Input 
-                                placeholder="Search..." 
-                                className="pl-9 w-64"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                            />
-                        </div>
-
-                        {/* Filter Dropdown */}
                         <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                                 <Button variant="outline" size="sm">
@@ -309,106 +334,11 @@ export default function AdminDocumentRequirementsPage() {
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
-
-                        {/* Sort Dropdown */}
-                        <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="sm">
-                                    <ArrowUpDown className="mr-2 h-4 w-4" /> {sortLabel()}
-                                </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem onClick={() => handleSort('phase')}>
-                                    Phase {sortKey === 'phase' && (sortDir === 'asc' ? '↑' : '↓')}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => handleSort('count')}>
-                                    Document Count {sortKey === 'count' && (sortDir === 'asc' ? '↑' : '↓')}
-                                </DropdownMenuItem>
-                            </DropdownMenuContent>
-                        </DropdownMenu>
                     </div>
-                </div>
-
-                <CardContent className="p-0">
-                    {loading ? (
-                        <div className="flex justify-center items-center h-64">
-                            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : filteredSummaries.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
-                            <FileText className="h-10 w-10 mb-3 opacity-40" />
-                            <p className="text-sm font-medium">No phases found</p>
-                            <p className="text-xs mt-1">Try adjusting your search.</p>
-                        </div>
-                    ) : (
-                        <div className="overflow-x-auto">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow className="hover:bg-transparent bg-grey-25">
-                                        <TableHead className="whitespace-nowrap w-12 text-[#666D80]">No</TableHead>
-                                        <TableHead className="whitespace-nowrap text-[#666D80]">Fase</TableHead>
-                                        <TableHead className="whitespace-nowrap text-[#666D80]">Syarat Dokumen</TableHead>
-                                        <TableHead className="whitespace-nowrap text-[#666D80]">Tipe Dokumen</TableHead>
-                                        <TableHead className="text-right whitespace-nowrap text-[#666D80]">Action</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredSummaries.map((summary, idx) => {
-                                        const rowNumber = idx + 1;
-                                        return (
-                                            <TableRow 
-                                                key={summary.phase}
-                                                className="group cursor-pointer hover:bg-muted/50 transition-colors"
-                                                onClick={() => router.push(`/admin/document-requirements/${summary.phase.toLowerCase()}`)}
-                                            >
-                                                <TableCell className="text-muted-foreground text-sm py-3">{rowNumber}</TableCell>
-                                                <TableCell className="py-3">
-                                                    <Badge variant="outline" className={getPhaseColor(summary.phase)}>
-                                                        {PHASE_LABELS[summary.phase] || summary.phase}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="text-sm text-muted-foreground py-3">
-                                                    {summary.document_count} document{summary.document_count !== 1 ? 's' : ''}
-                                                    {summary.required_count > 0 && (
-                                                        <span className="text-xs text-emerald-600 ml-1">
-                                                            ({summary.required_count} required)
-                                                        </span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="py-3">
-                                                    {summary.document_names.length > 0 ? (
-                                                        <div className="flex flex-wrap gap-1">
-                                                            {summary.document_names.map((name, i) => (
-                                                                <Badge key={i} variant="secondary" className="text-xs">
-                                                                    {name}
-                                                                </Badge>
-                                                            ))}
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-xs text-muted-foreground italic">
-                                                            Not configured
-                                                        </span>
-                                                    )}
-                                                </TableCell>
-                                                <TableCell className="text-right py-3" onClick={(e) => e.stopPropagation()}>
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="h-8 w-8"
-                                                        onClick={() => router.push(`/admin/document-requirements/${summary.phase.toLowerCase()}`)}
-                                                    >
-                                                        <MoreHorizontal className="h-4 w-4" />
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                }
+                rowClickable
+                onRowClick={(summary) => router.push(`/admin/document-requirements/${summary.phase.toLowerCase()}`)}
+            />
         </div>
     );
 }

@@ -14,8 +14,8 @@ export function Loading({
   const baseStyles = "flex flex-col items-center justify-center gap-4";
   
   const variantStyles = {
-    page: "min-h-screen bg-background",
-    section: "min-h-[400px] bg-background/50 rounded-lg",
+    page: "min-h-screen",
+    section: "min-h-[400px] rounded-lg",
     inline: "py-8",
   };
 

@@ -18,7 +18,8 @@ export const metadata: Metadata = {
 };
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from '@/context/AuthContext';
+import { AuthProvider } from "@/context/AuthContext";
+import Providers from "./providers";
 
 export default function RootLayout({
   children,
@@ -30,11 +31,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthProvider>
-            <TooltipProvider>
-                {children}
-            </TooltipProvider>
-        </AuthProvider>
+        <Providers>
+          <AuthProvider>
+            <TooltipProvider>{children}</TooltipProvider>
+          </AuthProvider>
+        </Providers>
       </body>
     </html>
   );
