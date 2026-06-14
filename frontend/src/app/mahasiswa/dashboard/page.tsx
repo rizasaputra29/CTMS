@@ -124,6 +124,7 @@ export default function MahasiswaDashboard() {
             </div>
         );
     }
+  }, [periodData, periodError]);
 
     // has_group from stats can be unreliable; use actual group data presence
     const hasGroupApproved = !!group?.id && !!group?.status;
