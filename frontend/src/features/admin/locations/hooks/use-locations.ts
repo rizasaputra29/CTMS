@@ -57,17 +57,9 @@ export function useLocations() {
       }
     },
     onSuccess: () => {
-      toast.success(
-        editing ? "Lokasi berhasil diperbarui" : "Lokasi berhasil dibuat"
-      );
       setDialogOpen(false);
       resetForm();
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-    onError: (error) => {
-      console.error("Failed to save location", error);
-      const message = api.getApiErrorMessage(error, "Gagal menyimpan lokasi");
-      toast.error(message);
     },
   });
 
@@ -76,14 +68,8 @@ export function useLocations() {
       await api.delete(`/locations/${id}`);
     },
     onSuccess: () => {
-      toast.success("Lokasi berhasil dihapus");
       setConfirmTarget(null);
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-    onError: (error) => {
-      console.error("Failed to delete location", error);
-      const message = api.getApiErrorMessage(error, "Gagal menghapus lokasi");
-      toast.error(message);
     },
     onSettled: () => {
       setDeleting(null);
@@ -122,10 +108,17 @@ export function useLocations() {
   );
 
   const onSubmit = useCallback(
-    (data: LocationFormData) => {
-      saveMutation.mutate(data);
+    async (data: LocationFormData) => {
+      await toast.promise(saveMutation.mutateAsync(data), {
+        loading: editing ? "Memperbarui lokasi..." : "Menyimpan lokasi...",
+        success: editing
+          ? "Lokasi berhasil diperbarui"
+          : "Lokasi berhasil dibuat",
+        error: (error) =>
+          api.getApiErrorMessage(error, "Gagal menyimpan lokasi"),
+      });
     },
-    [saveMutation]
+    [saveMutation, editing]
   );
 
   const requestDelete = useCallback((location: Location) => {
@@ -137,7 +130,11 @@ export function useLocations() {
     if (!confirmTarget) return;
     setDeleting(confirmTarget.id);
     setConfirmOpen(false);
-    deleteMutation.mutate(confirmTarget.id);
+    toast.promise(deleteMutation.mutateAsync(confirmTarget.id), {
+      loading: "Menghapus lokasi...",
+      success: "Lokasi berhasil dihapus",
+      error: (error) => api.getApiErrorMessage(error, "Gagal menghapus lokasi"),
+    });
   }, [confirmTarget, deleteMutation]);
 
   return {

@@ -11,6 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Loading } from "@/components/ui/loading";
+import { Fragment } from "react";
 
 interface DataTableProps<TData> {
   table: TanStackTable<TData>;
@@ -79,11 +80,8 @@ export function DataTable<TData>({
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <>
-            <TableRow
-              key={row.id}
-              data-state={row.getIsSelected() && "selected"}
-            >
+          <Fragment key={row.id}>
+            <TableRow data-state={row.getIsSelected() && "selected"}>
               {row.getVisibleCells().map((cell) => (
                 <TableCell key={cell.id}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -100,7 +98,7 @@ export function DataTable<TData>({
                 </TableCell>
               </TableRow>
             )}
-          </>
+          </Fragment>
         ))}
       </TableBody>
     </Table>

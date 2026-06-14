@@ -25,14 +25,8 @@ export function usePeriods() {
       await api.delete(`/admin/periods/${id}`);
     },
     onSuccess: () => {
-      toast.success("Periode berhasil dihapus");
       setConfirmTarget(null);
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-    onError: (error) => {
-      console.error("Failed to delete period", error);
-      const message = api.getApiErrorMessage(error, "Gagal menghapus periode");
-      toast.error(message);
     },
     onSettled: () => {
       setDeleting(null);
@@ -45,15 +39,8 @@ export function usePeriods() {
         is_active: !period.is_active,
       });
     },
-    onSuccess: (_data, period) => {
-      toast.success(
-        period.is_active ? "Periode dinonaktifkan" : "Periode diaktifkan"
-      );
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-    onError: (error) => {
-      console.error("Failed to toggle active", error);
-      toast.error("Gagal mengubah status periode");
     },
   });
 
@@ -66,12 +53,25 @@ export function usePeriods() {
     if (!confirmTarget) return;
     setDeleting(confirmTarget.id);
     setConfirmOpen(false);
-    deleteMutation.mutate(confirmTarget.id);
+    toast.promise(deleteMutation.mutateAsync(confirmTarget.id), {
+      loading: "Menghapus periode...",
+      success: "Periode berhasil dihapus",
+      error: (error) =>
+        api.getApiErrorMessage(error, "Gagal menghapus periode"),
+    });
   }, [confirmTarget, deleteMutation]);
 
   const toggleActive = useCallback(
     (period: Period) => {
-      toggleMutation.mutate(period);
+      toast.promise(toggleMutation.mutateAsync(period), {
+        loading: period.is_active
+          ? "Menonaktifkan periode..."
+          : "Mengaktifkan periode...",
+        success: period.is_active
+          ? "Periode dinonaktifkan"
+          : "Periode diaktifkan",
+        error: "Gagal mengubah status periode",
+      });
     },
     [toggleMutation]
   );

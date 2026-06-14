@@ -144,23 +144,28 @@ export function usePeriodWizard({
       }
 
       try {
-        if (periodId) {
-          await api.put(`/admin/periods/${periodId}`, payload);
-          toast.success("Periode berhasil diperbarui");
-        } else {
-          await api.post("/admin/periods", payload);
-          toast.success("Periode berhasil dibuat");
-        }
+        await toast.promise(
+          periodId
+            ? api.put(`/admin/periods/${periodId}`, payload)
+            : api.post("/admin/periods", payload),
+          {
+            loading: periodId
+              ? "Memperbarui periode..."
+              : "Menyimpan periode...",
+            success: periodId
+              ? "Periode berhasil diperbarui"
+              : "Periode berhasil dibuat",
+            error: (error) => {
+              if (api.isAxiosError(error)) {
+                return (
+                  error.response?.data?.message || "Gagal menyimpan periode"
+                );
+              }
+              return "Gagal menyimpan periode";
+            },
+          }
+        );
         onSubmitSuccess();
-      } catch (error: unknown) {
-        console.error("Failed to save period", error);
-        if (api.isAxiosError(error)) {
-          toast.error(
-            error.response?.data?.message || "Gagal menyimpan periode"
-          );
-        } else {
-          toast.error("Gagal menyimpan periode");
-        }
       } finally {
         setIsSubmitting(false);
       }
