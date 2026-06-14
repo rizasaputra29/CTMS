@@ -3,7 +3,7 @@
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { useLocations } from "@/features/admin/locations/hooks/useLocations";
+import { useLocations } from "@/features/admin/locations/hooks/use-locations";
 import { LocationTable } from "@/features/admin/locations/components/LocationTable";
 import { LocationFormDialog } from "@/features/admin/locations/components/LocationFormDialog";
 

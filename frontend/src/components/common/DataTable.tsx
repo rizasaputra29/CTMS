@@ -18,6 +18,7 @@ interface DataTableProps<TData> {
   emptyIcon?: React.ReactNode;
   emptyTitle?: string;
   emptyDescription?: string;
+  renderExpandedRow?: (row: TData) => React.ReactNode;
 }
 
 export function DataTable<TData>({
@@ -26,6 +27,7 @@ export function DataTable<TData>({
   emptyIcon,
   emptyTitle = "Tidak ada data",
   emptyDescription = "Data yang Anda cari tidak ditemukan",
+  renderExpandedRow,
 }: DataTableProps<TData>) {
   if (loading) {
     return (
@@ -77,13 +79,28 @@ export function DataTable<TData>({
       </TableHeader>
       <TableBody>
         {rows.map((row) => (
-          <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-            {row.getVisibleCells().map((cell) => (
-              <TableCell key={cell.id}>
-                {flexRender(cell.column.columnDef.cell, cell.getContext())}
-              </TableCell>
-            ))}
-          </TableRow>
+          <>
+            <TableRow
+              key={row.id}
+              data-state={row.getIsSelected() && "selected"}
+            >
+              {row.getVisibleCells().map((cell) => (
+                <TableCell key={cell.id}>
+                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                </TableCell>
+              ))}
+            </TableRow>
+            {renderExpandedRow && row.getIsExpanded() && (
+              <TableRow key={`${row.id}-expanded`} className="bg-gray-50/30">
+                <TableCell
+                  colSpan={row.getVisibleCells().length}
+                  className="p-0"
+                >
+                  {renderExpandedRow(row.original)}
+                </TableCell>
+              </TableRow>
+            )}
+          </>
         ))}
       </TableBody>
     </Table>
