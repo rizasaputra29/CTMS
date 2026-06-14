@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { 
-  FileCheck, Upload, Info, Lock, CheckCircle, AlertCircle, 
+  FileCheck, Upload, Info, Lock, CheckCircle, AlertCircle, AlertTriangle,
   FileText, Calendar, GraduationCap, User, Users, Clock, MapPin, ArrowRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -107,6 +107,64 @@ interface GradeData {
   ta: GradeSection | null;
 }
 
+interface SupervisorStatus {
+  id: number;
+  name: string;
+  role: string;
+  status: string;
+  submitted_components?: number;
+  total_components?: number;
+}
+
+interface PeerReviewInfo {
+  configured: boolean;
+  completed: boolean;
+  indicator_count: number;
+  total_members: number;
+  completed_members: number;
+  incomplete_students: {
+    student_id: number;
+    student_name: string;
+    student_nim: string;
+  }[];
+}
+
+interface FinalReadyInfo {
+  ready: boolean;
+  expo_documents: {
+    completed: boolean;
+    pending_types: string[];
+    total_required: number;
+    approved_count: number;
+  };
+  nilai_dosen: {
+    required: boolean;
+    configured: boolean;
+    completed: boolean;
+    component_count: number;
+    supervisors: SupervisorStatus[];
+  };
+  milestone: {
+    required: boolean;
+    configured: boolean;
+    completed: boolean;
+    component_count: number;
+    supervisors: SupervisorStatus[];
+  };
+  expo_evaluation: {
+    required: boolean;
+    configured: boolean;
+    completed: boolean;
+    component_count: number;
+    supervisors: SupervisorStatus[];
+  };
+  peer_review: PeerReviewInfo;
+}
+
+interface WorkflowData {
+  final_ready_for_ta_individual?: FinalReadyInfo | null;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType; description: string }> = {
   TA_LOCKED: { 
     label: 'Locked', 
@@ -189,6 +247,7 @@ export default function TaSubmissionPage() {
   const [statusData, setStatusData] = useState<TaStatusResponse | null>(null);
   const [defenseSchedule, setDefenseSchedule] = useState<DefenseSchedule | null>(null);
   const [gradesData, setGradesData] = useState<GradeSection | null>(null);
+  const [workflowData, setWorkflowData] = useState<WorkflowData | null>(null);
   const [loading, setLoading] = useState(true);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [gradesLoading, setGradesLoading] = useState(false);
@@ -203,8 +262,12 @@ export default function TaSubmissionPage() {
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await api.get('/mahasiswa/ta-detailed-status');
-      setStatusData(response.data);
+      const [taRes, workflowRes] = await Promise.all([
+        api.get('/mahasiswa/ta-detailed-status'),
+        api.get('/mahasiswa/workflow').catch(() => ({ data: null })),
+      ]);
+      setStatusData(taRes.data);
+      setWorkflowData(workflowRes.data);
     } catch (err: unknown) {
       console.error('Failed to fetch TA data', err);
       if (api.isAxiosError(err) && err.response?.status === 400) {
@@ -406,38 +469,138 @@ export default function TaSubmissionPage() {
 
   // TA Locked State
   if (!statusData || !statusData.can_access || statusData.status === 'TA_LOCKED') {
+    const readiness = workflowData?.final_ready_for_ta_individual;
+
     return (
       <div className="space-y-6 max-w-5xl mx-auto">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Tugas Akhir (TA)</h1>
           <p className="text-muted-foreground">Individual thesis phase.</p>
         </div>
-        <Card className="border-red-200 bg-red-50">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Lock className="h-5 w-5 text-red-600" />
-              <CardTitle className="text-red-800">TA Phase Locked</CardTitle>
-            </div>
-            <CardDescription className="text-red-700">
-              TA phase is currently locked.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-red-700 mb-4">
-              To unlock TA phase, you need to:
-            </p>
-            <ul className="space-y-3">
-              <li className="flex items-start gap-3">
-                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">1</div>
-                <span className="text-sm text-red-700">Complete EXPO with your group</span>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">2</div>
-                <span className="text-sm text-red-700">Submit peer review for all group members</span>
-              </li>
-            </ul>
-          </CardContent>
-        </Card>
+
+        {readiness ? (
+          <Alert variant="default" className="border-amber-500 bg-amber-50">
+            <AlertTriangle className="h-4 w-4 text-amber-600" />
+            <AlertTitle className="text-amber-800">🔒 Belum Ready for TA Individual</AlertTitle>
+            <AlertDescription className="text-amber-700">
+              {!readiness.expo_documents.completed && (
+                <div className="mb-2">
+                  <p className="font-medium">Dokumen EXPO belum lengkap/disetujui:</p>
+                  <ul className="mt-1 list-disc pl-5 space-y-1">
+                    {readiness.expo_documents.pending_types.map((t) => (
+                      <li key={t}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {!readiness.milestone.configured && (
+                <p className="mb-2">Komponen MILESTONE belum dikonfigurasi admin untuk periode ini.</p>
+              )}
+              {!readiness.nilai_dosen.configured && (
+                <p className="mb-2">Komponen NILAI_DOSEN belum dikonfigurasi admin untuk periode ini.</p>
+              )}
+              {!readiness.expo_evaluation.configured && (
+                <p className="mb-2">Komponen evaluasi EXPO belum dikonfigurasi admin untuk periode ini.</p>
+              )}
+              {readiness.nilai_dosen.configured && !readiness.nilai_dosen.completed && (
+                <div className="mb-2">
+                  <p className="font-medium">Menunggu NILAI_DOSEN dosen pembimbing:</p>
+                  <ul className="mt-1 space-y-1">
+                    {readiness.nilai_dosen.supervisors
+                      .filter((s) => s.status === 'pending')
+                      .map((s) => (
+                        <li key={s.id}>
+                          {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                          <span className="text-sm text-muted-foreground ml-2">
+                            - {s.submitted_components}/{s.total_components} komponen
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {readiness.milestone.configured && !readiness.milestone.completed && (
+                <div className="mb-2">
+                  <p className="font-medium">Menunggu penilaian MILESTONE dosen pembimbing:</p>
+                  <ul className="mt-1 space-y-1">
+                    {readiness.milestone.supervisors
+                      .filter((s) => s.status === 'pending')
+                      .map((s) => (
+                        <li key={s.id}>
+                          {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                          <span className="text-sm text-muted-foreground ml-2">
+                            - {s.submitted_components}/{s.total_components} komponen
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {readiness.expo_evaluation.configured && !readiness.expo_evaluation.completed && (
+                <div className="mb-2">
+                  <p className="font-medium">Menunggu evaluasi EXPO dari dosen pembimbing:</p>
+                  <ul className="mt-1 space-y-1">
+                    {readiness.expo_evaluation.supervisors
+                      .filter((s) => s.status === 'pending')
+                      .map((s) => (
+                        <li key={s.id}>
+                          {s.name} ({s.role === 'SUPERVISOR_1' ? 'Pembimbing 1' : 'Pembimbing 2'})
+                          <span className="text-sm text-muted-foreground ml-2">
+                            - {s.submitted_components}/{s.total_components} komponen
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {!readiness.peer_review.configured && (
+                <p className="mb-2">Indikator peer review belum diset oleh admin pada Evaluation Setup.</p>
+              )}
+              {readiness.peer_review.configured && !readiness.peer_review.completed && (
+                <div>
+                  <p className="font-medium">Peer review belum lengkap:</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Progress: {readiness.peer_review.completed_members}/{readiness.peer_review.total_members} mahasiswa selesai.
+                  </p>
+                  <ul className="mt-1 space-y-1">
+                    {readiness.peer_review.incomplete_students.map((s) => (
+                      <li key={s.student_id}>
+                        {s.student_name} ({s.student_nim})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Card className="border-red-200 bg-red-50">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <Lock className="h-5 w-5 text-red-600" />
+                <CardTitle className="text-red-800">TA Phase Locked</CardTitle>
+              </div>
+              <CardDescription className="text-red-700">
+                TA phase is currently locked.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-red-700 mb-4">
+                To unlock TA phase, you need to:
+              </p>
+              <ul className="space-y-3">
+                <li className="flex items-start gap-3">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">1</div>
+                  <span className="text-sm text-red-700">Complete EXPO with your group</span>
+                </li>
+                <li className="flex items-start gap-3">
+                  <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-200 text-red-700 text-xs font-semibold">2</div>
+                  <span className="text-sm text-red-700">Submit peer review for all group members</span>
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        )}
       </div>
     );
   }

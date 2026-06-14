@@ -12,6 +12,7 @@ export * from "./calendar";
 export * from "./card";
 export * from "./checkbox";
 export * from "./collapsible";
+export * from "./data-table";
 export * from "./dialog";
 export * from "./dropdown-menu";
 export * from "./input";
