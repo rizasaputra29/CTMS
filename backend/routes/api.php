@@ -433,6 +433,9 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/expo-events', [ExpoEventController::class, 'studentEvents']);
         Route::post('/expo-events/{expoEvent}/register', [ExpoEventController::class, 'register']);
         Route::post('/expo-events/{expoEvent}/withdraw', [ExpoEventController::class, 'withdraw']);
+        Route::get('/expo-events/{expoEvent}/detail', [ExpoEventController::class, 'studentDetail']);
+        Route::post('/expo-events/{expoEvent}/evaluation', [ExpoEventController::class, 'submitEvaluation']);
+        Route::post('/expo-events/{expoEvent}/document', [ExpoEventController::class, 'uploadDocument']);
 
         // Student Proposals
         Route::get('/lecturers', [StudentProposalController::class, 'lecturers']);

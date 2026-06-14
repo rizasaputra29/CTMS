@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
-    CalendarDays, MapPin, Users, Clock, CheckCircle2, AlertCircle,
+    CalendarDays, MapPin, Users, Clock, CheckCircle2, AlertCircle, Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Loading } from '@/components/ui/loading';
@@ -24,6 +25,7 @@ interface ExpoEvent {
 }
 
 export default function MahasiswaExpoPage() {
+    const router = useRouter();
     const [events, setEvents] = useState<ExpoEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [registering, setRegistering] = useState<number | null>(null);
@@ -153,6 +155,13 @@ export default function MahasiswaExpoPage() {
                                             <p className="text-sm text-green-600 font-medium text-center">
                                                 ✓ Your group is registered for this event
                                             </p>
+                                            <Button
+                                                className="w-full"
+                                                onClick={() => router.push(`/mahasiswa/expo/${evt.id}`)}
+                                            >
+                                                <Eye className="mr-2 h-4 w-4" />
+                                                Lihat Detail
+                                            </Button>
                                             <Button
                                                 variant="outline"
                                                 className="w-full"

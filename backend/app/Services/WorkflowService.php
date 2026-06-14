@@ -295,37 +295,43 @@ class WorkflowService
      */
     public function getFinalReadyForTaIndividual(Group $group, $allRequirements, $documents): array
     {
-        $expoReqs = $allRequirements->where('phase', 'EXPO')->where('is_required', true);
-        $requiredTypes = $expoReqs->pluck('name')->toArray();
-        if (empty($requiredTypes)) {
-            $requiredTypes = ['GENERAL'];
+        // Check per-student EXPO documents
+        $expoRegistration = \App\Models\ExpoRegistration::where('group_id', $group->id)
+            ->where('status', '!=', 'CANCELLED')
+            ->first();
+
+        $studentCount = GroupMember::where('group_id', $group->id)->count();
+
+        if ($expoRegistration) {
+            $uploadedCount = \App\Models\ExpoStudentDocument::where('expo_registration_id', $expoRegistration->id)
+                ->count();
+            $expoDocsComplete = $uploadedCount >= $studentCount && $studentCount > 0;
+            $pendingDocs = $expoDocsComplete ? [] : ['EXPO documents not uploaded by all students'];
+        } else {
+            $expoDocsComplete = false;
+            $pendingDocs = ['No active expo registration'];
         }
 
-        $pendingDocs = [];
-        foreach ($requiredTypes as $type) {
-            $latestForType = $documents->where('phase', 'EXPO')
-                ->where('document_type', $type)
-                ->sortByDesc('version')
-                ->first();
-
-            if ($type === 'GENERAL' && empty($allRequirements->where('phase', 'EXPO')->toArray())) {
-                $latestForType = $documents->where('phase', 'EXPO')->sortByDesc('version')->first();
-            }
-
-            if (! $latestForType || $latestForType->status !== 'APPROVED') {
-                $pendingDocs[] = $type;
+        // Check EXPO self-evaluation from all students
+        $studentIds = GroupMember::where('group_id', $group->id)->pluck('student_id')->toArray();
+        $allStudentsEvaluated = true;
+        foreach ($studentIds as $studentId) {
+            $hasEvaluation = AssessmentScoreRepository::forType('EXPO')
+                ->where('group_id', $group->id)
+                ->where('evaluator_id', $studentId)
+                ->where('student_id', $studentId)
+                ->exists();
+            if (! $hasEvaluation) {
+                $allStudentsEvaluated = false;
+                break;
             }
         }
-
-        $expoDocsComplete = empty($pendingDocs);
 
         $nilaiDosen = $this->getSupervisorEvaluationStatus($group, 'NILAI_DOSEN');
         $milestone = $this->getSupervisorEvaluationStatus($group, 'MILESTONE');
-        $expoEvaluation = $this->getSupervisorEvaluationStatus($group, 'EXPO');
 
         $hasNilaiDosenComponents = ($nilaiDosen['component_count'] ?? 0) > 0;
         $hasMilestoneComponents = ($milestone['component_count'] ?? 0) > 0;
-        $hasExpoComponents = ($expoEvaluation['component_count'] ?? 0) > 0;
 
         $nilaiDosenComplete = count($nilaiDosen['supervisors'] ?? []) > 0
             && $hasNilaiDosenComponents
@@ -335,24 +341,29 @@ class WorkflowService
             && $hasMilestoneComponents
             && (bool) ($milestone['completed'] ?? false);
 
-        $expoEvaluationComplete = count($expoEvaluation['supervisors'] ?? []) > 0
-            && $hasExpoComponents
-            && (bool) ($expoEvaluation['completed'] ?? false);
-
         $peerReviewStatus = $this->getPeerReviewRequirementStatus($group);
 
         return [
             'ready' => $expoDocsComplete
+                && $allStudentsEvaluated
                 && $nilaiDosenComplete
                 && $milestoneComplete
-                && $expoEvaluationComplete
                 && $peerReviewStatus['configured']
                 && $peerReviewStatus['completed'],
             'expo_documents' => [
                 'completed' => $expoDocsComplete,
                 'pending_types' => $pendingDocs,
-                'total_required' => count($requiredTypes),
-                'approved_count' => count($requiredTypes) - count($pendingDocs),
+                'total_required' => $studentCount,
+                'approved_count' => $expoRegistration
+                    ? \App\Models\ExpoStudentDocument::where('expo_registration_id', $expoRegistration->id)->count()
+                    : 0,
+            ],
+            'expo_evaluation' => [
+                'required' => true,
+                'completed' => $allStudentsEvaluated && $studentCount > 0,
+                'type' => 'self_evaluation',
+                'students_completed' => $allStudentsEvaluated ? $studentCount : 0,
+                'students_total' => $studentCount,
             ],
             'nilai_dosen' => [
                 'required' => true,
@@ -367,13 +378,6 @@ class WorkflowService
                 'completed' => $milestoneComplete,
                 'component_count' => $milestone['component_count'] ?? 0,
                 'supervisors' => $milestone['supervisors'] ?? [],
-            ],
-            'expo_evaluation' => [
-                'required' => true,
-                'configured' => $hasExpoComponents,
-                'completed' => $expoEvaluationComplete,
-                'component_count' => $expoEvaluation['component_count'] ?? 0,
-                'supervisors' => $expoEvaluation['supervisors'] ?? [],
             ],
             'peer_review' => [
                 'required' => true,

@@ -7,6 +7,7 @@ use App\Models\AuditLog;
 use App\Models\ExpoEvent;
 use App\Models\ExpoRegistration;
 use App\Models\ExpoScore;
+use App\Models\ExpoStudentDocument;
 use App\Models\Group;
 use App\Models\MilestoneScore;
 use App\Models\NilaiDosenScore;
@@ -187,9 +188,10 @@ class ExpoService
             $expoScores = ExpoScore::where('group_id', $group->id)->exists();
             $milestoneScores = MilestoneScore::where('group_id', $group->id)->exists();
             $nilaiDosenScores = NilaiDosenScore::where('group_id', $group->id)->exists();
+            $expoStudentDocs = ExpoStudentDocument::where('group_id', $group->id)->exists();
 
-            if ($expoScores || $milestoneScores || $nilaiDosenScores) {
-                throw new InvalidArgumentException('Cannot withdraw. Supervisor evaluation has already been submitted.');
+            if ($expoScores || $milestoneScores || $nilaiDosenScores || $expoStudentDocs) {
+                throw new InvalidArgumentException('Cannot withdraw. Evaluation or document submission has already been made.');
             }
 
             $expoSchedule = SeminarSchedule::where('group_id', $group->id)

@@ -10,7 +10,6 @@ use App\Models\Document;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
-use App\Models\PhaseDocumentRequirement;
 use App\Models\Schedule;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
@@ -609,11 +608,12 @@ class SchedulingService
 
     /**
      * Check if EXPO_DONE transition conditions are met and transition if so.
-     * Called after EXPO-related evaluations (NILAI_DOSEN, EXPO, MILESTONE) or documents are submitted.
+     * Called after EXPO self-evaluation, NILAI_DOSEN, MILESTONE submissions, or EXPO documents are uploaded.
      *
      * Conditions:
-     *  1. All supervisors must have submitted EXPO, NILAI_DOSEN, and MILESTONE evaluations
-     *  2. All required EXPO documents must be approved
+     *  1. All students must have submitted EXPO self-evaluation (evaluator_id = student_id, self-evaluation)
+     *  2. All supervisors must have submitted NILAI_DOSEN and MILESTONE evaluations
+     *  3. All students must have uploaded their EXPO document (ExpoStudentDocument)
      */
     public function tryTransitionToExpoDone(Group $group): bool
     {
@@ -621,13 +621,30 @@ class SchedulingService
             return false;
         }
 
-        // 1. Check all evaluations complete (EXPO, NILAI_DOSEN, MILESTONE from both supervisors)
+        // 1. Check all students have submitted EXPO self-evaluation
+        $studentIds = GroupMember::where('group_id', $group->id)->pluck('student_id')->toArray();
+
+        foreach ($studentIds as $studentId) {
+            $hasEvaluation = AssessmentScoreRepository::forType('EXPO')
+                ->where('group_id', $group->id)
+                ->where('evaluator_id', $studentId)
+                ->where('student_id', $studentId)
+                ->exists();
+
+            if (! $hasEvaluation) {
+                Log::info("EXPO_DONE blocked: missing EXPO self-evaluation from student {$studentId} for group {$group->id}");
+
+                return false;
+            }
+        }
+
+        // 2. Check all supervisors have submitted NILAI_DOSEN and MILESTONE
         $supervisorIds = array_filter([
             $group->supervisor_1_id,
             $group->supervisor_2_id,
         ]);
 
-        foreach (['EXPO', 'NILAI_DOSEN', 'MILESTONE'] as $type) {
+        foreach (['NILAI_DOSEN', 'MILESTONE'] as $type) {
             foreach ($supervisorIds as $supervisorId) {
                 if (! AssessmentScoreRepository::existsForGroupAndEvaluator($group->id, $supervisorId, $type)) {
                     Log::info("EXPO_DONE blocked: missing {$type} from supervisor {$supervisorId} for group {$group->id}");
@@ -637,23 +654,24 @@ class SchedulingService
             }
         }
 
-        // 2. Check EXPO documents approved
-        $requiredExpoDocs = PhaseDocumentRequirement::where('period_id', $group->period_id)
-            ->where('phase', 'EXPO')
-            ->where('is_required', true)
+        // 3. Check all students have uploaded their EXPO document
+        $expoRegistration = \App\Models\ExpoRegistration::where('group_id', $group->id)
+            ->where('status', '!=', 'CANCELLED')
+            ->first();
+
+        if (! $expoRegistration) {
+            Log::info("EXPO_DONE blocked: no active expo registration for group {$group->id}");
+
+            return false;
+        }
+
+        $uploadedCount = \App\Models\ExpoStudentDocument::where('expo_registration_id', $expoRegistration->id)
             ->count();
 
-        if ($requiredExpoDocs > 0) {
-            $approvedExpoDocs = Document::where('group_id', $group->id)
-                ->where('phase', 'EXPO')
-                ->where('status', 'APPROVED')
-                ->count();
+        if ($uploadedCount < count($studentIds)) {
+            Log::info("EXPO_DONE blocked: missing EXPO documents for group {$group->id}. Uploaded {$uploadedCount}/".count($studentIds));
 
-            if ($approvedExpoDocs < $requiredExpoDocs) {
-                Log::info("EXPO_DONE blocked: missing approved documents for group {$group->id}. Approved {$approvedExpoDocs}/{$requiredExpoDocs}");
-
-                return false;
-            }
+            return false;
         }
 
         // All conditions met - transition
