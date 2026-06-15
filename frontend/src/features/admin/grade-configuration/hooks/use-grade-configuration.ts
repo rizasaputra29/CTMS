@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
@@ -26,12 +26,30 @@ const fetchConfig = async (periodId: string): Promise<GradeConfig | null> => {
     return res.data?.data || res.data || null;
 };
 
+function getDefaultPeriodId(periods: GradeConfigurationPeriod[] | undefined): string {
+    if (!periods || periods.length === 0) return '';
+    const active = periods.find((p) => p.is_active);
+    return active ? active.id.toString() : periods[0].id.toString();
+}
+
+interface PeriodWeights {
+    pdc1: Pdc1Weights;
+    pdc2: Pdc2Weights;
+    ta: TaWeights;
+}
+
+function configToWeights(config: GradeConfig | null | undefined): PeriodWeights {
+    return {
+        pdc1: config?.pdc1?.weights ?? DEFAULT_PDC1,
+        pdc2: config?.pdc2?.weights ?? DEFAULT_PDC2,
+        ta: config?.ta?.weights ?? DEFAULT_TA,
+    };
+}
+
 export function useGradeConfiguration() {
     const queryClient = useQueryClient();
     const [selectedPeriod, setSelectedPeriod] = useState<string>('');
-    const [pdc1Weights, setPdc1Weights] = useState<Pdc1Weights>(DEFAULT_PDC1);
-    const [pdc2Weights, setPdc2Weights] = useState<Pdc2Weights>(DEFAULT_PDC2);
-    const [taWeights, setTaWeights] = useState<TaWeights>(DEFAULT_TA);
+    const [weightsByPeriod, setWeightsByPeriod] = useState<Record<string, PeriodWeights>>({});
 
     const { data: periods = [], isLoading: isLoadingPeriods } = useQuery({
         queryKey: ['admin', 'periods', 'grade-config'],
@@ -39,45 +57,41 @@ export function useGradeConfiguration() {
         staleTime: Infinity,
     });
 
-    useEffect(() => {
-        if (periods.length > 0 && !selectedPeriod) {
-            const active = periods.find((p) => p.is_active);
-            setSelectedPeriod(active ? active.id.toString() : periods[0].id.toString());
-        }
-    }, [periods, selectedPeriod]);
+    const effectivePeriodId = useMemo(
+        () => selectedPeriod || getDefaultPeriodId(periods),
+        [selectedPeriod, periods]
+    );
 
     const { data: config, isLoading: isLoadingConfig } = useQuery({
-        queryKey: ['admin', 'grade-configuration', selectedPeriod],
-        queryFn: () => fetchConfig(selectedPeriod),
-        enabled: !!selectedPeriod,
+        queryKey: ['admin', 'grade-configuration', effectivePeriodId],
+        queryFn: () => fetchConfig(effectivePeriodId),
+        enabled: !!effectivePeriodId,
     });
 
-    useEffect(() => {
-        if (config) {
-            if (config.pdc1?.weights) setPdc1Weights(config.pdc1.weights);
-            if (config.pdc2?.weights) setPdc2Weights(config.pdc2.weights);
-            if (config.ta?.weights) setTaWeights(config.ta.weights);
-        }
-    }, [config]);
+    const currentWeights = useMemo(
+        () => weightsByPeriod[effectivePeriodId] ?? configToWeights(config),
+        [weightsByPeriod, effectivePeriodId, config]
+    );
 
     const saveMutation = useMutation({
         mutationFn: async () => {
-            const pdc1Total = Object.values(pdc1Weights).reduce((sum, weight) => sum + weight, 0);
-            const pdc2Total = Object.values(pdc2Weights).reduce((sum, weight) => sum + weight, 0);
-            const taTotal = Object.values(taWeights).reduce((sum, weight) => sum + weight, 0);
+            const { pdc1, pdc2, ta } = currentWeights;
+            const pdc1Total = Object.values(pdc1).reduce((sum, weight) => sum + weight, 0);
+            const pdc2Total = Object.values(pdc2).reduce((sum, weight) => sum + weight, 0);
+            const taTotal = Object.values(ta).reduce((sum, weight) => sum + weight, 0);
 
             if (pdc1Total !== 100) throw new Error(`PDC1 weights must total 100%. Current total: ${pdc1Total}%`);
             if (pdc2Total !== 100) throw new Error(`PDC2 weights must total 100%. Current total: ${pdc2Total}%`);
             if (taTotal !== 100) throw new Error(`TA weights must total 100%. Current total: ${taTotal}%`);
 
-            await api.post(`/admin/grade-configuration/${selectedPeriod}`, {
-                pdc1_weights: pdc1Weights,
-                pdc2_weights: pdc2Weights,
-                ta_weights: taWeights,
+            await api.post(`/admin/grade-configuration/${effectivePeriodId}`, {
+                pdc1_weights: pdc1,
+                pdc2_weights: pdc2,
+                ta_weights: ta,
             });
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', selectedPeriod] });
+            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', effectivePeriodId] });
             toast.success('Grade configuration saved successfully');
         },
         onError: (error: unknown) => {
@@ -88,10 +102,15 @@ export function useGradeConfiguration() {
 
     const resetMutation = useMutation({
         mutationFn: async () => {
-            await api.post(`/admin/grade-configuration/${selectedPeriod}/reset`);
+            await api.post(`/admin/grade-configuration/${effectivePeriodId}/reset`);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', selectedPeriod] });
+            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', effectivePeriodId] });
+            setWeightsByPeriod((prev) => {
+                const next = { ...prev };
+                delete next[effectivePeriodId];
+                return next;
+            });
             toast.success('Reset to defaults');
         },
         onError: () => {
@@ -99,30 +118,37 @@ export function useGradeConfiguration() {
         },
     });
 
+    const updateWeights = (periodId: string, updater: (weights: PeriodWeights) => PeriodWeights) => {
+        setWeightsByPeriod((prev) => ({
+            ...prev,
+            [periodId]: updater(prev[periodId] ?? configToWeights(config)),
+        }));
+    };
+
     const updatePdc1Weight = (key: keyof Pdc1Weights, value: string) => {
         const numValue = parseFloat(value) || 0;
-        setPdc1Weights((prev) => ({ ...prev, [key]: numValue }));
+        updateWeights(effectivePeriodId, (weights) => ({ ...weights, pdc1: { ...weights.pdc1, [key]: numValue } }));
     };
 
     const updatePdc2Weight = (key: keyof Pdc2Weights, value: string) => {
         const numValue = parseFloat(value) || 0;
-        setPdc2Weights((prev) => ({ ...prev, [key]: numValue }));
+        updateWeights(effectivePeriodId, (weights) => ({ ...weights, pdc2: { ...weights.pdc2, [key]: numValue } }));
     };
 
     const updateTaWeight = (key: keyof TaWeights, value: string) => {
         const numValue = parseFloat(value) || 0;
-        setTaWeights((prev) => ({ ...prev, [key]: numValue }));
+        updateWeights(effectivePeriodId, (weights) => ({ ...weights, ta: { ...weights.ta, [key]: numValue } }));
     };
 
     const isLoading = isLoadingPeriods || isLoadingConfig;
 
     return {
         periods,
-        selectedPeriod,
+        selectedPeriod: effectivePeriodId,
         setSelectedPeriod,
-        pdc1Weights,
-        pdc2Weights,
-        taWeights,
+        pdc1Weights: currentWeights.pdc1,
+        pdc2Weights: currentWeights.pdc2,
+        taWeights: currentWeights.ta,
         updatePdc1Weight,
         updatePdc2Weight,
         updateTaWeight,

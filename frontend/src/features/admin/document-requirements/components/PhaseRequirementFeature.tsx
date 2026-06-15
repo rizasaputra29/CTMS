@@ -44,35 +44,57 @@ interface PhaseRequirementFeatureProps {
     phase: string;
 }
 
+type DisplayItem = PhaseRequirement & {
+    __source: 'base' | 'addition';
+    __baseIndex?: number;
+    __additionIndex?: number;
+};
+
 export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps) {
     const router = useRouter();
     const { periods, selectedPeriodId, setSelectedPeriodId, requirements, requirementsLoading, save, isSaving } =
         useDocumentRequirements();
 
-    const [items, setItems] = useState<PhaseRequirement[]>([]);
     const [newDocName, setNewDocName] = useState('');
     const [newDocDesc, setNewDocDesc] = useState('');
+    const [additions, setAdditions] = useState<PhaseRequirement[]>([]);
+    const [edits, setEdits] = useState<Record<number, Partial<PhaseRequirement>>>({});
+    const [deletions, setDeletions] = useState<Set<number>>(new Set());
 
     const selectedPeriod = periods.find((p) => p.id.toString() === selectedPeriodId);
     const isPeriodFinalized = selectedPeriod?.is_finalized ?? false;
 
-    useMemo(() => {
-        setItems(
-            requirements
-                .filter((r) => r.phase === phase)
-                .map((r) => ({ ...r, description: r.description || '' }))
-        );
+    const baseItems = useMemo<DisplayItem[]>(() => {
+        return requirements
+            .filter((r) => r.phase === phase)
+            .map((r, index) => ({
+                ...r,
+                description: r.description || '',
+                __source: 'base' as const,
+                __baseIndex: index,
+            }));
     }, [requirements, phase]);
 
+    const items = useMemo<DisplayItem[]>(() => {
+        const visibleBase = baseItems
+            .filter((item) => !deletions.has(item.__baseIndex!))
+            .map((item) => ({
+                ...item,
+                ...edits[item.__baseIndex!],
+            }));
+        const visibleAdditions = additions.map((item, index) => ({
+            ...item,
+            __source: 'addition' as const,
+            __additionIndex: index,
+        }));
+        return [...visibleBase, ...visibleAdditions];
+    }, [baseItems, additions, edits, deletions]);
+
     const handleAddDocument = () => {
-        if (isPeriodFinalized) return;
-        if (!newDocName.trim()) {
-            // no-op; button is disabled
-            return;
-        }
+        if (isPeriodFinalized || !newDocName.trim()) return;
         const exists = items.some((r) => r.name.toLowerCase() === newDocName.trim().toLowerCase());
         if (exists) return;
-        setItems((prev) => [
+        setAdditions((prev) => [
             ...prev,
             {
                 phase,
@@ -85,24 +107,55 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
         setNewDocDesc('');
     };
 
-    const handleRemoveDocument = (index: number) => {
+    const handleRemoveDocument = (item: DisplayItem) => {
         if (isPeriodFinalized) return;
-        setItems((prev) => prev.filter((_, i) => i !== index));
+        if (item.__source === 'base' && item.__baseIndex !== undefined) {
+            setDeletions((prev) => new Set([...prev, item.__baseIndex!]));
+        } else if (item.__source === 'addition' && item.__additionIndex !== undefined) {
+            setAdditions((prev) => prev.filter((_, i) => i !== item.__additionIndex));
+        }
     };
 
-    const handleToggleRequired = (index: number) => {
+    const handleToggleRequired = (item: DisplayItem) => {
         if (isPeriodFinalized) return;
-        setItems((prev) => prev.map((r, i) => (i === index ? { ...r, is_required: !r.is_required } : r)));
+        if (item.__source === 'base' && item.__baseIndex !== undefined) {
+            setEdits((prev) => ({
+                ...prev,
+                [item.__baseIndex!]: { ...prev[item.__baseIndex!], is_required: !item.is_required },
+            }));
+        } else if (item.__additionIndex !== undefined) {
+            setAdditions((prev) =>
+                prev.map((r, i) => (i === item.__additionIndex ? { ...r, is_required: !r.is_required } : r))
+            );
+        }
     };
 
-    const handleUpdateName = (index: number, name: string) => {
+    const handleUpdateName = (item: DisplayItem, name: string) => {
         if (isPeriodFinalized) return;
-        setItems((prev) => prev.map((r, i) => (i === index ? { ...r, name } : r)));
+        if (item.__source === 'base' && item.__baseIndex !== undefined) {
+            setEdits((prev) => ({
+                ...prev,
+                [item.__baseIndex!]: { ...prev[item.__baseIndex!], name },
+            }));
+        } else if (item.__additionIndex !== undefined) {
+            setAdditions((prev) =>
+                prev.map((r, i) => (i === item.__additionIndex ? { ...r, name } : r))
+            );
+        }
     };
 
-    const handleUpdateDescription = (index: number, description: string) => {
+    const handleUpdateDescription = (item: DisplayItem, description: string) => {
         if (isPeriodFinalized) return;
-        setItems((prev) => prev.map((r, i) => (i === index ? { ...r, description: description || null } : r)));
+        if (item.__source === 'base' && item.__baseIndex !== undefined) {
+            setEdits((prev) => ({
+                ...prev,
+                [item.__baseIndex!]: { ...prev[item.__baseIndex!], description: description || null },
+            }));
+        } else if (item.__additionIndex !== undefined) {
+            setAdditions((prev) =>
+                prev.map((r, i) => (i === item.__additionIndex ? { ...r, description: description || null } : r))
+            );
+        }
     };
 
     const handleSave = async () => {
@@ -115,7 +168,13 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
             return;
         }
         const otherPhases = requirements.filter((r) => r.phase !== phase);
-        const updatedRequirements = [...otherPhases, ...items];
+        const updatedBase = baseItems
+            .filter((item) => !deletions.has(item.__baseIndex!))
+            .map((item) => ({
+                ...item,
+                ...edits[item.__baseIndex!],
+            }));
+        const updatedRequirements = [...otherPhases, ...updatedBase, ...additions];
         await save({
             periodId: parseInt(selectedPeriodId),
             requirements: updatedRequirements.map((r) => ({
@@ -125,71 +184,71 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
                 is_required: r.is_required,
             })),
         });
+        setAdditions([]);
+        setEdits({});
+        setDeletions(new Set());
     };
 
-    const columns: DataTableColumn<PhaseRequirement>[] = useMemo(
-        () => [
-            {
-                key: 'required',
-                header: '',
-                width: 'w-10',
-                render: (_req, index) => (
-                    <Checkbox
-                        checked={items[index]?.is_required ?? false}
-                        onCheckedChange={() => handleToggleRequired(index)}
-                        disabled={isPeriodFinalized}
+    const columns: DataTableColumn<DisplayItem>[] = [
+        {
+            key: 'required',
+            header: '',
+            width: 'w-10',
+            render: (req) => (
+                <Checkbox
+                    checked={req.is_required}
+                    onCheckedChange={() => handleToggleRequired(req)}
+                    disabled={isPeriodFinalized}
+                />
+            ),
+        },
+        {
+            key: 'name',
+            header: 'Nama Dokumen',
+            render: (req) =>
+                isPeriodFinalized ? (
+                    <span className="font-medium">{req.name}</span>
+                ) : (
+                    <Input
+                        value={req.name}
+                        onChange={(e) => handleUpdateName(req, e.target.value)}
+                        className="h-8 text-sm"
                     />
                 ),
-            },
-            {
-                key: 'name',
-                header: 'Nama Dokumen',
-                render: (_req, index) =>
-                    isPeriodFinalized ? (
-                        <span className="font-medium">{items[index]?.name}</span>
-                    ) : (
-                        <Input
-                            value={items[index]?.name || ''}
-                            onChange={(e) => handleUpdateName(index, e.target.value)}
-                            className="h-8 text-sm"
-                        />
-                    ),
-            },
-            {
-                key: 'description',
-                header: 'Deskripsi',
-                render: (_req, index) =>
-                    isPeriodFinalized ? (
-                        <span className="text-sm text-muted-foreground">{items[index]?.description || '-'}</span>
-                    ) : (
-                        <Input
-                            value={items[index]?.description || ''}
-                            onChange={(e) => handleUpdateDescription(index, e.target.value)}
-                            className="h-8 text-sm"
-                            placeholder="Deskripsi"
-                        />
-                    ),
-            },
-            {
-                key: 'action',
-                header: 'Aksi',
-                align: 'center',
-                width: 'w-20',
-                render: (_req, index) => (
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive"
-                        onClick={() => handleRemoveDocument(index)}
-                        disabled={isPeriodFinalized}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
+        },
+        {
+            key: 'description',
+            header: 'Deskripsi',
+            render: (req) =>
+                isPeriodFinalized ? (
+                    <span className="text-sm text-muted-foreground">{req.description || '-'}</span>
+                ) : (
+                    <Input
+                        value={req.description || ''}
+                        onChange={(e) => handleUpdateDescription(req, e.target.value)}
+                        className="h-8 text-sm"
+                        placeholder="Deskripsi"
+                    />
                 ),
-            },
-        ],
-        [items, isPeriodFinalized]
-    );
+        },
+        {
+            key: 'action',
+            header: 'Aksi',
+            align: 'center',
+            width: 'w-20',
+            render: (req) => (
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive hover:text-destructive"
+                    onClick={() => handleRemoveDocument(req)}
+                    disabled={isPeriodFinalized}
+                >
+                    <Trash2 className="h-4 w-4" />
+                </Button>
+            ),
+        },
+    ];
 
     return (
         <div className="space-y-6">
@@ -318,7 +377,7 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
                                 </div>
                             )}
 
-                            <DataTable<PhaseRequirement>
+                            <DataTable<DisplayItem>
                                 title=""
                                 data={items}
                                 columns={columns}

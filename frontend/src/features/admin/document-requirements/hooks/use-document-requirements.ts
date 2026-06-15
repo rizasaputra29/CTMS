@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
@@ -47,6 +47,12 @@ async function saveRequirements(periodId: number, requirements: PhaseRequirement
     });
 }
 
+function getDefaultPeriodId(periods: Period[] | undefined): string {
+    if (!periods || periods.length === 0) return '';
+    const active = periods.find((p) => p.is_active);
+    return active?.id?.toString() || periods[0].id.toString();
+}
+
 export function useDocumentRequirements() {
     const queryClient = useQueryClient();
     const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
@@ -56,16 +62,21 @@ export function useDocumentRequirements() {
         queryFn: fetchPeriods,
     });
 
+    const effectivePeriodId = useMemo(
+        () => selectedPeriodId || getDefaultPeriodId(periodsQuery.data),
+        [selectedPeriodId, periodsQuery.data]
+    );
+
     const summariesQuery = useQuery({
-        queryKey: ['admin', 'document-requirements', 'summaries', selectedPeriodId],
-        queryFn: () => fetchSummaries(selectedPeriodId),
-        enabled: !!selectedPeriodId,
+        queryKey: ['admin', 'document-requirements', 'summaries', effectivePeriodId],
+        queryFn: () => fetchSummaries(effectivePeriodId),
+        enabled: !!effectivePeriodId,
     });
 
     const requirementsQuery = useQuery({
-        queryKey: ['admin', 'document-requirements', 'requirements', selectedPeriodId],
-        queryFn: () => fetchRequirements(selectedPeriodId),
-        enabled: !!selectedPeriodId,
+        queryKey: ['admin', 'document-requirements', 'requirements', effectivePeriodId],
+        queryFn: () => fetchRequirements(effectivePeriodId),
+        enabled: !!effectivePeriodId,
     });
 
     const saveMutation = useMutation({
@@ -103,25 +114,11 @@ export function useDocumentRequirements() {
         },
     });
 
-    const initializePeriod = useCallback((periods: Period[]) => {
-        if (periods.length > 0) {
-            const active = periods.find((p) => p.is_active);
-            setSelectedPeriodId(active?.id?.toString() || periods[0].id.toString());
-        }
-    }, []);
-
-    useEffect(() => {
-        if (!selectedPeriodId && periodsQuery.data && periodsQuery.data.length > 0) {
-            initializePeriod(periodsQuery.data);
-        }
-    }, [periodsQuery.data, selectedPeriodId, initializePeriod]);
-
     return {
         periods: periodsQuery.data || [],
         periodsLoading: periodsQuery.isLoading,
-        selectedPeriodId,
+        selectedPeriodId: effectivePeriodId,
         setSelectedPeriodId,
-        initializePeriod,
         summaries: summariesQuery.data || [],
         summariesLoading: summariesQuery.isLoading,
         requirements: requirementsQuery.data || [],
