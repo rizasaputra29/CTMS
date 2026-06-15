@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, Fragment } from 'react';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import {
@@ -9,72 +9,36 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import {
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText,
+    ChevronDown, ChevronUp, FileText,
 } from 'lucide-react';
+import { SortableTableHeader } from '@/components/common/SortableTableHeader';
+import { PaginationControls } from '@/components/common/PaginationControls';
+import { useClientPagination } from '@/hooks/use-client-pagination';
+import { useExpandableRows } from '@/hooks/use-expandable-rows';
 import { getTaDefenseStatusBadgeVariant } from '@/lib/badge-variants';
 import type { TaDefenseSchedule, Location, SortKey } from '../types';
-
-interface SortHeaderProps {
-    label: string;
-    sortKeyName: SortKey;
-    sortKey: SortKey;
-    onSort: (key: SortKey) => void;
-}
-
-function SortHeader({ label, sortKeyName, sortKey, onSort }: SortHeaderProps) {
-    return (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
-            </div>
-        </TableHead>
-    );
-}
 
 interface TaDefenseTableProps {
     data: TaDefenseSchedule[];
     locations: Location[];
-    page: number;
-    pageSize: number;
     sortKey: SortKey;
-    expandedSchedules: Set<number>;
     onSort: (key: SortKey) => void;
-    onPageChange: (page: number) => void;
-    onPageSizeChange: (size: number) => void;
-    onToggleExpanded: (id: number) => void;
     onEdit: (schedule: TaDefenseSchedule) => void;
     onCancel: (schedule: TaDefenseSchedule) => void;
-    pageSizes: number[];
 }
 
 export function TaDefenseTable({
     data,
     locations,
-    page,
-    pageSize,
     sortKey,
-    expandedSchedules,
     onSort,
-    onPageChange,
-    onPageSizeChange,
-    onToggleExpanded,
     onEdit,
     onCancel,
-    pageSizes,
 }: TaDefenseTableProps) {
-    const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const paginated = useMemo(() => {
-        const start = (safePage - 1) * pageSize;
-        return data.slice(start, start + pageSize);
-    }, [data, safePage, pageSize]);
-
-    const showingStart = data.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-    const showingEnd = Math.min(safePage * pageSize, data.length);
+    const { paginatedData, pagination } = useClientPagination(data, {
+        pageSizes: [10, 25, 50],
+    });
+    const { isExpanded, toggleExpanded } = useExpandableRows<number>();
 
     const formatDate = (dateStr: string) => {
         try {
@@ -102,36 +66,36 @@ export function TaDefenseTable({
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-10" />
-                            <SortHeader label="Student" sortKeyName="name" sortKey={sortKey} onSort={onSort} />
+                            <SortableTableHeader label="Student" sortKey="name" currentSortKey={sortKey} onSort={onSort} />
                             <TableHead>NIM</TableHead>
                             <TableHead className="w-20">Group</TableHead>
-                            <SortHeader label="Date" sortKeyName="date" sortKey={sortKey} onSort={onSort} />
+                            <SortableTableHeader label="Date" sortKey="date" currentSortKey={sortKey} onSort={onSort} />
                             <TableHead className="w-30">Time</TableHead>
                             <TableHead>Location</TableHead>
                             <TableHead className="w-45">Examiners</TableHead>
-                            <SortHeader label="Status" sortKeyName="status" sortKey={sortKey} onSort={onSort} />
+                            <SortableTableHeader label="Status" sortKey="status" currentSortKey={sortKey} onSort={onSort} />
                             <TableHead className="w-20 text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {paginated.map((s) => {
-                            const isExpanded = expandedSchedules.has(s.id);
+                        {paginatedData.map((s) => {
+                            const expanded = isExpanded(s.id);
                             const isCancelled = s.status === 'CANCELLED';
 
                             return (
                                 <Fragment key={s.id}>
                                     <TableRow
                                         className={`cursor-pointer ${isCancelled ? 'hover:bg-muted/40' : 'hover:bg-muted/50'}`}
-                                        onClick={() => onToggleExpanded(s.id)}
+                                        onClick={() => toggleExpanded(s.id)}
                                     >
                                         <TableCell>
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
                                                 className="h-8 w-8 p-0"
-                                                onClick={(e) => { e.stopPropagation(); onToggleExpanded(s.id); }}
+                                                onClick={(e) => { e.stopPropagation(); toggleExpanded(s.id); }}
                                             >
-                                                {isExpanded ? (
+                                                {expanded ? (
                                                     <ChevronUp className="h-4 w-4 text-muted-foreground" />
                                                 ) : (
                                                     <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -218,7 +182,7 @@ export function TaDefenseTable({
                                         </TableCell>
                                     </TableRow>
 
-                                    {isExpanded && (
+                                    {expanded && (
                                         <TableRow className={`${isCancelled ? 'bg-muted/20' : 'bg-muted/30'} hover:bg-inherit`}>
                                             <TableCell colSpan={10} className="p-4">
                                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -313,49 +277,19 @@ export function TaDefenseTable({
                 </Table>
             </div>
 
-            <div className="flex items-center justify-between mt-4">
-                <div className="flex items-center gap-4">
-                    <p className="text-sm text-muted-foreground">
-                        Showing {showingStart}–{showingEnd} of {data.length}
-                    </p>
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                        <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
-                            <SelectTrigger className="h-7 w-15 text-[12px]">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {pageSizes.map(s => (
-                                    <SelectItem key={s} value={String(s)}>{s}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onPageChange(Math.max(1, safePage - 1))}
-                        disabled={safePage === 1}
-                    >
-                        <ChevronLeft className="h-4 w-4 mr-1" />
-                        Previous
-                    </Button>
-                    <span className="text-sm text-muted-foreground px-2">
-                        Page {safePage} of {totalPages}
-                    </span>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => onPageChange(Math.min(totalPages, safePage + 1))}
-                        disabled={safePage === totalPages}
-                    >
-                        Next
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                    </Button>
-                </div>
-            </div>
+            <PaginationControls
+                className="mt-4"
+                page={pagination.safePage}
+                pageSize={pagination.pageSize}
+                totalPages={pagination.totalPages}
+                totalItems={pagination.totalItems}
+                showingStart={pagination.showingStart}
+                showingEnd={pagination.showingEnd}
+                pageSizes={pagination.pageSizes}
+                onPageChange={pagination.setPage}
+                onPageSizeChange={pagination.setPageSize}
+                size="sm"
+            />
         </>
     );
 }

@@ -21,8 +21,6 @@ function isStatusFilter(value: string): value is StatusFilter {
     return ['ALL', 'SCHEDULED', 'DONE', 'CANCELLED'].includes(value);
 }
 
-const PAGE_SIZES = [10, 25, 50];
-
 interface UseTaDefenseReturn {
     periods: Period[];
     dosens: Dosen[];
@@ -38,13 +36,6 @@ interface UseTaDefenseReturn {
     sortKey: SortKey;
     sortDir: SortDir;
     handleSort: (key: SortKey) => void;
-    page: number;
-    setPage: (page: number) => void;
-    pageSize: number;
-    setPageSize: (size: number) => void;
-    pageSizes: number[];
-    expandedSchedules: Set<number>;
-    toggleExpanded: (id: number) => void;
     filteredSchedules: TaDefenseSchedule[];
     isLoading: boolean;
     fetchEligibleGroups: (periodId: string) => Promise<void>;
@@ -61,11 +52,8 @@ export function useTaDefense(): UseTaDefenseReturn {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
 
     const isEnabled = typeof window !== 'undefined';
 
@@ -212,33 +200,16 @@ export function useTaDefense(): UseTaDefenseReturn {
             setSortDir(prevDir => (prevKey === key ? (prevDir === 'asc' ? 'desc' : 'asc') : 'asc'));
             return key;
         });
-        setPage(1);
     }, []);
 
     const handleStatusFilterChange = useCallback((status: string) => {
         if (isStatusFilter(status)) {
             setStatusFilter(status);
-            setPage(1);
         }
-    }, []);
-
-    const handlePageSizeChange = useCallback((size: number) => {
-        setPageSize(size);
-        setPage(1);
     }, []);
 
     const handleSearchChange = useCallback((query: string) => {
         setSearchQuery(query);
-        setPage(1);
-    }, []);
-
-    const toggleExpanded = useCallback((id: number) => {
-        setExpandedSchedules(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
     }, []);
 
     const filteredAndSorted = useMemo(() => {
@@ -294,13 +265,6 @@ export function useTaDefense(): UseTaDefenseReturn {
         sortKey,
         sortDir,
         handleSort,
-        page,
-        setPage,
-        pageSize,
-        setPageSize: handlePageSizeChange,
-        pageSizes: PAGE_SIZES,
-        expandedSchedules,
-        toggleExpanded,
         filteredSchedules,
         isLoading,
         fetchEligibleGroups,

@@ -5,8 +5,8 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format } from 'date-fns';
 import {
-    Plus, Search, CalendarDays, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-    ArrowUpDown, Eye, EyeOff, Edit, Trash2,
+    Plus, Search, CalendarDays, ChevronDown, ChevronUp,
+    Eye, EyeOff, Edit, Trash2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,12 @@ import {
 } from '@/components/ui/dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loading } from '@/components/ui/loading';
+import { SortableTableHeader } from '@/components/common/SortableTableHeader';
+import { PaginationControls } from '@/components/common/PaginationControls';
+import { PeriodSelector } from '@/components/common/PeriodSelector';
+import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { useClientPagination } from '@/hooks/use-client-pagination';
+import { useExpandableRows } from '@/hooks/use-expandable-rows';
 import { expoEventSchema, type ExpoEventFormData } from '@/lib/validations/expo';
 import { useExpoEvents } from '../hooks/use-expo-events';
 import type { ExpoEvent } from '../types';
@@ -26,34 +32,15 @@ type SortKey = 'name' | 'date';
 type SortDir = 'asc' | 'desc';
 const PAGE_SIZES = [10, 25, 50];
 
-interface SortHeaderProps {
-    label: string;
-    sortKeyName: SortKey;
-    sortKey: SortKey;
-    onSort: (key: SortKey) => void;
-}
-
-function SortHeader({ label, sortKeyName, sortKey, onSort }: SortHeaderProps) {
-    return (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
-            </div>
-        </TableHead>
-    );
-}
-
 export function ExpoFeature() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
+    const { isExpanded, toggleExpanded } = useExpandableRows<number>();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editing, setEditing] = useState<ExpoEvent | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<ExpoEvent | null>(null);
 
     const { events, eventsLoading, periods, locations, create, update, publish, remove, isPending } =
         useExpoEvents(selectedPeriod);
@@ -88,15 +75,9 @@ export function ExpoFeature() {
         return result;
     }, [events, searchQuery, sortKey, sortDir, locations]);
 
-    const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const paginated = useMemo(() => {
-        const start = (safePage - 1) * pageSize;
-        return filteredAndSorted.slice(start, start + pageSize);
-    }, [filteredAndSorted, safePage, pageSize]);
-
-    const showingStart = filteredAndSorted.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-    const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
+    const { paginatedData, pagination } = useClientPagination(filteredAndSorted, {
+        pageSizes: PAGE_SIZES,
+    });
 
     const openCreate = () => {
         setEditing(null);
@@ -139,9 +120,12 @@ export function ExpoFeature() {
         await publish(evt.id);
     };
 
-    const handleDelete = async (evt: ExpoEvent) => {
-        if (!confirm(`Delete "${evt.name}"?`)) return;
-        await remove(evt.id);
+    const handleDelete = (evt: ExpoEvent) => setDeleteTarget(evt);
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        await remove(deleteTarget.id);
+        setDeleteTarget(null);
     };
 
     const handleSort = (key: SortKey) => {
@@ -150,15 +134,6 @@ export function ExpoFeature() {
             setSortKey(key);
             setSortDir('asc');
         }
-    };
-
-    const toggleExpanded = (id: number) => {
-        setExpandedEvents((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
     };
 
     const formatDate = (dateStr: string) => {
@@ -181,20 +156,16 @@ export function ExpoFeature() {
             <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex items-center gap-2">
                     <span className="text-sm text-muted-foreground whitespace-nowrap">Period</span>
-                    <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                        <SelectTrigger className="w-[220px]">
-                            <SelectValue placeholder="Select period" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All Periods</SelectItem>
-                            {periods.map((p) => (
-                                <SelectItem key={p.id} value={p.id.toString()}>
-                                    {p.name}
-                                    {p.is_active && <span className="ml-2 text-[11px] text-muted-foreground/60">(active)</span>}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                    <PeriodSelector
+                        value={selectedPeriod}
+                        onValueChange={setSelectedPeriod}
+                        periods={periods}
+                        loading={eventsLoading}
+                        placeholder="Select period"
+                        allLabel="All Periods"
+                        triggerClassName="w-[220px]"
+                        showActiveIndicator
+                    />
                 </div>
                 <div className="relative flex-1 sm:ml-auto sm:max-w-xs">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -224,8 +195,8 @@ export function ExpoFeature() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-10" />
-                                    <SortHeader label="Event" sortKeyName="name" sortKey={sortKey} onSort={handleSort} />
-                                    <SortHeader label="Date" sortKeyName="date" sortKey={sortKey} onSort={handleSort} />
+                                    <SortableTableHeader label="Event" sortKey="name" currentSortKey={sortKey} onSort={handleSort} />
+                                    <SortableTableHeader label="Date" sortKey="date" currentSortKey={sortKey} onSort={handleSort} />
                                     <TableHead className="w-[120px]">Time</TableHead>
                                     <TableHead>Location</TableHead>
                                     <TableHead className="w-[160px]">Registrations</TableHead>
@@ -234,14 +205,15 @@ export function ExpoFeature() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {paginated.map((evt) => {
-                                    const isExpanded = expandedEvents.has(evt.id);
+                                {paginatedData.map((evt) => {
+                                    const expanded = isExpanded(evt.id);
                                     const isFull = evt.registrations_count >= evt.capacity;
-                                    const progressPct = Math.min(100, (evt.registrations_count / Math.max(1, evt.capacity)) * 100);
+                                    const progressPct = Math.min(100, (evt.registrations_count / evt.capacity) * 100);
+
                                     return (
                                         <Fragment key={evt.id}>
                                             <TableRow
-                                                className={`cursor-pointer ${!evt.is_published ? 'bg-muted/20 hover:bg-muted/40' : 'hover:bg-muted/50'}`}
+                                                className="cursor-pointer hover:bg-muted/50"
                                                 onClick={() => toggleExpanded(evt.id)}
                                             >
                                                 <TableCell>
@@ -251,7 +223,7 @@ export function ExpoFeature() {
                                                         className="h-8 w-8 p-0"
                                                         onClick={(e) => { e.stopPropagation(); toggleExpanded(evt.id); }}
                                                     >
-                                                        {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                                                        {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
                                                     </Button>
                                                 </TableCell>
                                                 <TableCell>
@@ -305,7 +277,7 @@ export function ExpoFeature() {
                                                 </TableCell>
                                             </TableRow>
 
-                                            {isExpanded && (
+                                            {expanded && (
                                                 <TableRow className="bg-muted/30 hover:bg-inherit">
                                                     <TableCell colSpan={8} className="p-4">
                                                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -363,29 +335,18 @@ export function ExpoFeature() {
                         </Table>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <p className="text-sm text-muted-foreground">Showing {showingStart}–{showingEnd} of {filteredAndSorted.length}</p>
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                                    <SelectTrigger className="h-7 w-[60px] text-[12px]"><SelectValue /></SelectTrigger>
-                                    <SelectContent>
-                                        {PAGE_SIZES.map((s) => <SelectItem key={s} value={String(s)}>{s}</SelectItem>)}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={safePage === 1}>
-                                <ChevronLeft className="h-4 w-4 mr-1" /> Previous
-                            </Button>
-                            <span className="text-sm text-muted-foreground px-2">Page {safePage} of {totalPages}</span>
-                            <Button variant="outline" size="sm" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}>
-                                Next <ChevronRight className="h-4 w-4 ml-1" />
-                            </Button>
-                        </div>
-                    </div>
+                    <PaginationControls
+                        page={pagination.safePage}
+                        pageSize={pagination.pageSize}
+                        totalPages={pagination.totalPages}
+                        totalItems={pagination.totalItems}
+                        showingStart={pagination.showingStart}
+                        showingEnd={pagination.showingEnd}
+                        pageSizes={pagination.pageSizes}
+                        onPageChange={pagination.setPage}
+                        onPageSizeChange={pagination.setPageSize}
+                        size="sm"
+                    />
                 </>
             )}
 
@@ -461,6 +422,17 @@ export function ExpoFeature() {
                     </form>
                 </DialogContent>
             </Dialog>
+
+            <ConfirmDialog
+                open={!!deleteTarget}
+                onOpenChange={(open) => !open && setDeleteTarget(null)}
+                title="Delete Expo Event"
+                description={deleteTarget ? `Are you sure you want to delete "${deleteTarget.name}"? This action cannot be undone.` : ''}
+                confirmLabel="Delete"
+                variant="destructive"
+                onConfirm={confirmDelete}
+                loading={isPending}
+            />
         </div>
     );
 }

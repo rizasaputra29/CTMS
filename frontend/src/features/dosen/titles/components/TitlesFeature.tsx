@@ -34,28 +34,12 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit, ArrowUpDown, Search, X, History, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit, Search, X, History, Loader2 } from 'lucide-react';
 import { Loading } from '@/components/ui/loading';
 import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
+import { SortableTableHeader } from '@/components/common/SortableTableHeader';
 import { useTitles } from '../hooks/use-titles';
 import type { Title, SortKey, SortDir } from '../types';
-
-interface SortHeaderProps {
-    label: string;
-    sortKeyName: SortKey;
-    onSort: (key: SortKey) => void;
-}
-
-function SortHeader({ label, sortKeyName, onSort }: SortHeaderProps) {
-    return (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className="h-3 w-3 opacity-50" />
-            </div>
-        </TableHead>
-    );
-}
 
 export function TitlesFeature() {
     const {
@@ -301,11 +285,11 @@ export function TitlesFeature() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <SortHeader label="Title" sortKeyName="title" onSort={handleSort} />
+                                <SortableTableHeader label="Title" sortKey="title" currentSortKey={sortKey} onSort={handleSort} />
                                 <TableHead>Specializations</TableHead>
-                                <SortHeader label="Quota" sortKeyName="quota" onSort={handleSort} />
-                                <SortHeader label="Groups" sortKeyName="active_groups_count" onSort={handleSort} />
-                                <SortHeader label="Status" sortKeyName="status" onSort={handleSort} />
+                                <SortableTableHeader label="Quota" sortKey="quota" currentSortKey={sortKey} onSort={handleSort} />
+                                <SortableTableHeader label="Groups" sortKey="active_groups_count" currentSortKey={sortKey} onSort={handleSort} />
+                                <SortableTableHeader label="Status" sortKey="status" currentSortKey={sortKey} onSort={handleSort} />
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>

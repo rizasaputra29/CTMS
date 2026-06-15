@@ -25,9 +25,13 @@ import { getSemproStatusBadgeVariant } from '@/lib/badge-variants';
 import { format } from 'date-fns';
 import {
     Loader2, Plus, Search, FileText, ClipboardCheck,
-    ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown,
+    ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { Loading } from '@/components/ui/loading';
+import { SortableTableHeader } from '@/components/common/SortableTableHeader';
+import { PaginationControls } from '@/components/common/PaginationControls';
+import { useClientPagination } from '@/hooks/use-client-pagination';
+import { useExpandableRows } from '@/hooks/use-expandable-rows';
 import type { Period, Dosen, Location, BimbinganEval, Schedule, GroupItem, SortKey, SortDir } from '../types';
 
 const PAGE_SIZES = [10, 25, 50];
@@ -76,11 +80,9 @@ export function SemproFeature() {
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editId, setEditId] = useState<number | null>(null);
 
-    const [page, setPage] = useState(1);
-    const [pageSize, setPageSize] = useState(10);
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
-    const [expandedSchedules, setExpandedSchedules] = useState<Set<number>>(new Set());
+    const { isExpanded, toggleExpanded } = useExpandableRows<number>();
 
     const fetchSchedules = useCallback(async (periodId?: string) => {
         const currentPeriod = periodId !== undefined ? periodId : selectedPeriodRef.current;
@@ -191,11 +193,6 @@ export function SemproFeature() {
         };
     }, [selectedPeriod]);
 
-    // Reset page when filters change
-    useEffect(() => {
-        setPage(1);
-    }, [searchQuery, pageSize, sortKey, sortDir]);
-
     const filteredAndSorted = useMemo(() => {
         const result = schedules.filter(s => {
             const q = searchQuery.toLowerCase();
@@ -224,15 +221,9 @@ export function SemproFeature() {
         return result;
     }, [schedules, searchQuery, sortKey, sortDir]);
 
-    const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
-    const safePage = Math.min(page, totalPages);
-    const paginated = useMemo(() => {
-        const start = (safePage - 1) * pageSize;
-        return filteredAndSorted.slice(start, start + pageSize);
-    }, [filteredAndSorted, safePage, pageSize]);
-
-    const showingStart = filteredAndSorted.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
-    const showingEnd = Math.min(safePage * pageSize, filteredAndSorted.length);
+    const { paginatedData, pagination } = useClientPagination(filteredAndSorted, {
+        pageSizes: PAGE_SIZES,
+    });
 
     const resetForm = () => {
         form.reset();
@@ -245,15 +236,6 @@ export function SemproFeature() {
             setSortKey(key);
             setSortDir('asc');
         }
-    };
-
-    const toggleExpanded = (id: number) => {
-        setExpandedSchedules(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
     };
 
     const handleSchedule = async (data: SemproScheduleFormData) => {
@@ -479,18 +461,6 @@ export function SemproFeature() {
         return dosens.filter(d => !groupSupervisorIds.includes(d.id));
     }, [dosens, selectedGroup]);
 
-    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead
-            className="cursor-pointer select-none hover:bg-muted/50"
-            onClick={() => handleSort(sortKeyName)}
-        >
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
-            </div>
-        </TableHead>
-    );
-
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -562,25 +532,24 @@ export function SemproFeature() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-10" />
-                                    <SortHeader label="Group" sortKeyName="title" />
-                                    <SortHeader label="Date" sortKeyName="date" />
-                                    <TableHead className="w-30">Time</TableHead>
+                                    <SortableTableHeader label="Group" sortKey="title" currentSortKey={sortKey} onSort={handleSort} />
+                                    <SortableTableHeader label="Date" sortKey="date" currentSortKey={sortKey} onSort={handleSort} />
+                                    <TableHead>Time</TableHead>
                                     <TableHead>Room</TableHead>
-                                    <TableHead className="w-40">Supervisors</TableHead>
-                                    <TableHead className="w-45">Examiners</TableHead>
-                                    <SortHeader label="Status" sortKeyName="status" />
+                                    <TableHead>Examiners</TableHead>
+                                    <SortableTableHeader label="Status" sortKey="status" currentSortKey={sortKey} onSort={handleSort} />
                                     <TableHead className="w-35 text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {paginated.map((s) => {
-                                    const isExpanded = expandedSchedules.has(s.id);
+                                {paginatedData.map((s) => {
+                                    const expanded = isExpanded(s.id);
                                     const isCancelled = s.status === 'CANCELLED';
 
                                     return (
                                         <Fragment key={s.id}>
                                             <TableRow
-                                                className={`cursor-pointer ${s.status === 'PENDING_APPROVAL' ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/50'}`}
+                                                className={`cursor-pointer ${isCancelled ? 'hover:bg-muted/40' : 'hover:bg-muted/50'}`}
                                                 onClick={() => toggleExpanded(s.id)}
                                             >
                                                 <TableCell>
@@ -593,7 +562,7 @@ export function SemproFeature() {
                                                             toggleExpanded(s.id);
                                                         }}
                                                     >
-                                                        {isExpanded ? (
+                                                        {expanded ? (
                                                             <ChevronUp className="h-4 w-4 text-muted-foreground" />
                                                         ) : (
                                                             <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -699,7 +668,7 @@ export function SemproFeature() {
                                                 </TableCell>
                                             </TableRow>
 
-                                            {isExpanded && (
+                                            {expanded && (
                                                 <TableRow className={`${s.status === 'PENDING_APPROVAL' ? 'bg-primary/5' : 'bg-muted/30'} hover:bg-inherit`}>
                                                     <TableCell colSpan={8} className="p-4">
                                                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -789,49 +758,18 @@ export function SemproFeature() {
                         </Table>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                            <p className="text-sm text-muted-foreground">
-                                Showing {showingStart}–{showingEnd} of {filteredAndSorted.length}
-                            </p>
-                            <div className="flex items-center gap-1.5">
-                                <span className="text-[12px] text-muted-foreground/60">Rows</span>
-                                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
-                                    <SelectTrigger className="h-7 w-15 text-[12px]">
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {PAGE_SIZES.map(s => (
-                                            <SelectItem key={s} value={String(s)}>{s}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setPage(p => Math.max(1, p - 1))}
-                                disabled={safePage === 1}
-                            >
-                                <ChevronLeft className="h-4 w-4 mr-1" />
-                                Previous
-                            </Button>
-                            <span className="text-sm text-muted-foreground px-2">
-                                Page {safePage} of {totalPages}
-                            </span>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                disabled={safePage === totalPages}
-                            >
-                                Next
-                                <ChevronRight className="h-4 w-4 ml-1" />
-                            </Button>
-                        </div>
-                    </div>
+                    <PaginationControls
+                        page={pagination.safePage}
+                        pageSize={pagination.pageSize}
+                        totalPages={pagination.totalPages}
+                        totalItems={pagination.totalItems}
+                        showingStart={pagination.showingStart}
+                        showingEnd={pagination.showingEnd}
+                        pageSizes={pagination.pageSizes}
+                        onPageChange={pagination.setPage}
+                        onPageSizeChange={pagination.setPageSize}
+                        size="sm"
+                    />
                 </>
             )}
 

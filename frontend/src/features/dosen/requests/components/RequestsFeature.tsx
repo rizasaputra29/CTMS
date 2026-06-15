@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, X, Search, ArrowUpDown, Loader2 } from 'lucide-react';
+import { Check, X, Search, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -25,27 +25,8 @@ import {
 import { EmptyState } from '@/components/common/EmptyState';
 import { StatusBadge } from '@/components/common/StatusBadge';
 import { PageHeader } from '@/components/common/PageHeader';
+import { SortableTableHeader } from '@/components/common/SortableTableHeader';
 import { useRequests } from '../hooks/use-requests';
-import type { SortKey } from '../types';
-
-interface SortHeaderProps {
-    label: string;
-    sortKeyName: SortKey;
-    sortKey: SortKey;
-    onSort: (key: SortKey) => void;
-}
-
-function SortHeader({ label, sortKeyName, sortKey, onSort }: SortHeaderProps) {
-    const active = sortKey === sortKeyName;
-    return (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${active ? 'opacity-100' : 'opacity-50'}`} />
-            </div>
-        </TableHead>
-    );
-}
 
 export function RequestsFeature() {
     const {
@@ -90,9 +71,9 @@ export function RequestsFeature() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="w-[60px]">Group</TableHead>
-                                <SortHeader label="Title" sortKeyName="title" sortKey={sortKey} onSort={handleSort} />
-                                <SortHeader label="Members" sortKeyName="members" sortKey={sortKey} onSort={handleSort} />
-                                <SortHeader label="Status" sortKeyName="status" sortKey={sortKey} onSort={handleSort} />
+                                <SortableTableHeader label="Title" sortKey="title" currentSortKey={sortKey} onSort={handleSort} />
+                                <SortableTableHeader label="Members" sortKey="members" currentSortKey={sortKey} onSort={handleSort} />
+                                <SortableTableHeader label="Status" sortKey="status" currentSortKey={sortKey} onSort={handleSort} />
                                 <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                         </TableHeader>

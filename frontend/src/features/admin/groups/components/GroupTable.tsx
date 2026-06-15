@@ -1,7 +1,6 @@
 "use client";
 
-import { Fragment, useState, useMemo } from "react";
-import Link from "next/link";
+import { Fragment, useMemo } from "react";
 import {
   DataTable,
   DataTableColumn,
@@ -15,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AvatarWithInitials } from "@/components/common/AvatarWithInitials";
+import { useExpandableRows } from "@/hooks/use-expandable-rows";
 import { ChevronDown, ChevronUp, Crown, Mail, Users, Filter } from "lucide-react";
 import { formatDate } from "../lib/utils";
 import type { Group, PeriodOption, PaginationData, SortKey, SortDir } from "../types";
@@ -52,21 +52,9 @@ export function GroupTable({
   onPageChange,
   onPerPageChange,
   columns,
-  onDelete,
+  onDelete: _onDelete,
 }: GroupTableProps) {
-  const [expandedGroups, setExpandedGroups] = useState<Set<number>>(new Set());
-
-  const toggleExpanded = (groupId: number) => {
-    setExpandedGroups((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(groupId)) {
-        newSet.delete(groupId);
-      } else {
-        newSet.add(groupId);
-      }
-      return newSet;
-    });
-  };
+  const { isExpanded, toggleExpanded } = useExpandableRows<number>();
 
   const filteredGroups = useMemo(() => {
     return groups.filter((group) => {
@@ -158,7 +146,7 @@ export function GroupTable({
       onPageChange={onPageChange}
       onPerPageChange={onPerPageChange}
       renderRow={(group, idx, rowNumber) => {
-        const isExpanded = expandedGroups.has(group.id);
+        const expanded = isExpanded(group.id);
         return (
           <Fragment key={group.id}>
             <tr
@@ -178,7 +166,7 @@ export function GroupTable({
                     toggleExpanded(group.id);
                   }}
                 >
-                  {isExpanded ? (
+                  {expanded ? (
                     <ChevronUp className="h-4 w-4" />
                   ) : (
                     <ChevronDown className="h-4 w-4" />
@@ -212,7 +200,7 @@ export function GroupTable({
                 {columns.find((c) => c.key === "action")?.render?.(group, idx)}
               </td>
             </tr>
-            {isExpanded && (
+            {expanded && (
               <tr className="bg-muted/30 hover:bg-muted/30 border-b">
                 <td colSpan={8} className="p-4">
                   <div className="space-y-3">

@@ -12,13 +12,12 @@ import { useRouter } from 'next/navigation'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
+import { ScoringRubric, calculateWeightedScore } from '@/components/common'
 import { 
     ArrowLeft, 
     Save, 
@@ -109,25 +108,19 @@ export function EvaluationDetailFeature({
         }
     }, [evaluationId, type, scheduleId, fetchContext])
 
-    const handleScoreChange = (componentId: number, studentId: number, value: string) => {
+    const handleScoreChange = (key: string, value: number) => {
         if (isViewOnly) return
-        const numValue = Math.min(100, Math.max(0, parseFloat(value) || 0))
-        setScores(prev => ({ ...prev, [`${componentId}_${studentId}`]: numValue }))
+        setScores(prev => ({ ...prev, [key]: value }))
     }
 
-    const handleNoteChange = (componentId: number, studentId: number, value: string) => {
+    const handleNoteChange = (key: string, value: string) => {
         if (isViewOnly) return
-        setNotes(prev => ({ ...prev, [`${componentId}_${studentId}`]: value }))
+        setNotes(prev => ({ ...prev, [key]: value }))
     }
 
     const calculateTotalScore = (studentId: number) => {
         if (!context) return '0.00'
-        let total = 0
-        context.components.forEach(comp => {
-            const score = scores[`${comp.id}_${studentId}`] || 0
-            total += (score * comp.weight) / 100
-        })
-        return total.toFixed(2)
+        return calculateWeightedScore(context.components, scores, studentId).toFixed(2)
     }
 
     const getStudents = (): Student[] => {
@@ -336,81 +329,21 @@ export function EvaluationDetailFeature({
 
                 {/* Right Column: Rubric */}
                 <div className="lg:col-span-8 space-y-6">
-                    <Card className="shadow-xl">
-                        <CardHeader className="bg-muted/30">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <CardTitle>Rubrik Penilaian</CardTitle>
-                                    <CardDescription>
-                                        {isViewOnly
-                                            ? 'Lihat nilai yang telah disubmit (mode read-only)'
-                                            : 'Masukkan nilai (0-100) untuk setiap komponen penilaian'}
-                                    </CardDescription>
-                                </div>
-                                {isViewOnly && (
-                                    <Badge variant="secondary" className="text-sm px-3 py-1">
-                                        <Eye className="w-4 h-4 mr-1" />
-                                        Lihat Nilai
-                                    </Badge>
-                                )}
-                            </div>
-                        </CardHeader>
-                        <CardContent className="p-0">
-                            <div className="divide-y divide-border">
-                                {context.components.map((comp) => (
-                                    <div key={comp.id} className="p-6 space-y-4 hover:bg-muted/5 transition-colors">
-                                        <div className="flex items-start justify-between gap-4">
-                                            <div className="space-y-1">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-bold px-2 py-0.5 bg-primary/10 text-primary rounded">{comp.code}</span>
-                                                    <h3 className="font-bold text-lg">{comp.name}</h3>
-                                                </div>
-                                                <p className="text-sm text-muted-foreground">{comp.description}</p>
-                                            </div>
-                                            <div className="shrink-0 text-right">
-                                                <p className="text-xs font-bold text-muted-foreground uppercase">Bobot</p>
-                                                <p className="text-lg font-extrabold text-primary">{comp.weight}%</p>
-                                            </div>
-                                        </div>
-
-                                        <div className={`grid grid-cols-1 ${students.length > 1 ? 'md:grid-cols-2' : ''} gap-4 mt-4`}>
-                                            {students.map((student) => (
-                                                <div key={student.id} className="space-y-2">
-                                                    <Label className="text-xs flex justify-between">
-                                                        <span>{student.name}</span>
-                                                        <span className="font-bold text-primary">Nilai: {scores[`${comp.id}_${student.id}`] || 0}</span>
-                                                    </Label>
-                                                    <div className="flex gap-4 items-start">
-                                                        <div className="w-1/3">
-                                                            <Input 
-                                                                type="number"
-                                                                className="text-center font-bold"
-                                                                placeholder={isViewOnly ? "-" : "0-100"}
-                                                                value={scores[`${comp.id}_${student.id}`] || ''}
-                                                                onChange={(e) => handleScoreChange(comp.id, student.id, e.target.value)}
-                                                                disabled={isViewOnly}
-                                                                readOnly={isViewOnly}
-                                                            />
-                                                        </div>
-                                                        <div className="flex-1">
-                                                            <Textarea 
-                                                                placeholder={isViewOnly ? "Tidak ada catatan" : "Catatan/feedback (opsional)..."}
-                                                                className="h-10 min-h-[40px] text-sm py-2"
-                                                                value={notes[`${comp.id}_${student.id}`] || ''}
-                                                                onChange={(e) => handleNoteChange(comp.id, student.id, e.target.value)}
-                                                                disabled={isViewOnly}
-                                                                readOnly={isViewOnly}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </CardContent>
-                    </Card>
+                    <ScoringRubric
+                        title="Rubrik Penilaian"
+                        description={
+                            isViewOnly
+                                ? 'Lihat nilai yang telah disubmit (mode read-only)'
+                                : 'Masukkan nilai (0-100) untuk setiap komponen penilaian'
+                        }
+                        components={context.components}
+                        students={students}
+                        scores={scores}
+                        notes={notes}
+                        onScoreChange={handleScoreChange}
+                        onNoteChange={handleNoteChange}
+                        readOnly={isViewOnly}
+                    />
 
                     {/* Summary Card */}
                     <Card className="border-primary shadow-lg bg-primary/5">

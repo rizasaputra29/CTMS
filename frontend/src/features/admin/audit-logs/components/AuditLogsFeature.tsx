@@ -1,10 +1,11 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment } from 'react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useAuditLogs } from '@/features/admin/audit-logs/hooks/use-audit-logs';
+import { useExpandableRows } from '@/hooks/use-expandable-rows';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -144,19 +145,7 @@ export function AuditLogsFeature() {
         hasActiveFilters,
     } = useAuditLogs();
 
-    const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-
-    const toggleExpanded = (logId: number) => {
-        setExpandedRows(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(logId)) {
-                newSet.delete(logId);
-            } else {
-                newSet.add(logId);
-            }
-            return newSet;
-        });
-    };
+    const { isExpanded, toggleExpanded } = useExpandableRows<number>();
 
     return (
         <div className="space-y-6">
@@ -357,17 +346,16 @@ export function AuditLogsFeature() {
                                 </TableHeader>
                                 <TableBody>
                                     {logs.map((log) => {
-                                        const isExpanded = expandedRows.has(log.id);
+                                        const expanded = isExpanded(log.id);
                                         const targetLink = getTargetLink(log);
 
                                         return (
                                             <Fragment key={log.id}>
-                                                {/* Main Row */}
                                                 <TableRow
-                                                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                                    className="cursor-pointer hover:bg-muted/50"
                                                     onClick={() => toggleExpanded(log.id)}
                                                 >
-                                                    <TableCell className="w-10">
+                                                    <TableCell>
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
@@ -377,7 +365,7 @@ export function AuditLogsFeature() {
                                                                 toggleExpanded(log.id);
                                                             }}
                                                         >
-                                                            {isExpanded ? (
+                                                            {expanded ? (
                                                                 <ChevronUp className="h-4 w-4" />
                                                             ) : (
                                                                 <ChevronDown className="h-4 w-4" />
@@ -453,10 +441,10 @@ export function AuditLogsFeature() {
                                                 </TableRow>
 
                                                 {/* Expanded Row - Payload Details */}
-                                                {isExpanded && (
-                                                    <TableRow className="bg-muted/30 hover:bg-muted/30">
-                                                        <TableCell colSpan={7} className="p-0">
-                                                            <Collapsible open={isExpanded}>
+                                                {expanded && (
+                                                    <TableRow className="bg-muted/30 hover:bg-inherit">
+                                                        <TableCell colSpan={8} className="p-0">
+                                                            <Collapsible open={expanded}>
                                                                 <CollapsibleContent>
                                                                     <div className="p-4 space-y-3">
                                                                         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">

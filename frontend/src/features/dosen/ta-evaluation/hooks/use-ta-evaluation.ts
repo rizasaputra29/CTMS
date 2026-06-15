@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import api from '@/lib/api';
 import { toast } from 'sonner';
+import { formatScoringKey } from '@/components/common';
 import type { EvaluationContext } from '../types';
 
 export function useTaEvaluation(scheduleId: string) {
@@ -24,6 +25,7 @@ export function useTaEvaluation(scheduleId: string) {
             const data = response.data.data as EvaluationContext;
             setContext(data);
 
+            const studentId = data.schedule.student.id;
             const initialScores: Record<string, number> = {};
             const initialNotes: Record<string, string> = {};
 
@@ -33,6 +35,13 @@ export function useTaEvaluation(scheduleId: string) {
                     if (value.notes) initialNotes[key] = value.notes;
                 });
             }
+
+            data.components.forEach((component) => {
+                const key = formatScoringKey(component.id, studentId);
+                if (initialScores[key] === undefined) {
+                    initialScores[key] = 0;
+                }
+            });
 
             setScores(initialScores);
             setNotes(initialNotes);
@@ -49,21 +58,26 @@ export function useTaEvaluation(scheduleId: string) {
         }
     }, [id, fetchContext]);
 
-    const handleScoreChange = useCallback((componentId: number, value: string) => {
-        const numValue = Math.min(100, Math.max(0, parseFloat(value) || 0));
-        setScores((prev) => ({ ...prev, [`${componentId}`]: numValue }));
+    const handleScoreChange = useCallback((key: string, value: number) => {
+        setScores((prev) => ({ ...prev, [key]: value }));
     }, []);
 
-    const handleNotesChange = useCallback((componentId: number, value: string) => {
-        setNotes((prev) => ({ ...prev, [`${componentId}`]: value }));
+    const handleNotesChange = useCallback((key: string, value: string) => {
+        setNotes((prev) => ({ ...prev, [key]: value }));
     }, []);
 
     const submitEvaluation = useCallback(async () => {
         if (!context || !id) return false;
 
-        const unscoredComponents = context.components.filter((c) => scores[c.id] === undefined);
-        if (unscoredComponents.length > 0) {
-            toast.error(`Please provide scores for all components (${unscoredComponents.length} remaining)`);
+        const studentId = context.schedule.student.id;
+        const allScored = context.components.every(
+            (c) => scores[formatScoringKey(c.id, studentId)] !== undefined
+        );
+        if (!allScored) {
+            const remaining = context.components.filter(
+                (c) => scores[formatScoringKey(c.id, studentId)] === undefined
+            ).length;
+            toast.error(`Please provide scores for all components (${remaining} remaining)`);
             return false;
         }
 
@@ -71,15 +85,18 @@ export function useTaEvaluation(scheduleId: string) {
             setSubmitting(true);
 
             await api.post('/dosen/assessment-scores', {
-                student_id: context.schedule.student.id,
+                student_id: studentId,
                 group_id: context.schedule.group.id,
                 evaluation_type: 'TA_DEFENSE',
-                scores: Object.entries(scores).map(([componentId, score]) => ({
-                    period_component_id: parseInt(componentId),
-                    student_id: context.schedule.student.id,
-                    score,
-                    notes: notes[componentId] || '',
-                })),
+                scores: context.components.map((component) => {
+                    const key = formatScoringKey(component.id, studentId);
+                    return {
+                        period_component_id: component.id,
+                        student_id: studentId,
+                        score: scores[key] || 0,
+                        notes: notes[key] || '',
+                    };
+                }),
             });
 
             await api.post(`/dosen/ta-defense/${id}/evaluate`, {

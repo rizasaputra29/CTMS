@@ -4,6 +4,11 @@ export {
 } from "./PaginationCustom";
 
 export {
+  PaginationControls,
+  type PaginationControlsProps,
+} from "./PaginationControls";
+
+export {
   AvatarWithInitials,
   generateInitials,
   avatarColorClass,
@@ -37,6 +42,30 @@ export {
 } from "./PageHeader";
 
 export {
+  SortableTableHeader,
+  type SortableTableHeaderProps,
+} from "./SortableTableHeader";
+
+export {
+  ScoringRubric,
+  formatScoringKey,
+  calculateWeightedScore,
+  type ScoringRubricProps,
+  type ScoringComponent,
+  type ScoringStudent,
+} from "./ScoringRubric";
+
+export {
   FileUploadDialog,
   type FileUploadDialogProps,
 } from "./FileUploadDialog";
+
+export { ConfirmDialog } from "./ConfirmDialog";
+
+export { DataTable } from "./DataTable";
+
+export { DataTableFilterPopover } from "./DataTableFilterPopover";
+
+export { DataTablePagination } from "./DataTablePagination";
+
+export { DataTableToolbar } from "./DataTableToolbar";

@@ -31,15 +31,7 @@ export function TaDefenseFeature() {
         statusFilter,
         setStatusFilter,
         sortKey,
-        sortDir,
         handleSort,
-        page,
-        setPage,
-        pageSize,
-        setPageSize,
-        pageSizes,
-        expandedSchedules,
-        toggleExpanded,
         isLoading,
         fetchEligibleGroups,
         createSchedule,
@@ -183,17 +175,10 @@ export function TaDefenseFeature() {
                 <TaDefenseTable
                     data={filteredSchedules}
                     locations={locations}
-                    page={page}
-                    pageSize={pageSize}
                     sortKey={sortKey}
-                    expandedSchedules={expandedSchedules}
                     onSort={handleSort}
-                    onPageChange={setPage}
-                    onPageSizeChange={setPageSize}
-                    onToggleExpanded={toggleExpanded}
                     onEdit={handleEditClick}
                     onCancel={handleCancelClick}
-                    pageSizes={pageSizes}
                 />
             )}
 

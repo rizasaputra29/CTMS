@@ -2,14 +2,11 @@
 
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { ScoringRubric, formatScoringKey } from '@/components/common';
 import {
     ArrowLeft,
     Save,
@@ -61,8 +58,13 @@ export function TaEvaluationFeature({ scheduleId }: TaEvaluationFeatureProps) {
     }
 
     const { schedule, components } = context;
-    const isDeadlinePassed = new Date(schedule.evaluation_deadline) < new Date();
-    const allScored = components.every((c) => scores[c.id] !== undefined);
+    const student = schedule.student;
+    const isDeadlinePassed = schedule.evaluation_deadline
+        ? new Date(schedule.evaluation_deadline) < new Date()
+        : false;
+    const allScored = components.every(
+        (c) => scores[formatScoringKey(c.id, student.id)] !== undefined
+    );
 
     return (
         <div className="container mx-auto py-6 max-w-4xl">
@@ -138,93 +140,59 @@ export function TaEvaluationFeature({ scheduleId }: TaEvaluationFeatureProps) {
             )}
 
             {/* Evaluation Form */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>Assessment Components</CardTitle>
-                    <CardDescription>Rate the student on each component (0-100)</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {components.map((component) => (
-                        <div key={component.id} className="space-y-4">
-                            <div className="flex items-start justify-between">
-                                <div>
-                                    <h3 className="font-medium">{component.name}</h3>
-                                    <p className="text-sm text-muted-foreground">{component.code}</p>
-                                    {component.description && (
-                                        <p className="text-sm text-muted-foreground mt-1">{component.description}</p>
-                                    )}
-                                </div>
-                                <Badge variant="outline">Weight: {component.weight}%</Badge>
-                            </div>
+            <ScoringRubric
+                title="Assessment Components"
+                description="Rate the student on each component (0-100)"
+                components={components}
+                students={[student]}
+                scores={scores}
+                notes={notes}
+                onScoreChange={handleScoreChange}
+                onNoteChange={handleNotesChange}
+                readOnly={schedule.status === 'DONE'}
+            />
 
-                            <div className="grid gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor={`score-${component.id}`}>Score (0-100)</Label>
-                                    <Input
-                                        id={`score-${component.id}`}
-                                        type="number"
-                                        min={0}
-                                        max={100}
-                                        value={scores[component.id] || ''}
-                                        onChange={(e) => handleScoreChange(component.id, e.target.value)}
-                                        disabled={schedule.status === 'DONE'}
-                                    />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor={`notes-${component.id}`}>Notes (Optional)</Label>
-                                    <Textarea
-                                        id={`notes-${component.id}`}
-                                        placeholder="Additional feedback..."
-                                        value={notes[component.id] || ''}
-                                        onChange={(e) => handleNotesChange(component.id, e.target.value)}
-                                        disabled={schedule.status === 'DONE'}
-                                        rows={2}
-                                    />
-                                </div>
-                            </div>
-                            <Separator />
+            {schedule.status !== 'DONE' && (
+                <Card className="mt-6">
+                    <CardContent className="flex items-center justify-between py-6">
+                        <div className="text-sm text-muted-foreground">
+                            {allScored ? (
+                                <span className="text-green-600 flex items-center">
+                                    <CheckCircle2 className="mr-1 h-4 w-4" />
+                                    All components scored
+                                </span>
+                            ) : (
+                                <span className="flex items-center">
+                                    <AlertCircle className="mr-1 h-4 w-4" />
+                                    {components.filter(
+                                        (c) => scores[formatScoringKey(c.id, student.id)] === undefined
+                                    ).length} components remaining
+                                </span>
+                            )}
                         </div>
-                    ))}
-
-                    {schedule.status !== 'DONE' && (
-                        <div className="flex items-center justify-between pt-4">
-                            <div className="text-sm text-muted-foreground">
-                                {allScored ? (
-                                    <span className="text-green-600 flex items-center">
-                                        <CheckCircle2 className="mr-1 h-4 w-4" />
-                                        All components scored
-                                    </span>
-                                ) : (
-                                    <span className="flex items-center">
-                                        <AlertCircle className="mr-1 h-4 w-4" />
-                                        {components.filter((c) => scores[c.id] === undefined).length} components remaining
-                                    </span>
-                                )}
-                            </div>
-                            <Button
-                                onClick={async () => {
-                                    const success = await submitEvaluation();
-                                    if (success) router.push('/dosen/evaluation');
-                                }}
-                                disabled={submitting || !allScored}
-                                size="lg"
-                            >
-                                {submitting ? (
-                                    <>
-                                        <Save className="mr-2 h-4 w-4 animate-spin" />
-                                        Submitting...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="mr-2 h-4 w-4" />
-                                        Submit Evaluation
-                                    </>
-                                )}
-                            </Button>
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                        <Button
+                            onClick={async () => {
+                                const success = await submitEvaluation();
+                                if (success) router.push('/dosen/evaluation');
+                            }}
+                            disabled={submitting || !allScored}
+                            size="lg"
+                        >
+                            {submitting ? (
+                                <>
+                                    <Save className="mr-2 h-4 w-4 animate-spin" />
+                                    Submitting...
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="mr-2 h-4 w-4" />
+                                    Submit Evaluation
+                                </>
+                            )}
+                        </Button>
+                    </CardContent>
+                </Card>
+            )}
         </div>
     );
 }
