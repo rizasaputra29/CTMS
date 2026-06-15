@@ -186,7 +186,6 @@ export function TaDefenseFeature() {
                     page={page}
                     pageSize={pageSize}
                     sortKey={sortKey}
-                    sortDir={sortDir}
                     expandedSchedules={expandedSchedules}
                     onSort={handleSort}
                     onPageChange={setPage}

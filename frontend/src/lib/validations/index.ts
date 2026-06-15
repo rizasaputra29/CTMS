@@ -36,3 +36,6 @@ export { titleSchema, type TitleFormData } from "./title"
 
 // Location
 export { locationSchema, type LocationFormData } from "./location"
+
+// Document Type
+export { documentTypeSchema, type DocumentTypeFormData } from "./document-type"

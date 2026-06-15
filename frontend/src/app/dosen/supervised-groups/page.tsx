@@ -1,4 +1,4 @@
-import { SupervisedGroupsFeature } from '@/features/dosen/supervised-groups/components/SupervisedGroupsFeature';
+import { SupervisedGroupsFeature } from '@/features/dosen/supervised-groups';
 
 export default function DosenSupervisedGroupsPage() {
     return <SupervisedGroupsFeature />;

@@ -33,7 +33,7 @@ import type { BimbinganDocument } from '../types';
 
 const MAX_FEEDBACK_LENGTH = 500;
 
-export default function BimbinganFeature() {
+export function BimbinganFeature() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [selectedGroupId, setSelectedGroupId] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');

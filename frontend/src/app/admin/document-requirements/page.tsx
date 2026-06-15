@@ -1,4 +1,4 @@
-import { DocumentRequirementsFeature } from '@/features/admin/document-requirements/components/DocumentRequirementsFeature';
+import { DocumentRequirementsFeature } from '@/features/admin/document-requirements';
 
 export default function AdminDocumentRequirementsPage() {
     return <DocumentRequirementsFeature />;

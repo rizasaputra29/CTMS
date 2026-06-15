@@ -1,75 +1,69 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type { Bid, LecturerBidsFlow, PeriodOption } from '../types';
 
+const BIDS_QUERY_KEY = ['dosen', 'bids'] as const;
+const PERIODS_QUERY_KEY = ['periods-list'] as const;
+
 export function useBids() {
-    const [bids, setBids] = useState<Bid[]>([]);
-    const [periods, setPeriods] = useState<PeriodOption[]>([]);
+    const queryClient = useQueryClient();
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
-    const [submitting, setSubmitting] = useState<number | null>(null);
-    const [bidsFlow, setBidsFlow] = useState<LecturerBidsFlow | null>(null);
 
-    const fetchData = useCallback(async (periodId?: string) => {
-        if (periodId) setRefreshing(true);
-        else setLoading(true);
+    const { data: periods = [], isLoading: periodsLoading } = useQuery({
+        queryKey: PERIODS_QUERY_KEY,
+        queryFn: async () => {
+            const response = await api.get('/periods-list');
+            return (response.data?.data || []) as PeriodOption[];
+        },
+    });
 
-        try {
-            if (periods.length === 0) {
-                const periodsRes = await api.get('/periods-list');
-                setPeriods(periodsRes.data?.data || []);
-            }
-
-            const url = periodId && periodId !== 'all'
-                ? `/dosen/bids?period_id=${periodId}`
+    const { data: bidsData, isLoading: bidsLoading } = useQuery({
+        queryKey: [...BIDS_QUERY_KEY, selectedPeriod],
+        queryFn: async () => {
+            const url = selectedPeriod && selectedPeriod !== 'all'
+                ? `/dosen/bids?period_id=${selectedPeriod}`
                 : '/dosen/bids';
+            const response = await api.get(url);
+            return {
+                bids: (response.data.data || []) as Bid[],
+                flow: (response.data.flow || null) as LecturerBidsFlow | null,
+            };
+        },
+    });
 
-            const res = await api.get(url);
-            setBids(res.data.data || []);
-            setBidsFlow(res.data.flow || null);
-        } catch (err) {
-            console.error('Failed to fetch bids', err);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [periods.length]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const handlePeriodChange = (val: string) => {
-        setSelectedPeriod(val);
-        fetchData(val);
-    };
-
-    const handleRecommend = async (bidId: number, recommendation: 'ACCEPT' | 'REJECT') => {
-        setSubmitting(bidId);
-        try {
+    const recommendMutation = useMutation({
+        mutationFn: async ({ bidId, recommendation }: { bidId: number; recommendation: 'ACCEPT' | 'REJECT' }) => {
             await api.put(`/dosen/bids/${bidId}/recommend`, { recommendation });
-            toast.success(`Recommendation: ${recommendation}`);
-            fetchData(selectedPeriod);
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
-            else toast.error('Failed to submit recommendation');
-        } finally {
-            setSubmitting(null);
-        }
-    };
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: BIDS_QUERY_KEY });
+            toast.success(`Recommendation: ${variables.recommendation}`);
+        },
+        onError: (error) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to submit recommendation'));
+        },
+    });
+
+    const handlePeriodChange = useCallback((val: string) => {
+        setSelectedPeriod(val);
+    }, []);
+
+    const handleRecommend = useCallback((bidId: number, recommendation: 'ACCEPT' | 'REJECT') => {
+        recommendMutation.mutate({ bidId, recommendation });
+    }, [recommendMutation]);
 
     const filteredBids = useMemo(() => {
-        if (!searchQuery) return bids;
+        if (!searchQuery) return bidsData?.bids ?? [];
         const q = searchQuery.toLowerCase();
-        return bids.filter(bid =>
+        return (bidsData?.bids ?? []).filter(bid =>
             bid.title.title.toLowerCase().includes(q) ||
             bid.group_id.toString().includes(q) ||
             bid.group.members.some(m => m.student.name.toLowerCase().includes(q))
         );
-    }, [bids, searchQuery]);
+    }, [bidsData?.bids, searchQuery]);
 
     const byTitle = useMemo(() => {
         return filteredBids.reduce((acc, bid) => {
@@ -81,14 +75,13 @@ export function useBids() {
     }, [filteredBids]);
 
     return {
-        bids,
         periods,
         selectedPeriod,
         searchQuery,
-        loading,
-        refreshing,
-        submitting,
-        bidsFlow,
+        loading: periodsLoading || bidsLoading,
+        refreshing: recommendMutation.isPending,
+        submitting: recommendMutation.isPending ? recommendMutation.variables?.bidId ?? null : null,
+        bidsFlow: bidsData?.flow ?? null,
         filteredBids,
         byTitle,
         setSearchQuery,

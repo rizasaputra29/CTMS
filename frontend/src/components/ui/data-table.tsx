@@ -451,11 +451,13 @@ export function DataTable<T>({
  * Usage: render: textCell('email')
  */
 export function textCell<T>(key: string) {
-  return (row: T) => (
+  const TextCell = (row: T) => (
     <span className="text-sm text-muted-foreground">
       {((row as Record<string, unknown>)[key] as React.ReactNode) ?? '-'}
     </span>
   );
+  TextCell.displayName = `TextCell(${key})`;
+  return TextCell;
 }
 
 /**
@@ -463,7 +465,7 @@ export function textCell<T>(key: string) {
  * Usage: render: dateCell('created_at')
  */
 export function dateCell<T>(key: string) {
-  return (row: T) => {
+  const DateCell = (row: T) => {
     const value = (row as Record<string, unknown>)[key];
     if (!value) return <span className="text-muted-foreground">-</span>;
     const date = new Date(value as string);
@@ -477,6 +479,8 @@ export function dateCell<T>(key: string) {
       </span>
     );
   };
+  DateCell.displayName = `DateCell(${key})`;
+  return DateCell;
 }
 
 /**
@@ -486,7 +490,9 @@ export function dateCell<T>(key: string) {
 export function numberCell() {
   // This is handled automatically by the DataTable when col.key === 'no'
   // This helper exists only for explicit usage if needed
-  return (_row: unknown, index: number) => (
+  const NumberCell = (_row: unknown, index: number) => (
     <span className="text-muted-foreground text-sm">{index + 1}</span>
   );
+  NumberCell.displayName = 'NumberCell';
+  return NumberCell;
 }

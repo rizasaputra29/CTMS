@@ -26,6 +26,24 @@ type SortKey = 'name' | 'date';
 type SortDir = 'asc' | 'desc';
 const PAGE_SIZES = [10, 25, 50];
 
+interface SortHeaderProps {
+    label: string;
+    sortKeyName: SortKey;
+    sortKey: SortKey;
+    onSort: (key: SortKey) => void;
+}
+
+function SortHeader({ label, sortKeyName, sortKey, onSort }: SortHeaderProps) {
+    return (
+        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
+            <div className="flex items-center gap-1">
+                {label}
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
+            </div>
+        </TableHead>
+    );
+}
+
 export function ExpoFeature() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
@@ -148,15 +166,6 @@ export function ExpoFeature() {
         catch { return dateStr; }
     };
 
-    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
-            </div>
-        </TableHead>
-    );
-
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -215,8 +224,8 @@ export function ExpoFeature() {
                             <TableHeader>
                                 <TableRow>
                                     <TableHead className="w-10" />
-                                    <SortHeader label="Event" sortKeyName="name" />
-                                    <SortHeader label="Date" sortKeyName="date" />
+                                    <SortHeader label="Event" sortKeyName="name" sortKey={sortKey} onSort={handleSort} />
+                                    <SortHeader label="Date" sortKeyName="date" sortKey={sortKey} onSort={handleSort} />
                                     <TableHead className="w-[120px]">Time</TableHead>
                                     <TableHead>Location</TableHead>
                                     <TableHead className="w-[160px]">Registrations</TableHead>

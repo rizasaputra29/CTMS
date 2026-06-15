@@ -1,6 +1,6 @@
 'use client';
 
-import { EvaluationSummaryFeature } from '@/features/admin/evaluation-summary/components/EvaluationSummaryFeature';
+import { EvaluationSummaryFeature } from '@/features/admin/evaluation-summary';
 import { useStringParam } from '@/hooks/use-params';
 
 export default function EvaluationSummaryPage() {

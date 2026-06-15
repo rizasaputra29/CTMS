@@ -1,4 +1,4 @@
-import { GroupProgressFeature } from '@/features/admin/analytics/components/GroupProgressFeature';
+import { GroupProgressFeature } from '@/features/admin/analytics';
 
 export default function ProgressPage() {
     return <GroupProgressFeature />;

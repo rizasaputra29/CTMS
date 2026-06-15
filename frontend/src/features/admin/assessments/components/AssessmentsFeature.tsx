@@ -1,7 +1,9 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useAssessments } from '@/features/admin/assessments/hooks/use-assessments';
+import { EmptyState } from '@/components/common/EmptyState';
+import { PageHeader } from '@/components/common/PageHeader';
+import { useAssessments } from '../hooks/use-assessments';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, Eye, ArrowLeft } from 'lucide-react';
@@ -43,20 +45,16 @@ export function AssessmentsFeature() {
 
     return (
         <div className="container mx-auto py-6 max-w-7xl">
-            {/* Header */}
-            <div className="mb-6">
-                <div className="flex items-start justify-between">
-                    <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Active Assessment Components</h1>
-                        <p className="text-muted-foreground mt-1">
-                            View assessment components configured for each period and evaluation type.
-                        </p>
-                    </div>
+            <PageHeader
+                title="Active Assessment Components"
+                description="View assessment components configured for each period and evaluation type."
+                className="mb-6"
+                action={
                     <Button variant="outline" onClick={() => router.push('/admin/assessment-bank')}>
                         Manage Bank Soal
                     </Button>
-                </div>
-            </div>
+                }
+            />
 
             {/* Info Alert */}
             <Alert className="mb-6">
@@ -142,18 +140,19 @@ export function AssessmentsFeature() {
                             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                         </div>
                     ) : components.length === 0 ? (
-                        <div className="text-center py-12 border rounded-lg border-dashed">
-                            <Eye className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                            <p className="text-muted-foreground mb-2">
-                                No components configured for {typeLabel} in this period
-                            </p>
-                            <Button
-                                variant="outline"
-                                onClick={() => router.push('/admin/period-assessment-config')}
-                            >
-                                Configure Components
-                            </Button>
-                        </div>
+                        <EmptyState
+                            icon={Eye}
+                            title={`No components configured for ${typeLabel}`}
+                            description="Configure assessment components for this period and evaluation type."
+                            action={
+                                <Button
+                                    variant="outline"
+                                    onClick={() => router.push('/admin/period-assessment-config')}
+                                >
+                                    Configure Components
+                                </Button>
+                            }
+                        />
                     ) : (
                         <>
                             <div className="rounded-md border">

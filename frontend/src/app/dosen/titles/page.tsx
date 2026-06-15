@@ -1,4 +1,4 @@
-import TitlesFeature from '@/features/dosen/titles/components/TitlesFeature';
+import { TitlesFeature } from '@/features/dosen/titles';
 
 export default function DosenTitlesPage() {
     return <TitlesFeature />;

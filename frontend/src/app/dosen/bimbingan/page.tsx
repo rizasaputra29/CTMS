@@ -1,4 +1,4 @@
-import BimbinganFeature from '@/features/dosen/bimbingan/components/BimbinganFeature';
+import { BimbinganFeature } from '@/features/dosen/bimbingan';
 
 export default function DosenBimbinganPage() {
     return <BimbinganFeature />;

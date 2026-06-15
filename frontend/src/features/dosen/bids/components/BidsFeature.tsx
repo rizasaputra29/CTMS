@@ -14,6 +14,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { EmptyState } from '@/components/common/EmptyState';
+import { PageHeader } from '@/components/common/PageHeader';
 import { useBids } from '../hooks/use-bids';
 
 const flowReasonMap: Record<string, string> = {
@@ -49,10 +51,10 @@ export function BidsFeature() {
     return (
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Bid Review</h1>
-                    <p className="text-muted-foreground">Review bids on your titles. Your recommendation is advisory for admin.</p>
-                </div>
+                <PageHeader
+                    title="Bid Review"
+                    description="Review bids on your titles. Your recommendation is advisory for admin."
+                />
                 <div className="flex items-center gap-2">
                     <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                         <SelectTrigger className="w-[200px]">
@@ -91,11 +93,11 @@ export function BidsFeature() {
             )}
 
             {Object.keys(byTitle).length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <Gavel className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Bids Yet</h2>
-                    <p className="text-muted-foreground">Bids on your titles will appear here.</p>
-                </div>
+                <EmptyState
+                    icon={Gavel}
+                    title="No Bids Yet"
+                    description="Bids on your titles will appear here."
+                />
             ) : (
                 <div className="space-y-6">
                     {Object.values(byTitle).map(({ title, bids: titleBids }) => {

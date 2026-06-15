@@ -15,7 +15,25 @@ import {
     ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowUpDown, FileText,
 } from 'lucide-react';
 import { getTaDefenseStatusBadgeVariant } from '@/lib/badge-variants';
-import type { TaDefenseSchedule, Location, SortKey, SortDir } from '../types';
+import type { TaDefenseSchedule, Location, SortKey } from '../types';
+
+interface SortHeaderProps {
+    label: string;
+    sortKeyName: SortKey;
+    sortKey: SortKey;
+    onSort: (key: SortKey) => void;
+}
+
+function SortHeader({ label, sortKeyName, sortKey, onSort }: SortHeaderProps) {
+    return (
+        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
+            <div className="flex items-center gap-1">
+                {label}
+                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
+            </div>
+        </TableHead>
+    );
+}
 
 interface TaDefenseTableProps {
     data: TaDefenseSchedule[];
@@ -23,7 +41,6 @@ interface TaDefenseTableProps {
     page: number;
     pageSize: number;
     sortKey: SortKey;
-    sortDir: SortDir;
     expandedSchedules: Set<number>;
     onSort: (key: SortKey) => void;
     onPageChange: (page: number) => void;
@@ -40,7 +57,6 @@ export function TaDefenseTable({
     page,
     pageSize,
     sortKey,
-    sortDir,
     expandedSchedules,
     onSort,
     onPageChange,
@@ -79,15 +95,6 @@ export function TaDefenseTable({
         }
     };
 
-    const SortHeader = ({ label, sortKeyName }: { label: string; sortKeyName: SortKey }) => (
-        <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => onSort(sortKeyName)}>
-            <div className="flex items-center gap-1">
-                {label}
-                <ArrowUpDown className={`h-3 w-3 ${sortKey === sortKeyName ? 'opacity-100' : 'opacity-30'}`} />
-            </div>
-        </TableHead>
-    );
-
     return (
         <>
             <div className="rounded-md border">
@@ -95,14 +102,14 @@ export function TaDefenseTable({
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-10" />
-                            <SortHeader label="Student" sortKeyName="name" />
+                            <SortHeader label="Student" sortKeyName="name" sortKey={sortKey} onSort={onSort} />
                             <TableHead>NIM</TableHead>
                             <TableHead className="w-20">Group</TableHead>
-                            <SortHeader label="Date" sortKeyName="date" />
+                            <SortHeader label="Date" sortKeyName="date" sortKey={sortKey} onSort={onSort} />
                             <TableHead className="w-30">Time</TableHead>
                             <TableHead>Location</TableHead>
                             <TableHead className="w-45">Examiners</TableHead>
-                            <SortHeader label="Status" sortKeyName="status" />
+                            <SortHeader label="Status" sortKeyName="status" sortKey={sortKey} onSort={onSort} />
                             <TableHead className="w-20 text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>

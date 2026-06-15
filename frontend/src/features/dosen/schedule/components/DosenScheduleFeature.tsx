@@ -5,7 +5,6 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { format, parseISO } from 'date-fns';
 import { Loader2, Plus, Trash2, Edit } from 'lucide-react';
-import api from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -44,7 +43,7 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bgColor: strin
     SIDANG: { label: 'Sidang', color: 'text-primary-500', bgColor: 'bg-primary-50' },
 };
 
-export default function DosenScheduleFeature() {
+export function DosenScheduleFeature() {
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [open, setOpen] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);

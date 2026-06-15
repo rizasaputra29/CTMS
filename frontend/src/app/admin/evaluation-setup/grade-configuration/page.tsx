@@ -1,4 +1,4 @@
-import { GradeConfigurationFeature } from '@/features/admin/grade-configuration/components/GradeConfigurationFeature';
+import { GradeConfigurationFeature } from '@/features/admin/grade-configuration';
 
 export default function GradeConfigurationPage() {
     return <GradeConfigurationFeature />;

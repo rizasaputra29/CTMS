@@ -1,4 +1,4 @@
-import { AuditLogsFeature } from '@/features/admin/audit-logs/components/AuditLogsFeature';
+import { AuditLogsFeature } from '@/features/admin/audit-logs';
 
 export default function AdminAuditLogsPage() {
     return <AuditLogsFeature />;

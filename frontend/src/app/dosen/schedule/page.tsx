@@ -1,4 +1,4 @@
-import DosenScheduleFeature from '@/features/dosen/schedule/components/DosenScheduleFeature';
+import { DosenScheduleFeature } from '@/features/dosen/schedule';
 
 export default function DosenSchedulePage() {
     return <DosenScheduleFeature />;

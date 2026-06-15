@@ -8,7 +8,7 @@ import { Loader2 } from "lucide-react";
 import { periodSchema, type PeriodFormData } from "@/lib/validations/period";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { usePeriodWizard } from "@/features/admin/periods/hooks/use-period-wizard";
+import { usePeriodWizard } from "@/features/admin/periods";
 import { PeriodWizardLayout } from "../../components/PeriodWizardLayout";
 import { BasicInfoStep } from "../../components/steps/BasicInfoStep";
 import { EvaluationSetupStep } from "../../components/steps/EvaluationSetupStep";

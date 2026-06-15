@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { PhaseRequirementFeature } from '@/features/admin/document-requirements/components/PhaseRequirementFeature';
+import { PhaseRequirementFeature } from '@/features/admin/document-requirements';
 
 const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
 

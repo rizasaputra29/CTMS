@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
-import { toast } from 'sonner';
 import type { AssessmentPeriod, AssessmentComponent } from '@/features/admin/assessments/types';
 
 const EVALUATION_TYPES = [
@@ -36,17 +35,17 @@ export function useAssessments() {
         staleTime: Infinity,
     });
 
-    useEffect(() => {
-        if (periods.length > 0 && !selectedPeriod) {
-            const active = periods.find((p) => p.is_active);
-            setSelectedPeriod(active ? active.id.toString() : periods[0].id.toString());
-        }
+    const effectivePeriod = useMemo(() => {
+        if (selectedPeriod) return selectedPeriod;
+        if (periods.length === 0) return '';
+        const active = periods.find((p) => p.is_active);
+        return active ? active.id.toString() : periods[0].id.toString();
     }, [periods, selectedPeriod]);
 
     const { data: components = [], isLoading: isLoadingComponents } = useQuery({
-        queryKey: ['admin', 'assessment-components', selectedPeriod, selectedType],
-        queryFn: () => fetchComponents(selectedPeriod, selectedType),
-        enabled: !!selectedPeriod && !!selectedType,
+        queryKey: ['admin', 'assessment-components', effectivePeriod, selectedType],
+        queryFn: () => fetchComponents(effectivePeriod, selectedType),
+        enabled: !!effectivePeriod && !!selectedType,
     });
 
     const totalWeight = components.reduce((sum, c) => sum + Number(c.weight), 0);
@@ -55,7 +54,7 @@ export function useAssessments() {
     return {
         periods,
         isLoadingPeriods,
-        selectedPeriod,
+        selectedPeriod: effectivePeriod,
         setSelectedPeriod,
         selectedType,
         setSelectedType,

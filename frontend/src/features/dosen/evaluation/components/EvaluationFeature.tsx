@@ -187,7 +187,7 @@ function EvaluationCard({
     );
 }
 
-export default function EvaluationFeature() {
+export function EvaluationFeature() {
     const router = useRouter();
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');

@@ -1,4 +1,4 @@
-import { TaDefenseFeature } from '@/features/admin/ta-defense/components/TaDefenseFeature';
+import { TaDefenseFeature } from '@/features/admin/ta-defense';
 
 export default function AdminTaDefensePage() {
     return <TaDefenseFeature />;

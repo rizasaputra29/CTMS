@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useSearchParams } from 'next/navigation';
-import { EvaluationDetailFeature } from '@/features/dosen/evaluation-detail/components/EvaluationDetailFeature';
+import { EvaluationDetailFeature } from '@/features/dosen/evaluation-detail';
 
 export default function DosenEvaluationDetailPage() {
     const params = useParams();

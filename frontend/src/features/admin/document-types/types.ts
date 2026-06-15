@@ -6,8 +6,4 @@ export interface DocumentType {
     is_active: boolean;
 }
 
-export interface DocumentTypeFormData {
-    name: string;
-    description: string;
-    phase: string;
-}
+export type { DocumentTypeFormData } from "@/lib/validations/document-type";

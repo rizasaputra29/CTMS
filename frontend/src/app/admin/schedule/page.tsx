@@ -1,4 +1,4 @@
-import { ScheduleFeature } from '@/features/admin/schedule/components/ScheduleFeature';
+import { ScheduleFeature } from '@/features/admin/schedule';
 
 export default function AdminSchedulePage() {
     return <ScheduleFeature />;
