@@ -1,4 +1,4 @@
-import { LocationsFeature } from "@/features/admin/locations/components/LocationsFeature";
+import { LocationsFeature } from "@/features/admin/locations";
 
 export default function AdminLocationsPage() {
   return <LocationsFeature />;

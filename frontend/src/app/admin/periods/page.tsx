@@ -1,4 +1,4 @@
-import { PeriodsFeature } from "@/features/admin/periods/components/PeriodsFeature";
+import { PeriodsFeature } from "@/features/admin/periods";
 
 export default function AdminPeriodsPage() {
   return <PeriodsFeature />;

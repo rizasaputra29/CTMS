@@ -7,7 +7,8 @@ import { badgeVariants } from '@/components/ui/badge';
 import { type VariantProps } from 'class-variance-authority';
 
 // Extract the variant type from badgeVariants
-type BadgeVariant = VariantProps<typeof badgeVariants>['variant'];
+export type BadgeVariant = VariantProps<typeof badgeVariants>['variant'];
+export type StatusBadgeVariant = NonNullable<BadgeVariant>;
 
 /**
  * Get badge variant for user role

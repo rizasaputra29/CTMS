@@ -1,42 +1,48 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { TemplateForm } from '@/app/admin/assessment-bank/components/TemplateForm';
-import api from '@/lib/api';
-import { toast } from 'sonner';
-import type { AssessmentBankTemplateFormData } from '@/lib/validations/assessment';
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  assessmentBankTemplateSchema,
+  type AssessmentBankTemplateFormData,
+} from "@/lib/validations/assessment";
+import {
+  AssessmentBankFormDialog,
+  useAssessmentBank,
+} from "@/features/admin/assessment-bank";
 
-export default function NewTemplatePage() {
+export default function NewAssessmentBankPage() {
   const router = useRouter();
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { createTemplate } = useAssessmentBank();
+
+  const form = useForm<AssessmentBankTemplateFormData>({
+    resolver: zodResolver(assessmentBankTemplateSchema),
+    mode: "onBlur",
+    defaultValues: {
+      code: "",
+      name: "",
+      description: "",
+      weight: 0,
+      is_active: true,
+    },
+  });
 
   const handleSubmit = async (data: AssessmentBankTemplateFormData) => {
-    setIsSubmitting(true);
     try {
-      await api.post('/admin/assessment-templates', {
-        code: data.code,
-        name: data.code, // name is set to code as per existing pattern
-        description: data.description,
-        weight: data.weight,
-        is_active: data.is_active,
-      });
-      toast.success('Komponen penilaian berhasil dibuat');
-      router.push('/admin/assessment-bank');
-    } catch (error: any) {
-      console.error('Failed to create template:', error);
-      const message = error.response?.data?.message || 'Gagal membuat komponen penilaian';
-      toast.error(message);
-    } finally {
-      setIsSubmitting(false);
+      await createTemplate(data);
+      router.push("/admin/assessment-bank");
+    } catch {
+      // Error toast is already shown by the hook.
     }
   };
 
   return (
-    <TemplateForm
+    <AssessmentBankFormDialog
       mode="create"
+      form={form}
       onSubmit={handleSubmit}
-      isSubmitting={isSubmitting}
+      isSubmitting={form.formState.isSubmitting}
     />
   );
 }

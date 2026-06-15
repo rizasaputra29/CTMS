@@ -1,5 +1,5 @@
-import PlaceholderPage from '@/components/PlaceholderPage';
+import { SettingsFeature } from '@/features/admin/settings/components/SettingsFeature';
 
 export default function AdminSettingsPage() {
-    return <PlaceholderPage />;
+    return <SettingsFeature />;
 }

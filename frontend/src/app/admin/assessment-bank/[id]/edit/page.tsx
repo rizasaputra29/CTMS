@@ -1,80 +1,90 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
-import { TemplateForm } from '../../components/TemplateForm';
-import api from '@/lib/api';
-import { toast } from 'sonner';
-import type { AssessmentBankTemplateFormData } from '@/lib/validations/assessment';
+import { useEffect } from "react";
+import { useRouter, useParams } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useQuery } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import api from "@/lib/api";
+import {
+  assessmentBankTemplateSchema,
+  type AssessmentBankTemplateFormData,
+} from "@/lib/validations/assessment";
+import {
+  AssessmentBankFormDialog,
+  useAssessmentBank,
+  type AssessmentTemplate,
+} from "@/features/admin/assessment-bank";
 
-interface Template {
-  id: number;
-  code: string;
-  name: string;
-  description: string | null;
-  weight: number;
-  is_active: boolean;
-}
+const QUERY_KEY = ["admin", "assessment-templates"] as const;
 
-export default function EditTemplatePage() {
+export default function EditAssessmentBankPage() {
   const router = useRouter();
   const params = useParams();
-  const templateId = params?.id as string;
+  const templateId = Number(params?.id);
+  const { updateTemplate } = useAssessmentBank();
 
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [template, setTemplate] = useState<Template | null>(null);
-
-  const fetchTemplate = useCallback(async () => {
-    if (!templateId) return;
-
-    try {
+  const {
+    data: template,
+    isLoading,
+    isError,
+  } = useQuery<AssessmentTemplate>({
+    queryKey: [...QUERY_KEY, templateId],
+    queryFn: async () => {
       const res = await api.get(`/admin/assessment-templates/${templateId}`);
-      const data = res.data?.data || res.data;
+      return res.data?.data || res.data;
+    },
+    enabled: !!templateId,
+  });
 
-      if (data) {
-        setTemplate(data);
-      }
-    } catch (error: any) {
-      console.error('Failed to fetch template:', error);
-      toast.error('Gagal memuat data komponen');
-      router.push('/admin/assessment-bank');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [templateId, router]);
+  const form = useForm<AssessmentBankTemplateFormData>({
+    resolver: zodResolver(assessmentBankTemplateSchema),
+    mode: "onBlur",
+    defaultValues: {
+      code: "",
+      name: "",
+      description: "",
+      weight: 0,
+      is_active: true,
+    },
+  });
+
+  const { reset } = form;
 
   useEffect(() => {
-    fetchTemplate();
-  }, [fetchTemplate]);
+    if (template) {
+      reset({
+        code: template.code,
+        name: template.name,
+        description: template.description || "",
+        weight: Number(template.weight),
+        is_active: template.is_active,
+      });
+    }
+  }, [template, reset]);
+
+  useEffect(() => {
+    if (isError) {
+      toast.error("Gagal memuat data komponen");
+      router.push("/admin/assessment-bank");
+    }
+  }, [isError, router]);
 
   const handleSubmit = async (data: AssessmentBankTemplateFormData) => {
     if (!templateId) return;
-
-    setIsSubmitting(true);
     try {
-      await api.put(`/admin/assessment-templates/${templateId}`, {
-        code: data.code,
-        name: data.code, // name is set to code as per existing pattern
-        description: data.description,
-        weight: data.weight,
-        is_active: data.is_active,
-      });
-      toast.success('Komponen penilaian berhasil diperbarui');
-      router.push('/admin/assessment-bank');
-    } catch (error: any) {
-      console.error('Failed to update template:', error);
-      const message = error.response?.data?.message || 'Gagal memperbarui komponen penilaian';
-      toast.error(message);
-    } finally {
-      setIsSubmitting(false);
+      await updateTemplate(templateId, data);
+      router.push("/admin/assessment-bank");
+    } catch {
+      // Error toast is already shown by the hook.
     }
   };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50/50 flex items-center justify-center">
+      <div className="flex min-h-screen items-center justify-center bg-gray-50/50">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
           <p className="text-gray-600">Memuat data...</p>
@@ -83,16 +93,16 @@ export default function EditTemplatePage() {
     );
   }
 
-  if (!template) {
+  if (isError || !template) {
     return null;
   }
 
   return (
-    <TemplateForm
+    <AssessmentBankFormDialog
       mode="edit"
-      template={template}
+      form={form}
       onSubmit={handleSubmit}
-      isSubmitting={isSubmitting}
+      isSubmitting={form.formState.isSubmitting}
     />
   );
 }
