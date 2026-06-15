@@ -1,37 +1,33 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type { TaSubmission, PeriodOption } from '../types';
 
+const SUBMISSIONS_QUERY_KEY = ['dosen', 'ta-submissions'] as const;
+const PERIODS_QUERY_KEY = ['periods-list'] as const;
+
 export function useTaReview() {
-    const [submissions, setSubmissions] = useState<TaSubmission[]>([]);
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [searchQuery, setSearchQuery] = useState('');
     const [reviewOpen, setReviewOpen] = useState(false);
     const [selectedSub, setSelectedSub] = useState<TaSubmission | null>(null);
     const [feedback, setFeedback] = useState('');
-    const [submitting, setSubmitting] = useState(false);
-    const [periods, setPeriods] = useState<PeriodOption[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
-    const [periodLoading, setPeriodLoading] = useState(false);
-    const [searchQuery, setSearchQuery] = useState('');
 
-    useEffect(() => {
-        const fetchPeriods = async () => {
-            try {
-                const res = await api.get('/periods-list');
-                setPeriods(res.data?.data || []);
-            } catch (err) {
-                console.error('Failed to fetch periods', err);
-            }
-        };
-        fetchPeriods();
-    }, []);
+    const { data: periods = [], isLoading: periodsLoading } = useQuery({
+        queryKey: PERIODS_QUERY_KEY,
+        queryFn: async () => {
+            const response = await api.get('/periods-list');
+            return (response.data?.data || []) as PeriodOption[];
+        },
+    });
 
-    const fetchSubmissions = useCallback(async () => {
-        setPeriodLoading(true);
-        try {
+    const { data: submissions = [], isLoading: submissionsLoading, isFetching: submissionsFetching } = useQuery({
+        queryKey: [...SUBMISSIONS_QUERY_KEY, selectedPeriod],
+        queryFn: async () => {
             const periodParam = selectedPeriod !== 'all' ? `&period_id=${selectedPeriod}` : '';
             const groupRes = await api.get(`/dosen/groups/supervised?${periodParam}`);
             const groups = groupRes.data.data || [];
@@ -50,18 +46,38 @@ export function useTaReview() {
                     // Skip errors for individual groups
                 }
             }
-            setSubmissions(allSubs);
-        } catch (err) {
-            console.error('Failed to fetch TA submissions', err);
-        } finally {
-            setLoading(false);
-            setPeriodLoading(false);
-        }
-    }, [selectedPeriod]);
+            return allSubs;
+        },
+    });
 
-    useEffect(() => {
-        fetchSubmissions();
-    }, [fetchSubmissions]);
+    const reviewMutation = useMutation({
+        mutationFn: async ({ submissionId, result, feedback }: { submissionId: number; result: 'APPROVE' | 'REVISE'; feedback: string }) => {
+            await api.put(`/dosen/ta/${submissionId}/review`, { result, feedback });
+        },
+        onSuccess: (_, variables) => {
+            queryClient.invalidateQueries({ queryKey: SUBMISSIONS_QUERY_KEY });
+            toast.success(`TA review: ${variables.result}`);
+            setReviewOpen(false);
+            setSelectedSub(null);
+            setFeedback('');
+        },
+        onError: (error) => {
+            toast.error(api.getApiErrorMessage(error, 'Review failed'));
+        },
+    });
+
+    const defendedMutation = useMutation({
+        mutationFn: async (submissionId: number) => {
+            await api.put(`/dosen/ta/${submissionId}/defended`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: SUBMISSIONS_QUERY_KEY });
+            toast.success('TA marked as defended.');
+        },
+        onError: (error) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to mark as defended'));
+        },
+    });
 
     const filteredSubmissions = useMemo(() => {
         if (!searchQuery) return submissions;
@@ -72,44 +88,25 @@ export function useTaReview() {
         );
     }, [submissions, searchQuery]);
 
-    const handleReview = async (result: 'APPROVE' | 'REVISE') => {
+    const handleReview = useCallback((result: 'APPROVE' | 'REVISE') => {
         if (!selectedSub) return;
-        setSubmitting(true);
-        try {
-            await api.put(`/dosen/ta/${selectedSub.id}/review`, {
-                result,
-                feedback,
-            });
-            toast.success(`TA review: ${result}`);
-            setReviewOpen(false);
-            setSelectedSub(null);
-            setFeedback('');
-            fetchSubmissions();
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Review failed');
-            else toast.error('Review failed');
-        } finally {
-            setSubmitting(false);
-        }
-    };
+        reviewMutation.mutate({ submissionId: selectedSub.id, result, feedback });
+    }, [reviewMutation, selectedSub, feedback]);
 
-    const handleDefended = async (subId: number) => {
+    const handleDefended = useCallback((subId: number) => {
         if (!confirm('Mark this TA as defended? This action is final.')) return;
-        try {
-            await api.put(`/dosen/ta/${subId}/defended`);
-            toast.success('TA marked as defended.');
-            fetchSubmissions();
-        } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
-            else toast.error('Failed to mark as defended');
-        }
-    };
+        defendedMutation.mutate(subId);
+    }, [defendedMutation]);
 
-    const openReview = (sub: TaSubmission) => {
+    const openReview = useCallback((sub: TaSubmission) => {
         setSelectedSub(sub);
         setFeedback('');
         setReviewOpen(true);
-    };
+    }, []);
+
+    const loading = periodsLoading || submissionsLoading;
+    const periodLoading = submissionsFetching && !submissionsLoading;
+    const submitting = reviewMutation.isPending;
 
     return {
         submissions,
@@ -128,7 +125,6 @@ export function useTaReview() {
         setReviewOpen,
         setFeedback,
         setSelectedSub,
-        fetchSubmissions,
         handleReview,
         handleDefended,
         openReview,

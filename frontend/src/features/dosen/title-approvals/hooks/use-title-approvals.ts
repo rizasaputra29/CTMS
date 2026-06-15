@@ -1,114 +1,96 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type { Proposal, LecturerProposalFlow, PeriodOption } from '../types';
 
+const PROPOSALS_QUERY_KEY = ['dosen', 'title-approvals'] as const;
+const PERIODS_QUERY_KEY = ['periods-list'] as const;
+
 export function useTitleApprovals() {
-    const [proposals, setProposals] = useState<Proposal[]>([]);
-    const [periods, setPeriods] = useState<PeriodOption[]>([]);
+    const queryClient = useQueryClient();
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
     const [searchQuery, setSearchQuery] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [selectedProposal, setSelectedProposal] = useState<Proposal | null>(null);
     const [rejectionReason, setRejectionReason] = useState('');
-    const [processing, setProcessing] = useState(false);
-    const [proposalFlow, setProposalFlow] = useState<LecturerProposalFlow | null>(null);
 
-    const fetchData = useCallback(async (periodId?: string) => {
-        if (periodId && periodId !== 'all') setRefreshing(true);
-        else if (!periodId && !selectedPeriod) setLoading(true);
-        else setRefreshing(true);
+    const { data: periods = [], isLoading: periodsLoading } = useQuery({
+        queryKey: PERIODS_QUERY_KEY,
+        queryFn: async () => {
+            const response = await api.get('/periods-list');
+            return (response.data?.data || []) as PeriodOption[];
+        },
+    });
 
-        try {
-            let currentPeriodId = periodId || selectedPeriod;
-
-            if (periods.length === 0) {
-                const periodsRes = await api.get('/periods-list');
-                const fetchedPeriods = periodsRes.data?.data || [];
-                setPeriods(fetchedPeriods);
-
-                if (!currentPeriodId || currentPeriodId === 'all') {
-                    const active = fetchedPeriods.find((p: { is_active: boolean }) => p.is_active);
-                    if (active) {
-                        currentPeriodId = active.id.toString();
-                        setSelectedPeriod(currentPeriodId);
-                    } else if (fetchedPeriods.length > 0) {
-                        currentPeriodId = fetchedPeriods[0].id.toString();
-                        setSelectedPeriod(currentPeriodId);
-                    }
-                }
-            }
-
-            const url = currentPeriodId && currentPeriodId !== 'all'
-                ? `/dosen/title-approvals?period_id=${currentPeriodId}`
+    const { data: proposalsData, isLoading: proposalsLoading } = useQuery({
+        queryKey: [...PROPOSALS_QUERY_KEY, selectedPeriod],
+        queryFn: async () => {
+            const url = selectedPeriod && selectedPeriod !== 'all'
+                ? `/dosen/title-approvals?period_id=${selectedPeriod}`
                 : '/dosen/title-approvals';
-
             const response = await api.get(url);
-            setProposals(response.data.data || []);
-            setProposalFlow(response.data.flow || null);
-        } catch (error) {
-            console.error('Failed to fetch proposals', error);
-            toast.error('Failed to load title proposals');
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
-    }, [periods.length, selectedPeriod]);
+            return {
+                proposals: (response.data.data || []) as Proposal[],
+                flow: (response.data.flow || null) as LecturerProposalFlow | null,
+            };
+        },
+    });
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const handlePeriodChange = (val: string) => {
-        setSelectedPeriod(val);
-        fetchData(val);
-    };
-
-    const handleApprove = async (proposalId: number) => {
-        setProcessing(true);
-        try {
+    const approveMutation = useMutation({
+        mutationFn: async (proposalId: number) => {
             await api.put(`/dosen/title-approvals/${proposalId}/approve`);
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: PROPOSALS_QUERY_KEY });
             toast.success('Proposal approved! Group has been finalized.');
-            fetchData(selectedPeriod);
-        } catch (error) {
-            console.error('Failed to approve', error);
-            toast.error('Failed to approve proposal');
-        } finally {
-            setProcessing(false);
-        }
-    };
+        },
+        onError: (error) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to approve proposal'));
+        },
+    });
 
-    const handleReject = async () => {
-        if (!selectedProposal || !rejectionReason.trim()) return;
-        setProcessing(true);
-        try {
-            await api.put(`/dosen/title-approvals/${selectedProposal.id}/reject`, {
-                rejection_reason: rejectionReason,
+    const rejectMutation = useMutation({
+        mutationFn: async ({ proposalId, reason }: { proposalId: number; reason: string }) => {
+            await api.put(`/dosen/title-approvals/${proposalId}/reject`, {
+                rejection_reason: reason,
             });
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: PROPOSALS_QUERY_KEY });
             toast.success('Proposal rejected.');
             setRejectDialogOpen(false);
             setRejectionReason('');
             setSelectedProposal(null);
-            fetchData(selectedPeriod);
-        } catch (error) {
-            console.error('Failed to reject', error);
-            toast.error('Failed to reject proposal');
-        } finally {
-            setProcessing(false);
-        }
-    };
+        },
+        onError: (error) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to reject proposal'));
+        },
+    });
 
-    const openRejectDialog = (proposal: Proposal) => {
+    const handlePeriodChange = useCallback((val: string) => {
+        setSelectedPeriod(val);
+    }, []);
+
+    const handleApprove = useCallback((proposalId: number) => {
+        approveMutation.mutate(proposalId);
+    }, [approveMutation]);
+
+    const handleReject = useCallback(() => {
+        if (!selectedProposal || !rejectionReason.trim()) return;
+        rejectMutation.mutate({ proposalId: selectedProposal.id, reason: rejectionReason });
+    }, [rejectMutation, selectedProposal, rejectionReason]);
+
+    const openRejectDialog = useCallback((proposal: Proposal) => {
         setSelectedProposal(proposal);
         setRejectionReason('');
         setRejectDialogOpen(true);
-    };
+    }, []);
 
     const filteredProposals = useMemo(() => {
+        const proposals = proposalsData?.proposals ?? [];
         if (!searchQuery) return proposals;
         const q = searchQuery.toLowerCase();
         return proposals.filter(p =>
@@ -116,20 +98,22 @@ export function useTitleApprovals() {
             p.proposed_by_group?.id.toString().includes(q) ||
             p.proposed_by_group?.members.some(m => m.student.name.toLowerCase().includes(q))
         );
-    }, [proposals, searchQuery]);
+    }, [proposalsData?.proposals, searchQuery]);
+
+    const loading = periodsLoading || proposalsLoading;
+    const processing = approveMutation.isPending || rejectMutation.isPending;
 
     return {
-        proposals,
+        proposals: proposalsData?.proposals ?? [],
         periods,
         selectedPeriod,
         searchQuery,
         loading,
-        refreshing,
         rejectDialogOpen,
         selectedProposal,
         rejectionReason,
         processing,
-        proposalFlow,
+        proposalFlow: proposalsData?.flow ?? null,
         filteredProposals,
         setSearchQuery,
         setRejectDialogOpen,

@@ -15,6 +15,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { StatusBadge } from '@/components/common/StatusBadge';
 import { useSupervisedGroups } from '../hooks/use-supervised-groups';
 
 const statusProgress: Record<string, number> = {
@@ -29,40 +32,40 @@ export function SupervisedGroupsFeature() {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Supervised Groups</h1>
-                    <p className="text-muted-foreground">Monitor the progress of your supervised groups.</p>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
-                        <SelectTrigger className="w-[200px]">
-                            <SelectValue placeholder="All Periods" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectGroup>
-                                <SelectLabel>Academic Period</SelectLabel>
-                                <SelectItem value="all">All Periods</SelectItem>
-                                {periods.map(p => (
-                                    <SelectItem key={p.id} value={p.id.toString()}>
-                                        {p.name} {p.is_active && '(Active)'}
-                                    </SelectItem>
-                                ))}
-                            </SelectGroup>
-                        </SelectContent>
-                    </Select>
-                    {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-                </div>
-            </div>
+            <PageHeader
+                title="Supervised Groups"
+                description="Monitor the progress of your supervised groups."
+                action={(
+                    <div className="flex items-center gap-2">
+                        <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
+                            <SelectTrigger className="w-[200px]">
+                                <SelectValue placeholder="All Periods" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectGroup>
+                                    <SelectLabel>Academic Period</SelectLabel>
+                                    <SelectItem value="all">All Periods</SelectItem>
+                                    {periods.map(p => (
+                                        <SelectItem key={p.id} value={p.id.toString()}>
+                                            {p.name} {p.is_active && '(Active)'}
+                                        </SelectItem>
+                                    ))}
+                                </SelectGroup>
+                            </SelectContent>
+                        </Select>
+                        {refreshing && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                    </div>
+                )}
+            />
 
             {groupsLoading ? (
                 <Loading variant="section" />
             ) : groups.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Groups</h2>
-                    <p className="text-muted-foreground">You are not currently supervising any groups.</p>
-                </div>
+                <EmptyState
+                    icon={BookOpen}
+                    title="No Groups"
+                    description="You are not currently supervising any groups."
+                />
             ) : (
                 <div className="grid gap-4 md:grid-cols-2">
                     {groups.map((group) => {
@@ -82,9 +85,7 @@ export function SupervisedGroupsFeature() {
                                                 <Badge className="bg-green-500">Dosbing 2</Badge>
                                             )}
                                         </div>
-                                        <Badge variant={progress === 100 ? 'default' : 'secondary'}>
-                                            {group.status}
-                                        </Badge>
+                                        <StatusBadge status={group.status} category="group" />
                                     </div>
                                 </CardHeader>
                                 <CardContent className="space-y-4">

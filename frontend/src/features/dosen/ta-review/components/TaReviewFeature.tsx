@@ -23,6 +23,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
 import { useTaReview } from '../hooks/use-ta-review';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -51,7 +53,6 @@ export function TaReviewFeature() {
         setReviewOpen,
         setFeedback,
         setSelectedSub,
-        fetchSubmissions,
         handleReview,
         handleDefended,
         openReview,
@@ -61,10 +62,10 @@ export function TaReviewFeature() {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold tracking-tight">TA Review</h1>
-                <p className="text-muted-foreground">Review student TA drafts and mark defenses.</p>
-            </div>
+            <PageHeader
+                title="TA Review"
+                description="Review student TA drafts and mark defenses."
+            />
 
             <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border">
                 <div className="flex items-center gap-2">
@@ -98,11 +99,11 @@ export function TaReviewFeature() {
             </div>
 
             {filteredSubmissions.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <FileCheck className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">{searchQuery ? 'No matching submissions found' : 'No TA Submissions'}</h2>
-                    <p className="text-muted-foreground">{searchQuery ? 'Try adjusting your search query.' : 'TA submissions from your supervised groups will appear here.'}</p>
-                </div>
+                <EmptyState
+                    icon={FileCheck}
+                    title={searchQuery ? 'No matching submissions found' : 'No TA Submissions'}
+                    description={searchQuery ? 'Try adjusting your search query.' : 'TA submissions from your supervised groups will appear here.'}
+                />
             ) : (
                 <div className="grid gap-4">
                     {filteredSubmissions.map((sub) => (

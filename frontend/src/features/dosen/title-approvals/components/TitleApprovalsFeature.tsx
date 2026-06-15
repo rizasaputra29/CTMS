@@ -1,12 +1,12 @@
 'use client';
 
-import { Check, X, User, FileText, AlertTriangle, Search, Loader2 } from 'lucide-react';
+import { Check, X, User, FileText, AlertTriangle, Search } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Loading } from '@/components/ui/loading';
 import {
     Select,
     SelectContent,
@@ -35,6 +35,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { PageHeader } from '@/components/common/PageHeader';
+import { EmptyState } from '@/components/common/EmptyState';
+import { StatusBadge } from '@/components/common/StatusBadge';
 import { useTitleApprovals } from '../hooks/use-title-approvals';
 
 const flowReasonMap: Record<string, string> = {
@@ -65,21 +68,15 @@ export function TitleApprovalsFeature() {
     const globalFlowMessage = proposalFlow?.reason ? flowReasonMap[proposalFlow.reason] || 'Aksi persetujuan proposal tidak tersedia.' : null;
 
     if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <Loader2 className="h-8 w-8 animate-spin" />
-            </div>
-        );
+        return <Loading variant="section" />;
     }
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Title Approvals</h1>
-                    <p className="text-muted-foreground">Review and approve student-proposed capstone titles.</p>
-                </div>
-                <div className="flex items-center gap-2">
+            <PageHeader
+                title="Title Approvals"
+                description="Review and approve student-proposed capstone titles."
+                action={(
                     <Select value={selectedPeriod} onValueChange={handlePeriodChange}>
                         <SelectTrigger className="w-[200px]">
                             <SelectValue placeholder="All Periods" />
@@ -96,8 +93,8 @@ export function TitleApprovalsFeature() {
                             </SelectGroup>
                         </SelectContent>
                     </Select>
-                </div>
-            </div>
+                )}
+            />
 
             <div className="relative max-w-sm">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -116,11 +113,11 @@ export function TitleApprovalsFeature() {
             )}
 
             {filteredProposals.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                    <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium mb-1">{searchQuery ? 'No matching proposals found' : 'No pending proposals'}</p>
-                    <p className="text-sm">{searchQuery ? 'Try adjusting your search query.' : 'Student proposals will appear here when submitted.'}</p>
-                </div>
+                <EmptyState
+                    icon={FileText}
+                    title={searchQuery ? 'No matching proposals found' : 'No pending proposals'}
+                    description={searchQuery ? 'Try adjusting your search query.' : 'Student proposals will appear here when submitted.'}
+                />
             ) : (
                 <div className="grid gap-6">
                     {filteredProposals.map((proposal) => (
@@ -138,10 +135,14 @@ export function TitleApprovalsFeature() {
                                             Group {proposal.proposed_by_group?.id} · Submitted {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
                                         </CardDescription>
                                     </div>
-                                    <Badge variant={proposal.supervisor_approval_status === 'PENDING' ? 'secondary' : 'outline'} className="flex items-center gap-1">
+                                    <StatusBadge
+                                        status={proposal.supervisor_approval_status}
+                                        category="proposal"
+                                        className="flex items-center gap-1"
+                                    >
                                         <AlertTriangle className="h-3 w-3" />
                                         {proposal.supervisor_approval_status === 'PENDING' ? 'Pending Review' : 'Pre-Approved'}
-                                    </Badge>
+                                    </StatusBadge>
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-4">
@@ -171,7 +172,7 @@ export function TitleApprovalsFeature() {
                                                     <User className="h-4 w-4 text-muted-foreground" />
                                                     <span>{member.student.name}</span>
                                                     <span className="text-muted-foreground text-xs">({member.student.email})</span>
-                                                    {member.is_leader && <Badge variant="outline" className="text-xs">Leader</Badge>}
+                                                    {member.is_leader && <span className="text-xs text-muted-foreground border rounded px-1.5 py-0.5">Leader</span>}
                                                 </div>
                                             ))}
                                         </div>
@@ -185,6 +186,13 @@ export function TitleApprovalsFeature() {
                                         can_reject: true,
                                         reason: null,
                                     };
+                                    const minMembers = 3;
+                                    const isPreApprove = (proposal.proposed_by_group?.members?.length ?? 0) < minMembers;
+                                    const approveLabel = proposal.supervisor_approval_status === 'UNDER_REVIEW'
+                                        ? 'Re-Approve'
+                                        : isPreApprove
+                                            ? 'Pre-Approve'
+                                            : 'Approve';
 
                                     return (
                                         <>
@@ -201,29 +209,27 @@ export function TitleApprovalsFeature() {
                                                 <AlertDialogTrigger asChild>
                                                     <Button variant="default" size="sm" disabled={processing}>
                                                         <Check className="mr-2 h-4 w-4" />
-                                                        {proposal.supervisor_approval_status === 'UNDER_REVIEW' ? 'Re-Approve' : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
+                                                        {approveLabel}
                                                     </Button>
                                                 </AlertDialogTrigger>
                                                 <AlertDialogContent>
                                                     <AlertDialogHeader>
                                                         <AlertDialogTitle>
-                                                            {proposal.supervisor_approval_status === 'UNDER_REVIEW'
-                                                                ? 'Re-Approve this proposal?'
-                                                                : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve this proposal?' : 'Approve this proposal?'}
+                                                            {approveLabel} this proposal?
                                                         </AlertDialogTitle>
                                                         <AlertDialogDescription>
                                                             {proposal.supervisor_approval_status === 'UNDER_REVIEW'
                                                                 ? `This will Re-Approve the title "${proposal.title}" that was previously withdrawn. The title will return to the marketplace for member recruitment.`
-                                                                : (proposal.proposed_by_group?.members?.length ?? 0) < 3
-                                                                ? `This will Pre-Approve the title "${proposal.title}". The student must recruit more members to reach the minimum group size before it can be finalized.`
-                                                                : `This will approve the title "${proposal.title}" and prepare the group for admin finalization. This action cannot be undone.`
+                                                                : isPreApprove
+                                                                    ? `This will Pre-Approve the title "${proposal.title}". The student must recruit more members to reach the minimum group size before it can be finalized.`
+                                                                    : `This will approve the title "${proposal.title}" and prepare the group for admin finalization. This action cannot be undone.`
                                                             }
                                                         </AlertDialogDescription>
                                                     </AlertDialogHeader>
                                                     <AlertDialogFooter>
                                                         <AlertDialogCancel>Cancel</AlertDialogCancel>
                                                         <AlertDialogAction onClick={() => handleApprove(proposal.id)} disabled={!actions.can_approve}>
-                                                            Confirm {proposal.supervisor_approval_status === 'UNDER_REVIEW' ? 'Re-Approve' : (proposal.proposed_by_group?.members?.length ?? 0) < 3 ? 'Pre-Approve' : 'Approve'}
+                                                            Confirm {approveLabel}
                                                         </AlertDialogAction>
                                                     </AlertDialogFooter>
                                                 </AlertDialogContent>
@@ -265,7 +271,7 @@ export function TitleApprovalsFeature() {
                             onClick={handleReject}
                             disabled={processing || !rejectionReason.trim()}
                         >
-                            {processing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {processing ? <Loading variant="inline" className="mr-2" /> : null}
                             Reject Proposal
                         </Button>
                     </DialogFooter>
