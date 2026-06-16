@@ -189,6 +189,7 @@ export function DocumentRequirementsFeature() {
                 sortKey={sortKey}
                 sortDir={sortDir}
                 onSort={(key) => handleSort(key as SortKey)}
+                rowIdKey="phase"
                 filterSlot={
                     <div className="flex items-center gap-2">
                         <Select value={selectedPeriodId} onValueChange={setSelectedPeriodId}>
