@@ -22,6 +22,7 @@ import { Upload, FileText, Download, Check, Lock, Circle, AlertTriangle, Info } 
 import { toast } from "sonner";
 import { cn } from '@/lib/utils';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import {
     Tooltip,
     TooltipContent,
@@ -198,7 +199,7 @@ const PHASE_LABELS: Record<string, string> = {
     'TA_INDIVIDUAL_READY': 'Ready for TA Individual',
 };
 
-export default function MahasiswaDocumentsPage() {
+function MahasiswaDocumentsContent() {
     const [workflow, setWorkflow] = useState<WorkflowData | null>(null);
     const [documents, setDocuments] = useState<Document[]>([]);
     const [loading, setLoading] = useState(true);
@@ -927,5 +928,13 @@ export default function MahasiswaDocumentsPage() {
                 </DialogContent>
             </Dialog>
         </div>
+    );
+}
+
+export default function MahasiswaDocumentsPage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaDocumentsContent />
+        </PeriodFinalizationGuard>
     );
 }

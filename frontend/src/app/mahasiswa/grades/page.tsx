@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import { GraduationCap, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -125,7 +126,13 @@ function ScoreBar({ label, subtitle, score, status }: ScoreBarProps) {
     );
 }
 
-
+export default function MahasiswaGradesPage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaGradesContent />
+        </PeriodFinalizationGuard>
+    );
+}
 
 function EmptyState() {
     return (
@@ -144,7 +151,7 @@ function EmptyState() {
     );
 }
 
-export default function MahasiswaGradesPage() {
+function MahasiswaGradesContent() {
     const [result, setResult] = useState<ApiResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [tab, setTab] = useState('pdc1');

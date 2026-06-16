@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 
 interface ExpoEvent {
     id: number;
@@ -24,7 +25,7 @@ interface ExpoEvent {
     is_registered: boolean;
 }
 
-export default function MahasiswaExpoPage() {
+function MahasiswaExpoContent() {
     const router = useRouter();
     const [events, setEvents] = useState<ExpoEvent[]>([]);
     const [loading, setLoading] = useState(true);
@@ -183,5 +184,13 @@ export default function MahasiswaExpoPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+export default function MahasiswaExpoPage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaExpoContent />
+        </PeriodFinalizationGuard>
     );
 }

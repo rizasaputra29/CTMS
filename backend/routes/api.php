@@ -380,6 +380,9 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
     // ────────────────────────────────
     // Mahasiswa Routes
     // ────────────────────────────────
+
+    // Group 1: Allowed BEFORE period finalization
+    // Dashboard, Registration, Group & Titles
     Route::middleware(['role:mahasiswa'])->prefix('mahasiswa')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'mahasiswa']);
         Route::get('/dashboard/workflow', [DashboardController::class, 'workflow']);
@@ -410,6 +413,34 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::put('/bids/reorder', [BidController::class, 'reorder']);
         Route::delete('/bids/{id}', [BidController::class, 'destroy']);
 
+        // Student Proposals
+        Route::get('/lecturers', [StudentProposalController::class, 'lecturers']);
+        Route::post('/propose-title', [StudentProposalController::class, 'store']);
+        Route::get('/my-proposal', [StudentProposalController::class, 'myProposal']);
+        Route::put('/my-proposal', [StudentProposalController::class, 'update']);
+        Route::delete('/proposal/{id}', [StudentProposalController::class, 'destroy']);
+
+        // Bursa Ide (Open Recruitment / Idea Magnet)
+        Route::get('/bursa-ide', [\App\Http\Controllers\BursaIdeController::class, 'index']);
+        Route::post('/bursa-ide/{groupId}/request-join', [\App\Http\Controllers\BursaIdeController::class, 'requestJoin']);
+        Route::get('/join-requests', [\App\Http\Controllers\BursaIdeController::class, 'myRequests']);
+        Route::post('/join-requests/{id}/accept', [\App\Http\Controllers\BursaIdeController::class, 'acceptRequest']);
+        Route::post('/join-requests/{id}/reject', [\App\Http\Controllers\BursaIdeController::class, 'rejectRequest']);
+
+        // Solo Title Bidding (Bid to join solo seeker's title)
+        Route::get('/solo-titles', [\App\Http\Controllers\SoloTitleController::class, 'index']);
+        Route::post('/solo-titles/{id}/bid', [\App\Http\Controllers\SoloTitleController::class, 'store']);
+        Route::put('/solo-titles/{id}/accept', [\App\Http\Controllers\SoloTitleController::class, 'acceptBidder']);
+        Route::put('/solo-titles/{id}/reject', [\App\Http\Controllers\SoloTitleController::class, 'rejectBidder']);
+
+        // Period Registration
+        Route::get('/periods/{periodId}/check-registration', [RegistrationController::class, 'check']);
+        Route::post('/periods/register', [RegistrationController::class, 'register']);
+    });
+
+    // Group 2: Restricted — only AFTER period finalization
+    // Documents, Schedules, Evaluations, TA, Expo, Grades, Peer Review
+    Route::middleware(['role:mahasiswa', 'period.finalized'])->prefix('mahasiswa')->group(function () {
         // Documents
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/documents', [DocumentController::class, 'index']);
@@ -437,26 +468,6 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::post('/expo-events/{expoEvent}/evaluation', [ExpoEventController::class, 'submitEvaluation']);
         Route::post('/expo-events/{expoEvent}/document', [ExpoEventController::class, 'uploadDocument']);
 
-        // Student Proposals
-        Route::get('/lecturers', [StudentProposalController::class, 'lecturers']);
-        Route::post('/propose-title', [StudentProposalController::class, 'store']);
-        Route::get('/my-proposal', [StudentProposalController::class, 'myProposal']);
-        Route::put('/my-proposal', [StudentProposalController::class, 'update']);
-        Route::delete('/proposal/{id}', [StudentProposalController::class, 'destroy']);
-
-        // Bursa Ide (Open Recruitment / Idea Magnet)
-        Route::get('/bursa-ide', [\App\Http\Controllers\BursaIdeController::class, 'index']);
-        Route::post('/bursa-ide/{groupId}/request-join', [\App\Http\Controllers\BursaIdeController::class, 'requestJoin']);
-        Route::get('/join-requests', [\App\Http\Controllers\BursaIdeController::class, 'myRequests']);
-        Route::post('/join-requests/{id}/accept', [\App\Http\Controllers\BursaIdeController::class, 'acceptRequest']);
-        Route::post('/join-requests/{id}/reject', [\App\Http\Controllers\BursaIdeController::class, 'rejectRequest']);
-
-        // Solo Title Bidding (Bid to join solo seeker's title)
-        Route::get('/solo-titles', [\App\Http\Controllers\SoloTitleController::class, 'index']);
-        Route::post('/solo-titles/{id}/bid', [\App\Http\Controllers\SoloTitleController::class, 'store']);
-        Route::put('/solo-titles/{id}/accept', [\App\Http\Controllers\SoloTitleController::class, 'acceptBidder']);
-        Route::put('/solo-titles/{id}/reject', [\App\Http\Controllers\SoloTitleController::class, 'rejectBidder']);
-
         // Peer Review (mahasiswa)
         Route::get('/peer-review', [PeerReviewController::class, 'index']);
         Route::get('/peer-review/status', [PeerReviewController::class, 'status']);
@@ -480,10 +491,6 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/ta-documents', [TaSubmissionController::class, 'getTaDocuments']);
         Route::post('/ta-documents/upload', [TaSubmissionController::class, 'uploadTaDocument']);
         Route::post('/ta-documents/{id}/review', [TaSubmissionController::class, 'reviewTaDocument']);
-
-        // Period Registration
-        Route::get('/periods/{periodId}/check-registration', [RegistrationController::class, 'check']);
-        Route::post('/periods/register', [RegistrationController::class, 'register']);
     });
 
     // ────────────────────────────────

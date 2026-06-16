@@ -30,6 +30,7 @@ export default function MahasiswaDashboard() {
     const [group, setGroup] = useState<Group | null>(null);
     const [schedules, setSchedules] = useState<MiniCalendarEvent[]>([]);
     const [workflow, setWorkflow] = useState<WorkflowData | null>(null);
+    const [isPeriodFinalized, setIsPeriodFinalized] = useState(false);
     const [loading, setLoading] = useState(true);
 
     const fetchDashboardData = useCallback(async () => {
@@ -38,6 +39,7 @@ export default function MahasiswaDashboard() {
             // Check registration first
             const periodRes = await api.get('/mahasiswa/my-period');
             const hasRegistration = !!periodRes.data?.period;
+            setIsPeriodFinalized(!!periodRes.data?.period?.is_finalized);
             if (!hasRegistration) {
                 window.location.href = '/mahasiswa/registration';
                 return;
@@ -124,7 +126,6 @@ export default function MahasiswaDashboard() {
             </div>
         );
     }
-  }, [periodData, periodError]);
 
     // has_group from stats can be unreliable; use actual group data presence
     const hasGroupApproved = !!group?.id && !!group?.status;
@@ -173,7 +174,7 @@ export default function MahasiswaDashboard() {
             {/* Row 2: Upload Document + Akses Cepat */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                    <DocumentUploadTable phases={workflow?.phases} />
+                    <DocumentUploadTable phases={workflow?.phases} isPeriodFinalized={isPeriodFinalized} />
                 </div>
                 <div className="lg:col-span-1">
                     <QuickAccessCard />

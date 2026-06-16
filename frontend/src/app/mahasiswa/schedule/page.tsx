@@ -4,9 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
 import ScheduleCalendar, { type ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import { ScheduleDetailModal } from '@/components/schedule/ScheduleDetailModal';
 
-export default function MahasiswaSchedulePage() {
+function MahasiswaScheduleContent() {
     const [schedules, setSchedules] = useState<ScheduleEvent[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedSchedule, setSelectedSchedule] = useState<ScheduleEvent | null>(null);
@@ -56,5 +57,13 @@ export default function MahasiswaSchedulePage() {
                 onOpenChange={setModalOpen}
             />
         </div>
+    );
+}
+
+export default function MahasiswaSchedulePage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaScheduleContent />
+        </PeriodFinalizationGuard>
     );
 }

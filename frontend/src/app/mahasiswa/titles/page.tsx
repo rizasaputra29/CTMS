@@ -1,22 +1,13 @@
 'use client';
 
 import axios from 'axios';
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from "@/components/ui/table"
 import {
     Dialog,
     DialogContent,
@@ -27,14 +18,17 @@ import {
 } from "@/components/ui/dialog"
 import { Textarea } from '@/components/ui/textarea';
 import { 
-    Search, Info, Lock, 
-    BookOpen, Lightbulb, Send, User, Check
+    BookOpen, Lightbulb, Send, User, Check, Lock, Info, ArrowRight
 } from 'lucide-react';
 import api from '@/lib/api';
 import { toast } from "sonner";
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { Loading } from '@/components/ui/loading';
+import { useSearchFilterSort } from '@/hooks/useSearchFilterSort';
+import { SearchBar } from '@/components/shared/SearchBar';
+import { FilterBadgeGroup } from '@/components/shared/FilterBadgeGroup';
+import { SortDropdown } from '@/components/shared/SortDropdown';
 
 const SPECIALIZATIONS = ['Software', 'Embedded', 'Network', 'Multimedia', 'AI', 'Blockchain'];
 
@@ -89,6 +83,12 @@ interface RegisteredPeriod {
     is_finalized: boolean;
 }
 
+const SORT_OPTIONS = [
+    { key: 'title', label: 'Title' },
+    { key: 'lecturer.name', label: 'Lecturer' },
+    { key: 'availability', label: 'Availability' },
+];
+
 export default function TitlesMarketplacePage() {
     const router = useRouter();
     const { user, isLoading: authLoading } = useAuth();
@@ -97,13 +97,7 @@ export default function TitlesMarketplacePage() {
     const [group, setGroup] = useState<Group | null>(null);
     const [loading, setLoading] = useState(true);
     const [registeredPeriod, setRegisteredPeriod] = useState<RegisteredPeriod | null>(null);
-    
-    // UI State
     const [, setActiveTab] = useState('lecturer');
-    const [search, setSearch] = useState('');
-    const [filterSpecs, setFilterSpecs] = useState<string[]>([]);
-
-    // Bidding/Join State
     const [, setBiddingId] = useState<number | null>(null);
     const [canRequestJoin, setCanRequestJoin] = useState(false);
     const [myPendingRequests, setMyPendingRequests] = useState<number[]>([]);
@@ -156,30 +150,23 @@ export default function TitlesMarketplacePage() {
             ]);
             const bursaRes = await api.get(`/mahasiswa/bursa-ide?period_id=${periodId}`);
             
-            // Single endpoint returns both lecturer and student titles
             const allTitles = titlesRes.data || [];
-            
-            // Filter lecturer titles (title_source = 'LECTURER' or null)
             const lecturerOnly = allTitles.filter((t: LecturerTitle) => 
                 t.title_source === 'LECTURER' || t.title_source === null || !t.title_source
             );
             setLecturerTitles(lecturerOnly);
             
-            // Filter student ideas (title_source = 'STUDENT')
             const studentOnly = allTitles.filter((t: StudentIdea) => t.title_source === 'STUDENT');
             setStudentIdeas(studentOnly);
             
-            // Can request join if user has no group or is a solo seeker leader
             const userGroup = groupRes.data?.group ?? null;
             setGroup(userGroup);
             
-            // Determine if user can request to join
             const soloStatuses = ['FORMING_SOLO', 'FORMING', 'WAITING_SUPERVISOR_APPROVAL'];
             const isLeader = userGroup?.members?.some((m: { is_leader: boolean; student_id: number }) => m.is_leader && m.student_id === user?.id);
             const canJoin = bursaRes.data?.flow?.can_request_join ?? (!userGroup || (soloStatuses.includes(userGroup?.status) && isLeader));
             setCanRequestJoin(canJoin);
             
-            // Get pending requests from group data if available
             setMyPendingRequests(bursaRes.data?.my_pending_requests || userGroup?.pending_join_requests || []);
             setBursaFlow(bursaRes.data?.flow || null);
         } catch (error) {
@@ -198,20 +185,16 @@ export default function TitlesMarketplacePage() {
 
     useEffect(() => {
         if (authLoading) return;
-
         if (!user) {
             router.replace('/login');
             return;
         }
-
-        // Fetch registered period first, then fetch titles
         const init = async () => {
             const period = await fetchRegisteredPeriod();
             if (period) {
                 await fetchData(period.id);
             }
         };
-        
         init();
     }, [authLoading, fetchData, fetchRegisteredPeriod, router, user]);
 
@@ -219,14 +202,8 @@ export default function TitlesMarketplacePage() {
     const handleBid = async (titleId: number) => {
         const canBid = !!group && !group.title_id && group.status === 'READY_FOR_BIDDING' && group.members.length >= 3;
         if (!canBid) return;
-        
         setBiddingId(titleId);
         try {
-            // Need to get props from state or something for supervisors? 
-            // The original logic used a priority form usually, but the simplified mockup just sent title_id.
-            // Let's check how the current BidController expects it.
-            // Actually the current BidController expects supervisors. I'll just redirect to a detail page or show a simplified modal?
-            // For now, let's just stick to the simple bid if possible, or redirect.
             window.location.href = `/mahasiswa/titles/${titleId}`;
         } finally {
             setBiddingId(null);
@@ -256,70 +233,69 @@ export default function TitlesMarketplacePage() {
         }
     };
 
-    // --- Helpers ---
-    const toggleSpecFilter = (spec: string) => {
-        setFilterSpecs(prev =>
-            prev.includes(spec) ? prev.filter(s => s !== spec) : [...prev, spec]
-        );
-    };
-
-    const filteredLecturerTitles = useMemo(() => {
-        let result = lecturerTitles;
-        if (search) {
-            const q = search.toLowerCase();
-            result = result.filter(t =>
-                t.title.toLowerCase().includes(q) ||
-                (t.lecturer?.name || '').toLowerCase().includes(q)
-            );
-        }
-        if (filterSpecs.length > 0) {
-            result = result.filter(t =>
-                t.specializations && filterSpecs.some(s => t.specializations!.includes(s))
-            );
-        }
-        
-        // Filter based on availability
-        result = result.filter(title => {
-            // Hide if lecturer withdrew approval (status = PENDING)
-            if (title.status === 'PENDING') {
-                return false;
-            }
-            
-            // Hide if current group reached max members with this title
-            if (group && group.title_id === title.id) {
-                const maxSize = group.period?.max_group_size || 4;
-                if (group.members.length >= maxSize) {
+    // --- Search, Filter, Sort for Lecturer Titles ---
+    const {
+        filteredData: filteredLecturerTitles,
+        search: lecturerSearch,
+        setSearch: setLecturerSearch,
+        filters: lecturerFilters,
+        setFilter: setLecturerFilter,
+        sort: lecturerSort,
+        setSort: setLecturerSort,
+        clearAll: clearAllLecturer,
+    } = useSearchFilterSort<LecturerTitle>({
+        data: lecturerTitles,
+        searchFields: ['title', 'lecturer.name', 'description'],
+        filterFn: (item, filters) => {
+            // Specialization filter
+            const specFilter = filters.specializations as string[] | undefined;
+            if (specFilter && specFilter.length > 0) {
+                if (!item.specializations || !specFilter.some(s => item.specializations!.includes(s))) {
                     return false;
                 }
             }
-            
-            // Hide if current group at READY_FOR_FINALIZATION
-            if (group?.status === 'READY_FOR_FINALIZATION') {
-                return false;
+            return true;
+        },
+        initialSort: { field: 'title', direction: 'asc' },
+    });
+
+    // Filter by availability (group-related)
+    const finalLecturerTitles = useMemo(() => {
+        return filteredLecturerTitles.filter(title => {
+            if (title.status === 'PENDING') return false;
+            if (group && group.title_id === title.id) {
+                const maxSize = group.period?.max_group_size || 4;
+                if (group.members.length >= maxSize) return false;
             }
-            
+            if (group?.status === 'READY_FOR_FINALIZATION') return false;
             return true;
         });
-        
-        return result;
-    }, [lecturerTitles, search, filterSpecs, group]);
+    }, [filteredLecturerTitles, group]);
 
-    const filteredStudentIdeas = useMemo(() => {
-        let result = studentIdeas;
-        if (search) {
-            const q = search.toLowerCase();
-            result = result.filter(t =>
-                t.title.toLowerCase().includes(q) ||
-                (t.proposed_supervisor?.name || '').toLowerCase().includes(q)
-            );
-        }
-        if (filterSpecs.length > 0) {
-            result = result.filter(t =>
-                t.specializations && filterSpecs.some(s => t.specializations!.includes(s))
-            );
-        }
-        return result;
-    }, [studentIdeas, search, filterSpecs]);
+    // --- Search, Filter, Sort for Student Ideas ---
+    const {
+        filteredData: filteredStudentIdeas,
+        search: studentSearch,
+        setSearch: setStudentSearch,
+        filters: studentFilters,
+        setFilter: setStudentFilter,
+        sort: studentSort,
+        setSort: setStudentSort,
+        clearAll: clearAllStudent,
+    } = useSearchFilterSort<StudentIdea>({
+        data: studentIdeas,
+        searchFields: ['title', 'proposed_supervisor.name', 'description'],
+        filterFn: (item, filters) => {
+            const specFilter = filters.specializations as string[] | undefined;
+            if (specFilter && specFilter.length > 0) {
+                if (!item.specializations || !specFilter.some(s => item.specializations!.includes(s))) {
+                    return false;
+                }
+            }
+            return true;
+        },
+        initialSort: { field: 'title', direction: 'asc' },
+    });
 
     const memberCount = group?.members?.length || 0;
     const hasMultipleMembers = memberCount > 1;
@@ -335,33 +311,31 @@ export default function TitlesMarketplacePage() {
     if (loading) return <Loading variant="section" />;
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 max-w-5xl mx-auto">
+            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Titles Marketplace</h1>
                     <p className="text-muted-foreground">Temukan topik skripsi atau bergabung dengan ide mahasiswa lain.</p>
                 </div>
-                <div className="flex items-center gap-3">
-                    {registeredPeriod && (
-                        <Badge variant="outline" className="text-sm px-3 py-1">
-                            Period: {registeredPeriod.name}
-                        </Badge>
-                    )}
-                </div>
+                {registeredPeriod && (
+                    <Badge variant="outline" className="text-sm px-3 py-1 w-fit">
+                        Period: {registeredPeriod.name}
+                    </Badge>
+                )}
             </div>
 
-            {/* Finalized Period Alert */}
+            {/* Alerts */}
             {isPeriodFinalized && (
                 <Alert variant="destructive">
                     <Lock className="h-4 w-4" />
                     <AlertTitle>View-Only Mode</AlertTitle>
                     <AlertDescription>
-                        Pendaftaran untuk periode **{registeredPeriod?.name}** sudah ditutup. Anda masih bisa melihat judul sebagai arsip, tetapi tidak dapat melakukan bidding atau meminta bergabung.
+                        Pendaftaran untuk periode <strong>{registeredPeriod?.name}</strong> sudah ditutup. Anda masih bisa melihat judul sebagai arsip, tetapi tidak dapat melakukan bidding atau meminta bergabung.
                     </AlertDescription>
                 </Alert>
             )}
 
-            {/* Constraints Alert */}
             {!group && (
                 <Alert>
                     <Info className="h-4 w-4" />
@@ -377,7 +351,7 @@ export default function TitlesMarketplacePage() {
                     <Lock className="h-4 w-4" />
                     <AlertTitle>Bidding Locked</AlertTitle>
                     <AlertDescription>
-                        Kelompok Anda memiliki {memberCount} anggota. **Minimal 3 anggota** diperlukan untuk melakukan bidding pada judul dari Dosen.
+                        Kelompok Anda memiliki {memberCount} anggota. <strong>Minimal 3 anggota</strong> diperlukan untuk melakukan bidding pada judul dari Dosen.
                         Silakan tambahkan anggota di menu <Link href="/mahasiswa/group" className="underline font-bold">Grup Saya</Link>.
                     </AlertDescription>
                 </Alert>
@@ -394,32 +368,7 @@ export default function TitlesMarketplacePage() {
                 </Alert>
             )}
 
-            {/* Search + Filter */}
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div className="relative flex-1 w-full">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                        placeholder="Search titles, lecturers, or student ideas..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9"
-                    />
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-medium mr-1">Filter Tags:</span>
-                    {SPECIALIZATIONS.map(spec => (
-                        <Badge 
-                            key={spec} 
-                            variant={filterSpecs.includes(spec) ? "default" : "outline"}
-                            className="cursor-pointer select-none"
-                            onClick={() => toggleSpecFilter(spec)}
-                        >
-                            {spec}
-                        </Badge>
-                    ))}
-                </div>
-            </div>
-
+            {/* Tabs */}
             <Tabs defaultValue="lecturer" onValueChange={setActiveTab} className="space-y-4">
                 <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
                     <TabsTrigger value="lecturer" className="flex gap-2">
@@ -432,123 +381,222 @@ export default function TitlesMarketplacePage() {
 
                 {/* Lecturer Titles Tab */}
                 <TabsContent value="lecturer" className="space-y-4">
-                    {filteredLecturerTitles.length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                            No titles found matching your criteria.
+                    {/* Toolbar */}
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                        <SearchBar
+                            value={lecturerSearch}
+                            onChange={setLecturerSearch}
+                            placeholder="Search titles, lecturers, or descriptions..."
+                            className="max-w-md"
+                        />
+                        <div className="flex items-center gap-2">
+                            <SortDropdown
+                                options={SORT_OPTIONS}
+                                value={lecturerSort?.field ?? null}
+                                direction={lecturerSort?.direction ?? 'asc'}
+                                onChange={(key, dir) => setLecturerSort({ field: key, direction: dir })}
+                            />
                         </div>
+                    </div>
+                    <FilterBadgeGroup
+                        options={SPECIALIZATIONS}
+                        selected={(lecturerFilters.specializations as string[]) || []}
+                        onChange={(selected) => setLecturerFilter('specializations', selected)}
+                        label="Filter by Specialization"
+                    />
+
+                    {/* Cards Grid */}
+                    {finalLecturerTitles.length === 0 ? (
+                        <Card className="border-dashed border-grey-100">
+                            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                <BookOpen className="h-12 w-12 text-grey-200 mb-4" />
+                                <h3 className="text-lg font-semibold text-grey-600 mb-1">No titles found</h3>
+                                <p className="text-sm text-grey-400 max-w-md">
+                                    {lecturerSearch || (lecturerFilters.specializations as string[])?.length > 0
+                                        ? 'Try adjusting your search or filter criteria.'
+                                        : 'No lecturer titles available for this period yet.'}
+                                </p>
+                                {(lecturerSearch || (lecturerFilters.specializations as string[])?.length > 0) && (
+                                    <Button variant="outline" size="sm" className="mt-4" onClick={clearAllLecturer}>
+                                        Clear all filters
+                                    </Button>
+                                )}
+                            </CardContent>
+                        </Card>
                     ) : (
-                        <div className="rounded-md border">
-                            <Table>
-                                <TableHeader>
-                                    <TableRow>
-                                        <TableHead>Project Title</TableHead>
-                                        <TableHead>Lecturer</TableHead>
-                                        <TableHead>Specs</TableHead>
-                                        <TableHead>Availability</TableHead>
-                                        <TableHead className="text-right">Action</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {filteredLecturerTitles.map(title => (
-                                        <TableRow key={title.id} className="group cursor-pointer hover:bg-muted/30" onClick={() => window.location.href = `/mahasiswa/titles/${title.id}`}>
-                                            <TableCell className="font-medium max-w-[350px]">
-                                                <div className="line-clamp-2">{title.title}</div>
-                                            </TableCell>
-                                            <TableCell className="whitespace-nowrap">{title.lecturer?.name || '-'}</TableCell>
-                                            <TableCell>
-                                                <div className="flex flex-wrap gap-1">
-                                                    {(title.specializations || []).map(s => (
-                                                        <Badge key={s} variant="outline" className="text-[10px] h-5">{s}</Badge>
-                                                    ))}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                {title.quota - title.active_groups_count} of {title.quota} open
-                                            </TableCell>
-                                            <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {finalLecturerTitles.map(title => {
+                                const openSlots = title.quota - title.active_groups_count;
+                                const isFull = openSlots <= 0;
+                                const isPending = title.status === 'PENDING';
+                                
+                                return (
+                                    <Card 
+                                        key={title.id} 
+                                        className="group cursor-pointer hover:bg-grey-0 transition-colors border border-grey-100"
+                                        onClick={() => window.location.href = `/mahasiswa/titles/${title.id}`}
+                                    >
+                                        <CardHeader className="pb-2">
+                                            <div className="flex justify-between items-start gap-2">
+                                                <CardTitle className="text-base line-clamp-2 group-hover:text-primary transition-colors">
+                                                    {title.title}
+                                                </CardTitle>
+                                                <Badge 
+                                                    variant={isFull ? 'destructive' : isPending ? 'secondary' : 'default'}
+                                                    className="shrink-0"
+                                                >
+                                                    {isFull ? 'Full' : isPending ? 'Pending' : `${openSlots} of ${title.quota} open`}
+                                                </Badge>
+                                            </div>
+                                            <CardDescription className="flex items-center gap-1">
+                                                <User className="h-3 w-3" />
+                                                {title.lecturer?.name || 'Unknown Lecturer'}
+                                            </CardDescription>
+                                        </CardHeader>
+                                        <CardContent className="space-y-3">
+                                            <p className="text-sm text-muted-foreground line-clamp-2">
+                                                {title.description}
+                                            </p>
+                                            <div className="flex flex-wrap gap-1">
+                                                {(title.specializations || []).map(s => (
+                                                    <Badge key={s} variant="outline" className="text-[10px] h-5">{s}</Badge>
+                                                ))}
+                                            </div>
+                                        </CardContent>
+                                        <CardFooter className="pt-0">
+                                            <div className="w-full flex justify-between items-center">
                                                 <Button
                                                     size="sm"
-                                                    onClick={() => handleBid(title.id)}
-                                                    disabled={isPeriodFinalized || !canBidOnLecturer || (title.quota - title.active_groups_count <= 0)}
-                                                    variant={canBidOnLecturer && !isPeriodFinalized ? "default" : "outline"}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleBid(title.id);
+                                                    }}
+                                                    disabled={isPeriodFinalized || !canBidOnLecturer || isFull}
+                                                    variant={canBidOnLecturer && !isPeriodFinalized && !isFull ? 'default' : 'outline'}
                                                 >
-                                                    {isPeriodFinalized ? <Lock className="mr-2 h-3 w-3" /> : !canBidOnLecturer ? <Lock className="mr-2 h-3 w-3" /> : null}
-                                                    {isPeriodFinalized ? "Closed" : "View & Bid"}
+                                                    {isPeriodFinalized ? (
+                                                        <><Lock className="mr-2 h-3 w-3" /> Closed</>
+                                                    ) : isFull ? (
+                                                        <><Lock className="mr-2 h-3 w-3" /> Full</>
+                                                    ) : !canBidOnLecturer ? (
+                                                        <><Lock className="mr-2 h-3 w-3" /> Locked</>
+                                                    ) : (
+                                                        <><ArrowRight className="mr-2 h-3 w-3" /> View & Bid</>
+                                                    )}
                                                 </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
+                                            </div>
+                                        </CardFooter>
+                                    </Card>
+                                );
+                            })}
                         </div>
                     )}
                 </TabsContent>
 
                 {/* Student Ideas Tab (Bursa Ide) */}
                 <TabsContent value="student" className="space-y-4">
-                    {!canRequestJoin && bursaFlow?.reason && (
-                        <Alert>
-                            <Lock className="h-4 w-4" />
-                            <AlertTitle>Bursa Ide View Only</AlertTitle>
-                            <AlertDescription>
-                                {bursaReasonMap[bursaFlow.reason] || 'Fitur join tidak tersedia untuk kondisi saat ini.'}
-                            </AlertDescription>
-                        </Alert>
+                    {!canRequestJoin && !loading && (
+                        bursaFlow?.reason ? (
+                            <Alert>
+                                <Lock className="h-4 w-4" />
+                                <AlertTitle>Bursa Ide View Only</AlertTitle>
+                                <AlertDescription>
+                                    {bursaReasonMap[bursaFlow.reason] || 'Fitur join tidak tersedia untuk kondisi saat ini.'}
+                                </AlertDescription>
+                            </Alert>
+                        ) : (
+                            <Alert className="mb-4">
+                                <Info className="h-4 w-4" />
+                                <AlertTitle>Viewing Only</AlertTitle>
+                                <AlertDescription>
+                                    {group?.title_id
+                                        ? "Anda sudah memiliki judul tetap. Fitur bergabung tidak lagi tersedia."
+                                        : "Anda sudah terdaftar di kelompok permanen (Ready for Bidding) atau bukan ketua kelompok. Fitur bergabung hanya untuk mahasiswa tanpa kelompok atau Ketua Kelompok Seeker."
+                                    }
+                                </AlertDescription>
+                            </Alert>
+                        )
                     )}
 
-                    {!canRequestJoin && !loading && (
-                        <Alert className="mb-4">
-                            <Info className="h-4 w-4" />
-                            <AlertTitle>Viewing Only</AlertTitle>
-                            <AlertDescription>
-                                {group?.title_id 
-                                    ? "Anda sudah memiliki judul tetap. Fitur bergabung tidak lagi tersedia."
-                                    : "Anda sudah terdaftar di kelompok permanen (Ready for Bidding) atau bukan ketua kelompok. Fitur bergabung hanya untuk mahasiswa tanpa kelompok atau Ketua Kelompok Seeker."
-                                }
-                            </AlertDescription>
-                        </Alert>
-                    )}
+                    {/* Toolbar */}
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                        <SearchBar
+                            value={studentSearch}
+                            onChange={setStudentSearch}
+                            placeholder="Search student ideas, supervisors..."
+                            className="max-w-md"
+                        />
+                        <div className="flex items-center gap-2">
+                            <SortDropdown
+                                options={[
+                                    { key: 'title', label: 'Title' },
+                                    { key: 'proposed_supervisor.name', label: 'Supervisor' },
+                                ]}
+                                value={studentSort?.field ?? null}
+                                direction={studentSort?.direction ?? 'asc'}
+                                onChange={(key, dir) => setStudentSort({ field: key, direction: dir })}
+                            />
+                        </div>
+                    </div>
+                    <FilterBadgeGroup
+                        options={SPECIALIZATIONS}
+                        selected={(studentFilters.specializations as string[]) || []}
+                        onChange={(selected) => setStudentFilter('specializations', selected)}
+                        label="Filter by Specialization"
+                    />
 
                     {filteredStudentIdeas.length === 0 ? (
-                        <div className="text-center py-12 text-muted-foreground border rounded-lg border-dashed">
-                            <Lightbulb className="h-10 w-10 mx-auto mb-2 opacity-20" />
-                            <p>No student-proposed ideas found yet.</p>
-                        </div>
+                        <Card className="border-dashed border-grey-100">
+                            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                                <Lightbulb className="h-12 w-12 text-grey-200 mb-4" />
+                                <h3 className="text-lg font-semibold text-grey-600 mb-1">No student ideas found</h3>
+                                <p className="text-sm text-grey-400 max-w-md">
+                                    {studentSearch || (studentFilters.specializations as string[])?.length > 0
+                                        ? 'Try adjusting your search or filter criteria.'
+                                        : 'No student-proposed ideas available for this period yet.'}
+                                </p>
+                                {(studentSearch || (studentFilters.specializations as string[])?.length > 0) && (
+                                    <Button variant="outline" size="sm" className="mt-4" onClick={clearAllStudent}>
+                                        Clear all filters
+                                    </Button>
+                                )}
+                            </CardContent>
+                        </Card>
                     ) : (
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {filteredStudentIdeas.map((title) => {
                                 const groupInfo = title.proposed_by_group;
-                                const maxMembers = 4; // Hardcoded default or from system
+                                const maxMembers = groupInfo?.period?.max_group_size || 4;
                                 const currentCount = groupInfo?.members?.length || 0;
                                 const spots = maxMembers - currentCount;
                                 const isPending = groupInfo ? myPendingRequests.includes(groupInfo.id) : false;
                                 
                                 return (
-                                    <Card key={title.id} className="flex flex-col">
+                                    <Card key={title.id} className="flex flex-col border border-grey-100">
                                         <CardHeader className="pb-2">
-                                            <div className="flex justify-between items-start">
-                                                <div className="space-y-1">
-                                                    <CardTitle className="text-base line-clamp-1">{title.title}</CardTitle>
-                                                    <CardDescription className="text-xs">By {groupInfo?.members?.find(m => m.is_leader)?.student.name}</CardDescription>
-                                                </div>
-                                                <Badge variant={spots > 0 ? "secondary" : "destructive"}>
+                                            <div className="flex justify-between items-start gap-2">
+                                                <CardTitle className="text-base line-clamp-1">{title.title}</CardTitle>
+                                                <Badge variant={spots > 0 ? 'secondary' : 'destructive'} className="shrink-0">
                                                     {spots > 0 ? `${spots} slots` : 'FULL'}
                                                 </Badge>
                                             </div>
+                                            <CardDescription className="text-xs">
+                                                By {groupInfo?.members?.find(m => m.is_leader)?.student.name || 'Unknown'}
+                                            </CardDescription>
                                         </CardHeader>
-                                        <CardContent className="flex-1 space-y-4">
+                                        <CardContent className="flex-1 space-y-3">
                                             <p className="text-sm text-muted-foreground line-clamp-3">{title.description}</p>
                                             <div className="flex flex-wrap gap-1">
                                                 {title.specializations?.map(s => (
                                                     <Badge key={s} variant="outline" className="text-[10px]">{s}</Badge>
                                                 ))}
                                             </div>
-                                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t">
+                                            <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t border-grey-50">
                                                 <User className="h-3 w-3" />
                                                 <span>Proposed Supervisor: {title.proposed_supervisor?.name || 'N/A'}</span>
                                             </div>
                                         </CardContent>
-                                        <CardFooter className="bg-muted/10 p-3 pt-0">
+                                        <CardFooter className="bg-grey-0 p-3 pt-2">
                                             {isPeriodFinalized ? (
                                                 <Button variant="ghost" disabled className="w-full text-xs font-semibold">
                                                     <Lock className="mr-2 h-3 w-3" /> Period Closed
@@ -584,6 +632,16 @@ export default function TitlesMarketplacePage() {
                     )}
                 </TabsContent>
             </Tabs>
+
+            {/* Footer Metadata */}
+            <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-grey-50 pt-3">
+                <span>
+                    {finalLecturerTitles.length} lecturer titles · {filteredStudentIdeas.length} student ideas
+                </span>
+                {registeredPeriod && (
+                    <span>Period: {registeredPeriod.name}</span>
+                )}
+            </div>
 
             {/* Request to Join Dialog */}
             <Dialog open={requestDialogOpen} onOpenChange={setRequestDialogOpen}>

@@ -11,6 +11,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import {
     ArrowLeft, Save, Calendar, MapPin, Clock, User, CheckCircle2, Upload,
     FileText, AlertCircle, Loader2,
@@ -68,7 +69,7 @@ interface ExpoDetail {
     my_document: MyDocument | null;
 }
 
-export default function MahasiswaExpoDetailPage() {
+function MahasiswaExpoDetailContent() {
     const router = useRouter();
     const params = useParams();
     const expoId = params.expoId as string;
@@ -472,5 +473,13 @@ export default function MahasiswaExpoDetailPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function MahasiswaExpoDetailPage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaExpoDetailContent />
+        </PeriodFinalizationGuard>
     );
 }

@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import {
   Star,
   Send,
@@ -41,7 +42,7 @@ interface GroupMember { id: number; student: { id: number; name: string; email: 
 interface Indicator { id: number; code: string; name: string; description: string | null; weight: number; }
 interface ExistingReview { reviewee_id: number; period_indicator_id: number; score: number; raw_score: number; comment: string | null; }
 
-export default function MahasiswaPeerReviewPage() {
+function MahasiswaPeerReviewContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [members, setMembers] = useState<GroupMember[]>([]);
@@ -737,5 +738,14 @@ export default function MahasiswaPeerReviewPage() {
         </Card>
       )}
     </div>
-  );
+    );
 }
+
+export default function MahasiswaPeerReviewPage() {
+    return (
+        <PeriodFinalizationGuard>
+            <MahasiswaPeerReviewContent />
+        </PeriodFinalizationGuard>
+    );
+}
+

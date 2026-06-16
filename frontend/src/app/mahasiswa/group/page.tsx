@@ -6,10 +6,9 @@ import { useRouter } from 'next/navigation';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import api from '@/lib/api';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Users, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
+import { Users, User, UserPlus, X, PlusCircle, BookOpen, PenLine, Info, Trash2, LogOut } from 'lucide-react';
 import { Loading } from '@/components/ui/loading';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +62,18 @@ interface Group {
         };
         is_leader: boolean;
     }[];
+    supervisor1?: {
+        id: number;
+        name: string;
+        nip?: string;
+        role?: string;
+    } | null;
+    supervisor2?: {
+        id: number;
+        name: string;
+        nip?: string;
+        role?: string;
+    } | null;
 }
 
 export default function MahasiswaGroupPage() {
@@ -402,10 +413,12 @@ export default function MahasiswaGroupPage() {
     // No Group — show create group options
     if (!myGroup) {
         return (
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">My Group</h1>
-                    <p className="text-muted-foreground">Create a group to start your capstone journey.</p>
+            <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">My Group</h1>
+                        <p className="text-muted-foreground">Create a group to start your capstone journey.</p>
+                    </div>
                 </div>
 
                 {notRegistered && (
@@ -418,7 +431,7 @@ export default function MahasiswaGroupPage() {
                     </Alert>
                 )}
 
-                <div className="text-center py-12 border rounded-lg border-dashed">
+                <div className="text-center py-12 border rounded-lg border-dashed border-grey-100 bg-grey-0">
                     <Users className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
                     <h2 className="text-xl font-bold mb-2">No Group Yet</h2>
                     <p className="text-muted-foreground mb-6 max-w-md mx-auto">
@@ -506,177 +519,203 @@ export default function MahasiswaGroupPage() {
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 max-w-5xl mx-auto">
+            {/* Page Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">My Group</h1>
                     <p className="text-muted-foreground">Kelola kelompok dan anggota capstone Anda.</p>
                 </div>
+                <Badge variant={getStatusBadgeVariant(myGroup.status)} className="px-3 py-1 text-sm w-fit">
+                    {myGroup.status_label || getStatusLabel(myGroup.status)}
+                </Badge>
             </div>
 
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <CardTitle className="text-2xl">Group Details</CardTitle>
-                            <CardDescription>
-                                Status: <Badge variant={getStatusBadgeVariant(myGroup.status)}>{myGroup.status_label || getStatusLabel(myGroup.status)}</Badge>
-                            </CardDescription>
+            {/* Status Alerts */}
+            {myGroup.members.length < minMembers && !hasTitle && (
+                <Alert>
+                    <Info className="h-4 w-4" />
+                    <AlertTitle>Need More Members</AlertTitle>
+                    <AlertDescription>
+                        You need at least {minMembers} members to bid on a title. Current: {myGroup.members.length}/{minMembers}
+                    </AlertDescription>
+                </Alert>
+            )}
+
+            {/* Title Info — Primary Section */}
+            {myGroup.title ? (
+                <div className="p-5 bg-primary-50 border border-primary-200 rounded-xl">
+                    <div className="flex items-start gap-3">
+                        <div className="h-12 w-12 rounded-xl bg-primary-100 flex items-center justify-center shrink-0">
+                            <BookOpen className="h-6 w-6 text-primary" />
                         </div>
-                        <div className="flex gap-2">
-                            {allowedActions.can_delete_group && (
-                                <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
-                                    {deleting ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Trash2 className="h-4 w-4 mr-1" />}
-                                    Delete Group
-                                </Button>
-                            )}
-                            {allowedActions.can_leave_group && (
-                                <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
-                                    {leaving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <LogOut className="h-4 w-4 mr-1" />}
-                                    Leave Group
-                                </Button>
-                            )}
+                        <div>
+                            <h3 className="text-xl font-semibold text-foreground">{myGroup.title.title}</h3>
+                            <p className="text-sm text-muted-foreground">Lecturer: {myGroup.title.lecturer.name}</p>
                         </div>
                     </div>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {/* Title Info */}
-                    {myGroup.title ? (
-                        <div className="p-4 bg-muted rounded-lg">
-                            <div className="flex items-start gap-3">
-                                <BookOpen className="h-5 w-5 mt-0.5 text-primary" />
-                                <div>
-                                    <h3 className="font-medium">{myGroup.title.title}</h3>
-                                    <p className="text-sm text-muted-foreground">Lecturer: {myGroup.title.lecturer.name}</p>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="p-4 bg-muted/50 rounded-lg border border-dashed">
-                            <div className="flex items-center gap-3 text-muted-foreground">
-                                <PenLine className="h-5 w-5" />
-                                <span>No title assigned yet. Browse the <Link href="/mahasiswa/titles" className="underline text-primary">Titles Marketplace</Link> to bid on a title.</span>
-                            </div>
-                        </div>
-                    )}
+                </div>
+            ) : (
+                <div className="p-5 bg-grey-0 border border-dashed border-grey-100 rounded-xl">
+                    <div className="flex items-center gap-3 text-muted-foreground">
+                        <PenLine className="h-5 w-5" />
+                        <span className="text-sm">No title assigned yet. Browse the <Link href="/mahasiswa/titles" className="underline text-primary hover:text-primary/80">Titles Marketplace</Link> to bid on a title.</span>
+                    </div>
+                </div>
+            )}
 
-                    {/* Members List */}
+            {/* Members Section — Secondary */}
+            <div>
+                <div className="flex items-center justify-between mb-3">
                     <div>
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-medium">Members ({myGroup.members.length}/{maxMembers})</h3>
-                            {allowedActions.can_add_member && (
-                                <Button size="sm" onClick={() => setAddOpen(true)}>
-                                    <UserPlus className="h-4 w-4 mr-1" />
-                                    Add Member
-                                </Button>
-                            )}
-                        </div>
-                        <div className="space-y-2">
-                            {myGroup.members.map((member) => (
-                                <div key={member.id} className="flex items-center justify-between p-3 border rounded-lg">
-                                    <div className="flex items-center gap-3">
-                                        <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                            <Users className="h-4 w-4 text-primary" />
-                                        </div>
-                                        <div>
-                                            <p className="font-medium">{member.student.name}</p>
-                                            <p className="text-sm text-muted-foreground">{member.student.email}</p>
-                                        </div>
+                        <h2 className="text-xl font-semibold text-foreground">Members</h2>
+                        <p className="text-sm text-muted-foreground">{myGroup.members.length}/{maxMembers} members</p>
+                    </div>
+                    <div className="flex gap-2">
+                        {isLeader && allowedActions.can_cancel_ready_for_finalization && (
+                            <Button variant="outline" size="sm" onClick={() => setCancelDialogOpen(true)}>
+                                Cancel Ready for Finalization
+                            </Button>
+                        )}
+                        {isLeader && allowedActions.can_mark_ready_for_finalization && (
+                            <Button variant="outline" size="sm" onClick={() => setConfirmDialogOpen(true)}>
+                                Mark Ready for Finalization
+                            </Button>
+                        )}
+                        {allowedActions.can_add_member && (
+                            <Button size="sm" onClick={() => setAddOpen(true)}>
+                                <UserPlus className="h-4 w-4 mr-1" />
+                                Add Member
+                            </Button>
+                        )}
+                    </div>
+                </div>
+                <div className="bg-white rounded-xl border border-grey-100 overflow-hidden">
+                    {myGroup.members.map((member, index) => (
+                        <div key={member.id} className={`flex items-center justify-between p-4 ${index !== myGroup.members.length - 1 ? 'border-b border-grey-50' : ''} hover:bg-grey-0 transition-colors`}>
+                            <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-full bg-primary-100 flex items-center justify-center shrink-0">
+                                    <span className="text-sm font-semibold text-primary">{member.student.name.charAt(0)}</span>
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-sm font-semibold text-foreground">{member.student.name}</p>
                                         {member.is_leader && (
-                                            <Badge variant="secondary" className="ml-2">Leader</Badge>
+                                            <Badge variant="secondary" className="text-xs">Leader</Badge>
                                         )}
                                     </div>
-                                    {allowedActions.can_remove_member && !member.is_leader && (
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
-                                            onClick={() => handleRemoveMember(member.id, member.student.name)}
-                                        >
-                                            <X className="h-4 w-4 text-destructive" />
-                                        </Button>
-                                    )}
+                                    <p className="text-xs text-muted-foreground">{member.student.email}</p>
                                 </div>
-                            ))}
+                            </div>
+                            {allowedActions.can_remove_member && !member.is_leader && (
+                                <Button 
+                                    variant="ghost" 
+                                    size="sm" 
+                                    onClick={() => handleRemoveMember(member.id, member.student.name)}
+                                >
+                                    <X className="h-4 w-4 text-destructive" />
+                                </Button>
+                            )}
                         </div>
-                    </div>
+                    ))}
+                </div>
+            </div>
 
-                    {/* Solo Seeker: Join Requests */}
-                    {isSoloSeeker && isLeader && joinRequests.length > 0 && (
-                        <div className="border-t pt-6">
-                            <h3 className="font-medium mb-4">Join Requests ({joinRequests.length})</h3>
-                            <div className="space-y-3">
-                                {joinRequests.map((request) => (
-                                    <div key={request.id} className="p-4 border rounded-lg bg-muted/30">
-                                        <div className="flex items-start justify-between">
-                                            <div>
-                                                <p className="font-medium">{request.requester.name}</p>
-                                                <p className="text-sm text-muted-foreground">{request.requester.email}</p>
-                                                {request.message && (
-                                                    <p className="text-sm mt-2 italic">&ldquo;{request.message}&rdquo;</p>
-                                                )}
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button 
-                                                    size="sm" 
-                                                    variant="outline"
-                                                    onClick={() => handleRejectJoinRequest(request.id)}
-                                                    disabled={processingJoinRequest === request.id}
-                                                >
-                                                    {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Reject'}
-                                                </Button>
-                                                <Button 
-                                                    size="sm"
-                                                    onClick={() => handleAcceptJoinRequest(request.id)}
-                                                    disabled={processingJoinRequest === request.id}
-                                                >
-                                                    {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Accept'}
-                                                </Button>
-                                            </div>
+            {/* Join Requests — Secondary */}
+            {isSoloSeeker && isLeader && joinRequests.length > 0 && (
+                <div>
+                    <div className="mb-3">
+                        <h2 className="text-xl font-semibold text-foreground">Join Requests</h2>
+                        <p className="text-sm text-muted-foreground">{joinRequests.length} pending request{joinRequests.length > 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="bg-white rounded-xl border border-grey-100 overflow-hidden">
+                        {joinRequests.map((request, index) => (
+                            <div key={request.id} className={`p-4 ${index !== joinRequests.length - 1 ? 'border-b border-grey-50' : ''} hover:bg-grey-0 transition-colors`}>
+                                <div className="flex items-start justify-between gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-full bg-grey-100 flex items-center justify-center shrink-0">
+                                            <span className="text-sm font-semibold text-grey-500">{request.requester.name.charAt(0)}</span>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold text-foreground">{request.requester.name}</p>
+                                            <p className="text-xs text-muted-foreground">{request.requester.email}</p>
+                                            {request.message && (
+                                                <p className="text-xs italic text-muted-foreground mt-1">&ldquo;{request.message}&rdquo;</p>
+                                            )}
                                         </div>
                                     </div>
-                                ))}
+                                    <div className="flex gap-2 shrink-0">
+                                        <Button 
+                                            size="sm" 
+                                            variant="outline"
+                                            onClick={() => handleRejectJoinRequest(request.id)}
+                                            disabled={processingJoinRequest === request.id}
+                                        >
+                                            {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Reject'}
+                                        </Button>
+                                        <Button 
+                                            size="sm"
+                                            onClick={() => handleAcceptJoinRequest(request.id)}
+                                            disabled={processingJoinRequest === request.id}
+                                        >
+                                            {processingJoinRequest === request.id ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : 'Accept'}
+                                        </Button>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    )}
-                </CardContent>
-                <CardFooter className="flex flex-col items-start gap-4 border-t pt-6">
-                    {/* Status Messages */}
-                    {myGroup.members.length < minMembers && !hasTitle && (
-                        <Alert>
-                            <Info className="h-4 w-4" />
-                            <AlertTitle>Need More Members</AlertTitle>
-                            <AlertDescription>
-                                You need at least {minMembers} members to bid on a title. Current: {myGroup.members.length}/{minMembers}
-                            </AlertDescription>
-                        </Alert>
-                    )}
+                        ))}
+                    </div>
+                </div>
+            )}
 
-                    {/* Ready for Finalization Button */}
-                    {isLeader && (
-                        <div className="w-full">
-                            {allowedActions.can_mark_ready_for_finalization && (
-                                <Button 
-                                    onClick={() => setConfirmDialogOpen(true)} 
-                                    className="w-full"
-                                    size="lg"
-                                >
-                                    Mark Ready for Finalization
-                                </Button>
-                            )}
-                            {allowedActions.can_cancel_ready_for_finalization && (
-                                <Button 
-                                    onClick={() => setCancelDialogOpen(true)} 
-                                    variant="outline"
-                                    className="w-full"
-                                    size="lg"
-                                >
-                                    Cancel Ready for Finalization
-                                </Button>
-                            )}
+            {/* Pembimbing — Tertiary */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="flex items-center gap-3 p-3 bg-grey-0 rounded-lg border border-grey-50">
+                    <div className="h-8 w-8 rounded-full bg-grey-100 flex items-center justify-center shrink-0">
+                        <User className="h-4 w-4 text-grey-400" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{myGroup.supervisor1?.name || 'Pembimbing 1 belum ditetapkan'}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{myGroup.supervisor1?.nip || '-'}</span>
+                            <span>·</span>
+                            <span className="text-xs text-grey-400">Pembimbing 1</span>
                         </div>
+                    </div>
+                </div>
+                <div className="flex items-center gap-3 p-3 bg-grey-0 rounded-lg border border-grey-50">
+                    <div className="h-8 w-8 rounded-full bg-grey-100 flex items-center justify-center shrink-0">
+                        <User className="h-4 w-4 text-grey-400" />
+                    </div>
+                    <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground">{myGroup.supervisor2?.name || 'Pembimbing 2 belum ditetapkan'}</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{myGroup.supervisor2?.nip || '-'}</span>
+                            <span>·</span>
+                            <span className="text-xs text-grey-400">Pembimbing 2</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* Footer Metadata — Tertiary */}
+            <div className="flex items-center justify-between text-xs text-muted-foreground border-t border-grey-50 pt-3">
+                <span>Group ID: {myGroup.id}</span>
+                <div className="flex gap-2">
+                    {allowedActions.can_delete_group && (
+                        <Button variant="destructive" size="sm" onClick={handleDeleteGroup} disabled={deleting}>
+                            {deleting ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <Trash2 className="h-4 w-4 mr-1" />}
+                            Delete Group
+                        </Button>
                     )}
-                </CardFooter>
-            </Card>
+                    {allowedActions.can_leave_group && (
+                        <Button variant="outline" size="sm" onClick={handleLeaveGroup} disabled={leaving}>
+                            {leaving ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" /> : <LogOut className="h-4 w-4 mr-1" />}
+                            Leave Group
+                        </Button>
+                    )}
+                </div>
+            </div>
 
             {/* Add Member Dialog */}
             <Dialog open={addOpen} onOpenChange={(open) => {

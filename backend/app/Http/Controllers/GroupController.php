@@ -1107,9 +1107,13 @@ class GroupController extends Controller
             ->where('supervisor_approval_status', 'APPROVED')
             ->exists();
 
-        if (! $hasAcceptedBid && ! $hasApprovedProposal) {
+        // Title from lecturer that is APPROVED is also a valid title for finalization
+        $hasValidTitle = $group->title_id && $group->title
+            && $group->title->supervisor_approval_status === 'APPROVED';
+
+        if (! $hasAcceptedBid && ! $hasApprovedProposal && ! $hasValidTitle) {
             return response()->json([
-                'message' => 'Grup belum memiliki bid yang diterima atau proposal yang disetujui oleh dosen.',
+                'message' => 'Grup belum memiliki bid yang diterima, proposal yang disetujui, atau title yang disetujui oleh dosen.',
             ], 400);
         }
 
@@ -1186,6 +1190,12 @@ class GroupController extends Controller
 
             // Notify all members
             $this->notificationService->notifyGroupMembersOfCancellation($group);
+
+            // Clear cache for all members so fetchGroup returns fresh data
+            $group->load('members.student');
+            foreach ($group->members as $member) {
+                Cache::forget("user:{$member->student->id}:group:current");
+            }
 
             $statusLabel = $targetStatus === 'TITLE_APPROVED' ? 'Title Approved' : 'Ready for Bidding';
 
@@ -1271,12 +1281,16 @@ class GroupController extends Controller
             ->where('supervisor_approval_status', 'APPROVED')
             ->exists();
 
+        // Title from lecturer that is APPROVED is also a valid title for finalization
+        $hasValidTitle = $group->title_id && $group->title
+            && $group->title->supervisor_approval_status === 'APPROVED';
+
         $canMarkReady = $isLeader
             && in_array($group->status, ['FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_APPROVED'])
             && $period?->is_active
             && $memberCount >= $minSize
             && $memberCount <= $maxSize
-            && ($hasAcceptedBid || $hasApprovedProposal);
+            && ($hasAcceptedBid || $hasApprovedProposal || $hasValidTitle);
 
         return [
             'can_add_member' => $isLeader && ! $isLocked && $memberCount < $maxSize,

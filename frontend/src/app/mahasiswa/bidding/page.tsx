@@ -34,6 +34,10 @@ import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { createBidSchema, type CreateBidFormData } from '@/lib/validations/bidding';
 import { getBidStatusBadgeVariant } from '@/lib/badge-variants';
+import { useSearchFilterSort } from '@/hooks/useSearchFilterSort';
+import { SearchBar } from '@/components/shared/SearchBar';
+import { FilterBadgeGroup } from '@/components/shared/FilterBadgeGroup';
+import { SortDropdown } from '@/components/shared/SortDropdown';
 
 interface Lecturer {
     id: number;
@@ -80,6 +84,15 @@ interface BiddingFlow {
     can_delete_bid: boolean;
     reason: string | null;
 }
+
+const BID_STATUS_OPTIONS = ['PENDING', 'ACCEPTED', 'REJECTED'];
+
+const BID_SORT_OPTIONS = [
+    { key: 'priority', label: 'Priority' },
+    { key: 'title.title', label: 'Title' },
+    { key: 'title.lecturer.name', label: 'Lecturer' },
+    { key: 'status', label: 'Status' },
+];
 
 export default function BiddingPage() {
     const { user } = useAuth();
@@ -287,6 +300,41 @@ export default function BiddingPage() {
 
     const getStatusVariant = (status: string) => getBidStatusBadgeVariant(status);
 
+    // --- Search, Filter, Sort for Bids ---
+    const {
+        filteredData: filteredBids,
+        search: bidSearch,
+        setSearch: setBidSearch,
+        filters: bidFilters,
+        setFilter: setBidFilter,
+        sort: bidSort,
+        setSort: setBidSort,
+    } = useSearchFilterSort<Bid>({
+        data: reorderedBids,
+        searchFields: ['title.title', 'title.lecturer.name', 'status'],
+        filterFn: (item, filters) => {
+            const statusFilter = filters.status as string[] | undefined;
+            if (statusFilter && statusFilter.length > 0) {
+                if (!statusFilter.includes(item.status)) return false;
+            }
+            return true;
+        },
+        initialSort: { field: 'priority', direction: 'asc' },
+    });
+
+    // --- Search, Filter, Sort for Proposals ---
+    const {
+        filteredData: filteredProposals,
+        search: proposalSearch,
+        setSearch: setProposalSearch,
+        sort: proposalSort,
+        setSort: setProposalSort,
+    } = useSearchFilterSort<ProposalItem>({
+        data: proposals,
+        searchFields: ['title', 'proposed_supervisor.name'],
+        initialSort: { field: 'title', direction: 'asc' },
+    });
+
     if (loading) return <Loading variant="section" />;
 
     const bidTitleIds = bids.map(b => b.title_id);
@@ -295,10 +343,12 @@ export default function BiddingPage() {
 
     if (!isLeader) {
         return (
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Title Bidding</h1>
-                    <p className="text-muted-foreground">Submit and manage your title bids.</p>
+            <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Title Bidding</h1>
+                        <p className="text-muted-foreground">Submit and manage your title bids.</p>
+                    </div>
                 </div>
                 {!group ? (
                     <Alert>
@@ -345,8 +395,8 @@ export default function BiddingPage() {
     }
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-start">
+        <div className="space-y-6 max-w-5xl mx-auto">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Title Bidding</h1>
                     <p className="text-muted-foreground">Kelola ranking judul TA Anda. Gunakan panah untuk mengubah urutan prioritas.</p>
@@ -410,23 +460,52 @@ export default function BiddingPage() {
             )}
 
             {bids.length === 0 && proposals.length === 0 ? (
-                <div className="text-center py-12 border rounded-lg border-dashed">
-                    <Gavel className="h-12 w-12 mx-auto mb-4 opacity-50 text-muted-foreground" />
-                    <h2 className="text-xl font-bold mb-2">No Bids Yet</h2>
-                    <p className="text-muted-foreground mb-4 max-w-md mx-auto">
-                        Submit a bid to express your interest in a title. You can rank multiple titles by priority.
-                    </p>
-                </div>
+                <Card className="border-dashed border-grey-100">
+                    <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                        <Gavel className="h-12 w-12 text-grey-200 mb-4" />
+                        <h3 className="text-xl font-bold text-grey-600 mb-2">No Bids Yet</h3>
+                        <p className="text-muted-foreground mb-4 max-w-md mx-auto">
+                            Submit a bid to express your interest in a title. You can rank multiple titles by priority.
+                        </p>
+                        <Button 
+                            onClick={handleOpenDialog} 
+                            disabled={!canSubmitBid}
+                            variant={canSubmitBid ? 'default' : 'outline'}
+                        >
+                            Submit Your First Bid
+                        </Button>
+                    </CardContent>
+                </Card>
             ) : (
                 <div className="space-y-6">
+                    {/* Proposals Section */}
                     {proposals.length > 0 && (
                         <div>
-                            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                                <Badge variant="secondary" className="bg-blue-100 text-blue-800">Proposal</Badge>
-                                Judul yang Anda Usulkan
-                            </h2>
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <Badge variant="secondary" className="bg-blue-100 text-blue-800">Proposal</Badge>
+                                    Judul yang Anda Usulkan
+                                </h2>
+                                <div className="flex items-center gap-2">
+                                    <SearchBar
+                                        value={proposalSearch}
+                                        onChange={setProposalSearch}
+                                        placeholder="Search proposals..."
+                                        className="w-64"
+                                    />
+                                    <SortDropdown
+                                        options={[
+                                            { key: 'title', label: 'Title' },
+                                            { key: 'proposed_supervisor.name', label: 'Supervisor' },
+                                        ]}
+                                        value={proposalSort?.field ?? null}
+                                        direction={proposalSort?.direction ?? 'asc'}
+                                        onChange={(key, dir) => setProposalSort({ field: key, direction: dir })}
+                                    />
+                                </div>
+                            </div>
                             <div className="grid gap-4">
-                                {proposals.map((proposal) => (
+                                {filteredProposals.map((proposal) => (
                                     <Card key={proposal.id} className="relative border-l-4 border-l-blue-500">
                                         <CardHeader className="pb-3">
                                             <div className="flex items-start justify-between">
@@ -448,14 +527,37 @@ export default function BiddingPage() {
                         </div>
                     )}
 
+                    {/* Bids Section */}
                     {bids.length > 0 && (
                         <div>
-                            <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
-                                <Badge variant="default" className="bg-green-100 text-green-800">Bid</Badge>
-                                Judul yang Anda Bidding
-                            </h2>
-                            <div className="grid gap-4">
-                                {reorderedBids.sort((a, b) => a.priority - b.priority).map((bid, index) => {
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className="text-lg font-semibold flex items-center gap-2">
+                                    <Badge variant="default" className="bg-green-100 text-green-800">Bid</Badge>
+                                    Judul yang Anda Bidding
+                                </h2>
+                                <div className="flex items-center gap-2">
+                                    <SearchBar
+                                        value={bidSearch}
+                                        onChange={setBidSearch}
+                                        placeholder="Search bids..."
+                                        className="w-64"
+                                    />
+                                    <SortDropdown
+                                        options={BID_SORT_OPTIONS}
+                                        value={bidSort?.field ?? null}
+                                        direction={bidSort?.direction ?? 'asc'}
+                                        onChange={(key, dir) => setBidSort({ field: key, direction: dir })}
+                                    />
+                                </div>
+                            </div>
+                            <FilterBadgeGroup
+                                options={BID_STATUS_OPTIONS}
+                                selected={(bidFilters.status as string[]) || []}
+                                onChange={(selected) => setBidFilter('status', selected)}
+                                label="Filter by Status"
+                            />
+                            <div className="grid gap-4 mt-4">
+                                {filteredBids.sort((a, b) => a.priority - b.priority).map((bid, index) => {
                                     const isAccepted = bid.lecturer_recommendation === 'ACCEPT';
                                     
                                     return (
@@ -478,7 +580,7 @@ export default function BiddingPage() {
                                                             size="sm"
                                                             className="h-6 w-6 p-0"
                                                             onClick={() => movePriority(bid.id, 'down')}
-                                                            disabled={index === reorderedBids.length - 1 || !canReorderBid}
+                                                            disabled={index === filteredBids.length - 1 || !canReorderBid}
                                                         >
                                                             <ArrowDown className="h-3 w-3" />
                                                         </Button>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Loading } from '@/components/ui/loading';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
@@ -603,7 +604,7 @@ export default function TaSubmissionPage() {
         )}
       </div>
     );
-  }
+}
 
   const currentStatus = statusData.status;
   const statusConfig = STATUS_CONFIG[currentStatus] || STATUS_CONFIG.TA_LOCKED;
