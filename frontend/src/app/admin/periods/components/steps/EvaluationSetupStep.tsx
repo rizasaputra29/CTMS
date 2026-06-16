@@ -155,37 +155,37 @@ export function EvaluationSetupStep({
         milestone: { components: [], totalWeight: 0 },
       };
       let hasConfigs = false;
-      for (const type of EVALUATION_TYPES) {
-        try {
-          const response = await api.get(
-            `/admin/periods/${periodId}/assessment-config?type=${type.apiType}`
-          );
-          const data = response.data?.data;
-          if (data?.selected_components) {
-            configs[type.id] = {
-              components: data.selected_components.map(
-                (c: Record<string, unknown>) => ({
-                  id: String(c.id),
-                  code: c.code as string,
-                  name: c.name as string,
-                  description: c.description as string | null,
-                  weight: Number(c.weight),
-                  template_id: c.template_id as number,
-                  selected: true,
-                })
-              ),
-              totalWeight: data.selected_components.reduce(
-                (sum: number, c: Record<string, unknown>) =>
-                  sum + Number(c.weight),
-                0
-              ),
-            };
-            hasConfigs = true;
-          }
-        } catch {
-          // No config for this type
+      const configResults = await Promise.allSettled(
+        EVALUATION_TYPES.map((type) =>
+          api.get(`/admin/periods/${periodId}/assessment-config?type=${type.apiType}`)
+        )
+      );
+      EVALUATION_TYPES.forEach((type, index) => {
+        const result = configResults[index];
+        if (result.status === "rejected") return;
+        const data = result.value.data?.data;
+        if (data?.selected_components) {
+          configs[type.id] = {
+            components: data.selected_components.map(
+              (c: Record<string, unknown>) => ({
+                id: String(c.id),
+                code: c.code as string,
+                name: c.name as string,
+                description: c.description as string | null,
+                weight: Number(c.weight),
+                template_id: c.template_id as number,
+                selected: true,
+              })
+            ),
+            totalWeight: data.selected_components.reduce(
+              (sum: number, c: Record<string, unknown>) =>
+                sum + Number(c.weight),
+              0
+            ),
+          };
+          hasConfigs = true;
         }
-      }
+      });
       if (hasConfigs) {
         setValue("evaluation_configs", configs);
       }
@@ -221,8 +221,7 @@ export function EvaluationSetupStep({
   };
 
   useEffect(() => {
-    fetchAssessmentTemplates();
-    fetchAvailablePeriods();
+    Promise.all([fetchAssessmentTemplates(), fetchAvailablePeriods()]);
   }, []);
 
   useEffect(() => {

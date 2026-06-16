@@ -106,18 +106,19 @@ export function usePrefetchDashboards() {
   };
 
   const prefetchMahasiswaDashboards = async () => {
-    const periodData = await queryClient.fetchQuery({
-      queryKey: queryKeys.mahasiswa.myPeriod,
-      queryFn: fetchMahasiswaMyPeriod,
-    });
-
-    if (periodData?.period) {
-      await queryClient.prefetchQuery({
+    const [periodData, _dashboardData] = await Promise.all([
+      queryClient.fetchQuery({
+        queryKey: queryKeys.mahasiswa.myPeriod,
+        queryFn: fetchMahasiswaMyPeriod,
+      }),
+      queryClient.prefetchQuery({
         queryKey: queryKeys.mahasiswa.dashboard,
         queryFn: fetchMahasiswaDashboard,
-      });
+      }),
+    ]);
 
-      // Also prefetch workflow if group is approved
+    // Also prefetch workflow if group is approved
+    if (periodData?.period) {
       const dashboardData = (await queryClient.getQueryData(
         queryKeys.mahasiswa.dashboard
       )) as { has_group?: boolean; group_status?: string } | undefined;

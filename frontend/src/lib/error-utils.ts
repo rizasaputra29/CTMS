@@ -1,5 +1,5 @@
 import type { AxiosError } from 'axios';
-import type { ApiErrorWithResponse } from '@/types';
+import type { ApiErrorWithResponse } from '@/types/api';
 
 /**
  * Check if error is an API error with response data

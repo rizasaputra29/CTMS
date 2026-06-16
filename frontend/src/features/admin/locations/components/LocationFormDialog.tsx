@@ -21,7 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { toScheduleMode } from "@/types";
+import { toScheduleMode } from "@/types/guards";
 import type { LocationFormData } from "@/lib/validations/location";
 import type { Location } from "@/features/admin/locations/types";
 

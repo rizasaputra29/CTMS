@@ -1,4 +1,4 @@
-import type { TitleApprovalHistoryItem, TitleDeletionHistoryItem } from '@/types';
+import type { TitleApprovalHistoryItem, TitleDeletionHistoryItem } from '@/types/title';
 
 export interface Title {
     id: number;

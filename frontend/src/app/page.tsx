@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Navbar } from '@/components/layout/Navbar';
@@ -10,7 +11,8 @@ import { TugasAkhirSection } from '@/components/home/TugasAkhirSection';
 import { SiklusSection } from '@/components/home/SiklusSection';
 import { CTASection } from '@/components/home/CTASection';
 import { Footer } from '@/components/layout/Footer';
-import CombinedDashboard from '@/components/dashboard/CombinedDashboard';
+
+const CombinedDashboard = dynamic(() => import('@/components/dashboard/CombinedDashboard'), { ssr: false });
 
 export default function Home() {
   const { user, isLoading } = useAuth();

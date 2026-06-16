@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Loading } from '@/components/ui/loading';
 import { toast } from 'sonner';
 import { Field, FieldLabel, FieldError } from '@/components/ui/field';
-import { toScheduleMode, toNumber } from '@/types';
+import { toScheduleMode, toNumber } from '@/types/guards';
 import {
     Dialog,
     DialogContent,

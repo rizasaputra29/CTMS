@@ -5,7 +5,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { semproScheduleSchema, type SemproScheduleFormData } from '@/lib/validations/sempro';
 import api from '@/lib/api';
-import type { ScheduleUpdatePayload } from '@/types';
+import type { ScheduleUpdatePayload } from '@/types/schedule';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
