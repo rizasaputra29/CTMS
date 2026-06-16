@@ -12,7 +12,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { FileText, Upload, Eye, CheckCircle2 } from 'lucide-react';
+import { FileText, Upload, Eye, CheckCircle2, Info } from 'lucide-react';
 import Link from 'next/link';
 import type { WorkflowPhase } from '@/types/dashboard';
 
@@ -26,9 +26,10 @@ const DOC_STATUS_MAP: Record<string, { label: string; color: string }> = {
 
 interface DocumentUploadTableProps {
     phases?: WorkflowPhase[];
+    isPeriodFinalized?: boolean;
 }
 
-export function DocumentUploadTable({ phases = [] }: DocumentUploadTableProps) {
+export function DocumentUploadTable({ phases = [], isPeriodFinalized = false }: DocumentUploadTableProps) {
     // Flatten all documents from all phases, filter out approved ones
     const pendingDocs = (phases ?? [])
         .flatMap((phase) =>
@@ -43,6 +44,28 @@ export function DocumentUploadTable({ phases = [] }: DocumentUploadTableProps) {
         .slice(0, 6); // Show max 6 items
 
     if (pendingDocs.length === 0) {
+        if (!isPeriodFinalized) {
+            return (
+                <Card>
+                    <CardHeader className="pb-3">
+                        <CardTitle className="text-base font-semibold flex items-center gap-2">
+                            <FileText className="h-4 w-4" />
+                            Upload Document
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="flex flex-col items-center justify-center py-8 text-center">
+                            <Info className="h-10 w-10 text-gray-400 mb-3" />
+                            <p className="text-sm font-medium text-gray-700">Fitur ini tersedia setelah periode di-finalisasi</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                                Upload dokumen dapat dilakukan setelah periode terdaftar telah di finalisasi.
+                            </p>
+                        </div>
+                    </CardContent>
+                </Card>
+            );
+        }
+
         return (
             <Card>
                 <CardHeader className="pb-3">

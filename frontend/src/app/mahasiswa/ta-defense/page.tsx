@@ -2,8 +2,9 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import PeriodFinalizationGuard from '@/components/PeriodFinalizationGuard';
 
-export default function TaDefenseRedirect() {
+function TaDefenseRedirect() {
   const router = useRouter();
 
   useEffect(() => {
@@ -11,4 +12,12 @@ export default function TaDefenseRedirect() {
   }, [router]);
 
   return null;
+}
+
+export default function TaDefensePage() {
+  return (
+    <PeriodFinalizationGuard>
+      <TaDefenseRedirect />
+    </PeriodFinalizationGuard>
+  );
 }

@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'add.token.cookie' => \App\Http\Middleware\AddTokenCookie::class,
+            'period.finalized' => \App\Http\Middleware\PeriodFinalizationMiddleware::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
