@@ -28,7 +28,7 @@ const fetchAdminDashboard = async () => {
 
 const fetchAdminPeriods = async () => {
   const response = await api.get("/admin/periods");
-  return response.data;
+  return response.data?.data || [];
 };
 
 const fetchAdminGroups = async () => {
@@ -106,35 +106,30 @@ export function usePrefetchDashboards() {
   };
 
   const prefetchMahasiswaDashboards = async () => {
-    const [periodData, _dashboardData] = await Promise.all([
-      queryClient.fetchQuery({
-        queryKey: queryKeys.mahasiswa.myPeriod,
-        queryFn: fetchMahasiswaMyPeriod,
-      }),
-      queryClient.prefetchQuery({
-        queryKey: queryKeys.mahasiswa.dashboard,
-        queryFn: fetchMahasiswaDashboard,
-      }),
-    ]);
+    // Prefetch my-period only. The dashboard hook assembles data from
+    // multiple endpoints on mount, so caching a raw wrapper here would
+    // collide with the hook's custom object shape.
+    const periodData = await queryClient.fetchQuery({
+      queryKey: queryKeys.mahasiswa.myPeriod,
+      queryFn: fetchMahasiswaMyPeriod,
+    });
 
     // Also prefetch workflow if group is approved
     if (periodData?.period) {
-      const dashboardData = (await queryClient.getQueryData(
-        queryKeys.mahasiswa.dashboard
-      )) as { has_group?: boolean; group_status?: string } | undefined;
-      if (dashboardData?.has_group) {
-        const isGroupApproved = ![
-          "FORMING",
-          "FORMING_SOLO",
-          "READY_FOR_BIDDING",
-          "REJECTED",
-        ].includes(dashboardData.group_status ?? "");
-        if (isGroupApproved) {
-          await queryClient.prefetchQuery({
-            queryKey: queryKeys.mahasiswa.workflow,
-            queryFn: fetchMahasiswaWorkflow,
-          });
-        }
+      const dashboardData = periodData?.dashboard as
+        | { has_group?: boolean; group_status?: string }
+        | undefined;
+      const isGroupApproved = ![
+        "FORMING",
+        "FORMING_SOLO",
+        "READY_FOR_BIDDING",
+        "REJECTED",
+      ].includes(dashboardData?.group_status ?? "");
+      if (isGroupApproved) {
+        await queryClient.prefetchQuery({
+          queryKey: queryKeys.mahasiswa.workflow,
+          queryFn: fetchMahasiswaWorkflow,
+        });
       }
     }
   };
