@@ -40,6 +40,7 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
     }
     
     echo "[3/6] Installing dependencies..."
+    rm -rf node_modules
     npm ci --production=false
     
     echo "[4/6] Building application..."
@@ -55,7 +56,7 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
     
     # Start with PM2
     cd /var/www/sicata/frontend
-    pm2 start ecosystem.config.js --env production
+    pm2 start ecosystem.config.cjs --env production
     
     echo "[6/6] Saving PM2 configuration..."
     pm2 save
