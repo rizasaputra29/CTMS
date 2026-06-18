@@ -99,7 +99,7 @@ export function BimbinganFeature() {
             const response = await api.get(`/dosen/documents/${docId}/download`, {
                 responseType: 'blob',
             });
-            const blob = new Blob([response.data], { type: response.headers['content-type'] || 'application/pdf' });
+            const blob = new Blob([response.data], { type: String(response.headers['content-type'] || 'application/pdf') });
             const url = window.URL.createObjectURL(blob);
             window.open(url, '_blank');
             setTimeout(() => window.URL.revokeObjectURL(url), 60000);
