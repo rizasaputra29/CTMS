@@ -21,7 +21,7 @@ VPS_IP="148.230.99.31"
 VPS_USER="root"
 REMOTE_DIR="/var/www/sicata/frontend"
 
-echo -e "${YELLOW}[1/6] Connecting to VPS and deploying...${NC}"
+echo -e "${YELLOW}[1/7] Connecting to VPS and deploying...${NC}"
 
 ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
     set -e
@@ -39,14 +39,30 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
         exit 1
     }
     
-    echo "[3/6] Installing dependencies..."
+    echo "[3/6] Creating .env.local file..."
+    # Create .env.local with HTTPS URLs - CRITICAL for CSRF cookies
+    cat > /var/www/sicata/frontend/.env.local << 'ENVFILE'
+# CTMS Environment Variables - VPS Production
+NEXT_PUBLIC_APP_NAME=SICATA
+NEXT_PUBLIC_APP_URL=https://148.230.99.31:3000
+NEXT_PUBLIC_API_URL=https://148.230.99.31:8000/api
+NEXT_PUBLIC_BACKEND_URL=https://148.230.99.31:8000
+NEXT_PUBLIC_AUTH_COOKIE_NAME=sicata_session
+NEXT_PUBLIC_ENABLE_MOCK_API=false
+NEXT_PUBLIC_DEBUG=false
+ENVFILE
+    
+    echo "[4/6] Installing dependencies..."
     rm -rf node_modules
     npm ci --production=false
     
-    echo "[4/6] Building application..."
+    echo "[5/6] Building application..."
+    # Export env vars so they're available during build
+    export NEXT_PUBLIC_API_URL=https://148.230.99.31:8000/api
+    export NEXT_PUBLIC_BACKEND_URL=https://148.230.99.31:8000
     npm run build
     
-    echo "[5/6] Setting up PM2..."
+    echo "[6/6] Setting up PM2..."
     # Create PM2 log directory if it doesn't exist
     mkdir -p /var/log/pm2
     
@@ -58,7 +74,7 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
     cd /var/www/sicata/frontend
     pm2 start ecosystem.config.cjs --env production
     
-    echo "[6/6] Saving PM2 configuration..."
+    echo "[7/7] Saving PM2 configuration..."
     pm2 save
     
     # Setup PM2 startup (auto-start on reboot)

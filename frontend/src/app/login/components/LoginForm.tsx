@@ -36,7 +36,11 @@ export default function LoginForm() {
 
     const onSubmit = async (data: LoginFormData) => {
         try {
-            await api.get('/sanctum/csrf-cookie', { baseURL: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://148.230.99.31:8000' });
+            // Get CSRF cookie from backend using HTTPS
+            // baseURL is needed here because this is a special sanctum endpoint
+            // that must be called before authentication
+            const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'https://148.230.99.31:8000';
+            await api.get('/sanctum/csrf-cookie', { baseURL: backendUrl });
             const res = await api.post('/login', data);
 
             // Login for all users (single and multi-role) - no role selection dialog
