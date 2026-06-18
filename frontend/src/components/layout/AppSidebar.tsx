@@ -594,7 +594,8 @@ export function AppSidebar() {
       if (activeRole === "mahasiswa") {
         try {
           const res = await api.get("/mahasiswa/my-period");
-          setIsRegistered(!!res.data?.period);
+          const periodData = res.data?.data ?? res.data;
+          setIsRegistered(!!(periodData?.period || periodData?.registration));
         } catch {
           setIsRegistered(false);
         }
@@ -623,7 +624,10 @@ export function AppSidebar() {
     if (activeRole === "mahasiswa" && isRegistered) {
       api
         .get("/mahasiswa/group")
-        .then((res) => setGroupStatus(res.data.group?.status || null))
+        .then((res) => {
+          const groupData = res.data?.data ?? res.data;
+          setGroupStatus(groupData?.group?.status || null);
+        })
         .catch(() => setGroupStatus(null));
     }
   }, [activeRole, isRegistered]);
