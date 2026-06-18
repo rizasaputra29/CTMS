@@ -38,6 +38,7 @@ import { Plus, Trash2, Edit, Search, X, History, Loader2 } from 'lucide-react';
 import { Loading } from '@/components/ui/loading';
 import { SpecializationSelector, SPECIALIZATIONS } from '@/components/ui/specialization-selector';
 import { SortableTableHeader } from '@/components/common/SortableTableHeader';
+import { formatDateTime } from '@/lib/utils';
 import { useTitles } from '../hooks/use-titles';
 import type { Title, SortKey, SortDir } from '../types';
 
@@ -133,10 +134,9 @@ export function TitlesFeature() {
         return result;
     }, [titles, search, filterSpecs, sortKey, sortDir]);
 
-    const formatDate = (dateString: string) => {
+    const formatDateWithTime = (dateString: string) => {
         if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        return formatDateTime(dateString);
     };
 
     if (titlesLoading && !titles.length && !selectedPeriod) {
@@ -383,7 +383,7 @@ export function TitlesFeature() {
                                                                     {audit.reason && <p className="text-xs text-gray-600 mt-1">Reason: {audit.reason}</p>}
                                                                     {audit.affected_group && <p className="text-xs text-gray-600">Group: {audit.affected_group.name}</p>}
                                                                 </div>
-                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(audit.created_at)}</span>
+                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateWithTime(audit.created_at)}</span>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -408,7 +408,7 @@ export function TitlesFeature() {
                                                                         </p>
                                                                     )}
                                                                 </div>
-                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(audit.created_at)}</span>
+                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">{formatDateWithTime(audit.created_at)}</span>
                                                             </div>
                                                         </div>
                                                     ))}

@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { format, isToday, isPast, isFuture, parseISO } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { toViewMode } from '@/types/guards';
+import { formatDate } from '@/lib/utils';
 
 interface GroupMember {
   id: number;
@@ -554,12 +555,12 @@ export default function SupervisorEvaluationPage() {
                             {getStatusBadge(evaluation.status)}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            <p>Jadwal: {evaluation.date ? new Date(evaluation.date).toLocaleDateString('id-ID') : '-'}</p>
+                            <p>Jadwal: {formatDate(evaluation.date)}</p>
                             <p>Ruangan: {evaluation.room || '-'}</p>
                             {evaluation.deadline && (
                               <p>
                                 Deadline:{' '}
-                                {new Date(evaluation.deadline).toLocaleDateString('id-ID')}
+                                {formatDate(evaluation.deadline)}
                               </p>
                             )}
                           </div>

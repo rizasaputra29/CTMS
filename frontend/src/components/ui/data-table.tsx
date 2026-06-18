@@ -35,6 +35,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
 
 /* =========================================================
    Types
@@ -144,14 +145,11 @@ function generatePageNumbers(current: number, last: number): (number | string)[]
   return pages;
 }
 
-let rowIdCounter = 0;
-
-function getRowId<T>(row: T, rowIdKey: string): number | string {
+function getRowId<T>(row: T, rowIdKey: string, index?: number): number | string {
   const id = (row as Record<string, unknown>)[rowIdKey];
   if (typeof id === 'number' || typeof id === 'string') return id;
-  // Fallback to stable counter if id is undefined/null
-  if (id == null) return `row-${++rowIdCounter}`;
-  return String(id);
+  // Fallback to index-based ID (stable across server/client)
+  return `row-${index ?? 0}`;
 }
 
 /* =========================================================
@@ -189,11 +187,11 @@ export function DataTable<T>({
 }: DataTableProps<T>) {
   const allSelected = useMemo(() => {
     if (data.length === 0) return false;
-    return data.every((row) => selectedIds.has(getRowId(row, rowIdKey)));
+    return data.every((row, idx) => selectedIds.has(getRowId(row, rowIdKey, idx)));
   }, [data, selectedIds, rowIdKey]);
 
   const someSelected = useMemo(() => {
-    return data.some((row) => selectedIds.has(getRowId(row, rowIdKey))) && !allSelected;
+    return data.some((row, idx) => selectedIds.has(getRowId(row, rowIdKey, idx))) && !allSelected;
   }, [data, selectedIds, allSelected, rowIdKey]);
 
   const pageNumbers = useMemo(() => {
@@ -302,7 +300,7 @@ export function DataTable<T>({
               </TableHeader>
               <TableBody>
                 {data.map((row, idx) => {
-                  const rowId = getRowId(row, rowIdKey);
+                  const rowId = getRowId(row, rowIdKey, idx);
                   const checked = selectedIds.has(rowId);
                   const rowNumber = pagination
                     ? (pagination.current_page - 1) * pagination.per_page + idx + 1
@@ -471,15 +469,9 @@ export function textCell<T>(key: string) {
 export function dateCell<T>(key: string) {
   const DateCell = (row: T) => {
     const value = (row as Record<string, unknown>)[key];
-    if (!value) return <span className="text-muted-foreground">-</span>;
-    const date = new Date(value as string);
     return (
       <span className="text-muted-foreground whitespace-nowrap text-sm">
-        {date.toLocaleDateString('en-US', {
-          month: 'numeric',
-          day: 'numeric',
-          year: 'numeric',
-        })}
+        {formatDate(value)}
       </span>
     );
   };

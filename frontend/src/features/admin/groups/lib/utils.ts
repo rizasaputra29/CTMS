@@ -1,4 +1,5 @@
 import type { Group, PeriodOption } from "../types";
+import { formatDate as baseFormatDate } from "@/lib/utils";
 
 export function getStatusLabel(status: string, statusLabel?: string): string {
   const labels: Record<string, string> = {
@@ -30,9 +31,5 @@ export function canDeleteGroup(
 
 export function formatDate(dateString?: string): string {
   if (!dateString) return "-";
-  return new Date(dateString).toLocaleDateString("id-ID", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return baseFormatDate(dateString);
 }

@@ -31,6 +31,7 @@ import { Send, PenLine, Info, CheckCircle, XCircle, Clock, RotateCcw, Lock, Aler
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { Loading } from '@/components/ui/loading';
+import { formatDate } from '@/lib/utils';
 import type { Bid } from '@/types/bid';
 import { proposeTitleSchema, type ProposeTitleFormData } from '@/lib/validations/proposals';
 import type { Lecturer, Proposal, GroupInfo, ProposalFlow } from '../types';
@@ -580,7 +581,7 @@ export function ProposeTitleFeature() {
                                     </Alert>
                                 )}
                                 <div className="text-xs text-muted-foreground">
-                                    Submitted: {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                    Submitted: {formatDate(proposal.created_at)}
                                 </div>
                             </CardContent>
                             {proposal.supervisor_approval_status === 'REJECTED' && !hasPendingProposal && canCreateProposal && (

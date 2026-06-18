@@ -28,6 +28,7 @@ import {
     CheckCircle2
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDate } from '@/lib/utils';
 
 interface GradeConsistencyCheck {
     id: number;
@@ -341,7 +342,7 @@ export default function GradeConsistencyReportPage() {
                                             return (
                                                 <TableRow key={check.id}>
                                                     <TableCell className="text-sm text-muted-foreground">
-                                                        {new Date(check.created_at).toLocaleDateString('id-ID')}
+                                                        {formatDate(check.created_at)}
                                                     </TableCell>
                                                     <TableCell className="font-medium">
                                                         {check.group?.title?.title || check.group?.code || `Group ${check.group?.id}`}

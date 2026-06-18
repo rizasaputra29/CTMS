@@ -18,6 +18,7 @@ import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { formatDate } from '@/lib/utils';
 import {
   Dialog,
   DialogContent,
@@ -859,11 +860,9 @@ export function TaSubmissionFeature() {
                       Lihat Jadwal Sidang
                     </summary>
                     <div className="px-4 pb-4 pt-2 space-y-2 text-sm">
-                      <div className="flex items-center gap-2 text-gray-600">
+                        <div className="flex items-center gap-2 text-gray-600">
                         <Calendar className="h-4 w-4" />
-                        {new Date(defenseSchedule.date).toLocaleDateString('id-ID', {
-                          weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
-                        })}
+                        {formatDate(defenseSchedule.date)}
                       </div>
                       <div className="flex items-center gap-2 text-gray-600">
                         <Clock className="h-4 w-4" />
@@ -886,12 +885,7 @@ export function TaSubmissionFeature() {
                   <div className="flex items-center gap-2">
                     <Calendar className="h-5 w-5 text-blue-600" />
                     <span className="font-medium text-blue-900">
-                      {new Date(defenseSchedule.date).toLocaleDateString('id-ID', {
-                        weekday: 'long',
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
-                      })}
+                      {formatDate(defenseSchedule.date)}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -918,7 +912,7 @@ export function TaSubmissionFeature() {
                     <>
                       <Separator className="bg-blue-200" />
                       <div className="text-xs text-blue-700">
-                        Tenggat evaluasi: {new Date(defenseSchedule.evaluation_deadline).toLocaleDateString('id-ID')}
+                        Tenggat evaluasi: {formatDate(defenseSchedule.evaluation_deadline)}
                       </div>
                     </>
                   )}

@@ -13,6 +13,7 @@ import {
     ArrowUpDown, MoreHorizontal, ExternalLink
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDate } from '@/lib/utils';
 import Link from 'next/link';
 import { getGroupStatusBadgeVariant } from '@/lib/badge-variants';
 import {
@@ -397,7 +398,7 @@ export default function GroupDetailClient() {
                                 </div>
                                 <div className="flex justify-between">
                                     <span className="text-muted-foreground">Created</span>
-                                    <span>{new Date(group.created_at).toLocaleDateString()}</span>
+                                    <span>{formatDate(group.created_at)}</span>
                                 </div>
                             </div>
                         </CardContent>

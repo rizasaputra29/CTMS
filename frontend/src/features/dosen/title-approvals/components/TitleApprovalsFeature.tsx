@@ -38,6 +38,7 @@ import {
 import { PageHeader } from '@/components/common/PageHeader';
 import { EmptyState } from '@/components/common/EmptyState';
 import { StatusBadge } from '@/components/common/StatusBadge';
+import { formatDate } from '@/lib/utils';
 import { useTitleApprovals } from '../hooks/use-title-approvals';
 
 const flowReasonMap: Record<string, string> = {
@@ -132,7 +133,7 @@ export function TitleApprovalsFeature() {
                                     <div>
                                         <CardTitle className="text-lg">{proposal.title}</CardTitle>
                                         <CardDescription className="mt-1">
-                                            Group {proposal.proposed_by_group?.id} · Submitted {new Date(proposal.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                            Group {proposal.proposed_by_group?.id} · Submitted {formatDate(proposal.created_at)}
                                         </CardDescription>
                                     </div>
                                     <StatusBadge

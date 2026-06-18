@@ -21,6 +21,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import api from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useStringParam } from '@/hooks/use-params';
 import { getApiErrorMessage } from '@/lib/error-utils';
@@ -314,7 +315,7 @@ export default function SupervisorEvaluationDetailPage() {
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Calendar className="h-4 w-4" />
-                    <span>{new Date(schedule.date).toLocaleDateString('id-ID', { dateStyle: 'long' })}</span>
+                    <span>{formatDate(schedule.date)}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Clock className="h-4 w-4" />
@@ -327,7 +328,7 @@ export default function SupervisorEvaluationDetailPage() {
                   {schedule.evaluation_deadline && (
                     <div className="flex items-center gap-2 text-sm text-orange-600">
                       <Clock className="h-4 w-4" />
-                      <span>Deadline: {new Date(schedule.evaluation_deadline).toLocaleDateString('id-ID')}</span>
+                      <span>Deadline: {formatDate(schedule.evaluation_deadline)}</span>
                     </div>
                   )}
                 </div>

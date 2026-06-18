@@ -15,6 +15,7 @@ import {
     FileText, AlertCircle, Loader2,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { Component, ExpoDetail, MyScore } from '../types';
 
@@ -167,7 +168,7 @@ export function ExpoDetailFeature() {
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Calendar className="h-4 w-4" />
-                                <span>{new Date(data.expo_event.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                <span>{formatDate(data.expo_event.date)}</span>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                 <Clock className="h-4 w-4" />

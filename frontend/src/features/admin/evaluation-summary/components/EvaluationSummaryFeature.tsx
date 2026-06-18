@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Loader2, Download, ArrowLeft, FileSpreadsheet } from 'lucide-react';
 import Link from 'next/link';
+import { formatDateTime } from '@/lib/utils';
 import { useEvaluationSummary } from '../hooks/use-evaluation-summary';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -94,7 +95,7 @@ export function EvaluationSummaryFeature({ scheduleId }: EvaluationSummaryFeatur
                         </div>
                         <div>
                             <p className="text-sm text-muted-foreground">Date</p>
-                            <p className="font-medium">{new Date(data.schedule.date).toLocaleString()}</p>
+                            <p className="font-medium">{formatDateTime(data.schedule.date)}</p>
                         </div>
                         <div>
                             <p className="text-sm text-muted-foreground">Room</p>

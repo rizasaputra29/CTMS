@@ -20,7 +20,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { DataTable, DataTableColumn } from '@/components/ui/data-table';
 import { Upload, FileText, Download, Check, Lock, Circle, AlertTriangle, Info } from 'lucide-react';
 import { toast } from "sonner";
-import { cn } from '@/lib/utils';
+import { cn, formatDate, formatDateTime } from '@/lib/utils';
 import { Loading } from '@/components/ui/loading';
 import {
     Tooltip,
@@ -267,15 +267,7 @@ export function DocumentsFeature() {
             sortable: true,
             render: (doc) => (
                 <span className="text-muted-foreground whitespace-nowrap text-sm">
-                    {new Date(doc.created_at).toLocaleDateString('en-US', {
-                        month: 'numeric',
-                        day: 'numeric',
-                        year: 'numeric',
-                    })}{' '}
-                    {new Date(doc.created_at).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                    })}
+                    {formatDateTime(doc.created_at)}
                 </span>
             ),
         },
@@ -393,12 +385,7 @@ export function DocumentsFeature() {
                                         <div className="mt-2 space-y-1">
                                             <p>
                                                 <strong>Tanggal:</strong>{' '}
-                                                {new Date(req.seminar_schedule.date!).toLocaleDateString('id-ID', {
-                                                    weekday: 'long',
-                                                    year: 'numeric',
-                                                    month: 'long',
-                                                    day: 'numeric',
-                                                })}
+                                                {formatDate(req.seminar_schedule.date!)}
                                             </p>
                                             <p>
                                                 <strong>Waktu:</strong>{' '}

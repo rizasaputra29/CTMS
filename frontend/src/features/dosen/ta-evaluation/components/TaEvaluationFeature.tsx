@@ -18,6 +18,7 @@ import {
     Clock,
     MapPin,
 } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 import { useTaEvaluation } from '../hooks/use-ta-evaluation';
 
 interface TaEvaluationFeatureProps {
@@ -107,12 +108,7 @@ export function TaEvaluationFeature({ scheduleId }: TaEvaluationFeatureProps) {
                     <div className="flex items-center text-sm">
                         <CalendarIcon className="mr-2 h-4 w-4 text-muted-foreground" />
                         <span>
-                            {new Date(schedule.date).toLocaleDateString('id-ID', {
-                                weekday: 'long',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric',
-                            })}
+                            {formatDate(schedule.date)}
                         </span>
                     </div>
                     <div className="flex items-center text-sm">
@@ -133,7 +129,7 @@ export function TaEvaluationFeature({ scheduleId }: TaEvaluationFeatureProps) {
                 <Alert variant="destructive" className="mb-6">
                     <AlertCircle className="h-4 w-4" />
                     <AlertDescription>
-                        Evaluation deadline has passed ({new Date(schedule.evaluation_deadline).toLocaleDateString('id-ID')}).
+                        Evaluation deadline has passed ({formatDate(schedule.evaluation_deadline)}).
                         Please submit as soon as possible.
                     </AlertDescription>
                 </Alert>

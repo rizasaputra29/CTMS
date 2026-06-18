@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Loading } from '@/components/ui/loading';
+import { formatDate } from '@/lib/utils';
 import type { ExpoEvent } from '../types';
 
 export function ExpoFeature() {
@@ -105,7 +106,7 @@ export function ExpoFeature() {
                                 <CardContent className="space-y-3">
                                     <div className="flex items-center gap-2 text-sm">
                                         <CalendarDays className="h-4 w-4 text-muted-foreground" />
-                                        <span>{new Date(evt.date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                                        <span>{formatDate(evt.date)}</span>
                                     </div>
                                     <div className="flex items-center gap-2 text-sm">
                                         <Clock className="h-4 w-4 text-muted-foreground" />

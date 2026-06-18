@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { MultiRoleSelect, type RoleOption } from "@/components/administration/user-detail/MultiRoleSelect"
 import { getRoleBadgeVariant } from "@/lib/badge-variants"
 import api from "@/lib/api"
+import { formatDate } from "@/lib/utils"
 import { toast } from "sonner"
 
 const roleOptions: RoleOption[] = [
@@ -43,13 +44,6 @@ function generateInitials(name: string): string {
   if (parts.length === 0) return '?'
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
-}
-
-function formatDate(dateStr: string): string {
-  if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  if (isNaN(date.getTime())) return '-';
-  return date.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 
 function getRoleSlugs(user: UserDetail): string[] {

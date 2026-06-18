@@ -28,6 +28,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { formatDate, formatDateTime } from '@/lib/utils';
 import { useBimbingan } from '../hooks/use-bimbingan';
 import type { BimbinganDocument } from '../types';
 
@@ -228,9 +229,8 @@ export function BimbinganFeature() {
                                                         </span>
                                                         <span>&bull;</span>
                                                         <span>
-                                                            {new Date(doc.created_at).toLocaleDateString()} at{' '}
-                                                            {new Date(doc.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                        </span>
+                                                             {formatDateTime(doc.created_at)}
+                                                         </span>
                                                     </div>
                                                     {doc.feedback && (
                                                         <div className="mt-3 text-sm bg-orange-500/10 text-orange-700 dark:text-orange-400 p-3 rounded-md border border-orange-500/20 max-w-3xl">

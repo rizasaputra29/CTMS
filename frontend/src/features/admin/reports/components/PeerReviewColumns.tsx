@@ -1,6 +1,7 @@
 "use client";
 
 import { DataTableColumn } from "@/components/ui/data-table";
+import { formatDate } from "@/lib/utils";
 import type { PeerReview } from "../types";
 
 const getScoreColor = (score: number): string => {
@@ -24,7 +25,7 @@ export function usePeerReviewColumns(): DataTableColumn<PeerReview>[] {
       sortable: true,
       render: (review) => (
         <span className="text-sm text-muted-foreground whitespace-nowrap">
-          {new Date(review.created_at).toLocaleDateString("id-ID")}
+          {formatDate(review.created_at)}
         </span>
       ),
     },

@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Stethoscope,
 } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 import type { User } from "../types";
 
 function RoleIcon({ slug }: { slug: string }) {
@@ -119,11 +120,7 @@ export function useUserColumns({
       sortable: true,
       render: (user) => (
         <span className="text-muted-foreground whitespace-nowrap text-sm">
-          {new Date(user.created_at).toLocaleDateString("en-US", {
-            month: "numeric",
-            day: "numeric",
-            year: "numeric",
-          })}
+          {formatDate(user.created_at)}
         </span>
       ),
     },

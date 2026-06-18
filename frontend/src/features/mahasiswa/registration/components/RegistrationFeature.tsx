@@ -11,6 +11,7 @@ import { Calendar, CheckCircle, GraduationCap, ArrowRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { Loading } from '@/components/ui/loading';
+import { formatDate } from '@/lib/utils';
 import { Period } from '../types';
 
 export function RegistrationFeature() {
@@ -151,7 +152,7 @@ export function RegistrationFeature() {
                                         <CardDescription className="mt-1.5">
                                             <div className="flex items-center gap-2">
                                                 <Calendar className="h-3.5 w-3.5" />
-                                                {new Date(period.start_date).toLocaleDateString()} - {new Date(period.end_date).toLocaleDateString()}
+                                                {formatDate(period.start_date)} - {formatDate(period.end_date)}
                                             </div>
                                         </CardDescription>
                                     </div>

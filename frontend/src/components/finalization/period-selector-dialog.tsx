@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, CheckCircle2, AlertCircle } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 import type { Period } from '@/types/finalization';
 
 interface PeriodSelectorDialogProps {
@@ -28,14 +29,6 @@ export function PeriodSelectorDialog({
   onSelect,
   error,
 }: PeriodSelectorDialogProps) {
-  const formatDate = (dateString?: string) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('id-ID', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    });
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
