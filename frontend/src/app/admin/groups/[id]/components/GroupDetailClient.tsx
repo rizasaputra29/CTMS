@@ -124,7 +124,7 @@ export default function GroupDetailClient() {
         setLoading(true);
         try {
             const response = await api.get(`/admin/groups/${groupId}`);
-            setGroup(response.data.data);
+            setGroup(response.data?.data ?? response.data);
         } catch (error) {
             console.error('Failed to fetch group', error);
             toast.error('Failed to load group details');

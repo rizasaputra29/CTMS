@@ -91,7 +91,7 @@ export function GroupFeature() {
     const fetchJoinRequests = useCallback(async () => {
         try {
             const response = await api.get('/mahasiswa/join-requests');
-            setJoinRequests(response.data.data || []);
+            setJoinRequests(response.data?.data || []);
         } catch { /* silent — not a solo leader */ }
     }, []);
 

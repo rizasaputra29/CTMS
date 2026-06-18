@@ -26,7 +26,7 @@ export function useSupervisedGroups() {
                 ? `/dosen/groups/supervised?period_id=${selectedPeriod}`
                 : '/dosen/groups/supervised';
             const response = await api.get(url);
-            return (response.data.data || []) as Group[];
+            return (response.data?.data || []) as Group[];
         },
     });
 

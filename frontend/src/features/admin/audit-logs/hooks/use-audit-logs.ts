@@ -13,7 +13,7 @@ const PER_PAGE_OPTIONS = [15, 30, 50, 100];
 
 const fetchActionTypes = async (): Promise<string[]> => {
     const response = await api.get('/admin/audit-logs/action-types');
-    return response.data.data || [];
+    return response.data?.data || [];
 };
 
 const fetchPeriods = async (): Promise<AuditLogPeriod[]> => {
@@ -55,12 +55,12 @@ const fetchLogs = async (params: FetchLogsParams): Promise<{ logs: AuditLog[]; p
 
     const response = await api.get('/admin/audit-logs', { params: apiParams });
     return {
-        logs: response.data.data || [],
+        logs: response.data?.data || [],
         pagination: {
-            current_page: response.data.current_page,
-            last_page: response.data.last_page,
-            per_page: response.data.per_page,
-            total: response.data.total,
+            current_page: response.data?.pagination?.current_page || 1,
+            last_page: response.data?.pagination?.last_page || 1,
+            per_page: response.data?.pagination?.per_page || 15,
+            total: response.data?.pagination?.total || 0,
         },
     };
 };

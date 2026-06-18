@@ -20,10 +20,10 @@ async function fetchSchedules() {
 
     return {
         periods: (perRes.data?.data || []) as Period[],
-        semproSchedules: (semproRes.data.data || []) as ApiSchedule[],
-        expoSchedules: (expoRes.data.data || []) as ApiSchedule[],
-        taDefenseSchedules: (taRes.data.data || []) as ApiTaDefenseSchedule[],
-        bimbinganSchedules: (bimbinganRes.data.data || []) as ApiSchedule[],
+        semproSchedules: (semproRes.data?.data || []) as ApiSchedule[],
+        expoSchedules: (expoRes.data?.data || []) as ApiSchedule[],
+        taDefenseSchedules: (taRes.data?.data || []) as ApiTaDefenseSchedule[],
+        bimbinganSchedules: (bimbinganRes.data?.data || []) as ApiSchedule[],
     };
 }
 

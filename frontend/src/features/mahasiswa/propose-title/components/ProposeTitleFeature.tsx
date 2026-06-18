@@ -79,11 +79,11 @@ export function ProposeTitleFeature() {
             ]);
 
             setGroup(groupRes.data.group);
-            setLecturers(lecturerRes.data.data);
+            setLecturers(lecturerRes.data?.data || []);
             setProposals(proposalRes.data.proposals || []);
             setProposalFlow(proposalRes.data.flow || null);
             
-            const allBids = bidsRes.data.data || [];
+            const allBids = bidsRes.data?.data || [];
             const activeBidsFiltered = allBids.filter((b: Bid) =>
                 !b.lecturer_recommendation || b.lecturer_recommendation === 'ACCEPT'
             );

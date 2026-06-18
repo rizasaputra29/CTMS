@@ -18,7 +18,7 @@ export function useRequests() {
         queryKey: QUERY_KEY,
         queryFn: async () => {
             const response = await api.get('/dosen/groups/pending');
-            return response.data.data as Group[];
+            return (response.data?.data || []) as Group[];
         },
     });
 

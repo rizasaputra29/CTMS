@@ -30,7 +30,7 @@ export function useTaReview() {
         queryFn: async () => {
             const periodParam = selectedPeriod !== 'all' ? `&period_id=${selectedPeriod}` : '';
             const groupRes = await api.get(`/dosen/groups/supervised?${periodParam}`);
-            const groups = groupRes.data.data || [];
+            const groups = groupRes.data?.data || [];
 
             const allSubs: TaSubmission[] = [];
             for (const group of groups) {

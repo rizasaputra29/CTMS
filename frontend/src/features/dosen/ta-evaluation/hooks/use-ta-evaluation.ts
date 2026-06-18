@@ -22,7 +22,7 @@ export function useTaEvaluation(scheduleId: string) {
             const response = await api.get(`/dosen/evaluation-context/TA_DEFENSE/${id}`, {
                 params: { schedule_id: id },
             });
-            const data = response.data.data as EvaluationContext;
+            const data = (response.data?.data ?? response.data) as EvaluationContext;
             setContext(data);
 
             const studentId = data.schedule.student.id;

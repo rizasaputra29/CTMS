@@ -11,7 +11,7 @@ const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'TA', 'EXPO', 'SIDANG'];
 
 const fetchDocumentTypes = async (): Promise<DocumentType[]> => {
     const res = await api.get('/admin/document-types');
-    return res.data.data || [];
+    return res.data?.data || [];
 };
 
 export function useDocumentTypes() {

@@ -16,12 +16,12 @@ export function ScheduleFeature() {
         setLoading(true);
         try {
             const response = await api.get('/mahasiswa/all-schedules');
-            setSchedules(response.data.data || []);
+            setSchedules(response.data?.data || []);
         } catch (error) {
             console.error('Failed to fetch schedules', error);
             try {
                 const legacyResponse = await api.get('/mahasiswa/schedules');
-                setSchedules(legacyResponse.data.data || []);
+                setSchedules(legacyResponse.data?.data || []);
             } catch (legacyError) {
                 console.error('Failed to fetch legacy schedules', legacyError);
             }

@@ -174,13 +174,13 @@ export default function SupervisorEvaluationPage() {
         if (selectedPeriod !== 'all') params.period_id = selectedPeriod;
         if (selectedType !== 'all') params.type = selectedType;
         const response = await api.get('/dosen/supervisor-evaluation/schedules', { params });
-        setSchedules(response.data.data || []);
+        setSchedules(response.data?.data || []);
       } else {
         const params: Record<string, string> = {};
         if (selectedPeriod !== 'all') params.period_id = selectedPeriod;
         if (selectedType !== 'all') params.type = selectedType;
         const response = await api.get('/dosen/supervisor-evaluation/groups', { params });
-        setGroups(response.data.data || []);
+        setGroups(response.data?.data || []);
       }
     } catch (error) {
       console.error('Error fetching data:', error);

@@ -41,7 +41,7 @@ function calculateProgressPercentage(status: string): number {
 
 const fetchPeriods = async (): Promise<GroupProgressPeriod[]> => {
     const res = await api.get('/admin/periods?per_page=100');
-    return res.data.data || [];
+    return res.data?.data || [];
 };
 
 interface FetchProgressParams {
@@ -71,8 +71,8 @@ const fetchProgress = async (params: FetchProgressParams): Promise<{ groups: Gro
     try {
         const res = await api.get('/admin/analytics/group-progress', { params: apiParams });
         return {
-            groups: res.data.data,
-            meta: res.data.meta,
+            groups: res.data?.data || [],
+            meta: res.data?.meta || null,
         };
     } catch (error) {
         console.error('Failed to fetch group progress', error);
@@ -94,7 +94,7 @@ const fetchProgress = async (params: FetchProgressParams): Promise<{ groups: Gro
                 fallbackParams.search = params.searchQuery;
             }
             const res = await api.get('/admin/groups', { params: fallbackParams });
-            const transformedData = (res.data.data || []).map((group: GroupProgress) => ({
+            const transformedData = (res.data?.data || []).map((group: GroupProgress) => ({
                 ...group,
                 progress: null,
                 progress_percentage: calculateProgressPercentage(group.status),

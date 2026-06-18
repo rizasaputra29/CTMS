@@ -87,7 +87,7 @@ export function BiddingFeature() {
     const fetchBids = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/bids');
-            const fetchedBids = res.data.data || [];
+            const fetchedBids = res.data?.data || [];
             setBids(fetchedBids);
             setReorderedBids(fetchedBids);
             setBiddingFlow(res.data.flow || null);
@@ -113,7 +113,7 @@ export function BiddingFeature() {
     const fetchTitles = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/titles');
-            setTitles(res.data.data || []);
+            setTitles(res.data?.data || []);
         } catch (err) {
             console.error('Failed to fetch titles', err);
         }
@@ -122,7 +122,7 @@ export function BiddingFeature() {
     const fetchDosens = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/lecturers');
-            setDosens(res.data.data || []);
+            setDosens(res.data?.data || []);
         } catch (err) {
             console.error('Failed to fetch lecturers', err);
         }

@@ -39,8 +39,8 @@ const fetchData = async (periodId?: string): Promise<DosenScheduleData> => {
         api.get(`/dosen/groups/supervised${queryParam}`),
     ]);
     return {
-        schedules: schedulesRes.data.data || [],
-        groups: groupsRes.data.data || [],
+        schedules: schedulesRes.data?.data || [],
+        groups: groupsRes.data?.data || [],
     };
 };
 

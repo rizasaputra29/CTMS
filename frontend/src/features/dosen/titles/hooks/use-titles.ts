@@ -48,7 +48,7 @@ export function useTitles() {
         queryFn: async () => {
             if (!selectedPeriod) return [];
             const res = await api.get('/dosen/groups', { params: { period_id: selectedPeriod } });
-            return (res.data.data || []).filter((group: GroupSummary) => group.period_id?.toString() === selectedPeriod);
+            return (res.data?.data || []).filter((group: GroupSummary) => group.period_id?.toString() === selectedPeriod);
         },
         enabled: !!selectedPeriod && formDialog.open,
     });

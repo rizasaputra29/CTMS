@@ -63,7 +63,7 @@ export function useTaDefense(): UseTaDefenseReturn {
         queryKey: ['admin', 'periods'],
         queryFn: async () => {
             const res = await api.get('/admin/periods');
-            return res.data.data || [];
+            return res.data?.data || [];
         },
         enabled: isEnabled,
     });
@@ -73,7 +73,7 @@ export function useTaDefense(): UseTaDefenseReturn {
         queryFn: async () => {
             const res = await api.get('/admin/users?role=dosen');
             const data = res.data?.data || res.data || [];
-            return Array.isArray(data) ? data : data.data || [];
+            return Array.isArray(data) ? data : [];
         },
         enabled: isEnabled,
     });
@@ -95,7 +95,7 @@ export function useTaDefense(): UseTaDefenseReturn {
                 params.period_id = selectedPeriod;
             }
             const res = await api.get('/admin/ta-defense-schedules', { params });
-            return res.data.data || [];
+            return res.data?.data || [];
         },
         enabled: isEnabled,
     });
@@ -107,7 +107,7 @@ export function useTaDefense(): UseTaDefenseReturn {
             const res = await api.get('/admin/ta-defense-schedules/eligible-students', {
                 params: { period_id: dialogPeriodId },
             });
-            return res.data.data || [];
+            return res.data?.data || [];
         },
         enabled: isEnabled && !!dialogPeriodId,
     });

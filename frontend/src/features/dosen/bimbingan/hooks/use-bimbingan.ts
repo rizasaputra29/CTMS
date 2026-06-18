@@ -27,8 +27,8 @@ const fetchData = async (periodId?: string, groupId?: string): Promise<Bimbingan
         }),
     ]);
     return {
-        groups: groupsRes.data.data || [],
-        documents: docsRes.data.data || [],
+        groups: groupsRes.data?.data || [],
+        documents: docsRes.data?.data || [],
     };
 };
 

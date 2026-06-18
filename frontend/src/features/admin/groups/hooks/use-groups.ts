@@ -49,12 +49,13 @@ export function useGroups(): UseGroupsReturn {
         ]);
 
         setPeriods(periodsRes.data?.data || []);
-        setGroups(groupsRes.data.data || []);
+        setGroups(groupsRes.data?.data || []);
+        const pag = groupsRes.data?.pagination || {};
         setPagination({
-          current_page: groupsRes.data.current_page || 1,
-          last_page: groupsRes.data.last_page || 1,
-          per_page: groupsRes.data.per_page || 10,
-          total: groupsRes.data.total || 0,
+          current_page: pag.current_page || 1,
+          last_page: pag.last_page || 1,
+          per_page: pag.per_page || 10,
+          total: pag.total || 0,
         });
       } catch (error) {
         console.error("Failed to fetch groups data", error);

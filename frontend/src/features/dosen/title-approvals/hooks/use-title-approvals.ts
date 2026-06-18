@@ -33,7 +33,7 @@ export function useTitleApprovals() {
                 : '/dosen/title-approvals';
             const response = await api.get(url);
             return {
-                proposals: (response.data.data || []) as Proposal[],
+                proposals: (response.data?.data || []) as Proposal[],
                 flow: (response.data.flow || null) as LecturerProposalFlow | null,
             };
         },

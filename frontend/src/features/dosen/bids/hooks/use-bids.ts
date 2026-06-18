@@ -30,7 +30,7 @@ export function useBids() {
                 : '/dosen/bids';
             const response = await api.get(url);
             return {
-                bids: (response.data.data || []) as Bid[],
+                bids: (response.data?.data || []) as Bid[],
                 flow: (response.data.flow || null) as LecturerBidsFlow | null,
             };
         },

@@ -141,7 +141,7 @@ export default function StudentAssessmentDetailPage() {
 
                     let found = false;
                     for (const pageRes of results) {
-                        const match = pageRes.data.data.find((s: StudentEvaluations) =>
+                        const match = (pageRes.data?.data || []).find((s: StudentEvaluations) =>
                             s.student_id === parseInt(studentId)
                         );
                         if (match) {
