@@ -97,7 +97,7 @@ export function BimbinganFeature() {
 
     const viewDocument = async (docId: number) => {
         try {
-            const response = await api.get(`/documents/${docId}/download`, {
+            const response = await api.get(`/dosen/documents/${docId}/download`, {
                 responseType: 'blob',
             });
             const blob = new Blob([response.data], {

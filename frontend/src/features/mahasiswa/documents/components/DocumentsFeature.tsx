@@ -54,7 +54,8 @@ export function DocumentsFeature() {
         try {
             // First check group status
             const groupRes = await api.get('/mahasiswa/group');
-            const group = groupRes.data.group;
+            const groupData = groupRes.data?.data ?? groupRes.data;
+            const group = groupData?.group ?? groupData;
             setHasGroup(!!group);
             setGroupStatus(group?.status || null);
 
