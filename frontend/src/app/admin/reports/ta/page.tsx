@@ -1,13 +1,9 @@
 'use client';
 
-import { use } from 'react';
+import { useSearchParams } from 'next/navigation';
 import PhaseReportPage from '../components/PhaseReportPage';
 
-export default function TaReportPage({
-    searchParams,
-}: {
-    searchParams: Promise<{ period_id?: string }>;
-}) {
-    const params = use(searchParams);
-    return <PhaseReportPage phase="ta" periodId={params.period_id} />;
+export default function TaReportPage() {
+    const searchParams = useSearchParams();
+    return <PhaseReportPage phase="ta" periodId={searchParams.get('period_id') || undefined} />;
 }

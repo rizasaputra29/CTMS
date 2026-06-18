@@ -21,12 +21,11 @@ class AuthController extends Controller
         }
 
         $user = User::where('email', $request->email)->with('roles')->firstOrFail();
-        $token = $user->createToken('auth_token')->plainTextToken;
+
+        Auth::guard('web')->login($user);
 
         return $this->successResponse([
             'message' => 'Login success',
-            'access_token' => $token,
-            'token_type' => 'Bearer',
             'user' => $user,
             'roles' => $user->roleSlugs(),
         ]);
@@ -34,7 +33,10 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
+        Auth::guard('web')->logout();
+
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
         return $this->successResponse(null, 'Logged out successfully');
     }

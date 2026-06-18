@@ -16,7 +16,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   activeRole: string | null;
-  login: (token: string, userData: User, roles: string[]) => void;
+  login: (userData: User, roles: string[]) => void;
   logout: () => void;
   switchRole: (role: string) => void;
   isLoading: boolean;
@@ -34,42 +34,34 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const token = localStorage.getItem("token");
         const storedRole = localStorage.getItem("activeRole");
-        if (token) {
-          api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-          const response = await api.get("/user");
-          const userData = response.data.data;
-          setUser(userData);
+        const response = await api.get("/user");
+        const userData = response.data.data;
+        setUser(userData);
 
-          if (storedRole && userData.roles?.includes(storedRole)) {
-            setActiveRole(storedRole);
-          } else if (userData.roles && userData.roles.length > 0) {
-            // For multi-role (admin+dosen), don't set a single activeRole
-            const isCombined =
-              userData.roles.includes("admin") &&
-              userData.roles.includes("dosen");
-            if (isCombined) {
-              setActiveRole("admin"); // Default to admin for compatibility
-            } else {
-              const defaultRole = userData.roles[0];
-              setActiveRole(defaultRole);
-              localStorage.setItem("activeRole", defaultRole);
-            }
+        if (storedRole && userData.roles?.includes(storedRole)) {
+          setActiveRole(storedRole);
+        } else if (userData.roles && userData.roles.length > 0) {
+          const isCombined =
+            userData.roles.includes("admin") &&
+            userData.roles.includes("dosen");
+          if (isCombined) {
+            setActiveRole("admin");
+          } else {
+            const defaultRole = userData.roles[0];
+            setActiveRole(defaultRole);
+            localStorage.setItem("activeRole", defaultRole);
           }
-
-          // Prefetch dashboards for all user roles
-          prefetchAllDashboards(userData.roles || []);
         }
+
+        prefetchAllDashboards(userData.roles || []);
       } catch (error) {
         console.error("Auth check failed", error);
         if (
           api.isAxiosError(error) &&
           [401, 419].includes(error.response?.status ?? 0)
         ) {
-          localStorage.removeItem("token");
           localStorage.removeItem("activeRole");
-          delete api.defaults.headers.common["Authorization"];
           setUser(null);
           setActiveRole(null);
         }
@@ -81,22 +73,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     checkAuth();
   }, []);
 
-  // Helper to set auth cookie for SSR
-  const setAuthCookie = (token: string) => {
-    // Set cookie for server components (2 hours expiration)
-    const expires = new Date(Date.now() + 2 * 60 * 60 * 1000).toUTCString();
-    document.cookie = `auth_token=${token}; expires=${expires}; path=/; SameSite=Strict`;
-  };
-
-  const login = (token: string, userData: User, roles: string[]) => {
-    localStorage.setItem("token", token);
-    api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-    setAuthCookie(token);
-
+  const login = (userData: User, roles: string[]) => {
     const userWithRoles = { ...userData, roles };
     setUser(userWithRoles);
 
-    // Multi-role (admin + dosen) → go to combined dashboard
     if (roles.includes("admin") && roles.includes("dosen")) {
       setActiveRole("admin");
       localStorage.setItem("activeRole", "admin");
@@ -126,13 +106,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (error) {
       console.error("Logout failed", error);
     } finally {
-      localStorage.removeItem("token");
       localStorage.removeItem("activeRole");
       localStorage.removeItem("sidebar_sections");
-      delete api.defaults.headers.common["Authorization"];
-      // Clear auth cookie
-      document.cookie =
-        "auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
       setUser(null);
       setActiveRole(null);
       router.push("/login");

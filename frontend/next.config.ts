@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // output: "export", -- Using next start instead (Node.js on cPanel)
+
   // Turbopack configuration (Next.js 16+)
   turbopack: {
     // Enable persistent caching for faster rebuilds
@@ -26,7 +28,7 @@ const nextConfig: NextConfig = {
     tsconfigPath: "./tsconfig.json",
   },
 
-  // Image optimization (keep default for dev)
+  // Image optimization
   images: {
     unoptimized: process.env.NODE_ENV === "development",
   },
@@ -49,23 +51,6 @@ const nextConfig: NextConfig = {
     fetches: {
       fullUrl: true,
     },
-  },
-
-  // Headers for development
-  async headers() {
-    return process.env.NODE_ENV === "development"
-      ? [
-          {
-            source: "/:path*",
-            headers: [
-              {
-                key: "X-DNS-Prefetch-Control",
-                value: "on",
-              },
-            ],
-          },
-        ]
-      : [];
   },
 
   // Redirect old URLs to new paths

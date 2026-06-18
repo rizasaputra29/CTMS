@@ -36,11 +36,12 @@ export default function LoginForm() {
 
     const onSubmit = async (data: LoginFormData) => {
         try {
-            await api.get('/sanctum/csrf-cookie', { baseURL: 'http://localhost:8000' });
+            await api.get('/sanctum/csrf-cookie', { baseURL: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.sicata.ce.undip.ac.id' });
             const res = await api.post('/login', data);
 
             // Login for all users (single and multi-role) - no role selection dialog
-            login(res.data.data.access_token, res.data.data.user, res.data.data.roles);
+            // Session cookie is set automatically by the server (no token needed)
+            login(res.data.data.user, res.data.data.roles);
             toast.success('Login successful');
         } catch (err: unknown) {
             if (api.isAxiosError(err)) {
@@ -67,10 +68,10 @@ export default function LoginForm() {
         >
             <header className="pt-10 pb-6 flex justify-center px-6">
                 <Link href="/" className="inline-flex items-center gap-3">
-                    <Image src="/logo.png" alt="SITKOM" width={42} height={42} priority />
+                    <Image src="/logo.png" alt="SICATA" width={42} height={42} priority />
                     <div className="leading-tight">
-                        <p className="text-2xl font-bold text-primary-500">SITKOM</p>
-                        <p className="text-xs text-foreground">Sistem Informasi Teknik Komputer</p>
+                        <p className="text-2xl font-bold text-primary-500">SICATA</p>
+                        <p className="text-xs text-foreground">Sistem Capstone dan Tugas Akhir</p>
                     </div>
                 </Link>
             </header>
@@ -195,7 +196,7 @@ export default function LoginForm() {
             </main>
 
             <footer className="px-6 pb-10 text-center text-sm text-muted-foreground">
-                &copy; 2026 SITKOM. All right reserved.
+                &copy; 2026 SICATA. All right reserved.
             </footer>
         </div>
     );

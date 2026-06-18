@@ -1,26 +1,26 @@
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.sicata.ce.undip.ac.id/api';
 
-// Server-safe API call with authentication
+// Server-safe API call with session cookie forwarding
 async function serverFetch(endpoint: string, options: RequestInit = {}) {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  
+  const sessionCookie = cookieStore.get('sicata-session')?.value;
+
   const res = await fetch(`${API_URL}${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token && { Authorization: `Bearer ${token}` }),
+      ...(sessionCookie && { Cookie: `sicata-session=${sessionCookie}` }),
       ...options.headers,
     },
   });
-  
+
   if (!res.ok) {
     throw new Error(`API call failed: ${res.statusText}`);
   }
-  
+
   return res.json();
 }
 

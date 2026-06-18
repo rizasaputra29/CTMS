@@ -17,7 +17,7 @@ import { useAuth } from "@/context/AuthContext"
 export function TopBar() {
   const router = useRouter()
   const pathname = usePathname()
-  const { user, activeRole } = useAuth()
+  const { user, activeRole, logout } = useAuth()
 
   // Generate user initials for avatar
   const generateInitials = (name: string): string => {
@@ -27,8 +27,7 @@ export function TopBar() {
   }
 
   const handleLogout = () => {
-    localStorage.removeItem('token')
-    router.replace('/login')
+    logout()
   }
 
   // Generate breadcrumb from pathname

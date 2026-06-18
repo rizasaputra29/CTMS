@@ -36,10 +36,8 @@ export default function ProfilePage() {
         try {
             const response = await api.put('/profile', { name, email });
             toast.success('Profile updated successfully.');
-            const token = localStorage.getItem('token');
-            if (token) {
-                login(token, response.data.user, response.data.roles || []);
-            }
+            // Session cookie is set by the server; no token to pass
+            login(response.data.user, response.data.roles || []);
         } catch (err: unknown) {
             if (api.isAxiosError(err)) {
                 toast.error(err.response?.data?.message || 'Failed to update profile');

@@ -1,6 +1,6 @@
-# CTMS (Capstone / Tugas Akhir Management System)
+# SICATA (Sistem Capstone dan Tugas Akhir)
 
-**CTMS** adalah sistem manajemen proyek akademik mahasiswa (Capstone Project / Tugas Akhir) yang mendukung seluruh siklus akademik – mulai dari pembentukan grup, penentuan judul (bidding/proposal), bimbingan, evaluasi seminar & sidang, hingga penutupan periode secara terintegrasi.
+**SICATA** adalah sistem manajemen proyek akademik mahasiswa (Capstone Project / Tugas Akhir) yang mendukung seluruh siklus akademik – mulai dari pembentukan grup, penentuan judul (bidding/proposal), bimbingan, evaluasi seminar & sidang, hingga penutupan periode secara terintegrasi.
 
 Sistem ini dirancang untuk tiga aktor utama: **Admin**, **Dosen Pembimbing/Penguji**, dan **Mahasiswa**, dengan kontrol akses berbasis peran (*Role-Based Access Control*) dan alur kerja (*workflow*) yang tersistematis.
 
@@ -78,11 +78,10 @@ Sistem ini dirancang untuk tiga aktor utama: **Admin**, **Dosen Pembimbing/Pengu
 
 Sebelum menginstal, pastikan Anda memiliki:
 
-- **Node.js** (v18+ direkomendasikan)
-- **npm** atau **pnpm**
-- **PHP 8.2** atau lebih tinggi
+- **Bun** (v1.0+ direkomendasikan) - [bun.sh](https://bun.sh)
+- **PHP 8.4** atau lebih tinggi
 - **Composer**
-- **PostgreSQL** atau **SQLite** (untuk dev cepat)
+- **PostgreSQL** (Neon DB atau lokal)
 
 ---
 
@@ -97,10 +96,9 @@ cp .env.example .env
 php artisan key:generate
 ```
 
-Konfigurasi koneksi database di `.env`, lalu jalankan migrasi:
+Konfigurasi koneksi database di `.env` (Neon DB atau PostgreSQL lokal), lalu jalankan migrasi:
 
 ```bash
-touch database/database.sqlite      # jika pakai SQLite
 php artisan migrate --seed
 ```
 
@@ -114,19 +112,20 @@ php artisan serve                   # http://localhost:8000
 
 ```bash
 cd frontend
-npm install                         # atau pnpm install
+bun install
 ```
 
 Buat file `.env.local`:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8000/api
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 Jalankan server:
 
 ```bash
-npm run dev                         # http://localhost:3000
+bun run dev                         # http://localhost:3000
 ```
 
 ---
@@ -151,7 +150,86 @@ php artisan cleanup:import-residue
 
 ---
 
-## 6. Aktor & Alur Singkat
+## 6. Deployment (cPanel)
+
+Arsitektur deployment menggunakan dua subdomain terpisah:
+
+```
+sicata.ce.undip.ac.id        → Frontend (Next.js via Node.js)
+api.sicata.ce.undip.ac.id    → Backend (Laravel API)
+```
+
+### 6.1 Backend Deployment
+
+1. Upload seluruh isi folder `backend/` ke subdomain `api.sicata.ce.undip.ac.id`
+2. Pastikan document root mengarah ke folder `public/`
+3. Jalankan perintah berikut di terminal server:
+
+```bash
+# Install dependencies (production)
+composer install --no-dev --optimize-autoloader
+
+# Konfigurasi environment
+cp .env.example .env
+php artisan key:generate
+
+# Edit .env dengan nilai production:
+# APP_ENV=production
+# APP_DEBUG=false
+# APP_URL=https://api.sicata.ce.undip.ac.id
+# SANCTUM_STATEFUL_DOMAINS=sicata.ce.undip.ac.id
+# SESSION_DOMAIN=.sicata.ce.undip.ac.id
+# SESSION_SECURE_COOKIE=true
+
+# Jalankan migrasi
+php artisan migrate --force
+
+# Optimasi performance
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+
+# Set permissions
+chmod -R 755 storage bootstrap/cache
+```
+
+### 6.2 Frontend Deployment
+
+1. Upload seluruh isi folder `frontend/` ke subdomain `sicata.ce.undip.ac.id`
+2. Jalankan perintah berikut di terminal server:
+
+```bash
+# Install dependencies
+bun install
+
+# Build untuk production
+bun run build
+
+# Jalankan aplikasi (port 3000)
+bun run start
+```
+
+3. Konfigurasi Node.js App di cPanel (jika tersedia):
+   - Application root: `/sicata.ce.undip.ac.id`
+   - Startup file: `node_modules/.bin/next`
+   - Application URL: `sicata.ce.undip.ac.id`
+
+4. Buat file `.env.local` di root frontend:
+
+```env
+NEXT_PUBLIC_API_URL=https://api.sicata.ce.undip.ac.id/api
+NEXT_PUBLIC_APP_URL=https://sicata.ce.undip.ac.id
+```
+
+### 6.3 HTTPS & SSL
+
+- Aktifkan SSL melalui cPanel > SSL/TLS Status
+- Pastikan semua URL menggunakan `https://`
+- CORS dan Sanctum sudah dikonfigurasi untuk domain production
+
+---
+
+## 7. Aktor & Alur Singkat
 
 | Aktor | Aktivitas Utama |
 |-------|----------------|
@@ -163,7 +241,7 @@ php artisan cleanup:import-residue
 
 ---
 
-## 7. Dokumentasi & Referensi
+## 8. Dokumentasi & Referensi
 
 | Dokumen | Deskripsi |
 |---------|-----------|
@@ -176,12 +254,12 @@ php artisan cleanup:import-residue
 
 ---
 
-## 8. Contributing / Berkontribusi
+## 9. Contributing / Berkontribusi
 
 Gunakan *standard Git workflow*: buat branch fitur, commit dengan jelas, buka Pull Request. Pastikan kode frontend sesuai standar Prettier/ESLint dan backend sesuai konvensi Laravel.
 
 ---
 
-## 9. License & Attribution
+## 10. License & Attribution
 
 Proyek ini dikembangkan sebagai capstone project dan sistem manajemen akademik untuk institusi pendidikan.

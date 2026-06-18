@@ -23,8 +23,16 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware) {
-        $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+        // CORS must be first
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
+
+        // Request ID for logging
+        $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
+
+        // CRITICAL: Enable Sanctum stateful API authentication (fixes 401 errors)
+        $middleware->statefulApi();
+
+        // Custom middleware aliases
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'add.token.cookie' => \App\Http\Middleware\AddTokenCookie::class,

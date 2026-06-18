@@ -6,13 +6,22 @@ interface ExtendedAxiosInstance extends AxiosInstance {
   getApiErrorMessage: (error: unknown, defaultMessage?: string) => string;
 }
 
+// Environment-based API URL configuration
+const getApiUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  return "http://148.230.99.31:8000/api";
+};
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api",
+  baseURL: getApiUrl(),
   headers: {
     "Content-Type": "application/json",
     Accept: "application/json",
   },
   withCredentials: true,
+  withXSRFToken: true, // CRITICAL: Required for Sanctum CSRF protection (fixes 401 errors)
 }) as ExtendedAxiosInstance;
 
 // Add isAxiosError helper to api object
@@ -26,17 +35,5 @@ api.getApiErrorMessage = (error: unknown, defaultMessage = 'An error occurred'):
   }
   return defaultMessage;
 };
-
-// Always attach token from localStorage on every request
-// This prevents 401 race conditions when pages load before AuthContext initializes
-api.interceptors.request.use((config) => {
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-  }
-  return config;
-});
 
 export default api;
