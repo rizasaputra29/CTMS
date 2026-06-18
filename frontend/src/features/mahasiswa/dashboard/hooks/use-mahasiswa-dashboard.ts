@@ -83,7 +83,8 @@ export function useMahasiswaDashboard(): UseMahasiswaDashboardReturn {
       if (!statsData?.workflow?.phases) {
         try {
           const workflowRes = await api.get("/mahasiswa/workflow");
-          workflowData = workflowRes.data?.workflow || workflowRes.data;
+          // API returns { status, code, data: { phases, current_phase, is_graduated } }
+          workflowData = workflowRes.data?.data || workflowRes.data;
         } catch {
           // workflow not available yet
         }
