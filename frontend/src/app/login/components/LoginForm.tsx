@@ -36,7 +36,7 @@ export default function LoginForm() {
 
     const onSubmit = async (data: LoginFormData) => {
         try {
-            await api.get('/sanctum/csrf-cookie', { baseURL: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://api.sicata.ce.undip.ac.id' });
+            await api.get('/sanctum/csrf-cookie', { baseURL: process.env.NEXT_PUBLIC_BACKEND_URL || 'https://148.230.99.31:8000' });
             const res = await api.post('/login', data);
 
             // Login for all users (single and multi-role) - no role selection dialog
