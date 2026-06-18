@@ -78,7 +78,8 @@ export function BiddingFeature() {
     const fetchGroup = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/group');
-            setGroup(res.data.group);
+            const data = res.data?.data ?? res.data;
+            setGroup(data?.group ?? null);
         } catch {
             // ignore
         }
@@ -87,10 +88,11 @@ export function BiddingFeature() {
     const fetchBids = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/bids');
-            const fetchedBids = res.data?.data || [];
+            const responseData = res.data?.data ?? res.data;
+            const fetchedBids = responseData?.bids ?? responseData ?? [];
             setBids(fetchedBids);
             setReorderedBids(fetchedBids);
-            setBiddingFlow(res.data.flow || null);
+            setBiddingFlow(res.data?.flow ?? responseData?.flow ?? null);
         } catch (err) {
             console.error('Failed to fetch bids', err);
         } finally {
@@ -101,8 +103,9 @@ export function BiddingFeature() {
     const fetchProposals = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/my-proposal');
-            const fetchedProposals = res.data.proposals || [];
-            setProposals(fetchedProposals.filter((p: ProposalItem) =>
+            const data = res.data?.data ?? res.data;
+            const fetchedProposals = data?.proposals ?? [];
+            setProposals((fetchedProposals ?? []).filter((p: ProposalItem) =>
                 ['PENDING', 'UNDER_REVIEW', 'APPROVED'].includes(p.supervisor_approval_status)
             ));
         } catch (err) {
@@ -279,10 +282,10 @@ export function BiddingFeature() {
                         </AlertDescription>
                     </Alert>
                 ) : null}
-                {bids.length > 0 && (
+                {(bids ?? []).length > 0 && (
                     <div className="grid gap-4">
                         <h2 className="text-lg font-semibold">Current Bids</h2>
-                        {bids.sort((a, b) => a.priority - b.priority).map((bid) => (
+                        {(bids ?? []).sort((a, b) => a.priority - b.priority).map((bid) => (
                             <Card key={bid.id}>
                                 <CardHeader className="pb-3">
                                     <div className="flex items-start justify-between">
@@ -381,14 +384,14 @@ export function BiddingFeature() {
                 </div>
             ) : (
                 <div className="space-y-6">
-                    {proposals.length > 0 && (
+                    {(proposals ?? []).length > 0 && (
                         <div>
                             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
                                 <Badge variant="secondary" className="bg-blue-100 text-blue-800">Proposal</Badge>
                                 Judul yang Anda Usulkan
                             </h2>
                             <div className="grid gap-4">
-                                {proposals.map((proposal) => (
+                                {(proposals ?? []).map((proposal) => (
                                     <Card key={proposal.id} className="relative border-l-4 border-l-blue-500">
                                         <CardHeader className="pb-3">
                                             <div className="flex items-start justify-between">
@@ -410,14 +413,14 @@ export function BiddingFeature() {
                         </div>
                     )}
 
-                    {bids.length > 0 && (
+                    {(bids ?? []).length > 0 && (
                         <div>
                             <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
                                 <Badge variant="default" className="bg-green-100 text-green-800">Bid</Badge>
                                 Judul yang Anda Bidding
                             </h2>
                             <div className="grid gap-4">
-                                {reorderedBids.sort((a, b) => a.priority - b.priority).map((bid, index) => {
+                                {(reorderedBids ?? []).sort((a, b) => a.priority - b.priority).map((bid, index) => {
                                     const isAccepted = bid.lecturer_recommendation === 'ACCEPT';
 
                                     return (
@@ -529,9 +532,9 @@ export function BiddingFeature() {
                                                 <SelectValue placeholder="Select a title..." />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {availableTitles.map(t => (
+                                                {(availableTitles ?? []).map(t => (
                                                     <SelectItem key={t.id} value={t.id.toString()}>
-                                                        {t.title} — {t.lecturer.name}
+                                                        {t.title} — {t.lecturer?.name}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -545,9 +548,9 @@ export function BiddingFeature() {
                                 <FieldLabel>Priority</FieldLabel>
                                 <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md border">
                                     <Badge variant="outline" className="bg-background">Auto</Badge>
-                                    <span className="font-semibold text-lg">#{bids.length + 1}</span>
+                                    <span className="font-semibold text-lg">#{(bids ?? []).length + 1}</span>
                                     <span className="text-sm text-muted-foreground">
-                                        (akan menjadi prioritas ke-{bids.length + 1})
+                                        (akan menjadi prioritas ke-{(bids ?? []).length + 1})
                                     </span>
                                 </div>
                             </Field>

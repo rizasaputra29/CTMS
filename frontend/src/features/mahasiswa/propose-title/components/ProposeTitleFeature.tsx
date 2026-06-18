@@ -193,7 +193,8 @@ export function ProposeTitleFeature() {
 
         try {
             const res = await api.delete(`/mahasiswa/proposal/${proposalId}`);
-            toast.success(res.data.message || 'Proposal dibatalkan');
+            const data = res.data?.data ?? res.data;
+            toast.success(data?.message || 'Proposal dibatalkan');
             fetchData();
         } catch (error) {
             if (api.isAxiosError(error)) {

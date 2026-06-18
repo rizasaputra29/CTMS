@@ -191,7 +191,7 @@ export function DocumentsFeature() {
 
         if (docSearch) {
             const q = docSearch.toLowerCase();
-            filtered = filtered.filter(doc =>
+            filtered = (filtered ?? []).filter(doc =>
                 (PHASE_LABELS[doc.phase] || doc.phase).toLowerCase().includes(q) ||
                 (doc.document_type || 'General').toLowerCase().includes(q) ||
                 doc.status.toLowerCase().includes(q) ||
@@ -416,7 +416,7 @@ export function DocumentsFeature() {
                                             Berikut penguji yang belum menyelesaikan penilaian:
                                         </p>
                                         <ul className="mt-2 space-y-2">
-                                            {req.seminar_schedule.examiner_evaluations.examiners
+                                            {(req.seminar_schedule.examiner_evaluations.examiners ?? [])
                                                 .filter((e) => e.status !== 'SUBMITTED')
                                                 .map((e) => (
                                                     <li key={e.id} className="flex items-center gap-2">
@@ -450,7 +450,7 @@ export function DocumentsFeature() {
                                             Penilaian BIMBINGAN_SEMPRO dari dosen pembimbing masih menunggu:
                                         </p>
                                         <ul className="mt-2 space-y-2">
-                                            {req.seminar_schedule.supervisor_bimbingan.supervisors
+                                            {(req.seminar_schedule.supervisor_bimbingan.supervisors ?? [])
                                                 .filter((s) => s.status === 'pending')
                                                 .map((s) => (
                                                     <li key={s.id} className="flex items-center gap-2">
@@ -526,7 +526,7 @@ export function DocumentsFeature() {
                                         <div key={block.required} className="mt-3 first:mt-2">
                                             <p className="font-medium">Jenis nilai: {block.required}</p>
                                             <ul className="mt-1 space-y-2">
-                                                {block.supervisors
+                                                {(block.supervisors ?? [])
                                                     .filter((s) => s.status === 'pending')
                                                     .map((s) => (
                                                         <li key={`${block.required}-${s.id}`} className="flex items-center gap-2">
@@ -583,7 +583,7 @@ export function DocumentsFeature() {
 
                     <div className="bg-white rounded-xl border border-gray-100 p-5 shadow-sm">
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                            {workflow.phases.map((phaseInfo) => {
+                            {(workflow?.phases ?? []).map((phaseInfo) => {
                                 const isActive = phaseInfo.phase === workflow.current_phase;
                                 const isCompleted = phaseInfo.status === 'completed';
                                 const isLocked = phaseInfo.status === 'locked';
@@ -608,8 +608,8 @@ export function DocumentsFeature() {
                                                         {PHASE_LABELS[phaseInfo.phase] || phaseInfo.phase}
                                                     </span>
                                                     <div className="flex flex-col items-center gap-1 w-full">
-                                                        {phaseInfo.required_types.length > 1 ? (
-                                                            phaseInfo.documents.map((d) => {
+                                                        {(phaseInfo.required_types ?? []).length > 1 ? (
+                                                            (phaseInfo.documents ?? []).map((d) => {
                                                                 const canUploadType = canUploadPhase && d.status !== 'APPROVED';
                                                                 return (
                                                                     <div key={d.type} className="flex flex-col items-center gap-0.5 w-full">

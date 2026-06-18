@@ -64,29 +64,32 @@ export function PeerReviewFeature() {
         api.get('/mahasiswa/peer-review/my-status')
       ]);
 
-      setMembers(formRes.data.members || []);
-      setIndicators(formRes.data.indicators || []);
-      setCurrentUser(formRes.data.current_user_id || null);
-      setIsLocked(formRes.data.is_locked || false);
-      setHasSubmitted(formRes.data.has_submitted || false);
-      setHasGroup(true);
-      setMyStatus(statusRes.data);
+      const formData = formRes.data?.data ?? formRes.data;
+      const statusData = statusRes.data?.data ?? statusRes.data;
 
-      if (formRes.data.group) {
+      setMembers(formData?.members ?? []);
+      setIndicators(formData?.indicators ?? []);
+      setCurrentUser(formData?.current_user_id ?? null);
+      setIsLocked(formData?.is_locked ?? false);
+      setHasSubmitted(formData?.has_submitted ?? false);
+      setHasGroup(true);
+      setMyStatus(statusData);
+
+      if (formData?.group) {
         setGroupInfo({
-          name: formRes.data.group.name,
-          code: formRes.data.group.code || `Group ${formRes.data.group.id}`,
-          title: formRes.data.group.title,
+          name: formData.group.name,
+          code: formData.group.code || `Group ${formData.group.id}`,
+          title: formData.group.title,
         });
       }
 
       // Initialize scores from existing reviews
       const initial: typeof scores = {};
-      for (const m of (formRes.data.members || [])) {
-        if (m.student.id === formRes.data.current_user_id) continue;
+      for (const m of (formData?.members ?? [])) {
+        if (m.student.id === formData?.current_user_id) continue;
         initial[m.student.id] = {};
-        for (const ind of (formRes.data.indicators || [])) {
-          const existing = (formRes.data.existing_reviews || []).find(
+        for (const ind of (formData?.indicators ?? [])) {
+          const existing = (formData?.existing_reviews ?? []).find(
             (r: ExistingReview) => r.reviewee_id === m.student.id && r.period_indicator_id === ind.id
           );
           initial[m.student.id][ind.id] = {
@@ -187,7 +190,7 @@ export function PeerReviewFeature() {
     return totalWeight > 0 ? (totalWeighted / totalWeight).toFixed(1) : '0.0';
   };
 
-  const reviewableMembers = members.filter(m => m.student.id !== currentUser);
+  const reviewableMembers = (members ?? []).filter(m => m.student.id !== currentUser);
 
   const calculateTotalWeightedAvg = () => {
     let totalScore = 0;
@@ -300,7 +303,7 @@ export function PeerReviewFeature() {
                   <Separator className="bg-primary/10" />
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground uppercase font-semibold">Members</Label>
-                    {members.map((member) => (
+                    {(members ?? []).map((member) => (
                       <div key={member.student.id} className="flex items-center gap-3 bg-background p-2 rounded-lg border border-primary/5 shadow-sm">
                         <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                           {member.student.name.charAt(0)}

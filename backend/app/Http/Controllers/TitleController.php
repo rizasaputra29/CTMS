@@ -32,18 +32,20 @@ class TitleController extends Controller
         }
 
         if ($user->hasRole('dosen')) {
-            return $query->where('lecturer_id', $user->id)
-                ->withCount([
-                    'groups as active_groups_count' => function ($query) {
-                        $query->where('status', '!=', 'REJECTED');
-                    },
-                ])
-                ->get();
+            return $this->successResponse(
+                $query->where('lecturer_id', $user->id)
+                    ->withCount([
+                        'groups as active_groups_count' => function ($query) {
+                            $query->where('status', '!=', 'REJECTED');
+                        },
+                    ])
+                    ->get()
+            );
         }
 
         if ($user->hasRole('mahasiswa')) {
             // Students see LECTURER titles AND approved STUDENT titles
-            return $query->where('status', 'open')
+            $titles = $query->where('status', 'open')
                 ->where('is_reserved', false)
                 ->where(function ($query) {
                     // Include LECTURER titles with quota > 0
@@ -87,9 +89,11 @@ class TitleController extends Controller
                     return true;
                 })
                 ->values();
+
+            return $this->successResponse($titles);
         }
 
-        return $query->get();
+        return $this->successResponse($query->get());
     }
 
     public function store(Request $request)
@@ -196,12 +200,14 @@ class TitleController extends Controller
 
     public function show(Title $title)
     {
-        return $title->load([
-            'lecturer',
-            'groups' => function ($q) {
-                $q->where('status', '!=', 'REJECTED')->with('members.student');
-            },
-        ]);
+        return $this->successResponse(
+            $title->load([
+                'lecturer',
+                'groups' => function ($q) {
+                    $q->where('status', '!=', 'REJECTED')->with('members.student');
+                },
+            ])
+        );
     }
 
     public function update(Request $request, Title $title)

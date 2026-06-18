@@ -114,7 +114,9 @@ export function TitlesMarketplaceFeature() {
             const bursaRes = await api.get(`/mahasiswa/bursa-ide?period_id=${periodId}`);
 
             // Single endpoint returns both lecturer and student titles
-            const allTitles = titlesRes.data || [];
+            // TitleController.index returns raw Eloquent collection (unwrapped) or wrapped response
+            const allTitlesRaw = titlesRes.data?.data ?? titlesRes.data ?? [];
+            const allTitles = Array.isArray(allTitlesRaw) ? allTitlesRaw : [];
 
             // Filter lecturer titles (title_source = 'LECTURER' or null)
             const lecturerOnly = allTitles.filter((t: LecturerTitle) =>
@@ -127,7 +129,8 @@ export function TitlesMarketplaceFeature() {
             setStudentIdeas(studentOnly);
 
             // Can request join if user has no group or is a solo seeker leader
-            const userGroup = groupRes.data?.group ?? null;
+            const groupData = groupRes.data?.data ?? groupRes.data;
+            const userGroup = groupData?.group ?? groupData ?? null;
             setGroup(userGroup);
 
             // Determine if user can request to join
@@ -137,8 +140,9 @@ export function TitlesMarketplaceFeature() {
             setCanRequestJoin(canJoin);
 
             // Get pending requests from group data if available
-            setMyPendingRequests(bursaRes.data?.my_pending_requests || userGroup?.pending_join_requests || []);
-            setBursaFlow(bursaRes.data?.flow || null);
+            const bursaData = bursaRes.data?.data ?? bursaRes.data;
+            setMyPendingRequests(bursaData?.my_pending_requests || userGroup?.pending_join_requests || []);
+            setBursaFlow(bursaData?.flow || null);
         } catch (error) {
             if (axios.isAxiosError(error) && error.response?.status === 401) {
                 toast.error('Sesi Anda sudah habis. Silakan masuk kembali.');
@@ -221,7 +225,7 @@ export function TitlesMarketplaceFeature() {
     };
 
     const filteredLecturerTitles = useMemo(() => {
-        let result = lecturerTitles;
+        let result = lecturerTitles ?? [];
         if (search) {
             const q = search.toLowerCase();
             result = result.filter(t =>
@@ -245,7 +249,7 @@ export function TitlesMarketplaceFeature() {
             // Hide if current group reached max members with this title
             if (group && group.title_id === title.id) {
                 const maxSize = group.period?.max_group_size || 4;
-                if (group.members.length >= maxSize) {
+                if ((group.members ?? []).length >= maxSize) {
                     return false;
                 }
             }
@@ -262,7 +266,7 @@ export function TitlesMarketplaceFeature() {
     }, [lecturerTitles, search, filterSpecs, group]);
 
     const filteredStudentIdeas = useMemo(() => {
-        let result = studentIdeas;
+        let result = studentIdeas ?? [];
         if (search) {
             const q = search.toLowerCase();
             result = result.filter(t =>
@@ -406,7 +410,7 @@ export function TitlesMarketplaceFeature() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredLecturerTitles.map(title => (
+                                    {(filteredLecturerTitles ?? []).map(title => (
                                         <TableRow key={title.id} className="group cursor-pointer hover:bg-muted/30" onClick={() => window.location.href = `/mahasiswa/titles/${title.id}`}>
                                             <TableCell className="font-medium max-w-[350px]">
                                                 <div className="line-clamp-2">{title.title}</div>
@@ -473,7 +477,7 @@ export function TitlesMarketplaceFeature() {
                         </div>
                     ) : (
                         <div className="grid gap-4 md:grid-cols-2">
-                            {filteredStudentIdeas.map((title) => {
+                            {(filteredStudentIdeas ?? []).map((title) => {
                                 const groupInfo = title.proposed_by_group;
                                 const maxMembers = 4; // Hardcoded default or from system
                                 const currentCount = groupInfo?.members?.length || 0;
@@ -486,7 +490,7 @@ export function TitlesMarketplaceFeature() {
                                             <div className="flex justify-between items-start">
                                                 <div className="space-y-1">
                                                     <CardTitle className="text-base line-clamp-1">{title.title}</CardTitle>
-                                                    <CardDescription className="text-xs">By {groupInfo?.members?.find(m => m.is_leader)?.student.name}</CardDescription>
+                                                    <CardDescription className="text-xs">By {(groupInfo?.members ?? []).find(m => m.is_leader)?.student.name}</CardDescription>
                                                 </div>
                                                 <Badge variant={spots > 0 ? "secondary" : "destructive"}>
                                                     {spots > 0 ? `${spots} slots` : 'FULL'}

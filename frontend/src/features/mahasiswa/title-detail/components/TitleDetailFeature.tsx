@@ -27,8 +27,9 @@ export function TitleDetailFeature() {
                     api.get(`/mahasiswa/titles/${params.id}`),
                     api.get('/mahasiswa/group'),
                 ]);
-                setTitle(titleRes.data);
-                setGroup(groupRes.data?.group || groupRes.data);
+                setTitle(titleRes.data?.data ?? titleRes.data);
+                const groupData = groupRes.data?.data ?? groupRes.data;
+                setGroup(groupData?.group ?? groupData);
             } catch (error) {
                 toast.error('Failed to load title details');
                 console.error(error);

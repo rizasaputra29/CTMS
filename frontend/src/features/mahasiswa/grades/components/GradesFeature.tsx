@@ -124,7 +124,7 @@ export function GradesFeature() {
 
     useEffect(() => {
         api.get('/mahasiswa/my-grades')
-            .then((res) => setResult(res.data as ApiResponse))
+            .then((res) => setResult((res.data?.data ?? res.data) as ApiResponse))
             .catch(() => toast.error('Gagal memuat nilai'))
             .finally(() => setLoading(false));
     }, []);

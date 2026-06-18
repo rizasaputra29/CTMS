@@ -24,7 +24,7 @@ export function ExpoFeature() {
     const fetchEvents = useCallback(async () => {
         try {
             const res = await api.get('/mahasiswa/expo-events');
-            setEvents(res.data || []);
+            setEvents(res.data?.data ?? res.data ?? []);
         } catch (err) {
             console.error('Failed to fetch expo events', err);
         } finally {

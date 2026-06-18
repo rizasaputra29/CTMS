@@ -292,17 +292,17 @@ export function TaSubmissionFeature() {
 
   const getDocumentStatus = (documentType: string) => {
     if (!statusData) return null;
-    return statusData.documents.find(d => d.document_type === documentType);
+    return (statusData.documents ?? []).find(d => d.document_type === documentType);
   };
 
   const getApprovedCount = () => {
     if (!statusData) return 0;
-    return statusData.documents.filter(d => d.status === 'APPROVED').length;
+    return (statusData.documents ?? []).filter(d => d.status === 'APPROVED').length;
   };
 
   const getRequiredCount = () => {
     if (!statusData) return 0;
-    return statusData.document_requirements.filter(r => r.is_required).length;
+    return (statusData.document_requirements ?? []).filter(r => r.is_required).length;
   };
 
   // Helper functions for grade display
@@ -353,7 +353,7 @@ export function TaSubmissionFeature() {
                 <div className="mb-2">
                   <p className="font-medium">Dokumen EXPO belum lengkap/disetujui:</p>
                   <ul className="mt-1 list-disc pl-5 space-y-1">
-                    {readiness.expo_documents.pending_types.map((t) => (
+                    {(readiness.expo_documents.pending_types ?? []).map((t) => (
                       <li key={t}>{t}</li>
                     ))}
                   </ul>
@@ -372,7 +372,7 @@ export function TaSubmissionFeature() {
                 <div className="mb-2">
                   <p className="font-medium">Menunggu NILAI_DOSEN dosen pembimbing:</p>
                   <ul className="mt-1 space-y-1">
-                    {readiness.nilai_dosen.supervisors
+                    {(readiness.nilai_dosen.supervisors ?? [])
                       .filter((s) => s.status === 'pending')
                       .map((s) => (
                         <li key={s.id}>
@@ -389,7 +389,7 @@ export function TaSubmissionFeature() {
                 <div className="mb-2">
                   <p className="font-medium">Menunggu penilaian MILESTONE dosen pembimbing:</p>
                   <ul className="mt-1 space-y-1">
-                    {readiness.milestone.supervisors
+                    {(readiness.milestone.supervisors ?? [])
                       .filter((s) => s.status === 'pending')
                       .map((s) => (
                         <li key={s.id}>
@@ -406,7 +406,7 @@ export function TaSubmissionFeature() {
                 <div className="mb-2">
                   <p className="font-medium">Menunggu evaluasi EXPO dari dosen pembimbing:</p>
                   <ul className="mt-1 space-y-1">
-                    {readiness.expo_evaluation.supervisors
+                    {(readiness.expo_evaluation.supervisors ?? [])
                       .filter((s) => s.status === 'pending')
                       .map((s) => (
                         <li key={s.id}>
@@ -429,7 +429,7 @@ export function TaSubmissionFeature() {
                     Progress: {readiness.peer_review.completed_members}/{readiness.peer_review.total_members} mahasiswa selesai.
                   </p>
                   <ul className="mt-1 space-y-1">
-                    {readiness.peer_review.incomplete_students.map((s) => (
+                    {(readiness.peer_review.incomplete_students ?? []).map((s) => (
                       <li key={s.student_id}>
                         {s.student_name} ({s.student_nim})
                       </li>
@@ -650,7 +650,7 @@ export function TaSubmissionFeature() {
               </Alert>
             ) : (
               <div className="space-y-3">
-                {statusData.document_requirements
+                {(statusData.document_requirements ?? [])
                   .filter(req => req.is_required)
                   .map((req) => {
                     const doc = getDocumentStatus(req.name);
@@ -797,7 +797,7 @@ export function TaSubmissionFeature() {
                       Nilai Penguji (SIDANG_TA)
                     </h4>
                     <div className="space-y-2">
-                      {gradesData.components.SIDANG_TA.evaluators.map((evaluator, idx) => (
+                      {(gradesData.components.SIDANG_TA.evaluators ?? []).map((evaluator, idx) => (
                         <div key={idx} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-gray-500" />
@@ -829,7 +829,7 @@ export function TaSubmissionFeature() {
                       Nilai Pembimbing (BIMBINGAN_TA)
                     </h4>
                     <div className="space-y-2">
-                      {gradesData.components.BIMBINGAN_TA.evaluators.map((evaluator, idx) => (
+                      {(gradesData.components.BIMBINGAN_TA.evaluators ?? []).map((evaluator, idx) => (
                         <div key={idx} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg">
                           <div className="flex items-center gap-2">
                             <User className="h-4 w-4 text-gray-500" />
