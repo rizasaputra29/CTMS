@@ -271,15 +271,20 @@ export function useUsers(): UseUsersReturn {
     [kickMutation]
   );
 
+  // Backend ApiResponseTrait wraps: { success, message, data: [...], pagination: {...} }
+  // paginatedResponse puts data array in .data and pagination in .pagination
+  const userData = usersResponse?.data ?? [];
+  const paginationInfo = usersResponse?.pagination ?? {};
+
   return {
-    users: usersResponse?.data ?? [],
+    users: Array.isArray(userData) ? userData : [],
     loading,
-    pagination: usersResponse
+    pagination: paginationInfo.current_page != null
       ? {
-          current_page: usersResponse.current_page,
-          last_page: usersResponse.last_page,
-          per_page: usersResponse.per_page,
-          total: usersResponse.total,
+          current_page: paginationInfo.current_page,
+          last_page: paginationInfo.last_page,
+          per_page: paginationInfo.per_page,
+          total: paginationInfo.total,
         }
       : pagination,
     filters,

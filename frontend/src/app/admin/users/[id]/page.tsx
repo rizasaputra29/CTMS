@@ -46,8 +46,10 @@ function generateInitials(name: string): string {
 }
 
 function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })
+  if (!dateStr) return '-';
+  const date = new Date(dateStr);
+  if (isNaN(date.getTime())) return '-';
+  return date.toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" });
 }
 
 function getRoleSlugs(user: UserDetail): string[] {
@@ -73,17 +75,27 @@ function getRoleLabel(slug: string): string {
 
 export default function UserDetailPage() {
   const router = useRouter()
-  const { id } = useParams()
+  const params = useParams()
+  const id = Array.isArray(params.id) ? params.id[0] : params.id
   const [user, setUser] = useState<UserDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedRoles, setSelectedRoles] = useState<string[]>([])
 
   useEffect(() => {
     async function fetchUser() {
+      if (!id) {
+        toast.error("Invalid user ID")
+        router.push("/admin/users")
+        return
+      }
       try {
         setLoading(true)
         const response = await api.get(`/admin/users/${id}`)
-        const data = response.data
+        // ApiResponseTrait wraps: { success, message, data: {...} }
+        const data = response.data?.data ?? response.data
+        if (!data || !data.id) {
+          throw new Error("No user data received")
+        }
         setUser(data)
         const slugs = data.roles && data.roles.length > 0
           ? data.roles.map((r: Role) => r.slug)
@@ -96,7 +108,7 @@ export default function UserDetailPage() {
         setLoading(false)
       }
     }
-    if (id) fetchUser()
+    fetchUser()
   }, [id, router])
 
   async function handleDelete() {
