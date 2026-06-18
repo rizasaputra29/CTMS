@@ -74,7 +74,8 @@ export function TitlesMarketplaceFeature() {
     const fetchRegisteredPeriod = useCallback(async () => {
         try {
             const response = await api.get('/mahasiswa/my-period');
-            const periodData = response.data?.period;
+            const responseData = response.data?.data ?? response.data;
+            const periodData = responseData?.period;
 
             if (!periodData) {
                 toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');

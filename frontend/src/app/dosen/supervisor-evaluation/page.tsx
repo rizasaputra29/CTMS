@@ -197,11 +197,11 @@ export default function SupervisorEvaluationPage() {
   }, [fetchData, fetchPeriods]);
 
   const filteredSchedules = useMemo(() => {
-    let result = schedules;
+    let result = schedules ?? [];
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((s) =>
-        s.group.code.toLowerCase().includes(q) || s.group.name.toLowerCase().includes(q)
+        s.group?.code?.toLowerCase().includes(q) || s.group?.name?.toLowerCase().includes(q)
       );
     }
     result = result.filter((schedule) => {
@@ -214,20 +214,20 @@ export default function SupervisorEvaluationPage() {
   }, [schedules, statusFilter, searchQuery]);
 
   const filteredGroups = useMemo(() => {
-    let result = groups;
+    let result = groups ?? [];
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((g) =>
-        g.code.toLowerCase().includes(q) || g.name.toLowerCase().includes(q)
+        g.code?.toLowerCase().includes(q) || g.name?.toLowerCase().includes(q)
       );
     }
     result = result.filter((group) => {
       if (statusFilter === 'all') return true;
       if (statusFilter === 'pending') {
-        return Object.values(group.evaluations).some((e) => e.status === 'pending' || e.status === 'partial');
+        return Object.values(group.evaluations ?? {}).some((e) => e.status === 'pending' || e.status === 'partial');
       }
       if (statusFilter === 'completed') {
-        return Object.values(group.evaluations).every((e) => e.status === 'completed');
+        return Object.values(group.evaluations ?? {}).every((e) => e.status === 'completed');
       }
       return true;
     });
@@ -237,19 +237,19 @@ export default function SupervisorEvaluationPage() {
   // Compute counts for status tabs (pre-search, pre-status filter for accuracy)
   const pendingCount = useMemo(() => {
     if (viewMode === 'schedule') {
-      return schedules.filter((s) => s.status === 'PENDING' || s.status === 'PARTIAL').length;
+      return (schedules ?? []).filter((s) => s.status === 'PENDING' || s.status === 'PARTIAL').length;
     }
-    return groups.filter((g) =>
-      Object.values(g.evaluations).some((e) => e.status === 'pending' || e.status === 'partial')
+    return (groups ?? []).filter((g) =>
+      Object.values(g.evaluations ?? {}).some((e) => e.status === 'pending' || e.status === 'partial')
     ).length;
   }, [viewMode, schedules, groups]);
 
   const completedCount = useMemo(() => {
     if (viewMode === 'schedule') {
-      return schedules.filter((s) => s.status === 'COMPLETED').length;
+      return (schedules ?? []).filter((s) => s.status === 'COMPLETED').length;
     }
-    return groups.filter((g) =>
-      Object.values(g.evaluations).every((e) => e.status === 'completed')
+    return (groups ?? []).filter((g) =>
+      Object.values(g.evaluations ?? {}).every((e) => e.status === 'completed')
     ).length;
   }, [viewMode, schedules, groups]);
 
@@ -257,10 +257,10 @@ export default function SupervisorEvaluationPage() {
     return viewMode === 'schedule' ? schedules.length : groups.length;
   }, [viewMode, schedules, groups]);
 
-  const todaySchedules = filteredSchedules.filter((s) => s.date && isToday(parseISO(s.date)));
-  const upcomingSchedules = filteredSchedules.filter((s) => s.date && isFuture(parseISO(s.date)) && !isToday(parseISO(s.date)));
-  const pastSchedules = filteredSchedules.filter((s) => s.date && isPast(parseISO(s.date)) && !isToday(parseISO(s.date)));
-  const unscheduledEvaluations = filteredSchedules.filter((s) => !s.date);
+  const todaySchedules = (filteredSchedules ?? []).filter((s) => s.date && isToday(parseISO(s.date)));
+  const upcomingSchedules = (filteredSchedules ?? []).filter((s) => s.date && isFuture(parseISO(s.date)) && !isToday(parseISO(s.date)));
+  const pastSchedules = (filteredSchedules ?? []).filter((s) => s.date && isPast(parseISO(s.date)) && !isToday(parseISO(s.date)));
+  const unscheduledEvaluations = (filteredSchedules ?? []).filter((s) => !s.date);
 
   const handleEvaluate = (groupId: number, type: string) => {
     router.push(`/dosen/supervisor-evaluation/${groupId}?type=${type}`);

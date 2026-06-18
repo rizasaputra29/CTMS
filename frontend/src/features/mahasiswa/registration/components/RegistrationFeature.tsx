@@ -40,8 +40,9 @@ export function RegistrationFeature() {
 
             // Check if already registered
             const registrationRes = await api.get('/mahasiswa/my-period');
-            if (registrationRes.data?.period) {
-                setRegisteredPeriodId(registrationRes.data.period.id);
+            const registrationData = registrationRes.data?.data ?? registrationRes.data;
+            if (registrationData?.period) {
+                setRegisteredPeriodId(registrationData.period.id);
             }
         } catch (error) {
             console.error('Failed to fetch data', error);

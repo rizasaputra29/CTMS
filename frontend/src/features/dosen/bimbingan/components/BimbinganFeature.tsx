@@ -60,13 +60,13 @@ export function BimbinganFeature() {
     };
 
     const filteredDocuments = useMemo(() => {
-        if (!searchQuery) return documents;
+        if (!searchQuery) return documents ?? [];
         const q = searchQuery.toLowerCase();
-        return documents.filter(
+        return (documents ?? []).filter(
             (doc) =>
-                doc.student?.name.toLowerCase().includes(q) ||
-                doc.group?.title?.title.toLowerCase().includes(q) ||
-                doc.phase.toLowerCase().includes(q)
+                doc.student?.name?.toLowerCase().includes(q) ||
+                doc.group?.title?.title?.toLowerCase().includes(q) ||
+                doc.phase?.toLowerCase().includes(q)
         );
     }, [documents, searchQuery]);
 
@@ -97,7 +97,7 @@ export function BimbinganFeature() {
 
     const viewDocument = async (docId: number) => {
         try {
-            const response = await api.get(`/dosen/documents/${docId}/download`, {
+            const response = await api.get(`/documents/${docId}/download`, {
                 responseType: 'blob',
             });
             const blob = new Blob([response.data], {

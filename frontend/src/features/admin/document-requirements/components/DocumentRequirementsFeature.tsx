@@ -134,10 +134,10 @@ export function DocumentRequirementsFeature() {
     );
 
     const filteredSummaries = useMemo(() => {
-        let filtered = summaries.filter(
+        let filtered = (summaries ?? []).filter(
             (s) =>
-                s.phase.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                s.document_names.some((name) => name.toLowerCase().includes(searchQuery.toLowerCase()))
+                s.phase?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                (s.document_names ?? []).some((name) => name?.toLowerCase().includes(searchQuery.toLowerCase()))
         );
 
         filtered = [...filtered].sort((a, b) => {

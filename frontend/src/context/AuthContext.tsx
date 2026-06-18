@@ -60,10 +60,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         prefetchAllDashboards(userData.roles || []);
       } catch (error) {
         console.error("Auth check failed", error);
-        if (
-          api.isAxiosError(error) &&
-          [401, 419].includes(error.response?.status ?? 0)
-        ) {
+        // Defensive error checking
+        const status = api.isAxiosError(error)
+          ? (error.response?.status ?? 0)
+          : 0;
+        if ([401, 419].includes(status)) {
           localStorage.removeItem("activeRole");
           setUser(null);
           setActiveRole(null);

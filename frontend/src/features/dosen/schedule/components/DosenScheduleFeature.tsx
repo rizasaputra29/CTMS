@@ -156,7 +156,7 @@ export function DosenScheduleFeature() {
     };
 
     const watchMode = form.watch('mode');
-    const offlineLocations = locations.filter((l) => l.type === 'offline');
+    const offlineLocations = (locations ?? []).filter((l) => l.type === 'offline');
 
     const scheduleStats = useMemo(() => {
         const stats: Record<string, number> = {};

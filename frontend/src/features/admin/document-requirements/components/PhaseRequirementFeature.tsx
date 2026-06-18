@@ -65,7 +65,7 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
     const isPeriodFinalized = selectedPeriod?.is_finalized ?? false;
 
     const baseItems = useMemo<DisplayItem[]>(() => {
-        return requirements
+        return (requirements ?? [])
             .filter((r) => r.phase === phase)
             .map((r, index) => ({
                 ...r,
@@ -167,7 +167,7 @@ export function PhaseRequirementFeature({ phase }: PhaseRequirementFeatureProps)
             toast.error('Please select a period');
             return;
         }
-        const otherPhases = requirements.filter((r) => r.phase !== phase);
+        const otherPhases = (requirements ?? []).filter((r) => r.phase !== phase);
         const updatedBase = baseItems
             .filter((item) => !deletions.has(item.__baseIndex!))
             .map((item) => ({
