@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 
 class AssessmentComponentTemplateController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * List all assessment component templates (bank soal).
      */
@@ -17,7 +19,7 @@ class AssessmentComponentTemplateController extends Controller
             ->orderBy('code')
             ->get();
 
-        return response()->json(['data' => $templates]);
+        return $this->successResponse($templates);
     }
 
     /**
@@ -37,7 +39,7 @@ class AssessmentComponentTemplateController extends Controller
 
         $template = AssessmentComponentTemplate::create($data);
 
-        return response()->json($template, 201);
+        return $this->createdResponse($template);
     }
 
     /**
@@ -47,7 +49,7 @@ class AssessmentComponentTemplateController extends Controller
     {
         $template = AssessmentComponentTemplate::findOrFail($id);
 
-        return response()->json(['data' => $template]);
+        return $this->successResponse($template);
     }
 
     /**
@@ -68,7 +70,7 @@ class AssessmentComponentTemplateController extends Controller
 
         $template->update($data);
 
-        return response()->json($template);
+        return $this->successResponse($template);
     }
 
     /**
@@ -84,13 +86,11 @@ class AssessmentComponentTemplateController extends Controller
             // Soft delete by marking inactive
             $template->update(['is_active' => false]);
 
-            return response()->json([
-                'message' => 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)',
-            ]);
+            return $this->successResponse(null, 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)');
         }
 
         $template->delete();
 
-        return response()->json(['message' => 'Template deleted']);
+        return $this->successResponse(null, 'Template deleted');
     }
 }

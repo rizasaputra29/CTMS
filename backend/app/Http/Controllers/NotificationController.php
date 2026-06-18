@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 
 class NotificationController extends Controller
 {
+    use ApiResponseTrait;
+
     protected NotificationService $notificationService;
 
     public function __construct(NotificationService $notificationService)
@@ -37,7 +39,7 @@ class NotificationController extends Controller
             }
         }
 
-        return response()->json($notifications);
+        return $this->paginatedResponse($notifications);
     }
 
     /**
@@ -247,7 +249,7 @@ class NotificationController extends Controller
     {
         $count = $this->notificationService->unreadCount($request->user()->id);
 
-        return response()->json(['count' => $count]);
+        return $this->successResponse(['count' => $count]);
     }
 
     /**
@@ -261,7 +263,7 @@ class NotificationController extends Controller
 
         $this->notificationService->markAsRead($notification->id);
 
-        return response()->json(['message' => 'Marked as read.']);
+        return $this->successResponse(null, 'Marked as read.');
     }
 
     /**
@@ -271,6 +273,6 @@ class NotificationController extends Controller
     {
         $this->notificationService->markAllAsRead($request->user()->id);
 
-        return response()->json(['message' => 'All notifications marked as read.']);
+        return $this->successResponse(null, 'All notifications marked as read.');
     }
 }

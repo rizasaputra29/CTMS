@@ -24,6 +24,8 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    use ApiResponseTrait;
+
     protected WorkflowService $workflowService;
 
     public function __construct(WorkflowService $workflowService)
@@ -66,7 +68,7 @@ class DashboardController extends Controller
                 );
             }
 
-            return response()->json([
+            return $this->successResponse([
                 'total_users' => (int) $userStats->total,
                 'total_students' => (int) $userStats->students,
                 'total_lecturers' => (int) $userStats->lecturers,
@@ -132,7 +134,7 @@ class DashboardController extends Controller
                 ->count();
         }
 
-        return response()->json([
+        return $this->successResponse([
             'total_titles' => $totalTitles,
             'active_groups' => $activeGroups,
             'pending_bimbingan' => $pendingBimbingan,
@@ -301,7 +303,7 @@ class DashboardController extends Controller
             });
         }
 
-        return response()->json([
+        return $this->successResponse([
             'has_group' => $group ? true : false,
             'group_status' => $group ? $group->status : null,
             'readiness' => $group ? ($group->readiness_status ?? $group->calculateReadiness()) : null,
@@ -330,7 +332,7 @@ class DashboardController extends Controller
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
-            return response()->json([
+            return $this->successResponse([
                 'workflow' => null,
                 'next_phase_requirements' => null,
                 'final_ready_for_ta_individual' => null,
@@ -355,7 +357,7 @@ class DashboardController extends Controller
             $documents
         );
 
-        return response()->json([
+        return $this->successResponse([
             'workflow' => $workflowData,
             'next_phase_requirements' => $nextPhaseRequirements,
             'final_ready_for_ta_individual' => $finalReadyForTaIndividual,

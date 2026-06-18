@@ -8,14 +8,14 @@ use Illuminate\Http\Request;
 
 class RoleController extends Controller
 {
+    use ApiResponseTrait;
+
     public function index(Request $request): JsonResponse
     {
         $user = $request->user();
         $roles = $user->roleSlugs();
 
-        return response()->json([
-            'roles' => $roles,
-        ]);
+        return $this->successResponse(['roles' => $roles]);
     }
 
     public function setActiveRole(SetActiveRoleRequest $request): JsonResponse
@@ -25,16 +25,14 @@ class RoleController extends Controller
         $requestedRole = $request->input('role');
 
         if (! in_array($requestedRole, $availableRoles, true)) {
-            return response()->json([
-                'message' => 'Invalid role. You do not have this role.',
-            ], 422);
+            return $this->errorResponse('Invalid role. You do not have this role.', 422);
         }
 
         if ($request->hasSession()) {
             $request->session()->put('active_role', $requestedRole);
         }
 
-        return response()->json([
+        return $this->successResponse([
             'message' => 'Active role updated successfully.',
             'active_role' => $requestedRole,
         ]);
@@ -48,8 +46,6 @@ class RoleController extends Controller
             $activeRole = $request->session()->get('active_role');
         }
 
-        return response()->json([
-            'active_role' => $activeRole,
-        ]);
+        return $this->successResponse(['active_role' => $activeRole]);
     }
 }

@@ -19,7 +19,7 @@ use Illuminate\Validation\Rule;
 
 class DocumentController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
 
@@ -61,7 +61,7 @@ class DocumentController extends Controller
         $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
 
         if (! $groupMember || ! $groupMember->group) {
-            return response()->json(['phases' => [], 'current_phase' => null]);
+            return $this->successResponse(['phases' => [], 'current_phase' => null]);
         }
 
         $periodId = $groupMember->group->period_id;
@@ -82,7 +82,7 @@ class DocumentController extends Controller
             $documents
         );
 
-        return response()->json([
+        return $this->successResponse([
             'phases' => $workflowData['phases'],
             'current_phase' => $workflowData['current_phase'],
             'is_graduated' => $workflowData['is_graduated'],
@@ -102,14 +102,14 @@ class DocumentController extends Controller
         if (in_array('mahasiswa', $roles, true)) {
             $groupMember = GroupMember::where('student_id', $user->id)->first();
             if (! $groupMember) {
-                return response()->json(['data' => []]);
+                return $this->successResponse([]);
             }
             $documents = Document::where('group_id', $groupMember->group_id)
                 ->with('student')
                 ->orderBy('created_at', 'desc')
                 ->get();
 
-            return response()->json(['data' => $documents]);
+            return $this->successResponse($documents);
         }
 
         if (in_array('dosen', $roles, true)) {
@@ -134,10 +134,10 @@ class DocumentController extends Controller
 
             $documents = $query->orderBy('created_at', 'desc')->get();
 
-            return response()->json(['data' => $documents]);
+            return $this->successResponse($documents);
         }
 
-        return response()->json(['message' => 'Unauthorized'], 403);
+        return $this->unauthorizedResponse('Unauthorized');
     }
 
     /**
@@ -154,7 +154,7 @@ class DocumentController extends Controller
         $groupMember = GroupMember::with('group.period')->where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in any group.'], 400);
+            return $this->errorResponse('You are not in any group.', 400);
         }
 
         $this->ensurePeriodIsActive($groupMember->group);
@@ -184,9 +184,7 @@ class DocumentController extends Controller
                 ->exists();
 
             if (! $prereqApproved) {
-                return response()->json([
-                    'message' => "You must have an approved {$prereq} document before uploading {$request->phase}.",
-                ], 400);
+                return $this->errorResponse("You must have an approved {$prereq} document before uploading {$request->phase}.", 400);
             }
         }
 
@@ -198,9 +196,7 @@ class DocumentController extends Controller
                 ->first();
 
             if (! $schedule) {
-                return response()->json([
-                    'message' => 'SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.',
-                ], 400);
+                return $this->errorResponse('SEMPRO belum dijadwalkan. Mohon tunggu admin menjadwalkan SEMPRO terlebih dahulu.', 400);
             }
         }
 
@@ -222,9 +218,7 @@ class DocumentController extends Controller
                     default => 'Prerequisites not met.',
                 };
 
-                return response()->json([
-                    'message' => "{$phaseName} documents are locked. {$message}",
-                ], 400);
+                return $this->errorResponse("{$phaseName} documents are locked. {$message}", 400);
             }
         }
 
@@ -249,7 +243,7 @@ class DocumentController extends Controller
                 'feedback' => null, // Reset feedback on resubmit
             ]);
 
-            return response()->json(['message' => 'Document revised (replaced) successfully', 'data' => $existingDoc->fresh()], 200);
+            return $this->successResponse($existingDoc->fresh(), 'Document revised (replaced) successfully');
         }
 
         // First-time upload
@@ -263,7 +257,7 @@ class DocumentController extends Controller
             'status' => 'SUBMITTED',
         ]);
 
-        return response()->json(['message' => 'Document uploaded successfully', 'data' => $document], 201);
+        return $this->createdResponse($document, 'Document uploaded successfully');
     }
 
     /**
@@ -281,7 +275,7 @@ class DocumentController extends Controller
     {
         $user = Auth::user();
         if (! $user->hasRole('dosen')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $request->validate([
@@ -324,7 +318,7 @@ class DocumentController extends Controller
             $document->id
         );
 
-        return response()->json(['message' => 'Document review updated', 'data' => $document]);
+        return $this->successResponse($document, 'Document review updated');
     }
 
     /**
@@ -516,7 +510,7 @@ class DocumentController extends Controller
                 ->where('group_id', $document->group_id)
                 ->first();
             if (! $groupMember) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+                return $this->unauthorizedResponse('Unauthorized');
             }
         } elseif (in_array('dosen', $roles, true)) {
             // Dosen can download documents from groups they supervise
@@ -526,17 +520,17 @@ class DocumentController extends Controller
                 })
                 ->exists();
             if (! $isSupervisor) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+                return $this->unauthorizedResponse('Unauthorized');
             }
         } elseif (in_array('admin', $roles, true)) {
             // Admin can download any document
         } else {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         // Check if file exists
         if (! $document->file_path || ! Storage::disk('public')->exists($document->file_path)) {
-            return response()->json(['message' => 'File not found'], 404);
+            return $this->notFoundResponse('File not found');
         }
 
         // Return the file with proper headers

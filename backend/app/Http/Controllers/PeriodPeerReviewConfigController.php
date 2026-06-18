@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 
 class PeriodPeerReviewConfigController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get peer review configuration for a period.
      */
@@ -38,7 +40,7 @@ class PeriodPeerReviewConfigController extends Controller
                 'sort_order' => $i->sort_order,
             ]);
 
-        return response()->json([
+        return $this->successResponse([
             'period' => $period,
             'all_templates' => $allTemplates,
             'selected_indicators' => $selectedIndicators,
@@ -69,11 +71,10 @@ class PeriodPeerReviewConfigController extends Controller
                 ]);
             }
 
-            return response()->json([
-                'message' => 'Peer review configuration saved',
+            return $this->createdResponse([
                 'count' => count($created),
                 'indicators' => $created,
-            ], 201);
+            ], 'Peer review configuration saved');
         });
     }
 
@@ -95,7 +96,7 @@ class PeriodPeerReviewConfigController extends Controller
                 ->get();
 
             if ($sourceIndicators->isEmpty()) {
-                return response()->json(['message' => 'Source period has no peer review configuration'], 400);
+                return $this->errorResponse('Source period has no peer review configuration', 400);
             }
 
             // Delete existing config for this period
@@ -111,11 +112,10 @@ class PeriodPeerReviewConfigController extends Controller
                 ]);
             }
 
-            return response()->json([
-                'message' => 'Peer review configuration copied',
+            return $this->createdResponse([
                 'count' => count($created),
                 'indicators' => $created,
-            ], 201);
+            ], 'Peer review configuration copied');
         });
     }
 }

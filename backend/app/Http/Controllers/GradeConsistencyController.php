@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 
 class GradeConsistencyController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * List grade consistency checks for a period.
      */
@@ -23,7 +25,7 @@ class GradeConsistencyController extends Controller
             ->orderBy('deviation', 'desc')
             ->get();
 
-        return response()->json($checks);
+        return $this->successResponse($checks);
     }
 
     /**
@@ -95,7 +97,7 @@ class GradeConsistencyController extends Controller
             }
         }
 
-        return response()->json(['message' => "Generated $generated consistency checks"]);
+        return $this->successResponse(null, "Generated $generated consistency checks");
     }
 
     /**
@@ -113,6 +115,6 @@ class GradeConsistencyController extends Controller
         $data['checked_by'] = $request->user()->id;
         $check->update($data);
 
-        return response()->json($check);
+        return $this->successResponse($check);
     }
 }

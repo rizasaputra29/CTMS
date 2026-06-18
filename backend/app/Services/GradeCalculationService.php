@@ -70,24 +70,89 @@ class GradeCalculationService
 
         $this->batchCache['groups'] = $groups->keyBy('id');
 
-        // 5. Pre-compute evaluator roles
-        foreach ($groups as $group) {
-            if ($group->supervisor_1_id) {
-                $this->batchCache['evaluator_roles'][$group->id][$group->supervisor_1_id] = 'SUPERVISOR_1';
-            }
-            if ($group->supervisor_2_id) {
-                $this->batchCache['evaluator_roles'][$group->id][$group->supervisor_2_id] = 'SUPERVISOR_2';
+        // 5. Batch load examiner schedules for TA defense role resolution
+        $defenseSchedules = TaDefenseSchedule::where('period_id', $periodId)
+            ->where('status', '!=', 'CANCELLED')
+            ->with('students:id')
+            ->get();
+
+        $this->batchCache['ta_defense_schedules'] = $defenseSchedules->keyBy('id');
+        $this->batchCache['evaluator_roles'] = [];
+        foreach ($defenseSchedules as $schedule) {
+            foreach ($schedule->students as $student) {
+                if ($schedule->examiner_1_id) {
+                    $this->batchCache['evaluator_roles'][$schedule->group_id][$student->id][$schedule->examiner_1_id] = 'EXAMINER_1';
+                }
+                if ($schedule->examiner_2_id) {
+                    $this->batchCache['evaluator_roles'][$schedule->group_id][$student->id][$schedule->examiner_2_id] = 'EXAMINER_2';
+                }
             }
         }
 
-        // 6. Batch load period components
+        // 5b. Batch load seminar schedules (SEMPRO/EXPO) for examiner role resolution
+        $seminarSchedules = \App\Models\SeminarSchedule::whereIn('group_id', $groupIds)
+            ->where('status', '!=', 'CANCELLED')
+            ->whereIn('type', ['SEMPRO', 'EXPO'])
+            ->get();
+
+        // Get group_id => student_ids mapping for seminar examiner roles
+        $groupStudentMap = [];
+        if (count($groupIds) > 0) {
+            $members = \App\Models\GroupMember::whereIn('group_id', $groupIds)
+                ->select('group_id', 'student_id')
+                ->get();
+            foreach ($members as $m) {
+                $groupStudentMap[$m->group_id][] = $m->student_id;
+            }
+        }
+
+        foreach ($seminarSchedules as $schedule) {
+            $groupId = $schedule->group_id;
+            $studentIds = $groupStudentMap[$groupId] ?? [];
+            foreach ($studentIds as $studentId) {
+                if ($schedule->examiner_1_id) {
+                    $this->batchCache['evaluator_roles'][$groupId][$studentId][$schedule->examiner_1_id] = 'EXAMINER_1';
+                }
+                if ($schedule->examiner_2_id) {
+                    $this->batchCache['evaluator_roles'][$groupId][$studentId][$schedule->examiner_2_id] = 'EXAMINER_2';
+                }
+            }
+        }
+
+        // 6. Pre-compute supervisor evaluator roles
+        foreach ($groups as $group) {
+            if ($group->supervisor_1_id) {
+                $this->batchCache['evaluator_roles'][$group->id]['_group'][$group->supervisor_1_id] = 'SUPERVISOR_1';
+            }
+            if ($group->supervisor_2_id) {
+                $this->batchCache['evaluator_roles'][$group->id]['_group'][$group->supervisor_2_id] = 'SUPERVISOR_2';
+            }
+        }
+
+        // 7. Cache evaluator names from all loaded scores
+        $evaluatorNames = [];
+        if (! empty($this->batchCache['assessment_scores'])) {
+            foreach ($this->batchCache['assessment_scores'] as $scores) {
+                foreach ($scores as $score) {
+                    $idField = (in_array($score->evaluation_type, ['SEMPRO', 'SIDANG_TA'])) ? 'examiner_id' : 'evaluator_id';
+                    $evaluatorId = $score->{$idField};
+                    if ($evaluatorId && $score->evaluator && ! isset($evaluatorNames[$evaluatorId])) {
+                        $evaluatorNames[$evaluatorId] = $score->evaluator->name;
+                    }
+                }
+            }
+        }
+
+        $this->batchCache['evaluator_names'] = $evaluatorNames;
+
+        // 8. Batch load period components
         $components = PeriodAssessmentComponent::with('template')
             ->whereHas('period', fn ($q) => $q->where('id', $periodId))
             ->get();
 
         $this->batchCache['period_components'] = $components->keyBy('id');
 
-        // 7. Batch load peer review indicators
+        // 9. Batch load peer review indicators
         $indicators = \App\Models\PeriodPeerReviewIndicator::with('template')
             ->whereHas('period', fn ($q) => $q->where('id', $periodId))
             ->get();
@@ -300,7 +365,7 @@ class GradeCalculationService
     /**
      * Get peer reviews from cache.
      */
-    private function getPeerReviewsFromCache(int $studentId, int $groupId): array
+    public function getPeerReviewsFromCache(int $studentId, int $groupId): array
     {
         $key = "{$studentId}:{$groupId}";
 
@@ -308,33 +373,9 @@ class GradeCalculationService
     }
 
     /**
-     * Calculate weighted average from cached score objects.
-     */
-    private function calculateWeightedAverageFromCache(array $scores): ?float
-    {
-        if (empty($scores)) {
-            return null;
-        }
-
-        $totalWeighted = 0;
-        $totalWeight = 0;
-
-        foreach ($scores as $score) {
-            $component = $score->periodComponent;
-            if ($component && $component->template) {
-                $weight = $component->template->weight;
-                $totalWeighted += $score->score * $weight;
-                $totalWeight += $weight;
-            }
-        }
-
-        return $totalWeight > 0 ? ($totalWeighted / $totalWeight) : null;
-    }
-
-    /**
      * Calculate peer review average from cached reviews.
      */
-    private function calculatePeerReviewAverageFromCache(array $reviews): ?float
+    public function calculatePeerReviewAverageFromCache(array $reviews): ?float
     {
         if (empty($reviews)) {
             return null;
@@ -357,20 +398,71 @@ class GradeCalculationService
     }
 
     /**
+     * Calculate weighted average from cached score objects.
+     * Falls back to equal weighting (1.0) when period_component_id is NULL.
+     */
+    private function calculateWeightedAverageFromCache(array $scores): ?float
+    {
+        if (empty($scores)) {
+            return null;
+        }
+
+        $totalWeighted = 0;
+        $totalWeight = 0;
+        $hasValidScores = false;
+
+        foreach ($scores as $score) {
+            $weight = null;
+
+            // Method 1: Use periodComponent template weight (preferred)
+            $component = $score->periodComponent;
+            if ($component && $component->template) {
+                $weight = $component->template->weight;
+            }
+            // Method 2: Fall back to component template weight
+            elseif ($score->component) {
+                $weight = $score->component->weight ?? 1;
+            }
+            // Method 3: Use equal weighting (1.0) when no component info available
+            else {
+                $weight = 1.0;
+            }
+
+            if ($weight !== null && $score->score !== null) {
+                $totalWeighted += $score->score * $weight;
+                $totalWeight += $weight;
+                $hasValidScores = true;
+            }
+        }
+
+        return $hasValidScores && $totalWeight > 0 ? ($totalWeighted / $totalWeight) : null;
+    }
+
+    /**
      * Get evaluators from cache.
      */
     private function getEvaluatorsFromCache(int $studentId, int $groupId, string $evaluationType): array
     {
         $scores = $this->getScoresFromCache($studentId, $groupId, $evaluationType);
         $evaluators = [];
+        $seen = [];
 
         foreach ($scores as $score) {
             if ($score->evaluator) {
+                $evaluatorId = $score->evaluator_id ?? $score->examiner_id;
+                $role = $evaluatorId !== null
+                    ? $this->getEvaluatorRoleFromCache($evaluatorId, $groupId, $studentId)
+                    : 'EXAMINER';
+
+                $key = $score->evaluator->id ?? $score->evaluator->name;
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+
                 $evaluators[] = [
                     'name' => $score->evaluator->name,
-                    'role' => $score->evaluator_id !== null
-                        ? $this->getEvaluatorRoleFromCache($score->evaluator_id, $groupId)
-                        : 'EXAMINER',
+                    'role' => $role,
                 ];
             }
         }
@@ -379,11 +471,85 @@ class GradeCalculationService
     }
 
     /**
+     * Get evaluators from cache including their per-evaluator weighted average score.
+     * Falls back to equal weighting (1.0) when period_component_id is NULL.
+     *
+     * @return array<int, array{name: string, role: string, score: float|null}>
+     */
+    public function getEvaluatorsWithScoresFromCache(int $studentId, int $groupId, string $evaluationType): array
+    {
+        $scores = $this->getScoresFromCache($studentId, $groupId, $evaluationType);
+        $evaluatorData = [];
+
+        foreach ($scores as $score) {
+            $idField = (in_array($evaluationType, ['SEMPRO', 'SIDANG_TA'])) ? 'examiner_id' : 'evaluator_id';
+            $evaluatorId = $score->{$idField};
+            if (! $evaluatorId) {
+                continue;
+            }
+
+            $role = $this->getEvaluatorRoleFromCache($evaluatorId, $groupId, $studentId);
+
+            if (! isset($evaluatorData[$evaluatorId])) {
+                $evaluatorData[$evaluatorId] = [
+                    'name' => $score->evaluator->name ?? ($this->batchCache['evaluator_names'][$evaluatorId] ?? 'Unknown'),
+                    'role' => $role,
+                    'total_weighted' => 0,
+                    'total_weight' => 0,
+                ];
+            }
+
+            $weight = null;
+
+            // Method 1: Use periodComponent template weight (preferred)
+            $component = $score->periodComponent;
+            if ($component && $component->template) {
+                $weight = $component->template->weight;
+            }
+            // Method 2: Fall back to component template weight
+            elseif ($score->component) {
+                $weight = $score->component->weight ?? 1;
+            }
+            // Method 3: Use equal weighting (1.0) when no component info available
+            else {
+                $weight = 1.0;
+            }
+
+            if ($weight !== null && $score->score !== null) {
+                $evaluatorData[$evaluatorId]['total_weighted'] += $score->score * $weight;
+                $evaluatorData[$evaluatorId]['total_weight'] += $weight;
+            }
+        }
+
+        $evaluators = [];
+        foreach ($evaluatorData as $evaluatorId => $data) {
+            $score = $data['total_weight'] > 0 ? round($data['total_weighted'] / $data['total_weight'], 2) : null;
+            $evaluators[] = [
+                'evaluator_id' => $evaluatorId,
+                'name' => $data['name'],
+                'role' => $data['role'],
+                'score' => $score,
+            ];
+        }
+
+        return $evaluators;
+    }
+
+    /**
      * Get evaluator role from cache.
      */
-    private function getEvaluatorRoleFromCache(int $evaluatorId, int $groupId): string
+    private function getEvaluatorRoleFromCache(int $evaluatorId, int $groupId, ?int $studentId = null): string
     {
-        return $this->batchCache['evaluator_roles'][$groupId][$evaluatorId] ?? 'EXAMINER';
+        $groupRoles = $this->batchCache['evaluator_roles'][$groupId] ?? [];
+        if (isset($groupRoles['_group'][$evaluatorId])) {
+            return $groupRoles['_group'][$evaluatorId];
+        }
+
+        if ($studentId !== null && isset($groupRoles[$studentId][$evaluatorId])) {
+            return $groupRoles[$studentId][$evaluatorId];
+        }
+
+        return 'EXAMINER';
     }
 
     /**

@@ -10,6 +10,8 @@ import type {
     GroupProgressPeriod,
 } from '@/features/admin/analytics/types';
 
+const QUERY_KEY = ['admin', 'group-progress'] as const;
+
 const STATUS_ORDER = [
     'FORMING',
     'FORMING_SOLO',
@@ -125,13 +127,13 @@ export function useGroupProgress(initialPeriodId?: string | null) {
     }, [searchQuery]);
 
     const { data: periods = [] } = useQuery({
-        queryKey: ['admin', 'periods', 'progress-filter'],
+        queryKey: [...QUERY_KEY, 'periods'],
         queryFn: fetchPeriods,
         staleTime: Infinity,
     });
 
     const { data: progressData, isLoading } = useQuery({
-        queryKey: ['admin', 'analytics', 'group-progress', page, perPage, selectedPeriod, status, debouncedSearchQuery],
+        queryKey: [...QUERY_KEY, page, perPage, selectedPeriod, status, debouncedSearchQuery],
         queryFn: () => fetchProgress({ page, perPage, selectedPeriod, status, searchQuery: debouncedSearchQuery }),
     });
 

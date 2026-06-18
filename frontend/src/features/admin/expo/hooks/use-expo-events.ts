@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import type { ExpoEvent, Period, Location } from '../types';
 import type { ExpoEventFormData } from '@/lib/validations/expo';
 
+const QUERY_KEY = ['admin', 'expo-events'] as const;
+
 async function fetchExpoEvents(periodId: string): Promise<ExpoEvent[]> {
     const params = periodId && periodId !== 'all' ? { period_id: periodId } : {};
     const res = await api.get('/admin/expo-events', { params });
@@ -62,53 +64,51 @@ export function useExpoEvents(periodId: string) {
     });
 
     const locationsQuery = useQuery({
-        queryKey: ['locations'],
+        queryKey: ['admin', 'locations'],
         queryFn: fetchLocations,
     });
 
     const createMutation = useMutation({
         mutationFn: createExpoEvent,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'expo-events'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Event created');
         },
         onError: (error) => {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
-            else toast.error('Failed');
+            toast.error(api.getApiErrorMessage(error, 'Failed'));
         },
     });
 
     const updateMutation = useMutation({
         mutationFn: ({ id, data }: { id: number; data: ExpoEventFormData }) => updateExpoEvent(id, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'expo-events'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Event updated');
         },
         onError: (error) => {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
-            else toast.error('Failed');
+            toast.error(api.getApiErrorMessage(error, 'Failed'));
         },
     });
 
     const publishMutation = useMutation({
         mutationFn: publishExpoEvent,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'expo-events'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Publication status updated');
         },
         onError: (error) => {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            toast.error(api.getApiErrorMessage(error, 'Failed'));
         },
     });
 
     const deleteMutation = useMutation({
         mutationFn: deleteExpoEvent,
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'expo-events'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Event deleted');
         },
         onError: (error) => {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+            toast.error(api.getApiErrorMessage(error, 'Failed'));
         },
     });
 

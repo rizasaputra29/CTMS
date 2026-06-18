@@ -48,7 +48,7 @@ class NotificationService
      */
     public function markAsRead(int $notificationId): void
     {
-        Notification::where('id', $notificationId)->update(['is_read' => \Illuminate\Support\Facades\DB::raw('true')]);
+        Notification::where('id', $notificationId)->update(['is_read' => true]);
     }
 
     /**
@@ -57,8 +57,8 @@ class NotificationService
     public function markAllAsRead(int $userId): void
     {
         Notification::where('user_id', $userId)
-            ->where('is_read', \Illuminate\Support\Facades\DB::raw('false'))
-            ->update(['is_read' => \Illuminate\Support\Facades\DB::raw('true')]);
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
     }
 
     /**
@@ -67,7 +67,7 @@ class NotificationService
     public function unreadCount(int $userId): int
     {
         return Notification::where('user_id', $userId)
-            ->where('is_read', \Illuminate\Support\Facades\DB::raw('false'))
+            ->where('is_read', false)
             ->count();
     }
 

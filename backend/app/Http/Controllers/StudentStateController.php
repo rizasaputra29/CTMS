@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Auth;
 
 class StudentStateController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get TA status for a specific student
      */
@@ -21,7 +23,7 @@ class StudentStateController extends Controller
             ->first();
 
         if (! $status) {
-            return response()->json([
+            return $this->successResponse([
                 'student_id' => $studentId,
                 'ta_status' => 'TA_BLOCKED',
                 'has_completed_peer_review' => false,
@@ -29,7 +31,7 @@ class StudentStateController extends Controller
             ]);
         }
 
-        return response()->json([
+        return $this->successResponse([
             'student_id' => $studentId,
             'ta_status' => $status->ta_status,
             'has_completed_peer_review' => $status->has_completed_peer_review,
@@ -62,7 +64,7 @@ class StudentStateController extends Controller
         $oldStatus = $status->ta_status;
         $status->update(['ta_status' => $validated['ta_status']]);
 
-        return response()->json([
+        return $this->successResponse([
             'message' => 'TA status updated successfully',
             'student_id' => $studentId,
             'old_status' => $oldStatus,
@@ -114,7 +116,7 @@ class StudentStateController extends Controller
             }
         }
 
-        return response()->json([
+        return $this->successResponse([
             'message' => 'Bulk update completed',
             'group_id' => $groupId,
             'updated_count' => count($updated),
@@ -156,10 +158,14 @@ class StudentStateController extends Controller
             ->with(['student', 'group.period'])
             ->get();
 
-        $students = $members->map(function ($member) {
-            $status = StudentPeerReviewStatus::where('student_id', $member->student_id)
-                ->where('group_id', $member->group_id)
-                ->first();
+        // Batch-load peer review statuses for all members to avoid N+1
+        $memberIds = $members->pluck('student_id');
+        $statuses = StudentPeerReviewStatus::whereIn('student_id', $memberIds)
+            ->where('group_id', $groupId)
+            ->keyBy('student_id');
+
+        $students = $members->map(function ($member) use ($statuses) {
+            $status = $statuses->get($member->student_id);
 
             return [
                 'student_id' => $member->student_id,
@@ -171,7 +177,7 @@ class StudentStateController extends Controller
             ];
         });
 
-        return response()->json([
+        return $this->successResponse([
             'group_id' => $groupId,
             'group_name' => $members->first()?->group?->code,
             'students' => $students,
@@ -190,18 +196,14 @@ class StudentStateController extends Controller
             ->first();
 
         if (! $member) {
-            return response()->json([
-                'ta_status' => 'TA_BLOCKED',
-                'has_completed_peer_review' => false,
-                'message' => 'You are not in any group',
-            ], 403);
+            return $this->unauthorizedResponse('You are not in any group');
         }
 
         $status = StudentPeerReviewStatus::where('student_id', $user->id)
             ->where('group_id', $member->group_id)
             ->first();
 
-        return response()->json([
+        return $this->successResponse([
             'student_id' => $user->id,
             'group_id' => $member->group_id,
             'ta_status' => $status?->ta_status ?? 'TA_BLOCKED',

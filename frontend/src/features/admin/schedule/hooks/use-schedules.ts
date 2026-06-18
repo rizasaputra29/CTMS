@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import type { Period, ApiSchedule, ApiTaDefenseSchedule, ScheduleView } from '../types';
 import type { ScheduleEvent } from '@/components/schedule/ScheduleCalendar';
 
-const QUERY_KEY = 'admin-schedules';
+const QUERY_KEY = ['admin', 'schedules'] as const;
 
 async function fetchSchedules() {
     const [perRes, semproRes, expoRes, taRes, bimbinganRes] = await Promise.all([
@@ -34,7 +34,7 @@ export function useSchedules() {
     const [isProcessing, setIsProcessing] = useState(false);
 
     const { data, isLoading, refetch } = useQuery({
-        queryKey: [QUERY_KEY],
+        queryKey: [...QUERY_KEY],
         queryFn: fetchSchedules,
     });
 
@@ -197,16 +197,10 @@ export function useSchedules() {
         },
         onSuccess: () => {
             toast.success('Schedule approved!');
-            queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+            queryClient.invalidateQueries({ queryKey: [...QUERY_KEY] });
         },
         onError: (error: unknown) => {
-            if (api.isAxiosError(error)) {
-                const msg = error.response?.data?.message || 'Approval failed.';
-                const conflicts = error.response?.data?.conflicts;
-                toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
-            } else {
-                toast.error('Approval failed.');
-            }
+            toast.error(api.getApiErrorMessage(error, 'Approval failed.'));
         },
     });
 
@@ -227,10 +221,10 @@ export function useSchedules() {
         },
         onSuccess: () => {
             toast.success('Schedule request rejected.');
-            queryClient.invalidateQueries({ queryKey: [QUERY_KEY] });
+            queryClient.invalidateQueries({ queryKey: [...QUERY_KEY] });
         },
-        onError: () => {
-            toast.error('Rejection failed.');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Rejection failed.'));
         },
     });
 

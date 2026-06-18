@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 
 class PeerReviewIndicatorTemplateController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * List all peer review indicator templates (bank soal).
      */
@@ -16,7 +18,7 @@ class PeerReviewIndicatorTemplateController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        return response()->json($templates);
+        return $this->successResponse($templates);
     }
 
     /**
@@ -35,7 +37,7 @@ class PeerReviewIndicatorTemplateController extends Controller
 
         $template = PeerReviewIndicatorTemplate::create($data);
 
-        return response()->json($template, 201);
+        return $this->createdResponse($template);
     }
 
     /**
@@ -55,7 +57,7 @@ class PeerReviewIndicatorTemplateController extends Controller
 
         $template->update($data);
 
-        return response()->json($template);
+        return $this->successResponse($template);
     }
 
     /**
@@ -71,13 +73,11 @@ class PeerReviewIndicatorTemplateController extends Controller
             // Soft delete by marking inactive
             $template->update(['is_active' => false]);
 
-            return response()->json([
-                'message' => 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)',
-            ]);
+            return $this->successResponse(null, 'Template marked as inactive (has existing usage in '.$usageCount.' period configurations)');
         }
 
         $template->delete();
 
-        return response()->json(['message' => 'Template deleted']);
+        return $this->successResponse(null, 'Template deleted');
     }
 }

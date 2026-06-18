@@ -6,9 +6,14 @@ use App\Concerns\RequiresActivePeriod;
 use App\Models\AuditLog;
 use App\Models\Bid;
 use App\Models\Group;
+use App\Models\GroupMember;
+use App\Models\Period;
+use App\Models\PhaseDocumentRequirement;
 use App\Models\Supervision;
 use App\Models\Title;
 use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -716,6 +721,533 @@ class FinalizationService
             'global_progress' => $averageProgress,
             'unassigned_students' => $unassignedStudents,
             'invalid_groups' => $invalidGroups,
+        ];
+    }
+
+    // ─── Dashboard Stats Helpers ──────────────────────────────────────
+
+    /**
+     * Get dashboard stats (lightweight query for all tabs).
+     */
+    public function getDashboardStats(Period $period): array
+    {
+        $docRequirementsStatus = $this->getDocumentRequirementsStatus($period);
+        $totalPdc1Active = Group::where('period_id', $period->id)->where('status', 'PDC1_ACTIVE')->count();
+
+        $postFinalizationStatuses = [
+            'PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE',
+            'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED',
+            'EXPO_DONE', 'PDC2_COMPLETED', 'READY_FOR_TA_INDIVIDUAL',
+        ];
+
+        $postFinalizationGroups = Group::where('period_id', $period->id)
+            ->whereIn('status', $postFinalizationStatuses)
+            ->get();
+
+        $postFinalizationBreakdown = [];
+        foreach ($postFinalizationStatuses as $status) {
+            $count = $postFinalizationGroups->where('status', $status)->count();
+            if ($count > 0) {
+                $postFinalizationBreakdown[$status] = $count;
+            }
+        }
+
+        return [
+            'total_ready' => Group::where('period_id', $period->id)->where('status', 'READY_FOR_FINALIZATION')->count(),
+            'total_kelompok_final' => Group::where('period_id', $period->id)->where('status', 'KELOMPOK_FINAL')->count(),
+            'total_pdc1_active' => $totalPdc1Active,
+            'total_no_group' => $this->getStudentsWithoutGroupsCount($period),
+            'total_no_title' => Group::where('period_id', $period->id)->whereNull('title_id')->whereNotIn('status', ['CLOSED', 'DISSOLVED'])->count(),
+            'total_not_ready' => Group::where('period_id', $period->id)->where('status', 'TITLE_APPROVED')->count(),
+            'can_finalize' => true,
+            'can_reopen_finalization' => $period->is_finalized || $totalPdc1Active > 0,
+            'document_requirements' => $docRequirementsStatus,
+            'total_post_finalization' => $postFinalizationGroups->count(),
+            'post_finalization_breakdown' => $postFinalizationBreakdown,
+        ];
+    }
+
+    /**
+     * Check document requirements configuration status for a period.
+     */
+    public function getDocumentRequirementsStatus(Period $period): array
+    {
+        $requirements = PhaseDocumentRequirement::where('period_id', $period->id)->get();
+
+        $phases = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
+        $status = [];
+
+        foreach ($phases as $phase) {
+            $phaseRequirements = $requirements->where('phase', $phase);
+            $status[$phase] = [
+                'configured' => $phaseRequirements->count() > 0,
+                'count' => $phaseRequirements->count(),
+                'required_count' => $phaseRequirements->where('is_required', true)->count(),
+            ];
+        }
+
+        $totalConfigured = $requirements->groupBy('phase')->count();
+        $allConfigured = $totalConfigured === count($phases);
+
+        return [
+            'phases' => $status,
+            'all_configured' => $allConfigured,
+            'configured_phases' => $totalConfigured,
+            'total_phases' => count($phases),
+            'total_requirements' => $requirements->count(),
+        ];
+    }
+
+    /**
+     * Get students without groups count.
+     */
+    public function getStudentsWithoutGroupsCount(Period $period): int
+    {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
+            $q->where('period_id', $period->id);
+        })->pluck('student_id');
+
+        return User::where('role', 'mahasiswa')
+            ->whereHas('registeredPeriods', function ($q) use ($period) {
+                $q->where('period_id', $period->id);
+            })
+            ->whereNotIn('id', $studentsWithGroups)
+            ->count();
+    }
+
+    // ─── Group Query Helpers ──────────────────────────────────────────
+
+    /**
+     * Get READY_FOR_FINALIZATION groups with pagination.
+     */
+    public function getReadyForFinalization(Period $period, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $query = Group::with(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period'])
+            ->where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                    ->orWhereHas('members.student', function ($sq) use ($search) {
+                        $sq->where('name', 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('title', function ($tq) use ($search) {
+                        $tq->where('title', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    /**
+     * Get KELOMPOK_FINAL groups with pagination.
+     */
+    public function getKelompokFinal(Period $period, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $query = Group::with(['members.student', 'title.lecturer', 'supervisor1', 'supervisor2', 'period'])
+            ->where('period_id', $period->id)
+            ->where('status', 'KELOMPOK_FINAL');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                    ->orWhereHas('members.student', function ($sq) use ($search) {
+                        $sq->where('name', 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('title', function ($tq) use ($search) {
+                        $tq->where('title', 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('supervisor1', function ($sq) use ($search) {
+                        $sq->where('name', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    /**
+     * Get "Others" data with pagination.
+     */
+    public function getOthers(Period $period, Request $request, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $subTab = $request->get('sub_tab', 'no_group');
+
+        return match ($subTab) {
+            'no_title' => $this->getGroupsWithoutTitle($period, $perPage, $search),
+            'not_ready' => $this->getGroupsNotReady($period, $perPage, $search),
+            default => $this->getStudentsWithoutGroups($period, $perPage, $search),
+        };
+    }
+
+    /**
+     * Get students without groups.
+     */
+    public function getStudentsWithoutGroups(Period $period, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $studentsWithGroups = GroupMember::whereHas('group', function ($q) use ($period) {
+            $q->where('period_id', $period->id);
+        })->pluck('student_id');
+
+        $query = User::where('role', 'mahasiswa')
+            ->whereHas('registeredPeriods', function ($q) use ($period) {
+                $q->where('period_id', $period->id);
+            })
+            ->whereNotIn('id', $studentsWithGroups)
+            ->select('id', 'name', 'email', 'nim');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                    ->orWhere('email', 'ilike', "%{$search}%")
+                    ->orWhere('nim', 'ilike', "%{$search}%");
+            });
+        }
+
+        return $query->orderBy('name', 'asc')->paginate($perPage);
+    }
+
+    /**
+     * Get groups without title.
+     */
+    public function getGroupsWithoutTitle(Period $period, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $query = Group::with(['members.student'])
+            ->where('period_id', $period->id)
+            ->whereNull('title_id')
+            ->whereNotIn('status', ['CLOSED', 'DISSOLVED']);
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                    ->orWhereHas('members.student', function ($sq) use ($search) {
+                        $sq->where('name', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    /**
+     * Get groups for "Belum Siap" tab.
+     */
+    public function getGroupsNotReady(Period $period, int $perPage, ?string $search): LengthAwarePaginator
+    {
+        $query = Group::with(['members.student', 'title'])
+            ->where('period_id', $period->id)
+            ->where('status', 'TITLE_APPROVED');
+
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                    ->orWhereHas('members.student', function ($sq) use ($search) {
+                        $sq->where('name', 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('title', function ($tq) use ($search) {
+                        $tq->where('title', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        $paginator = $query->orderBy('created_at', 'asc')->paginate($perPage);
+        $paginator->getCollection()->transform(fn (Group $group) => $this->buildAdminGroupPayload($group, $period));
+
+        return $paginator;
+    }
+
+    // ─── Admin Group Payload Helpers ──────────────────────────────────
+
+    /**
+     * Build the admin-facing payload for a group.
+     */
+    public function buildAdminGroupPayload(Group $group, Period $period): array
+    {
+        $groupArray = $group->toArray();
+        $groupArray['name'] = $this->resolveAdminGroupName($group);
+        $groupArray['status_label'] = $this->resolveGroupStatusLabel($group->status);
+        $groupArray['allowed_actions'] = $this->resolveAdminAllowedActions($group, $period);
+
+        return $groupArray;
+    }
+
+    /**
+     * Resolve display name for a group.
+     */
+    public function resolveAdminGroupName(Group $group): string
+    {
+        $name = trim((string) ($group->name ?? ''));
+
+        if ($name !== '') {
+            return $name;
+        }
+
+        return $group->code ?? "Kelompok #{$group->id}";
+    }
+
+    /**
+     * Resolve human-readable status label.
+     */
+    public function resolveGroupStatusLabel(string $status): string
+    {
+        return match ($status) {
+            'FORMING' => 'Incomplete Group',
+            'FORMING_SOLO' => 'Solo Seeker',
+            'READY_FOR_BIDDING' => 'Ready for Bidding',
+            'WAITING_SUPERVISOR_APPROVAL' => 'Waiting Supervisor Approval',
+            'TITLE_APPROVED' => 'Title Approved',
+            'READY_FOR_FINALIZATION' => 'Ready for Finalization',
+            'KELOMPOK_FINAL' => 'Kelompok Final',
+            'PDC1_ACTIVE' => 'PDC1 Active',
+            'PDC2_ACTIVE' => 'PDC2 Active',
+            default => str_replace('_', ' ', $status),
+        };
+    }
+
+    /**
+     * Resolve allowed actions for a group in admin context.
+     */
+    public function resolveAdminAllowedActions(Group $group, Period $period): array
+    {
+        $isPeriodFinalized = (bool) $period->is_finalized;
+        $canSetSupervisor = ! $isPeriodFinalized && $group->status === 'READY_FOR_FINALIZATION';
+        $canMarkKelompokFinal = $canSetSupervisor
+            && (bool) ($group->supervisor_1_id || $group->title?->lecturer?->id)
+            && (bool) $group->supervisor_2_id;
+
+        $reason = null;
+        if ($isPeriodFinalized) {
+            $reason = 'PERIOD_FINALIZED';
+        } elseif ($group->status === 'READY_FOR_FINALIZATION' && ! $canMarkKelompokFinal) {
+            if (! $group->supervisor_1_id && ! $group->title?->lecturer?->id) {
+                $reason = 'SUPERVISOR_1_REQUIRED';
+            } elseif (! $group->supervisor_2_id) {
+                $reason = 'SUPERVISOR_2_REQUIRED';
+            }
+        }
+
+        return [
+            'can_set_supervisor' => $canSetSupervisor,
+            'can_mark_kelompok_final' => $canMarkKelompokFinal,
+            'can_cancel_kelompok_final' => ! $isPeriodFinalized && $group->status === 'KELOMPOK_FINAL',
+            'can_assign_title' => ! $isPeriodFinalized && $group->status === 'READY_FOR_BIDDING' && ! $group->title_id,
+            'can_promote_to_ready_for_finalization' => ! $isPeriodFinalized && $group->status === 'TITLE_APPROVED',
+            'reason' => $reason,
+        ];
+    }
+
+    // ─── Blockers & Prerequisites ─────────────────────────────────────
+
+    /**
+     * Get granular blockers for finalization.
+     */
+    public function getFinalizationBlockers(Period $period): array
+    {
+        $blockers = [];
+
+        $totalGroups = Group::where('period_id', $period->id)->count();
+        if ($totalGroups === 0) {
+            $blockers[] = [
+                'type' => 'EMPTY_PERIOD',
+                'message' => 'Periode tidak memiliki grup',
+                'severity' => 'error',
+                'action' => 'Pastikan ada grup yang terdaftar di periode ini',
+            ];
+        }
+
+        $rfCount = Group::where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION')->count();
+        if ($rfCount > 0) {
+            $blockers[] = [
+                'type' => 'GROUPS_NOT_FINALIZED',
+                'message' => "Ada {$rfCount} grup belum ditandai Kelompok Final",
+                'severity' => 'error',
+                'action' => 'Tandai sebagai Kelompok Final di tab Kelompok Final',
+            ];
+        }
+
+        if ($period->require_all_students_grouped) {
+            $studentsWithoutGroups = $this->getStudentsWithoutGroupsCount($period);
+            if ($studentsWithoutGroups > 0) {
+                $blockers[] = [
+                    'type' => 'STUDENTS_NOT_GROUPED',
+                    'message' => "Ada {$studentsWithoutGroups} mahasiswa belum punya grup",
+                    'severity' => 'error',
+                    'action' => 'Pastikan semua mahasiswa terdaftar dalam grup di tab Perlu Perhatian',
+                ];
+            }
+        }
+
+        $docReqExists = PhaseDocumentRequirement::where('period_id', $period->id)->exists();
+        if (! $docReqExists) {
+            $blockers[] = [
+                'type' => 'DOC_REQ_MISSING',
+                'message' => 'Dokumen requirement belum dikonfigurasi',
+                'severity' => 'error',
+                'action' => 'Konfigurasi dokumen wajib di Periode > Document Requirements',
+            ];
+        }
+
+        if ($period->min_group_size === null || $period->max_group_size === null) {
+            $blockers[] = [
+                'type' => 'PERIOD_CONFIG_INCOMPLETE',
+                'message' => 'Konfigurasi periode belum lengkap',
+                'severity' => 'error',
+                'action' => 'Isi min/max group size di edit periode',
+            ];
+        }
+
+        if ($period->peerReviewIndicators()->count() === 0) {
+            $blockers[] = [
+                'type' => 'PEER_REVIEW_NOT_CONFIGURED',
+                'message' => 'Peer review belum dikonfigurasi',
+                'severity' => 'error',
+                'action' => 'Atur indikator peer review di menu Assessment',
+            ];
+        }
+
+        if ($period->grade_configuration === null || empty($period->grade_configuration)) {
+            $blockers[] = [
+                'type' => 'GRADE_CONFIG_MISSING',
+                'message' => 'Konfigurasi nilai belum diatur',
+                'severity' => 'error',
+                'action' => 'Isi grade configuration di edit periode',
+            ];
+        }
+
+        $kfCount = Group::where('period_id', $period->id)
+            ->where('status', 'KELOMPOK_FINAL')->count();
+        if ($kfCount === 0 && $totalGroups > 0 && $rfCount === 0) {
+            $pastGroups = Group::where('period_id', $period->id)
+                ->whereIn('status', ['PDC1_ACTIVE', 'READY_FOR_SEMPRO', 'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE', 'PDC2_COMPLETED', 'READY_FOR_TA_INDIVIDUAL'])
+                ->count();
+            if ($pastGroups === 0) {
+                $blockers[] = [
+                    'type' => 'NO_KF_GROUPS',
+                    'message' => 'Tidak ada grup yang siap difinalisasi',
+                    'severity' => 'error',
+                    'action' => 'Pastikan setidaknya ada 1 grup dengan status Kelompok Final atau sudah melewati PDC1',
+                ];
+            }
+        }
+
+        return $blockers;
+    }
+
+    /**
+     * Get prerequisites checklist for finalization.
+     */
+    public function getPrerequisites(Period $period): array
+    {
+        $totalGroups = Group::where('period_id', $period->id)->count();
+        $rfCount = Group::where('period_id', $period->id)
+            ->where('status', 'READY_FOR_FINALIZATION')->count();
+        $studentsWithoutGroups = $period->require_all_students_grouped
+            ? $this->getStudentsWithoutGroupsCount($period)
+            : 0;
+        $docReqExists = PhaseDocumentRequirement::where('period_id', $period->id)->exists();
+        $peerReviewConfigured = $period->peerReviewIndicators()->count() > 0;
+        $gradeConfigConfigured = $period->grade_configuration !== null && ! empty($period->grade_configuration);
+        $periodConfigComplete = $period->min_group_size !== null && $period->max_group_size !== null;
+
+        return [
+            [
+                'type' => 'PERIOD_CONFIG',
+                'label' => 'Period Config',
+                'configured' => $periodConfigComplete,
+                'severity' => $periodConfigComplete ? 'success' : 'error',
+                'message' => $periodConfigComplete ? 'Min/max group size configured' : 'Min/max group size not set',
+                'configure_url' => '/admin/periods',
+                'edit_url' => '/admin/periods',
+            ],
+            [
+                'type' => 'DOCUMENT_REQUIREMENTS',
+                'label' => 'Document Requirements',
+                'configured' => $docReqExists,
+                'severity' => $docReqExists ? 'success' : 'error',
+                'message' => $docReqExists ? 'Document requirements configured' : 'No document requirements set',
+                'configure_url' => '/admin/document-requirements',
+                'edit_url' => '/admin/document-requirements',
+            ],
+            [
+                'type' => 'PEER_REVIEW',
+                'label' => 'Peer Review',
+                'configured' => $peerReviewConfigured,
+                'severity' => $peerReviewConfigured ? 'success' : 'error',
+                'message' => $peerReviewConfigured ? 'Peer review indicators configured' : 'Peer review indicators not set',
+                'configure_url' => '/admin/peer-review',
+                'edit_url' => '/admin/peer-review',
+            ],
+            [
+                'type' => 'GRADE_CONFIG',
+                'label' => 'Grade Config',
+                'configured' => $gradeConfigConfigured,
+                'severity' => $gradeConfigConfigured ? 'success' : 'error',
+                'message' => $gradeConfigConfigured ? 'Grade configuration set' : 'Grade configuration not set',
+                'configure_url' => '/admin/evaluation-setup/grade-configuration',
+                'edit_url' => '/admin/evaluation-setup/grade-configuration',
+            ],
+            [
+                'type' => 'GROUP_ASSIGNMENTS',
+                'label' => 'Group Assignments',
+                'configured' => $studentsWithoutGroups === 0,
+                'severity' => $studentsWithoutGroups === 0 ? 'success' : 'error',
+                'message' => $studentsWithoutGroups === 0 ? 'All students grouped' : "{$studentsWithoutGroups} students without groups",
+                'configure_url' => '/admin/finalization?tab=others&sub_tab=no_group',
+                'edit_url' => '/admin/finalization?tab=others&sub_tab=no_group',
+            ],
+            [
+                'type' => 'GROUP_FINALIZATION',
+                'label' => 'Group Finalization',
+                'configured' => $rfCount === 0 && $totalGroups > 0,
+                'severity' => ($rfCount === 0 && $totalGroups > 0) ? 'success' : 'error',
+                'message' => ($rfCount === 0 && $totalGroups > 0) ? 'All groups finalized' : ($totalGroups === 0 ? 'No groups in period' : "{$rfCount} groups not finalized"),
+                'configure_url' => '/admin/finalization?tab=ready',
+                'edit_url' => '/admin/finalization?tab=ready',
+            ],
+        ];
+    }
+
+    // ─── Flow Payload ─────────────────────────────────────────────────
+
+    /**
+     * Build the admin finalization flow payload.
+     */
+    public function buildAdminFinalizationFlowPayload(Period $period, string $tab, string $subTab): array
+    {
+        if ($period->is_finalized) {
+            return [
+                'can_modify' => false,
+                'can_execute_finalization' => false,
+                'reason' => 'PERIOD_FINALIZED',
+                'blockers' => [],
+                'prerequisites' => [],
+            ];
+        }
+
+        $blockers = $this->getFinalizationBlockers($period);
+        $prerequisites = $this->getPrerequisites($period);
+        $canExecuteFinalization = count($blockers) === 0;
+
+        return [
+            'can_modify' => true,
+            'can_execute_finalization' => $canExecuteFinalization,
+            'tab' => $tab,
+            'sub_tab' => $subTab,
+            'reason' => $canExecuteFinalization ? null : 'PREREQUISITE_NOT_MET',
+            'blockers' => $blockers,
+            'prerequisites' => $prerequisites,
         ];
     }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { DashboardHeader } from "@/components/common";
+import { DashboardHeader } from "@/components/common/DashboardHeader";
 import { StatsCard } from "@/components/dashboard/StatsCard";
 import { RecentList } from "@/components/dashboard/RecentList";
 import { QuickActions } from "@/components/dashboard/QuickActions";

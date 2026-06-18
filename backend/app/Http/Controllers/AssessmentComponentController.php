@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Schema;
 
 class AssessmentComponentController extends Controller
 {
+    use ApiResponseTrait;
+
     private function usesPeriodAssessmentComponents(): bool
     {
         return Schema::hasTable('period_assessment_components');
@@ -67,7 +69,7 @@ class AssessmentComponentController extends Controller
             ]);
         }
 
-        return response()->json($components);
+        return $this->successResponse($components);
     }
 
     /**
@@ -76,9 +78,7 @@ class AssessmentComponentController extends Controller
      */
     public function store(Request $request)
     {
-        return response()->json([
-            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.',
-        ], 400);
+        return $this->errorResponse('Use PeriodAssessmentConfigController to configure assessment components for a period.', 400);
     }
 
     /**
@@ -87,9 +87,7 @@ class AssessmentComponentController extends Controller
      */
     public function bulkStore(Request $request)
     {
-        return response()->json([
-            'message' => 'Use PeriodAssessmentConfigController to configure assessment components for a period.',
-        ], 400);
+        return $this->errorResponse('Use PeriodAssessmentConfigController to configure assessment components for a period.', 400);
     }
 
     /**
@@ -110,7 +108,7 @@ class AssessmentComponentController extends Controller
         $component->update($data);
 
         if ($this->usesPeriodAssessmentComponents()) {
-            return response()->json([
+            return $this->successResponse([
                 'id' => $component->id,
                 'code' => $component->template->code,
                 'name' => $component->template->name,
@@ -121,7 +119,7 @@ class AssessmentComponentController extends Controller
             ]);
         }
 
-        return response()->json([
+        return $this->successResponse([
             'id' => $component->id,
             'code' => $component->code,
             'name' => $component->name,
@@ -145,6 +143,6 @@ class AssessmentComponentController extends Controller
 
         $component->delete();
 
-        return response()->json(['message' => 'Component removed from period configuration']);
+        return $this->successResponse(null, 'Component removed from period configuration');
     }
 }

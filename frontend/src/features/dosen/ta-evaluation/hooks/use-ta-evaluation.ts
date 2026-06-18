@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import api from '@/lib/api';
 import { toast } from 'sonner';
-import { formatScoringKey } from '@/components/common';
+import { formatScoringKey } from '@/components/common/ScoringRubric';
 import type { EvaluationContext } from '../types';
 
 export function useTaEvaluation(scheduleId: string) {

@@ -5,6 +5,8 @@ import { useQuery } from '@tanstack/react-query';
 import api from '@/lib/api';
 import type { AssessmentPeriod, AssessmentComponent } from '@/features/admin/assessments/types';
 
+const QUERY_KEY = ["admin", "assessments"] as const;
+
 const EVALUATION_TYPES = [
     { value: 'SEMPRO', label: 'SEMPRO', description: 'Seminar Proposal' },
     { value: 'SIDANG_TA', label: 'SIDANG_TA', description: 'Sidang Tugas Akhir' },
@@ -32,7 +34,7 @@ export function useAssessments() {
     const [selectedType, setSelectedType] = useState<string>('SEMPRO');
 
     const { data: periods = [], isLoading: isLoadingPeriods } = useQuery({
-        queryKey: ['admin', 'periods', 'assessments'],
+        queryKey: [...QUERY_KEY, 'periods'],
         queryFn: fetchPeriods,
         staleTime: Infinity,
     });
@@ -45,7 +47,7 @@ export function useAssessments() {
     }, [periods, selectedPeriod]);
 
     const { data: components = [], isLoading: isLoadingComponents } = useQuery({
-        queryKey: ['admin', 'assessment-components', effectivePeriod, selectedType],
+        queryKey: [...QUERY_KEY, 'components', effectivePeriod, selectedType],
         queryFn: () => fetchComponents(effectivePeriod, selectedType),
         enabled: !!effectivePeriod && !!selectedType,
     });

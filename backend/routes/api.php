@@ -251,7 +251,9 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         // Student Evaluation Detail Pages (admin)
         Route::get('/reports/student-evaluations-summary', [ReportDetailController::class, 'studentEvaluationsSummary']);
         Route::get('/reports/student-evaluations/{studentId}/{evaluationType}', [ReportDetailController::class, 'studentEvaluationDetail']);
+        Route::get('/reports/evaluator-detail/{studentId}/{evaluationType}/{evaluatorId}', [ReportDetailController::class, 'evaluatorDetail']);
         Route::get('/reports/student-evaluations-summary/export', [ReportDetailController::class, 'exportStudentEvaluationsSummary']);
+        Route::get('/reports/phase-evaluations', [ReportDetailController::class, 'phaseEvaluatorScores']);
 
         // Assign Supervisor 2 (admin only)
         Route::post('/groups/{group}/assign-supervisor-2', [GroupController::class, 'assignSupervisor2']);

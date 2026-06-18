@@ -269,6 +269,17 @@ const navItems: Record<string, NavItem[]> = {
   ],
 };
 
+// ─── Category IDs for multi-role sidebar ──────────────────────
+const categoryIds: Record<string, string> = {
+  "Master Data": "admin-master",
+  "Evaluation Setup": "admin-evaluation",
+  Management: "admin-management",
+  Analytics: "admin-analytics",
+  "Titles & Bids": "dosen-titles",
+  Mentoring: "dosen-mentoring",
+  "Schedule & Review": "dosen-schedule",
+};
+
 // ─── Sidebar Section Component ──────────────────────────────
 function SidebarSection({
   sectionId,
@@ -455,6 +466,55 @@ export function AppSidebar() {
   const isMultiRole =
     user?.roles?.includes("admin") && user?.roles?.includes("dosen");
 
+  // Compute single-role navigation items (needed for openItem initializer and renderSingleRoleSidebar)
+  const currentRole = activeRole || user?.role || "mahasiswa";
+  const safeRoleKey = toNavRoleKey(currentRole);
+  const roleNavItems: NavItem[] = (navItems[safeRoleKey] || []).map((item) => {
+    if (
+      currentRole === "mahasiswa" &&
+      item.title === "Evaluations" &&
+      item.items
+    ) {
+      const allowedStatusesForPeerReview = [
+        "EXPO_REGISTERED",
+        "EXPO_DONE",
+        "READY_FOR_TA_INDIVIDUAL",
+        "TA_IN_PROGRESS",
+        "CLOSED",
+      ];
+      if (!allowedStatusesForPeerReview.includes(groupStatus || "")) {
+        return {
+          ...item,
+          items: item.items.filter((i) => i.title !== "Peer Review"),
+        };
+      }
+    }
+    return item;
+  });
+
+  // Lifted state from renderMultiRoleSidebar (fixes Rules of Hooks violation)
+  const [openCategory, setOpenCategory] = useState<string | null>(() => {
+    const allCategories = [...navItems.admin, ...navItems.dosen];
+    const activeCategory = allCategories.find((item) =>
+      item.items?.some((sub) => pathname === sub.url)
+    );
+    if (activeCategory) {
+      return (
+        categoryIds[activeCategory.title] ||
+        activeCategory.title.toLowerCase().replace(/\s+/g, "-")
+      );
+    }
+    return null;
+  });
+
+  // Lifted state from renderSingleRoleSidebar (fixes Rules of Hooks violation)
+  const [openItem, setOpenItem] = useState<string | null>(() => {
+    const activeItem = roleNavItems.find((item) =>
+      item.items?.some((sub) => pathname === sub.url)
+    );
+    return activeItem?.title || null;
+  });
+
   // Fetch unread notification count
   useEffect(() => {
     if (!user) return;
@@ -602,33 +662,12 @@ export function AppSidebar() {
   };
 
   // ─── Render multi-role sidebar ──────────────────────────
-  const renderMultiRoleSidebar = () => {
+  const renderMultiRoleSidebar = (
+    openCategory: string | null,
+    setOpenCategory: React.Dispatch<React.SetStateAction<string | null>>
+  ) => {
     const adminSectionId = "section-admin";
     const dosenSectionId = "section-dosen";
-    const categoryIds: Record<string, string> = {
-      "Master Data": "admin-master",
-      "Evaluation Setup": "admin-evaluation",
-      Management: "admin-management",
-      Analytics: "admin-analytics",
-      "Titles & Bids": "dosen-titles",
-      Mentoring: "dosen-mentoring",
-      "Schedule & Review": "dosen-schedule",
-    };
-
-    const [openCategory, setOpenCategory] = useState<string | null>(() => {
-      // Initialize with the active category based on current pathname
-      const allCategories = [...navItems.admin, ...navItems.dosen];
-      const activeCategory = allCategories.find((item) =>
-        item.items?.some((sub) => pathname === sub.url)
-      );
-      if (activeCategory) {
-        return (
-          categoryIds[activeCategory.title] ||
-          activeCategory.title.toLowerCase().replace(/\s+/g, "-")
-        );
-      }
-      return null;
-    });
 
     const handleCategoryOpenChange = (categoryId: string, isOpen: boolean) => {
       if (isOpen) {
@@ -848,42 +887,10 @@ export function AppSidebar() {
   };
 
   // ─── Render single-role sidebar (existing behavior) ─────
-  const renderSingleRoleSidebar = () => {
-    const currentRole = activeRole || user?.role || "mahasiswa";
-    const safeRoleKey = toNavRoleKey(currentRole);
-    const roleItems = navItems[safeRoleKey] || [];
-
-    const items: NavItem[] = roleItems.map((item) => {
-      if (
-        currentRole === "mahasiswa" &&
-        item.title === "Evaluations" &&
-        item.items
-      ) {
-        const allowedStatusesForPeerReview = [
-          "EXPO_REGISTERED",
-          "EXPO_DONE",
-          "READY_FOR_TA_INDIVIDUAL",
-          "TA_IN_PROGRESS",
-          "CLOSED",
-        ];
-        if (!allowedStatusesForPeerReview.includes(groupStatus || "")) {
-          return {
-            ...item,
-            items: item.items.filter((i) => i.title !== "Peer Review"),
-          };
-        }
-      }
-      return item;
-    });
-
-    const [openItem, setOpenItem] = useState<string | null>(() => {
-      // Initialize with the item that has active subitem
-      const activeItem = items.find((item) =>
-        item.items?.some((sub) => pathname === sub.url)
-      );
-      return activeItem?.title || null;
-    });
-
+  const renderSingleRoleSidebar = (
+    openItem: string | null,
+    setOpenItem: React.Dispatch<React.SetStateAction<string | null>>
+  ) => {
     const handleItemOpenChange = (itemTitle: string, isOpen: boolean) => {
       if (isOpen) {
         setOpenItem(itemTitle);
@@ -933,7 +940,7 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
 
-                {items.map((item) => {
+                {roleNavItems.map((item) => {
                   const isItemActive = pathname === item.url;
                   const hasActiveSubitem = item.items?.some(
                     (sub) => pathname === sub.url
@@ -1130,8 +1137,8 @@ export function AppSidebar() {
 
   // ─── Render ──────────────────────────────────────────────
   if (isMultiRole) {
-    return renderMultiRoleSidebar();
+    return renderMultiRoleSidebar(openCategory, setOpenCategory);
   }
 
-  return renderSingleRoleSidebar();
+  return renderSingleRoleSidebar(openItem, setOpenItem);
 }

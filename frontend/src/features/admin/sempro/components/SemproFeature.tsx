@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, useRef, Fragment } from 'react';
+import { useState, useMemo, Fragment } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { semproScheduleSchema, type SemproScheduleFormData } from '@/lib/validations/sempro';
-import api from '@/lib/api';
 import type { ScheduleUpdatePayload } from '@/types/schedule';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,7 +18,6 @@ import {
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
-import { toast } from 'sonner';
 import Link from 'next/link';
 import { getSemproStatusBadgeVariant } from '@/lib/badge-variants';
 import { format } from 'date-fns';
@@ -32,21 +30,20 @@ import { SortableTableHeader } from '@/components/common/SortableTableHeader';
 import { PaginationControls } from '@/components/common/PaginationControls';
 import { useClientPagination } from '@/hooks/use-client-pagination';
 import { useExpandableRows } from '@/hooks/use-expandable-rows';
-import type { Period, Dosen, Location, BimbinganEval, Schedule, GroupItem, SortKey, SortDir } from '../types';
+import { useSempro } from '../hooks/use-sempro';
+import type { SortKey, SortDir, Schedule } from '../types';
 
 const PAGE_SIZES = [10, 25, 50];
 
 export function SemproFeature() {
-    const [schedules, setSchedules] = useState<Schedule[]>([]);
-    const [groups, setGroups] = useState<GroupItem[]>([]);
-    const [dosens, setDosens] = useState<Dosen[]>([]);
-    const [periods, setPeriods] = useState<Period[]>([]);
-    const [locations, setLocations] = useState<Location[]>([]);
-    const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
-    const selectedPeriodRef = useRef(selectedPeriod);
-    const hasInitializedPeriod = useRef(false);
+    const {
+        schedules, groups, periods, dosens, locations,
+        isLoading: loading,
+        selectedPeriod, setSelectedPeriod,
+        createSchedule, approveSchedule, rejectSchedule, cancelSchedule, updateSchedule,
+    } = useSempro();
+
     const [searchQuery, setSearchQuery] = useState('');
-    const [loading, setLoading] = useState(true);
 
     const [scheduleOpen, setScheduleOpen] = useState(false);
 
@@ -83,115 +80,6 @@ export function SemproFeature() {
     const [sortKey, setSortKey] = useState<SortKey>('date');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
     const { isExpanded, toggleExpanded } = useExpandableRows<number>();
-
-    const fetchSchedules = useCallback(async (periodId?: string) => {
-        const currentPeriod = periodId !== undefined ? periodId : selectedPeriodRef.current;
-        setLoading(true);
-        try {
-            const query = currentPeriod !== 'all' && currentPeriod ? `?period_id=${currentPeriod}` : '';
-            const [semproRes, groupsRes] = await Promise.all([
-                api.get(`/admin/sempro/schedules${query}`),
-                api.get(`/admin/groups${query}`),
-            ]);
-            setSchedules(semproRes.data.data || []);
-            setGroups(groupsRes.data.data || []);
-        } catch (err) {
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    // Combined data fetching with proper cleanup
-    useEffect(() => {
-        let isMounted = true;
-
-        const loadInitialData = async () => {
-            try {
-                // Fetch periods first to get active period
-                const periodsRes = await api.get('/admin/periods');
-                if (!isMounted) return;
-                const perData = periodsRes.data?.data || [];
-                setPeriods(perData);
-                const active = perData.find((p: Period) => p.is_active);
-
-                // Determine which period to use for other fetches on initial load
-                // Use active period if available, otherwise use 'all'
-                const periodToUse = active?.id.toString() || 'all';
-
-                // Fetch all data in parallel
-                const query = periodToUse !== 'all' && periodToUse ? `?period_id=${periodToUse}` : '';
-                const [semproRes, groupsRes, dosensRes, locationsRes] = await Promise.all([
-                    api.get(`/admin/sempro/schedules${query}`),
-                    api.get(`/admin/groups${query}`),
-                    api.get('/admin/users?role=dosen'),
-                    api.get('/locations'),
-                ]);
-
-                if (!isMounted) return;
-
-                setSchedules(semproRes.data.data || []);
-                setGroups(groupsRes.data.data || []);
-                // API already filters by role=dosen, so we use all returned users
-                setDosens(dosensRes.data.data || []);
-                setLocations(locationsRes.data.data || []);
-
-                // Only set active period on initial load
-                if (active && !hasInitializedPeriod.current) {
-                    hasInitializedPeriod.current = true;
-                    setSelectedPeriod(active.id.toString());
-                }
-            } catch (err) {
-                if (isMounted) {
-                    console.error(err);
-                }
-            } finally {
-                if (isMounted) {
-                    setLoading(false);
-                }
-            }
-        };
-
-        loadInitialData();
-
-        return () => {
-            isMounted = false;
-        };
-    }, []);
-
-    // Fetch schedules when period changes
-    useEffect(() => {
-        let isMounted = true;
-
-        const loadSchedules = async () => {
-            setLoading(true);
-            try {
-                const query = selectedPeriod !== 'all' && selectedPeriod ? `?period_id=${selectedPeriod}` : '';
-                const [semproRes, groupsRes] = await Promise.all([
-                    api.get(`/admin/sempro/schedules${query}`),
-                    api.get(`/admin/groups${query}`),
-                ]);
-                if (isMounted) {
-                    setSchedules(semproRes.data.data || []);
-                    setGroups(groupsRes.data.data || []);
-                }
-            } catch (err) {
-                if (isMounted) {
-                    console.error(err);
-                }
-            } finally {
-                if (isMounted) {
-                    setLoading(false);
-                }
-            }
-        };
-
-        loadSchedules();
-
-        return () => {
-            isMounted = false;
-        };
-    }, [selectedPeriod]);
 
     const filteredAndSorted = useMemo(() => {
         const result = schedules.filter(s => {
@@ -239,41 +127,29 @@ export function SemproFeature() {
     };
 
     const handleSchedule = async (data: SemproScheduleFormData) => {
-        try {
-            interface SchedulePayload {
-                group_id: number;
-                date: string;
-                start_time: string;
-                end_time: string;
-                examiner_1_id: number;
-                examiner_2_id: number;
-                location_id?: number;
-            }
-            const payload: SchedulePayload = {
-                group_id: Number(data.group_id),
-                date: data.date,
-                start_time: data.start_time,
-                end_time: data.end_time,
-                examiner_1_id: Number(data.examiner_1_id),
-                examiner_2_id: Number(data.examiner_2_id),
-            };
-            if (data.location_id) {
-                payload.location_id = Number(data.location_id);
-            }
-            await api.post('/admin/sempro/schedule', payload);
-            toast.success('SEMPRO schedule created');
-            setScheduleOpen(false);
-            resetForm();
-            fetchSchedules();
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                const msg = error.response?.data?.message || 'Scheduling failed';
-                const conflicts = error.response?.data?.conflicts;
-                toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
-            } else {
-                toast.error('Scheduling failed');
-            }
+        interface SchedulePayload {
+            group_id: number;
+            date: string;
+            start_time: string;
+            end_time: string;
+            examiner_1_id: number;
+            examiner_2_id: number;
+            location_id?: number;
         }
+        const payload: SchedulePayload = {
+            group_id: Number(data.group_id),
+            date: data.date,
+            start_time: data.start_time,
+            end_time: data.end_time,
+            examiner_1_id: Number(data.examiner_1_id),
+            examiner_2_id: Number(data.examiner_2_id),
+        };
+        if (data.location_id) {
+            payload.location_id = Number(data.location_id);
+        }
+        await createSchedule(payload);
+        setScheduleOpen(false);
+        resetForm();
     };
 
     const handleApprove = (id: number, schedule?: Schedule) => {
@@ -292,64 +168,40 @@ export function SemproFeature() {
 
     const submitApprove = async () => {
         if (!approveId) return;
-        try {
-            interface ApprovePayload {
-                date: string;
-                start_time: string;
-                end_time: string;
-                examiner_1_id: number;
-                examiner_2_id: number;
-                location_id?: number;
-            }
-            const payload: ApprovePayload = {
-                date: approveData.date,
-                start_time: approveData.start_time,
-                end_time: approveData.end_time,
-                examiner_1_id: Number(approveData.examiner_1_id),
-                examiner_2_id: Number(approveData.examiner_2_id),
-            };
-            if (approveData.location_id) {
-                payload.location_id = Number(approveData.location_id);
-            }
-            await api.put(`/admin/sempro/schedules/${approveId}/approve`, payload);
-            toast.success('Schedule approved');
-            setApproveDialogOpen(false);
-            setApproveId(null);
-            fetchSchedules();
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                const msg = error.response?.data?.message || 'Approval failed';
-                const conflicts = error.response?.data?.conflicts;
-                toast.error(conflicts ? `${msg}\n${conflicts.join('\n')}` : msg);
-            } else {
-                toast.error('Approval failed');
-            }
+        interface ApprovePayload {
+            date: string;
+            start_time: string;
+            end_time: string;
+            examiner_1_id: number;
+            examiner_2_id: number;
+            location_id?: number;
         }
+        const payload: ApprovePayload = {
+            date: approveData.date,
+            start_time: approveData.start_time,
+            end_time: approveData.end_time,
+            examiner_1_id: Number(approveData.examiner_1_id),
+            examiner_2_id: Number(approveData.examiner_2_id),
+        };
+        if (approveData.location_id) {
+            payload.location_id = Number(approveData.location_id);
+        }
+        await approveSchedule(approveId, payload);
+        setApproveDialogOpen(false);
+        setApproveId(null);
     };
 
     const handleReject = async () => {
         if (!rejectId || !rejectReason.trim()) return;
-        try {
-            await api.put(`/admin/sempro/schedules/${rejectId}/reject`, { rejection_reason: rejectReason });
-            toast.success('Schedule request rejected');
-            setRejectId(null);
-            setRejectReason('');
-            fetchSchedules();
-        } catch {
-            toast.error('Rejection failed');
-        }
+        await rejectSchedule(rejectId, rejectReason);
+        setRejectId(null);
+        setRejectReason('');
     };
 
     const handleCancel = async () => {
         if (!cancelId) return;
-        try {
-            await api.put(`/admin/sempro/schedules/${cancelId}/cancel`);
-            toast.success('Schedule deleted');
-            setCancelId(null);
-            fetchSchedules();
-        } catch {
-            toast.error('Failed to delete schedule');
-        }
+        await cancelSchedule(cancelId);
+        setCancelId(null);
     };
 
     const [editingSchedule, setEditingSchedule] = useState<Schedule | null>(null);
@@ -371,37 +223,26 @@ export function SemproFeature() {
 
     const submitEdit = async () => {
         if (!editId) return;
-        try {
-            const payload: ScheduleUpdatePayload = {
-                date: approveData.date,
-                start_time: approveData.start_time,
-                end_time: approveData.end_time,
-                examiner_1_id: Number(approveData.examiner_1_id),
-                examiner_2_id: Number(approveData.examiner_2_id),
-                location_id: approveData.location_id && approveData.location_id !== ''
-                    ? Number(approveData.location_id)
-                    : null,
-            };
+        const payload: ScheduleUpdatePayload = {
+            date: approveData.date,
+            start_time: approveData.start_time,
+            end_time: approveData.end_time,
+            examiner_1_id: Number(approveData.examiner_1_id),
+            examiner_2_id: Number(approveData.examiner_2_id),
+            location_id: approveData.location_id && approveData.location_id !== ''
+                ? Number(approveData.location_id)
+                : null,
+        };
 
-            // Include room if location_id is not set or if room has value
-            if (approveData.room && approveData.room !== '') {
-                payload.room = approveData.room;
-            }
-
-            await api.put(`/admin/sempro/schedules/${editId}`, payload);
-            toast.success('Schedule updated');
-            setEditDialogOpen(false);
-            setEditId(null);
-            setEditingSchedule(null);
-            fetchSchedules();
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                const msg = error.response?.data?.message || 'Update failed';
-                toast.error(msg);
-            } else {
-                toast.error('Update failed');
-            }
+        // Include room if location_id is not set or if room has value
+        if (approveData.room && approveData.room !== '') {
+            payload.room = approveData.room;
         }
+
+        await updateSchedule(editId, payload);
+        setEditDialogOpen(false);
+        setEditId(null);
+        setEditingSchedule(null);
     };
 
     const statusColor = (s: string) => getSemproStatusBadgeVariant(s);

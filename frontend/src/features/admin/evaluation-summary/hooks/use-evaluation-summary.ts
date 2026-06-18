@@ -6,6 +6,8 @@ import { toast } from 'sonner';
 import { getApiErrorMessage } from '@/lib/error-utils';
 import type { EvaluationSummaryData } from '../types';
 
+const QUERY_KEY = ['admin', 'evaluation-summary'] as const;
+
 async function fetchEvaluationSummary(scheduleId: string): Promise<EvaluationSummaryData> {
     const res = await api.get(`/admin/supervisor-evaluation/schedules/${scheduleId}/summary`);
     return res.data;
@@ -19,7 +21,7 @@ async function exportEvaluationSummary(scheduleId: string) {
 
 export function useEvaluationSummary(scheduleId: string | null) {
     const summaryQuery = useQuery({
-        queryKey: ['admin', 'evaluation-summary', scheduleId],
+        queryKey: [...QUERY_KEY, scheduleId],
         queryFn: () => fetchEvaluationSummary(scheduleId!),
         enabled: !!scheduleId,
     });
@@ -37,8 +39,8 @@ export function useEvaluationSummary(scheduleId: string | null) {
             window.URL.revokeObjectURL(url);
             toast.success('CSV exported successfully');
         },
-        onError: () => {
-            toast.error('Failed to export CSV');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to export CSV'));
         },
     });
 

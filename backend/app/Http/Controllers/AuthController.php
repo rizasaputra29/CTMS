@@ -10,6 +10,8 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    use ApiResponseTrait;
+
     public function login(LoginRequest $request)
     {
         if (! Auth::guard('web')->attempt($request->only('email', 'password'))) {
@@ -21,7 +23,7 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->with('roles')->firstOrFail();
         $token = $user->createToken('auth_token')->plainTextToken;
 
-        return response()->json([
+        return $this->successResponse([
             'message' => 'Login success',
             'access_token' => $token,
             'token_type' => 'Bearer',
@@ -34,7 +36,7 @@ class AuthController extends Controller
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out successfully']);
+        return $this->successResponse(null, 'Logged out successfully');
     }
 
     public function me(Request $request)
@@ -51,7 +53,7 @@ class AuthController extends Controller
             $activeRole = count($roles) > 0 ? $roles[0] : null;
         }
 
-        return response()->json([
+        return $this->successResponse([
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Http\Controllers\ApiResponseTrait;
 use App\Http\Controllers\Controller;
 use App\Models\Stakeholder;
 use App\Models\Title;
@@ -9,6 +10,8 @@ use Illuminate\Http\Request;
 
 class StakeholderController extends Controller
 {
+    use ApiResponseTrait;
+
     public function index(Request $request)
     {
         $query = Stakeholder::query();
@@ -17,9 +20,7 @@ class StakeholderController extends Controller
             $query->where('type', $request->string('type'));
         }
 
-        return response()->json([
-            'data' => $query->orderBy('name')->get(),
-        ]);
+        return $this->successResponse($query->orderBy('name')->get());
     }
 
     public function store(Request $request)
@@ -35,10 +36,7 @@ class StakeholderController extends Controller
 
         $stakeholder = Stakeholder::create($validated);
 
-        return response()->json([
-            'message' => 'Stakeholder created successfully.',
-            'data' => $stakeholder,
-        ], 201);
+        return $this->createdResponse($stakeholder, 'Stakeholder created successfully.');
     }
 
     public function update(Request $request, Stakeholder $stakeholder)
@@ -54,19 +52,14 @@ class StakeholderController extends Controller
 
         $stakeholder->update($validated);
 
-        return response()->json([
-            'message' => 'Stakeholder updated successfully.',
-            'data' => $stakeholder,
-        ]);
+        return $this->successResponse($stakeholder, 'Stakeholder updated successfully.');
     }
 
     public function destroy(Stakeholder $stakeholder)
     {
         $stakeholder->delete();
 
-        return response()->json([
-            'message' => 'Stakeholder deleted successfully.',
-        ]);
+        return $this->successResponse(null, 'Stakeholder deleted successfully.');
     }
 
     public function attachToTitle(Request $request, Title $title)
@@ -79,9 +72,7 @@ class StakeholderController extends Controller
 
         // Stakeholders are governed for student-proposed ideas only.
         if ($title->title_source !== 'STUDENT') {
-            return response()->json([
-                'message' => 'Stakeholders can only be attached to student-proposed titles.',
-            ], 422);
+            return $this->errorResponse('Stakeholders can only be attached to student-proposed titles.', 422);
         }
 
         $title->stakeholders()->syncWithoutDetaching([
@@ -91,19 +82,13 @@ class StakeholderController extends Controller
             ],
         ]);
 
-        return response()->json([
-            'message' => 'Stakeholder linked to title.',
-            'data' => $title->load('stakeholders'),
-        ]);
+        return $this->successResponse($title->load('stakeholders'), 'Stakeholder linked to title.');
     }
 
     public function detachFromTitle(Title $title, Stakeholder $stakeholder)
     {
         $title->stakeholders()->detach($stakeholder->id);
 
-        return response()->json([
-            'message' => 'Stakeholder unlinked from title.',
-            'data' => $title->load('stakeholders'),
-        ]);
+        return $this->successResponse($title->load('stakeholders'), 'Stakeholder unlinked from title.');
     }
 }

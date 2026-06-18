@@ -2,7 +2,7 @@
 
 // This component uses TanStack Table's useReactTable() which cannot be safely memoized
 // The React Compiler is configured to skip memoization for this component
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
     useReactTable,
     getCoreRowModel,
@@ -34,6 +34,121 @@ import {
 import { format, parseISO } from 'date-fns';
 import type { ScheduleEvent } from './ScheduleCalendar';
 
+const staticColumns = [
+    {
+        accessorKey: 'date',
+        header: 'Date',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const date = row.original.date;
+            const parsed = parseISO(date);
+            const isValid = !isNaN(parsed.getTime());
+            return (
+                <span className="text-sm">
+                    {isValid ? format(parsed, 'dd MMM yyyy') : 'Invalid date'}
+                </span>
+            );
+        },
+    },
+    {
+        accessorKey: 'start_time',
+        header: 'Time',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const date = parseISO(row.original.date);
+            const time = row.original.start_time;
+            const isValid = !isNaN(date.getTime());
+            return (
+                <span className="text-sm text-muted-foreground">
+                    {time || (isValid ? format(date, 'HH:mm') : '-')}
+                </span>
+            );
+        },
+    },
+    {
+        accessorKey: 'type',
+        header: 'Type',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const type = row.original.type;
+            const variant =
+                type === 'BIMBINGAN'
+                    ? 'default'
+                    : type === 'SEMPRO'
+                      ? 'secondary'
+                      : type === 'EXPO'
+                        ? 'outline'
+                        : type === 'TA_DEFENSE'
+                          ? 'destructive'
+                          : 'default';
+            return (
+                <Badge variant={variant} className="text-xs">
+                    {type}
+                </Badge>
+            );
+        },
+    },
+    {
+        accessorKey: 'group.title.title',
+        header: 'Group',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const groupTitle = row.original.group?.title?.title;
+            return (
+                <span className="text-sm font-medium">
+                    {groupTitle || '-'}
+                </span>
+            );
+        },
+    },
+    {
+        accessorKey: 'student_name',
+        header: 'Student',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const students = row.original.students;
+            const studentName = row.original.student_name;
+
+            if (students && students.length > 1) {
+                return (
+                    <div className="text-sm">
+                        <span>{students[0].name}</span>
+                        <span className="text-muted-foreground text-xs ml-1">+{students.length - 1} more</span>
+                    </div>
+                );
+            }
+
+            return <span className="text-sm">{studentName || '-'}</span>;
+        },
+    },
+    {
+        accessorKey: 'room',
+        header: 'Room',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const room = row.original.room;
+            const mode = row.original.mode;
+            return (
+                <span className="text-sm text-muted-foreground">
+                    {room || (mode === 'online' ? 'Online' : '-')}
+                </span>
+            );
+        },
+    },
+    {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const status = row.original.status || 'SCHEDULED';
+            const variant =
+                status === 'APPROVED' || status === 'COMPLETED'
+                    ? 'default'
+                    : status === 'REJECTED'
+                      ? 'destructive'
+                      : 'secondary';
+            return (
+                <Badge variant={variant} className="text-xs capitalize">
+                    {status.toLowerCase()}
+                </Badge>
+            );
+        },
+    },
+];
+
 interface ScheduleTableProps {
     schedules: ScheduleEvent[];
     onRowClick: (schedule: ScheduleEvent) => void;
@@ -53,211 +168,99 @@ export function ScheduleTable({
     const [rejectingId, setRejectingId] = useState<string | null>(null);
     const [rejectReason, setRejectReason] = useState('');
 
-    const columns = [
-        {
-            accessorKey: 'date',
-            header: 'Date',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const date = row.original.date;
-                const parsed = parseISO(date);
-                const isValid = !isNaN(parsed.getTime());
-                return (
-                    <span className="text-sm">
-                        {isValid ? format(parsed, 'dd MMM yyyy') : 'Invalid date'}
-                    </span>
-                );
-            },
-        },
-        {
-            accessorKey: 'start_time',
-            header: 'Time',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const date = parseISO(row.original.date);
-                const time = row.original.start_time;
-                const isValid = !isNaN(date.getTime());
-                return (
-                    <span className="text-sm text-muted-foreground">
-                        {time || (isValid ? format(date, 'HH:mm') : '-')}
-                    </span>
-                );
-            },
-        },
-        {
-            accessorKey: 'type',
-            header: 'Type',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const type = row.original.type;
-                const variant =
-                    type === 'BIMBINGAN'
-                        ? 'default'
-                        : type === 'SEMPRO'
-                          ? 'secondary'
-                          : type === 'EXPO'
-                            ? 'outline'
-                            : type === 'TA_DEFENSE'
-                              ? 'destructive'
-                              : 'default';
-                return (
-                    <Badge variant={variant} className="text-xs">
-                        {type}
-                    </Badge>
-                );
-            },
-        },
-        {
-            accessorKey: 'group.title.title',
-            header: 'Group',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const groupTitle = row.original.group?.title?.title;
-                return (
-                    <span className="text-sm font-medium">
-                        {groupTitle || '-'}
-                    </span>
-                );
-            },
-        },
-        {
-            accessorKey: 'student_name',
-            header: 'Student',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const students = row.original.students;
-                const studentName = row.original.student_name;
-                
-                if (students && students.length > 1) {
-                    return (
-                        <div className="text-sm">
-                            <span>{students[0].name}</span>
-                            <span className="text-muted-foreground text-xs ml-1">+{students.length - 1} more</span>
-                        </div>
-                    );
-                }
-                
-                return <span className="text-sm">{studentName || '-'}</span>;
-            },
-        },
-        {
-            accessorKey: 'room',
-            header: 'Room',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const room = row.original.room;
-                const mode = row.original.mode;
-                return (
-                    <span className="text-sm text-muted-foreground">
-                        {room || (mode === 'online' ? 'Online' : '-')}
-                    </span>
-                );
-            },
-        },
-        {
-            accessorKey: 'status',
-            header: 'Status',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const status = row.original.status || 'SCHEDULED';
-                const variant =
-                    status === 'APPROVED' || status === 'COMPLETED'
-                        ? 'default'
-                        : status === 'REJECTED'
-                          ? 'destructive'
-                          : 'secondary';
-                return (
-                    <Badge variant={variant} className="text-xs capitalize">
-                        {status.toLowerCase()}
-                    </Badge>
-                );
-            },
-        },
-        {
-            id: 'actions',
-            header: 'Actions',
-            cell: ({ row }: { row: { original: ScheduleEvent } }) => {
-                const schedule = row.original;
-                const status = schedule.status;
+    const actionsColumn = useMemo(() => ({
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }: { row: { original: ScheduleEvent } }) => {
+            const schedule = row.original;
+            const status = schedule.status;
 
-                if (status !== 'PENDING') {
-                    return (
+            if (status !== 'PENDING') {
+                return (
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onRowClick(schedule);
+                        }}
+                    >
+                        <Eye className="h-4 w-4" />
+                        View
+                    </Button>
+                );
+            }
+
+            if (rejectingId === String(schedule.id)) {
+                return (
+                    <div className="flex items-center gap-2">
+                        <Input
+                            placeholder="Reason..."
+                            value={rejectReason}
+                            onChange={(e) => setRejectReason(e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="h-8 w-32 text-xs"
+                        />
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onRowClick(schedule);
+                                onReject(String(schedule.id), schedule.type, rejectReason);
+                                setRejectingId(null);
+                                setRejectReason('');
                             }}
-                        >
-                            <Eye className="h-4 w-4" />
-                            View
-                        </Button>
-                    );
-                }
-
-                if (rejectingId === String(schedule.id)) {
-                    return (
-                        <div className="flex items-center gap-2">
-                            <Input
-                                placeholder="Reason..."
-                                value={rejectReason}
-                                onChange={(e) => setRejectReason(e.target.value)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="h-8 w-32 text-xs"
-                            />
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onReject(String(schedule.id), schedule.type, rejectReason);
-                                    setRejectingId(null);
-                                    setRejectReason('');
-                                }}
-                                disabled={!rejectReason.trim() || isProcessing}
-                            >
-                                <Check className="h-4 w-4 text-green-600" />
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setRejectingId(null);
-                                    setRejectReason('');
-                                }}
-                            >
-                                <X className="h-4 w-4 text-red-600" />
-                            </Button>
-                        </div>
-                    );
-                }
-
-                return (
-                    <div className="flex items-center gap-1">
-                        <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onApprove(String(schedule.id), schedule.type);
-                            }}
-                            disabled={isProcessing}
+                            disabled={!rejectReason.trim() || isProcessing}
                         >
                             <Check className="h-4 w-4 text-green-600" />
-                            <span className="text-xs text-green-600">Approve</span>
                         </Button>
                         <Button
                             variant="ghost"
                             size="sm"
                             onClick={(e) => {
                                 e.stopPropagation();
-                                setRejectingId(String(schedule.id));
+                                setRejectingId(null);
+                                setRejectReason('');
                             }}
-                            disabled={isProcessing}
                         >
                             <X className="h-4 w-4 text-red-600" />
-                            <span className="text-xs text-red-600">Reject</span>
                         </Button>
                     </div>
                 );
-            },
+            }
+
+            return (
+                <div className="flex items-center gap-1">
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            onApprove(String(schedule.id), schedule.type);
+                        }}
+                        disabled={isProcessing}
+                    >
+                        <Check className="h-4 w-4 text-green-600" />
+                        <span className="text-xs text-green-600">Approve</span>
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setRejectingId(String(schedule.id));
+                        }}
+                        disabled={isProcessing}
+                    >
+                        <X className="h-4 w-4 text-red-600" />
+                        <span className="text-xs text-red-600">Reject</span>
+                    </Button>
+                </div>
+            );
         },
-    ];
+    }), [onRowClick, onApprove, onReject, rejectingId, rejectReason, isProcessing]);
+
+    const columns = useMemo(() => [...staticColumns, actionsColumn], [actionsColumn]);
 
     const table = useReactTable({
         data: schedules,

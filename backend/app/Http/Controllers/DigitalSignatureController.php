@@ -8,6 +8,8 @@ use Illuminate\Support\Str;
 
 class DigitalSignatureController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Sign a document.
      */
@@ -33,11 +35,11 @@ class DigitalSignatureController extends Controller
             'signed_at' => now(),
         ]);
 
-        return response()->json([
+        return $this->createdResponse([
             'message' => 'Document signed successfully',
             'signature' => $signature,
             'hash' => $hash,
-        ], 201);
+        ]);
     }
 
     /**
@@ -50,13 +52,10 @@ class DigitalSignatureController extends Controller
             ->first();
 
         if (! $signature) {
-            return response()->json([
-                'valid' => false,
-                'message' => 'Signature not found or invalid',
-            ], 404);
+            return $this->notFoundResponse('Signature not found or invalid');
         }
 
-        return response()->json([
+        return $this->successResponse([
             'valid' => true,
             'signer' => $signature->user->name,
             'signed_at' => $signature->signed_at,
@@ -74,6 +73,6 @@ class DigitalSignatureController extends Controller
             ->orderBy('signed_at', 'desc')
             ->get();
 
-        return response()->json($signatures);
+        return $this->successResponse($signatures);
     }
 }

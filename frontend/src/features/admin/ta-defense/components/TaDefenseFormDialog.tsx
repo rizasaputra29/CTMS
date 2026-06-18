@@ -29,7 +29,7 @@ interface TaDefenseFormDialogProps {
     dosens: Dosen[];
     locations: Location[];
     eligibleGroups: EligibleStudentData[];
-    fetchEligibleGroups: (periodId: string) => Promise<void>;
+    fetchEligibleGroups: (periodId: string) => void;
     onCreate: (data: TaDefenseFormData) => Promise<void>;
     onUpdate: (id: number, data: TaDefenseFormData, periodId: number) => Promise<void>;
     isSubmitting: boolean;

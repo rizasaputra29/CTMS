@@ -8,6 +8,8 @@ use Illuminate\Support\Facades\Auth;
 
 class LocationController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Display a listing of all locations.
      */
@@ -15,7 +17,7 @@ class LocationController extends Controller
     {
         $locations = Location::orderBy('name')->get();
 
-        return response()->json(['data' => $locations]);
+        return $this->successResponse($locations);
     }
 
     /**
@@ -25,7 +27,7 @@ class LocationController extends Controller
     {
         $locations = Location::active()->orderBy('name')->get();
 
-        return response()->json(['data' => $locations]);
+        return $this->successResponse($locations);
     }
 
     /**
@@ -35,7 +37,7 @@ class LocationController extends Controller
     {
         $locations = Location::offline()->active()->orderBy('name')->get();
 
-        return response()->json(['data' => $locations]);
+        return $this->successResponse($locations);
     }
 
     /**
@@ -45,7 +47,7 @@ class LocationController extends Controller
     {
         $locations = Location::online()->active()->orderBy('name')->get();
 
-        return response()->json(['data' => $locations]);
+        return $this->successResponse($locations);
     }
 
     /**
@@ -54,7 +56,7 @@ class LocationController extends Controller
     public function store(Request $request)
     {
         if (! Auth::user()->hasRole('admin')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $request->validate([
@@ -72,10 +74,10 @@ class LocationController extends Controller
             'is_active' => true,
         ]);
 
-        return response()->json([
+        return $this->createdResponse([
             'message' => 'Location created successfully',
             'data' => $location,
-        ], 201);
+        ]);
     }
 
     /**
@@ -85,7 +87,7 @@ class LocationController extends Controller
     {
         $location = Location::findOrFail($id);
 
-        return response()->json(['data' => $location]);
+        return $this->successResponse($location);
     }
 
     /**
@@ -94,7 +96,7 @@ class LocationController extends Controller
     public function update(Request $request, $id)
     {
         if (! Auth::user()->hasRole('admin')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $location = Location::findOrFail($id);
@@ -109,10 +111,7 @@ class LocationController extends Controller
 
         $location->update($request->all());
 
-        return response()->json([
-            'message' => 'Location updated successfully',
-            'data' => $location,
-        ]);
+        return $this->successResponse($location, 'Location updated successfully');
     }
 
     /**
@@ -122,21 +121,19 @@ class LocationController extends Controller
     public function destroy($id)
     {
         if (! Auth::user()->hasRole('admin')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $location = Location::findOrFail($id);
 
         // Constraint: Must be inactive first
         if ($location->is_active) {
-            return response()->json([
-                'message' => 'Location must be deactivated before it can be deleted. Please set is_active to false first.',
-            ], 422);
+            return $this->errorResponse('Location must be deactivated before it can be deleted. Please set is_active to false first.', 422);
         }
 
         $location->delete();
 
-        return response()->json(['message' => 'Location deleted successfully']);
+        return $this->successResponse(null, 'Location deleted successfully');
     }
 
     /**
@@ -196,8 +193,7 @@ class LocationController extends Controller
             return ! in_array($location->name, $busyLocations);
         })->values();
 
-        return response()->json([
-            'data' => $availableLocations,
+        return $this->envelopeResponse($availableLocations, [
             'busy_locations' => $busyLocations,
         ]);
     }

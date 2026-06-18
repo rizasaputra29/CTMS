@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class SoloTitleController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     /**
      * List solo seeker titles in marketplace.
@@ -82,7 +82,7 @@ class SoloTitleController extends Controller
             })
             ->values();
 
-        return response()->json(['data' => $soloTitles]);
+        return $this->successResponse($soloTitles);
     }
 
     /**
@@ -99,9 +99,7 @@ class SoloTitleController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json([
-                'message' => 'Hanya pemimpin kelompok yang dapat mengajukan bid.',
-            ], 403);
+            return $this->unauthorizedResponse('Hanya pemimpin kelompok yang dapat mengajukan bid.');
         }
         $group = Group::with('period', 'members')->find($membership->group_id);
 
@@ -113,21 +111,17 @@ class SoloTitleController extends Controller
         $title = Title::find($titleId);
 
         if (! $title) {
-            return response()->json(['message' => 'Judul tidak ditemukan.'], 404);
+            return $this->notFoundResponse('Judul tidak ditemukan.');
         }
 
         if ($title->title_source !== 'STUDENT' || $title->supervisor_approval_status !== 'APPROVED') {
-            return response()->json([
-                'message' => 'Judul ini tidak menerima bidder.',
-            ], 400);
+            return $this->errorResponse('Judul ini tidak menerima bidder.', 400);
         }
 
         $soloGroup = $title->proposedByGroup;
 
         if (! $soloGroup || ! $soloGroup->is_solo) {
-            return response()->json([
-                'message' => 'Judul ini bukan dari solo seeker.',
-            ], 400);
+            return $this->errorResponse('Judul ini bukan dari solo seeker.', 400);
         }
 
         // 3. Check merge quota - total members after merge should not exceed max
@@ -137,17 +131,13 @@ class SoloTitleController extends Controller
         $maxSize = $period->max_group_size ?? 4;
 
         if ($totalAfterMerge > $maxSize) {
-            return response()->json([
-                'message' => "Total anggota setelah merge ({$totalAfterMerge}) akan melebihi batas maksimal ({$maxSize}). Kurangi anggota kelompok Anda atau cari judul lain.",
-            ], 400);
+            return $this->errorResponse("Total anggota setelah merge ({$totalAfterMerge}) akan melebihi batas maksimal ({$maxSize}). Kurangi anggota kelompok Anda atau cari judul lain.", 400);
         }
 
         // 4. Check group has enough members for the bid itself (not for merge)
         $minSize = $period->min_group_size ?? 3;
         if ($bidderMembers < $minSize) {
-            return response()->json([
-                'message' => "Kelompok Anda memiliki {$bidderMembers} anggota. Minimal {$minSize} anggota diperlukan untuk mengajukan bid.",
-            ], 400);
+            return $this->errorResponse("Kelompok Anda memiliki {$bidderMembers} anggota. Minimal {$minSize} anggota diperlukan untuk mengajukan bid.", 400);
         }
 
         // 5. Check group preference quota (3-slot limit)
@@ -158,16 +148,12 @@ class SoloTitleController extends Controller
             ->count();
 
         if (($bidCount + $proposalCount) >= 3) {
-            return response()->json([
-                'message' => 'Grup Anda sudah mencapai batas 3 judul aktif (bid + proposal).',
-            ], 400);
+            return $this->errorResponse('Grup Anda sudah mencapai batas 3 judul aktif (bid + proposal).', 400);
         }
 
         // 6. Check not bidding to own title
         if ($group->id === $soloGroup->id) {
-            return response()->json([
-                'message' => 'Anda tidak dapat bid pada judul kelompok sendiri.',
-            ], 400);
+            return $this->errorResponse('Anda tidak dapat bid pada judul kelompok sendiri.', 400);
         }
 
         // 7. Create bid
@@ -195,10 +181,10 @@ class SoloTitleController extends Controller
             ]);
         }
 
-        return response()->json([
+        return $this->createdResponse([
             'message' => 'Bid berhasil dikirim. Pemilik judul akan menerima notifikasi.',
             'data' => $bid->load(['title', 'group.members.student']),
-        ], 201);
+        ]);
     }
 
     /**
@@ -216,9 +202,7 @@ class SoloTitleController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json([
-                'message' => 'Hanya pemimpin kelompok yang dapat menerima bidder.',
-            ], 403);
+            return $this->unauthorizedResponse('Hanya pemimpin kelompok yang dapat menerima bidder.');
         }
 
         $soloGroup = Group::with('period', 'members')->find($membership->group_id);
@@ -226,21 +210,19 @@ class SoloTitleController extends Controller
         $this->ensurePeriodIsActive($soloGroup);
 
         if (! $soloGroup->is_solo) {
-            return response()->json([
-                'message' => 'Anda bukan kelompok solo seeker.',
-            ], 400);
+            return $this->errorResponse('Anda bukan kelompok solo seeker.', 400);
         }
 
         // 2. Verify ownership of the title
         $title = Title::find($titleId);
         if (! $title || $title->proposed_by_group_id !== $soloGroup->id) {
-            return response()->json(['message' => 'Judul tidak ditemukan atau bukan milik Anda.'], 404);
+            return $this->notFoundResponse('Judul tidak ditemukan atau bukan milik Anda.');
         }
 
         // 3. Get the bid
         $bid = \App\Models\Bid::with('group.members')->find($bidId);
         if (! $bid || $bid->title_id !== $titleId) {
-            return response()->json(['message' => 'Bid tidak ditemukan.'], 404);
+            return $this->notFoundResponse('Bid tidak ditemukan.');
         }
 
         $bidderGroup = $bid->group;
@@ -251,9 +233,7 @@ class SoloTitleController extends Controller
         $totalMembers = $soloGroup->members()->count() + $bidderGroup->members()->count();
 
         if ($totalMembers > $maxSize) {
-            return response()->json([
-                'message' => "Total anggota melebihi batas maximal ({$maxSize}).",
-            ], 400);
+            return $this->errorResponse("Total anggota melebihi batas maximal ({$maxSize}).", 400);
         }
 
         // 5. Execute merge
@@ -293,7 +273,7 @@ class SoloTitleController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => 'Bidder berhasil digabungkan ke kelompok Anda.',
                 'group' => $soloGroup->fresh(['members.student', 'period'])->load('title'),
             ]);
@@ -301,9 +281,7 @@ class SoloTitleController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json([
-                'message' => 'Gagal menggabungkan bidder: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Gagal menggabungkan bidder: '.$e->getMessage(), 500);
         }
     }
 
@@ -321,9 +299,7 @@ class SoloTitleController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json([
-                'message' => 'Hanya pemimpin kelompok yang dapat menolak bidder.',
-            ], 403);
+            return $this->unauthorizedResponse('Hanya pemimpin kelompok yang dapat menolak bidder.');
         }
 
         $soloGroup = Group::find($membership->group_id);
@@ -331,21 +307,19 @@ class SoloTitleController extends Controller
         $this->ensurePeriodIsActive($soloGroup);
 
         if (! $soloGroup->is_solo) {
-            return response()->json([
-                'message' => 'Anda bukan kelompok solo seeker.',
-            ], 400);
+            return $this->errorResponse('Anda bukan kelompok solo seeker.', 400);
         }
 
         // 2. Verify ownership
         $title = Title::find($titleId);
         if (! $title || $title->proposed_by_group_id !== $soloGroup->id) {
-            return response()->json(['message' => 'Judul tidak ditemukan atau bukan milik Anda.'], 404);
+            return $this->notFoundResponse('Judul tidak ditemukan atau bukan milik Anda.');
         }
 
         // 3. Get and reject the bid
         $bid = \App\Models\Bid::find($bidId);
         if (! $bid || $bid->title_id !== $titleId) {
-            return response()->json(['message' => 'Bid tidak ditemukan.'], 404);
+            return $this->notFoundResponse('Bid tidak ditemukan.');
         }
 
         $bid->update(['status' => 'REJECTED']);
@@ -362,8 +336,6 @@ class SoloTitleController extends Controller
             ]);
         }
 
-        return response()->json([
-            'message' => 'Bid berhasil ditolak.',
-        ]);
+        return $this->successResponse(null, 'Bid berhasil ditolak.');
     }
 }

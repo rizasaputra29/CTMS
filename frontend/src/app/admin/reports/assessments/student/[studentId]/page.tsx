@@ -124,34 +124,35 @@ export default function StudentAssessmentDetailPage() {
                 
                 if (student) {
                     setData(student);
-                } else if (res.data.meta.current_page < res.data.meta.last_page) {
-                    // Student might be on another page, fetch all pages
-                    let allStudents = [...res.data.data];
-                    let page = 2;
-                    const totalPages = res.data.meta.last_page;
-                    
-                    while (page <= totalPages && page <= 10) { // Limit to prevent infinite loop
-                        const pageRes = await api.get('/admin/reports/student-evaluations-summary', {
+                } else if (res.data.meta.last_page > 1) {
+                    // Student might be on another page — fetch remaining pages in parallel
+                    const remainingPages = Math.min(res.data.meta.last_page, 10);
+                    const pagePromises = Array.from({ length: remainingPages - 1 }, (_, i) =>
+                        api.get('/admin/reports/student-evaluations-summary', {
                             params: {
                                 period_id: periodId,
                                 student_search: '',
                                 per_page: 100,
-                                page: page,
+                                page: i + 2,
                             }
-                        });
-                        allStudents = [...allStudents, ...pageRes.data.data];
-                        
-                        const found = pageRes.data.data.find((s: StudentEvaluations) => 
+                        })
+                    );
+                    const results = await Promise.all(pagePromises);
+
+                    let found = false;
+                    for (const pageRes of results) {
+                        const match = pageRes.data.data.find((s: StudentEvaluations) =>
                             s.student_id === parseInt(studentId)
                         );
-                        if (found) {
-                            setData(found);
-                            return;
+                        if (match) {
+                            setData(match);
+                            found = true;
+                            break;
                         }
-                        page++;
                     }
-                    
-                    toast.error('Student not found');
+                    if (!found) {
+                        toast.error('Student not found');
+                    }
                 } else {
                     toast.error('Student not found');
                 }

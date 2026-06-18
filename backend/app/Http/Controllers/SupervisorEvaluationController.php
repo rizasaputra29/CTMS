@@ -24,6 +24,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SupervisorEvaluationController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get list of groups where current dosen is supervisor with evaluation status
      */
@@ -88,9 +90,7 @@ class SupervisorEvaluationController extends Controller
         // Filter groups that have evaluations (only groups with matching evaluation types if type filter is applied)
         $groupsWithEvaluations = $groups->filter(fn ($g) => count($g['evaluations']) > 0)->values();
 
-        return response()->json([
-            'data' => $groupsWithEvaluations,
-        ]);
+        return $this->successResponse($groupsWithEvaluations);
     }
 
     /**
@@ -138,9 +138,7 @@ class SupervisorEvaluationController extends Controller
             }
         }
 
-        return response()->json([
-            'count' => $pendingCount,
-        ]);
+        return $this->successResponse(['count' => $pendingCount]);
     }
 
     /**
@@ -198,9 +196,7 @@ class SupervisorEvaluationController extends Controller
             return strcmp((string) $a['start_time'], (string) $b['start_time']);
         });
 
-        return response()->json([
-            'data' => $schedules,
-        ]);
+        return $this->successResponse($schedules);
     }
 
     /**
@@ -257,6 +253,21 @@ class SupervisorEvaluationController extends Controller
             ->with(['student', 'students'])
             ->get();
 
+        // Batch-load all TaSubmission records for students in these defense schedules to avoid N+1
+        $allStudentIds = collect();
+        foreach ($taSchedules as $ta) {
+            $students = $ta->students;
+            if ($students->isEmpty()) {
+                $students = collect([$ta->student]);
+            }
+            foreach ($students as $student) {
+                $allStudentIds->push($student->id);
+            }
+        }
+        $submissionMap = \App\Models\TaSubmission::whereIn('student_id', $allStudentIds->unique()->values())
+            ->get()
+            ->keyBy('student_id');
+
         foreach ($taSchedules as $ta) {
             // Get all students in this defense schedule (supports multi-student)
             $students = $ta->students;
@@ -266,8 +277,8 @@ class SupervisorEvaluationController extends Controller
             }
 
             foreach ($students as $student) {
-                // Check if student is ready for sidang
-                $studentSubmission = \App\Models\TaSubmission::where('student_id', $student->id)->first();
+                // Check if student is ready for sidang (use pre-fetched map)
+                $studentSubmission = $submissionMap->get($student->id);
                 if ($studentSubmission && $studentSubmission->statusIsAtLeast('TA_READY_FOR_SIDANG')) {
                     $schedules[] = $this->formatTaDefenseScheduleForSupervisor(
                         $ta, 'TA_DEFENSE', 'BIMBINGAN_TA', $group, $supervision, $supervisorId, $student
@@ -284,7 +295,7 @@ class SupervisorEvaluationController extends Controller
      */
     private function formatSeminarScheduleForSupervisor($seminarSchedule, string $scheduleType, string $evalType, $group, $supervision, int $supervisorId): array
     {
-        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType);
+        $status = $this->getEvaluationStatus($group, $supervisorId, $evalType);
 
         // Calculate deadline (date + 2 days if not set)
         $deadline = null;
@@ -329,7 +340,7 @@ class SupervisorEvaluationController extends Controller
         // Use provided student or fall back to backward-compat
         $student = $student ?? $taDefenseSchedule->student;
 
-        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType, $student?->id);
+        $status = $this->getEvaluationStatus($group, $supervisorId, $evalType, $student?->id);
 
         // Calculate deadline (date + 2 days if not set)
         $deadline = null;
@@ -371,7 +382,7 @@ class SupervisorEvaluationController extends Controller
      */
     private function formatNilaiDosenForSupervisor($group, $supervision, int $supervisorId): array
     {
-        $status = $this->getEvaluationStatus($group->id, $supervisorId, 'NILAI_DOSEN');
+        $status = $this->getEvaluationStatus($group, $supervisorId, 'NILAI_DOSEN');
 
         // NILAI_DOSEN has no specific date - use current date + 7 days as soft deadline
         $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
@@ -410,7 +421,7 @@ class SupervisorEvaluationController extends Controller
      */
     private function formatStatusBasedEvaluationForSupervisor($group, $supervision, int $supervisorId, string $evalType, string $scheduleType): array
     {
-        $status = $this->getEvaluationStatus($group->id, $supervisorId, $evalType);
+        $status = $this->getEvaluationStatus($group, $supervisorId, $evalType);
         $deadline = date('Y-m-d H:i:s', strtotime('+7 days'));
 
         return [
@@ -453,7 +464,7 @@ class SupervisorEvaluationController extends Controller
         // Validate evaluation type
         $validTypes = ['BIMBINGAN_SEMPRO', 'NILAI_DOSEN', 'EXPO', 'MILESTONE', 'BIMBINGAN_TA'];
         if (! in_array($evaluationType, $validTypes)) {
-            return response()->json(['error' => 'Invalid evaluation type'], 400);
+            return $this->errorResponse('Invalid evaluation type', 400);
         }
 
         // Check if user is supervisor of this group
@@ -462,7 +473,7 @@ class SupervisorEvaluationController extends Controller
             ->first();
 
         if (! $supervision) {
-            return response()->json(['error' => 'You are not a supervisor of this group'], 403);
+            return $this->unauthorizedResponse('You are not a supervisor of this group');
         }
 
         $group = Group::with(['members.student', 'period'])->findOrFail($groupId);
@@ -503,10 +514,7 @@ class SupervisorEvaluationController extends Controller
         }
 
         if ($components->isEmpty()) {
-            return response()->json([
-                'error' => 'No assessment components configured for this evaluation type',
-                'message' => 'Please contact admin to configure components',
-            ], 400);
+            return $this->errorResponse('No assessment components configured for this evaluation type', 400);
         }
 
         // Get existing scores
@@ -555,16 +563,14 @@ class SupervisorEvaluationController extends Controller
                 ->first();
 
             if (! $expoSchedule) {
-                return response()->json([
-                    'error' => 'EXPO schedule is required for this evaluation type.',
-                ], 400);
+                return $this->errorResponse('EXPO schedule is required for this evaluation type.', 400);
             }
         }
 
         // Get schedule info
         $scheduleInfo = $this->getScheduleForType($groupId, $evaluationType);
 
-        return response()->json([
+        return $this->successResponse([
             'group' => [
                 'id' => $group->id,
                 'name' => $group->name,
@@ -613,9 +619,7 @@ class SupervisorEvaluationController extends Controller
         // Ensure each score item has at least one component ID
         foreach ($validated['scores'] as $index => $score) {
             if (empty($score['period_component_id']) && empty($score['component_id'])) {
-                return response()->json([
-                    'error' => "Score item {$index} is missing both period_component_id and component_id",
-                ], 422);
+                return $this->errorResponse("Score item {$index} is missing both period_component_id and component_id", 422);
             }
         }
 
@@ -628,7 +632,7 @@ class SupervisorEvaluationController extends Controller
             ->first();
 
         if (! $supervision) {
-            return response()->json(['error' => 'You are not a supervisor of this group'], 403);
+            return $this->unauthorizedResponse('You are not a supervisor of this group');
         }
 
         $group = Group::findOrFail($groupId);
@@ -637,9 +641,7 @@ class SupervisorEvaluationController extends Controller
         $groupStudentIds = GroupMember::where('group_id', $groupId)->pluck('student_id')->toArray();
         foreach ($validated['scores'] as $score) {
             if (! in_array($score['student_id'], $groupStudentIds)) {
-                return response()->json([
-                    'error' => 'Invalid student_id: '.$score['student_id'].' is not a member of this group',
-                ], 400);
+                return $this->errorResponse('Invalid student_id: '.$score['student_id'].' is not a member of this group', 400);
             }
         }
 
@@ -748,7 +750,7 @@ class SupervisorEvaluationController extends Controller
                 }
             }
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => 'Evaluation submitted successfully',
                 'evaluation_type' => $evaluationType,
                 'group_id' => $groupId,
@@ -757,10 +759,7 @@ class SupervisorEvaluationController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json([
-                'error' => 'Failed to save evaluation',
-                'message' => $e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Failed to save evaluation: '.$e->getMessage(), 500);
         }
     }
 
@@ -814,12 +813,9 @@ class SupervisorEvaluationController extends Controller
     /**
      * Get evaluation status for a group
      */
-    private function getEvaluationStatus(int $groupId, int $supervisorId, string $evaluationType, ?int $studentId = null): string
+    private function getEvaluationStatus(Group $group, int $supervisorId, string $evaluationType, ?int $studentId = null): string
     {
-        $group = Group::find($groupId);
-        if (! $group) {
-            return 'not_configured';
-        }
+        $groupId = $group->id;
 
         // Schema-aware component count
         if ($this->usesPeriodAssessmentComponents()) {
@@ -979,7 +975,7 @@ class SupervisorEvaluationController extends Controller
                         'room' => $seminarSchedule->room,
                     ];
                 } else {
-                    return response()->json(['error' => 'Schedule not found'], 404);
+                    return $this->notFoundResponse('Schedule not found');
                 }
             }
         }
@@ -1148,7 +1144,7 @@ class SupervisorEvaluationController extends Controller
             ];
         }
 
-        return response()->json([
+        return $this->successResponse([
             'schedule' => [
                 'id' => $schedule->id,
                 'type' => $schedule->type,
@@ -1212,7 +1208,7 @@ class SupervisorEvaluationController extends Controller
             // Try TaDefenseSchedule for TA defense schedules
             $taSchedule = TaDefenseSchedule::with(['group.period', 'group.members.student', 'student'])->find($scheduleId);
             if (! $taSchedule) {
-                abort(404, 'Schedule not found');
+                return $this->notFoundResponse('Schedule not found');
             }
             $isTaDefense = true;
             $schedule = (object) [
@@ -1364,7 +1360,7 @@ class SupervisorEvaluationController extends Controller
         if (! $schedule) {
             $taSchedule = TaDefenseSchedule::with(['group'])->find($scheduleId);
             if (! $taSchedule) {
-                return response()->json(['error' => 'Schedule not found'], 404);
+                return $this->notFoundResponse('Schedule not found');
             }
             $isTaDefense = true;
             $group = $taSchedule->group;
@@ -1416,7 +1412,7 @@ class SupervisorEvaluationController extends Controller
             }
         }
 
-        return response()->json([
+        return $this->successResponse([
             'schedule_id' => $scheduleId,
             'grades' => $grades,
         ]);

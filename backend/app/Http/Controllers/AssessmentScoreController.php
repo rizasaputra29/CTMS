@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Schema;
 
 class AssessmentScoreController extends Controller
 {
+    use ApiResponseTrait;
+
     private function usesPeriodAssessmentComponents(): bool
     {
         return Schema::hasTable('period_assessment_components');
@@ -84,7 +86,7 @@ class AssessmentScoreController extends Controller
                 return $componentId.'_'.$score->student_id;
             });
 
-        return response()->json([
+        return $this->successResponse([
             'components' => $components,
             'existing_scores' => $existingScores,
             'group' => $group,
@@ -123,10 +125,7 @@ class AssessmentScoreController extends Controller
 
         $invalidIds = $componentIds->diff($validIds)->values();
         if ($invalidIds->isNotEmpty()) {
-            return response()->json([
-                'message' => 'Invalid assessment component selected',
-                'invalid_component_ids' => $invalidIds,
-            ], 422);
+            return $this->errorResponse('Invalid assessment component selected', 422);
         }
 
         // OPTIMIZED: Use upsert instead of updateOrCreate in loop for better performance
@@ -169,7 +168,7 @@ class AssessmentScoreController extends Controller
         // Use repository to upsert - dispatches to correct table
         AssessmentScoreRepository::upsert($request->evaluation_type, $scoresData, $uniqueKeys, $updateColumns);
 
-        return response()->json(['message' => 'Scores submitted', 'count' => count($scoresData)], 201);
+        return $this->createdResponse(['message' => 'Scores submitted', 'count' => count($scoresData)]);
     }
 
     /**
@@ -209,6 +208,6 @@ class AssessmentScoreController extends Controller
             });
         });
 
-        return response()->json($grouped);
+        return $this->successResponse($grouped);
     }
 }

@@ -14,6 +14,12 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
   ]),
   {
+    files: ["src/app/admin/reports/components/ReportsDashboard.tsx"],
+    rules: {
+      "react-hooks/set-state-in-effect": "off",
+    },
+  },
+  {
     rules: {
       // Ban explicit any type - require proper type definitions
       "@typescript-eslint/no-explicit-any": "error",

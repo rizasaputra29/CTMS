@@ -11,6 +11,8 @@ import type {
     AdminDashboardGroupItem,
 } from '@/features/admin/dashboard/types';
 
+const QUERY_KEY = ["admin", "dashboard"] as const;
+
 const fetchDashboard = async (): Promise<AdminDashboardResponse> => {
     const response = await api.get('/admin/dashboard');
     return response.data;
@@ -28,17 +30,17 @@ const fetchGroups = async (): Promise<AdminGroupsResponse> => {
 
 export function useAdminDashboard() {
     const { data: dashboardData, isLoading: isDashboardLoading } = useQuery({
-        queryKey: ['admin', 'dashboard'],
+        queryKey: QUERY_KEY,
         queryFn: fetchDashboard,
     });
 
     const { data: periodsData, isLoading: isPeriodsLoading } = useQuery({
-        queryKey: ['admin', 'periods'],
+        queryKey: [...QUERY_KEY, 'periods'],
         queryFn: fetchPeriods,
     });
 
     const { data: groupsData, isLoading: isGroupsLoading } = useQuery({
-        queryKey: ['admin', 'groups'],
+        queryKey: [...QUERY_KEY, 'groups'],
         queryFn: fetchGroups,
     });
 

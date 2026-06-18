@@ -7,6 +7,8 @@ use Illuminate\Support\Facades\Hash;
 
 class ProfileController extends Controller
 {
+    use ApiResponseTrait;
+
     public function update(UpdateProfileRequest $request)
     {
         $user = $request->user();
@@ -21,7 +23,7 @@ class ProfileController extends Controller
 
         $user->save();
 
-        return response()->json([
+        return $this->successResponse([
             'message' => 'Profile updated successfully.',
             'user' => $user,
         ]);

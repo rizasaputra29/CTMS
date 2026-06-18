@@ -17,7 +17,7 @@ use Illuminate\Http\Request;
 
 class TaDefenseController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
 
@@ -48,7 +48,7 @@ class TaDefenseController extends Controller
             });
         }
 
-        return response()->json(['data' => $query->get()]);
+        return $this->successResponse($query->get());
     }
 
     /**
@@ -73,7 +73,7 @@ class TaDefenseController extends Controller
             ->first();
 
         if (! $taSubmission) {
-            return response()->json(['message' => 'Student must have a TA submission in TA_REGISTERED status.'], 400);
+            return $this->errorResponse('Student must have a TA submission in TA_REGISTERED status.', 400);
         }
 
         $group = Group::with('period')->findOrFail($taSubmission->group_id);
@@ -83,7 +83,7 @@ class TaDefenseController extends Controller
         foreach (['examiner_1_id', 'examiner_2_id'] as $field) {
             $user = User::find($request->$field);
             if (! $user || ! $user->hasRole('dosen')) {
-                return response()->json(['message' => "{$field} must be a dosen."], 400);
+                return $this->errorResponse("{$field} must be a dosen.", 400);
             }
         }
 
@@ -97,10 +97,10 @@ class TaDefenseController extends Controller
             $supervisor2?->supervisor_id,
         ]);
         if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
         if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Collect ALL examiner IDs for double-booking check
@@ -122,7 +122,7 @@ class TaDefenseController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400);
         }
 
         // Check no existing defense for this student
@@ -130,7 +130,7 @@ class TaDefenseController extends Controller
             ->where('status', '!=', 'CANCELLED')
             ->first();
         if ($existing) {
-            return response()->json(['message' => 'Student already has a TA defense schedule.'], 400);
+            return $this->errorResponse('Student already has a TA defense schedule.', 400);
         }
 
         $schedule = TaDefenseSchedule::create([
@@ -208,10 +208,10 @@ class TaDefenseController extends Controller
             $schedule->id
         );
 
-        return response()->json([
-            'message' => 'TA defense scheduled.',
-            'data' => $schedule->load(['student', 'examiners.examiner', 'evaluations']),
-        ]);
+        return $this->successResponse(
+            $schedule->load(['student', 'examiners.examiner', 'evaluations']),
+            'TA defense scheduled.'
+        );
     }
 
     /**
@@ -238,7 +238,7 @@ class TaDefenseController extends Controller
         $evaluation = $evaluationQuery->first();
 
         if (! $evaluation) {
-            return response()->json(['message' => 'You are not assigned as examiner for this defense.'], 403);
+            return $this->unauthorizedResponse('You are not assigned as examiner for this defense.');
         }
 
         $schedule = TaDefenseSchedule::with('group.period')->find($scheduleId);
@@ -263,14 +263,13 @@ class TaDefenseController extends Controller
                 $user->id
             );
 
-            return response()->json([
-                'message' => $evaluationResult['all_submitted']
-                    ? "All evaluations submitted. TA defense result: {$evaluationResult['result']}"
-                    : 'Evaluation submitted. Waiting for other evaluators.',
-                'data' => $evaluationResult,
-            ]);
+            $message = $evaluationResult['all_submitted']
+                ? "All evaluations submitted. TA defense result: {$evaluationResult['result']}"
+                : 'Evaluation submitted. Waiting for other evaluators.';
+
+            return $this->successResponse($evaluationResult, $message);
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         }
     }
 
@@ -288,7 +287,7 @@ class TaDefenseController extends Controller
             })
             ->first();
 
-        return response()->json(['data' => $schedule]);
+        return $this->successResponse($schedule);
     }
 
     /**
@@ -321,7 +320,7 @@ class TaDefenseController extends Controller
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Collect ALL participant IDs for conflict check (examiners + supervisors)
@@ -340,7 +339,7 @@ class TaDefenseController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400);
         }
 
         $schedule->update([
@@ -411,10 +410,10 @@ class TaDefenseController extends Controller
             $schedule->id
         );
 
-        return response()->json([
-            'message' => 'TA defense schedule approved.',
-            'data' => $schedule->load(['student', 'examiners.examiner', 'evaluations']),
-        ]);
+        return $this->successResponse(
+            $schedule->load(['student', 'examiners.examiner', 'evaluations']),
+            'TA defense schedule approved.'
+        );
     }
 
     /**
@@ -445,6 +444,6 @@ class TaDefenseController extends Controller
             $schedule->id
         );
 
-        return response()->json(['message' => 'TA defense schedule request rejected.', 'data' => $schedule]);
+        return $this->successResponse($schedule, 'TA defense schedule request rejected.');
     }
 }

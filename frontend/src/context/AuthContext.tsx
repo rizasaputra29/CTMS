@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (token) {
           api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
           const response = await api.get("/user");
-          const userData = response.data;
+          const userData = response.data.data;
           setUser(userData);
 
           if (storedRole && userData.roles?.includes(storedRole)) {

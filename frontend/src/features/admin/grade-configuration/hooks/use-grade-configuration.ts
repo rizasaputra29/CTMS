@@ -12,6 +12,8 @@ import type {
     GradeConfigurationPeriod,
 } from '@/features/admin/grade-configuration/types';
 
+const QUERY_KEY = ["admin", "grade-configuration"] as const;
+
 const DEFAULT_PDC1: Pdc1Weights = { SEMPRO: 50, BIMBINGAN_SEMPRO: 50 };
 const DEFAULT_PDC2: Pdc2Weights = { NILAI_DOSEN: 25, MILESTONE: 25, EXPO: 25, PEER_REVIEW: 25 };
 const DEFAULT_TA: TaWeights = { BIMBINGAN_TA: 50, SIDANG_TA: 50 };
@@ -52,7 +54,7 @@ export function useGradeConfiguration() {
     const [weightsByPeriod, setWeightsByPeriod] = useState<Record<string, PeriodWeights>>({});
 
     const { data: periods = [], isLoading: isLoadingPeriods } = useQuery({
-        queryKey: ['admin', 'periods', 'grade-config'],
+        queryKey: [...QUERY_KEY, 'periods'],
         queryFn: fetchPeriods,
         staleTime: Infinity,
     });
@@ -63,7 +65,7 @@ export function useGradeConfiguration() {
     );
 
     const { data: config, isLoading: isLoadingConfig } = useQuery({
-        queryKey: ['admin', 'grade-configuration', effectivePeriodId],
+        queryKey: [...QUERY_KEY, effectivePeriodId],
         queryFn: () => fetchConfig(effectivePeriodId),
         enabled: !!effectivePeriodId,
     });
@@ -91,12 +93,11 @@ export function useGradeConfiguration() {
             });
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', effectivePeriodId] });
+            queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, effectivePeriodId] });
             toast.success('Grade configuration saved successfully');
         },
         onError: (error: unknown) => {
-            if (error instanceof Error) toast.error(error.message);
-            else toast.error('Failed to save grade configuration');
+            toast.error(api.getApiErrorMessage(error, 'Failed to save grade configuration'));
         },
     });
 
@@ -105,7 +106,7 @@ export function useGradeConfiguration() {
             await api.post(`/admin/grade-configuration/${effectivePeriodId}/reset`);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'grade-configuration', effectivePeriodId] });
+            queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, effectivePeriodId] });
             setWeightsByPeriod((prev) => {
                 const next = { ...prev };
                 delete next[effectivePeriodId];
@@ -113,8 +114,8 @@ export function useGradeConfiguration() {
             });
             toast.success('Reset to defaults');
         },
-        onError: () => {
-            toast.error('Failed to reset configuration');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to reset configuration'));
         },
     });
 

@@ -21,6 +21,8 @@ use Illuminate\Support\Facades\Schema;
 
 class SeminarDashboardController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Student: my group's SEMPRO/Expo schedules + results with detailed evaluation status.
      */
@@ -30,7 +32,7 @@ class SeminarDashboardController extends Controller
         $membership = GroupMember::where('student_id', $user->id)->first();
 
         if (! $membership) {
-            return response()->json(['data' => ['seminars' => [], 'ta_defense' => null]]);
+            return $this->successResponse(['seminars' => [], 'ta_defense' => null]);
         }
 
         $group = Group::with(['supervisor1', 'supervisor2'])->find($membership->group_id);
@@ -192,11 +194,9 @@ class SeminarDashboardController extends Controller
             })
             ->first();
 
-        return response()->json([
-            'data' => [
-                'seminars' => $seminars,
-                'ta_defense' => $taDefense,
-            ],
+        return $this->successResponse([
+            'seminars' => $seminars,
+            'ta_defense' => $taDefense,
         ]);
     }
 
@@ -262,12 +262,10 @@ class SeminarDashboardController extends Controller
                 ];
             });
 
-        return response()->json([
-            'data' => [
-                'seminars' => $seminars,
-                'ta_defenses' => $taDefenses,
-                'expo_schedules' => $expoSchedules,
-            ],
+        return $this->successResponse([
+            'seminars' => $seminars,
+            'ta_defenses' => $taDefenses,
+            'expo_schedules' => $expoSchedules,
         ]);
     }
 
@@ -330,11 +328,9 @@ class SeminarDashboardController extends Controller
             ->orderByDesc('date')
             ->get();
 
-        return response()->json([
-            'data' => [
-                'seminars' => $seminars,
-                'ta_defenses' => $taDefenses,
-            ],
+        return $this->successResponse([
+            'seminars' => $seminars,
+            'ta_defenses' => $taDefenses,
         ]);
     }
 
@@ -361,7 +357,7 @@ class SeminarDashboardController extends Controller
                 $schedule->type
             );
 
-            return response()->json([
+            return $this->successResponse([
                 'evaluation' => $evaluation,
                 'schedule' => $schedule,
                 'group' => $schedule->group,
@@ -379,9 +375,7 @@ class SeminarDashboardController extends Controller
                     ->find($scheduleId);
 
                 if (! $schedule) {
-                    return response()->json([
-                        'message' => 'Jadwal tidak ditemukan',
-                    ], 404);
+                    return $this->notFoundResponse('Jadwal tidak ditemukan');
                 }
 
                 $isExaminer = TaDefenseExaminer::where('schedule_id', $schedule->id)
@@ -389,9 +383,7 @@ class SeminarDashboardController extends Controller
                     ->exists();
 
                 if (! $isExaminer) {
-                    return response()->json([
-                        'message' => 'Anda tidak ditugaskan sebagai penguji untuk jadwal ini',
-                    ], 403);
+                    return $this->unauthorizedResponse('Anda tidak ditugaskan sebagai penguji untuk jadwal ini');
                 }
 
                 // Determine student_id for evaluation - use query param or fall back to first student
@@ -413,15 +405,11 @@ class SeminarDashboardController extends Controller
                 $evaluation = TaDefenseEvaluation::find($id);
 
                 if (! $evaluation) {
-                    return response()->json([
-                        'message' => 'Penilaian tidak ditemukan',
-                    ], 404);
+                    return $this->notFoundResponse('Penilaian tidak ditemukan');
                 }
 
                 if ((int) $evaluation->examiner_id !== (int) $user->id) {
-                    return response()->json([
-                        'message' => 'Anda tidak memiliki akses ke penilaian ini',
-                    ], 403);
+                    return $this->unauthorizedResponse('Anda tidak memiliki akses ke penilaian ini');
                 }
 
                 $schedule = TaDefenseSchedule::with(['student', 'students', 'group.title', 'group.members.student', 'examiners.examiner'])
@@ -444,7 +432,7 @@ class SeminarDashboardController extends Controller
                     ?? $schedule->student;
             }
 
-            return response()->json([
+            return $this->successResponse([
                 'evaluation' => $evaluation,
                 'schedule' => $schedule,
                 'group' => $schedule->group,

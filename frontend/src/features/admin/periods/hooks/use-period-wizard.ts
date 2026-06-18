@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import type { UseFormReturn } from "react-hook-form";
 import type { PeriodFormData } from "@/lib/validations/period";
+
+const QUERY_KEY = ["admin", "periods", "wizard"] as const;
 
 const STEPS = [
   {
@@ -34,33 +37,43 @@ export function usePeriodWizard({
   onSubmitSuccess,
 }: UsePeriodWizardOptions) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [evaluationSetup, setEvaluationSetup] = useState<{
-    hasTemplates: boolean;
-    message: string;
-  } | null>(null);
-  const [checkingSetup, setCheckingSetup] = useState(false);
 
   const { trigger } = methods;
 
-  const checkEvaluationSetup = useCallback(async () => {
-    setCheckingSetup(true);
-    try {
+  const evaluationSetupQuery = useQuery({
+    queryKey: [...QUERY_KEY, "evaluation-setup"],
+    queryFn: async () => {
       const response = await api.get("/admin/evaluation-setup/check");
-      setEvaluationSetup(response.data);
-    } catch {
-      setEvaluationSetup({
-        hasTemplates: true,
-        message: "Evaluation setup available",
-      });
-    } finally {
-      setCheckingSetup(false);
-    }
-  }, []);
+      return response.data as { hasTemplates: boolean; message: string };
+    },
+    staleTime: Infinity,
+    retry: false,
+  });
 
-  useEffect(() => {
-    checkEvaluationSetup();
-  }, [checkEvaluationSetup]);
+  const evaluationSetup = evaluationSetupQuery.data ?? {
+    hasTemplates: true,
+    message: "Evaluation setup available",
+  };
+  const checkingSetup = evaluationSetupQuery.isLoading;
+
+  const submitMutation = useMutation({
+    mutationFn: async (data: PeriodFormData) => {
+      const payload: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(data)) {
+        if (typeof value === "string" && value === "") {
+          payload[key] = null;
+        } else {
+          payload[key] = value;
+        }
+      }
+
+      if (periodId) {
+        await api.put(`/admin/periods/${periodId}`, payload);
+      } else {
+        await api.post("/admin/periods", payload);
+      }
+    },
+  });
 
   const validateStep = useCallback(
     async (stepIndex: number): Promise<boolean> => {
@@ -134,52 +147,26 @@ export function usePeriodWizard({
 
   const handleSubmit = useCallback(
     async (data: PeriodFormData) => {
-      setIsSubmitting(true);
-
-      const payload: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(data)) {
-        if (typeof value === "string" && value === "") {
-          payload[key] = null;
-        } else {
-          payload[key] = value;
-        }
-      }
-
-      try {
-        await toast.promise(
-          periodId
-            ? api.put(`/admin/periods/${periodId}`, payload)
-            : api.post("/admin/periods", payload),
-          {
-            loading: periodId
-              ? "Memperbarui periode..."
-              : "Menyimpan periode...",
-            success: periodId
-              ? "Periode berhasil diperbarui"
-              : "Periode berhasil dibuat",
-            error: (error) => {
-              if (api.isAxiosError(error)) {
-                return (
-                  error.response?.data?.message || "Gagal menyimpan periode"
-                );
-              }
-              return "Gagal menyimpan periode";
-            },
-          }
-        );
-        onSubmitSuccess();
-      } finally {
-        setIsSubmitting(false);
-      }
+      await toast.promise(submitMutation.mutateAsync(data), {
+        loading: periodId
+          ? "Memperbarui periode..."
+          : "Menyimpan periode...",
+        success: periodId
+          ? "Periode berhasil diperbarui"
+          : "Periode berhasil dibuat",
+        error: (error) =>
+          api.getApiErrorMessage(error, "Gagal menyimpan periode"),
+      });
+      onSubmitSuccess();
     },
-    [periodId, onSubmitSuccess]
+    [submitMutation, periodId, onSubmitSuccess]
   );
 
   return {
     steps: STEPS,
     currentStep,
     setCurrentStep,
-    isSubmitting,
+    isSubmitting: submitMutation.isPending,
     evaluationSetup,
     checkingSetup,
     validateStep,

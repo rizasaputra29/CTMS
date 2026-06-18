@@ -7,9 +7,11 @@ use Illuminate\Http\Request;
 
 class DocumentTypeController extends Controller
 {
+    use ApiResponseTrait;
+
     public function index()
     {
-        return response()->json(DocumentType::orderBy('name')->get());
+        return $this->successResponse(DocumentType::orderBy('name')->get());
     }
 
     public function store(Request $request)
@@ -23,7 +25,7 @@ class DocumentTypeController extends Controller
 
         $type = DocumentType::create($data);
 
-        return response()->json($type, 201);
+        return $this->createdResponse($type);
     }
 
     public function update(Request $request, $id)
@@ -39,7 +41,7 @@ class DocumentTypeController extends Controller
 
         $type->update($data);
 
-        return response()->json($type);
+        return $this->successResponse($type);
     }
 
     public function destroy($id)
@@ -47,6 +49,6 @@ class DocumentTypeController extends Controller
         $type = DocumentType::findOrFail($id);
         $type->delete();
 
-        return response()->json(['message' => 'Document type deleted']);
+        return $this->successResponse(null, 'Document type deleted');
     }
 }

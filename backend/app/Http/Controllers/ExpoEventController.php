@@ -72,12 +72,12 @@ class ExpoEventController extends Controller
 
         $event = ExpoEvent::create($validated);
 
-        return response()->json($event->load(['period', 'creator', 'location']), 201);
+        return $this->createdResponse($event->load(['period', 'creator', 'location']));
     }
 
     public function show(ExpoEvent $expoEvent)
     {
-        return response()->json(
+        return $this->successResponse(
             $expoEvent->load(['period', 'creator', 'registrations.group.members.student'])
         );
     }
@@ -104,7 +104,7 @@ class ExpoEventController extends Controller
 
         $expoEvent->update($validated);
 
-        return response()->json($expoEvent->fresh()->load(['period', 'creator', 'location']));
+        return $this->successResponse($expoEvent->fresh()->load(['period', 'creator', 'location']));
     }
 
     public function destroy(ExpoEvent $expoEvent)
@@ -112,12 +112,12 @@ class ExpoEventController extends Controller
         $this->ensurePeriodActiveById($expoEvent->period_id);
 
         if ($expoEvent->registrations()->exists()) {
-            return response()->json(['message' => 'Cannot delete event with active registrations.'], 400);
+            return $this->errorResponse('Cannot delete event with active registrations.', 400);
         }
 
         $expoEvent->delete(); // soft delete
 
-        return response()->json(['message' => 'Event deleted.']);
+        return $this->successResponse(null, 'Event deleted.');
     }
 
     /**
@@ -129,10 +129,7 @@ class ExpoEventController extends Controller
 
         $expoEvent->update(['is_published' => ! $expoEvent->is_published]);
 
-        return response()->json([
-            'message' => $expoEvent->is_published ? 'Event published.' : 'Event unpublished.',
-            'data' => $expoEvent->fresh(),
-        ]);
+        return $this->successResponse($expoEvent->fresh(), $expoEvent->is_published ? 'Event published.' : 'Event unpublished.');
     }
 
     // ────────────────────────────────
@@ -149,7 +146,7 @@ class ExpoEventController extends Controller
             ->first()?->group;
 
         if (! $group) {
-            return response()->json([]);
+            return $this->successResponse([]);
         }
 
         $events = ExpoEvent::where('period_id', $group->period_id)
@@ -160,15 +157,15 @@ class ExpoEventController extends Controller
             ->orderBy('date')
             ->get();
 
-        // Append registration status for this group
-        $events->each(function ($event) use ($group) {
-            $event->is_registered = $event->registrations()
-                ->where('group_id', $group->id)
-                ->where('status', '!=', 'CANCELLED')
-                ->exists();
+        // Append registration status for this group (batch-loaded to avoid N+1)
+        $groupRegIds = ExpoRegistration::where('group_id', $group->id)
+            ->where('status', '!=', 'CANCELLED')
+            ->pluck('expo_event_id');
+        $events->each(function ($event) use ($groupRegIds) {
+            $event->is_registered = $groupRegIds->contains($event->id);
         });
 
-        return response()->json($events);
+        return $this->successResponse($events);
     }
 
     /**
@@ -180,7 +177,7 @@ class ExpoEventController extends Controller
         $groupMember = \App\Models\GroupMember::where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         try {
@@ -190,12 +187,12 @@ class ExpoEventController extends Controller
                 $user->id
             );
 
-            return response()->json([
+            return $this->createdResponse([
                 'message' => 'Successfully registered for expo event.',
                 'data' => $registration,
-            ], 201);
+            ]);
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         }
     }
 
@@ -208,7 +205,7 @@ class ExpoEventController extends Controller
         $groupMember = \App\Models\GroupMember::where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         try {
@@ -218,12 +215,9 @@ class ExpoEventController extends Controller
                 $user->id
             );
 
-            return response()->json([
-                'message' => 'Successfully withdrawn from expo event.',
-                'data' => $registration,
-            ]);
+            return $this->successResponse($registration, 'Successfully withdrawn from expo event.');
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         }
     }
 
@@ -240,7 +234,7 @@ class ExpoEventController extends Controller
         $groupMember = GroupMember::with('group')->where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         $group = $groupMember->group;
@@ -251,7 +245,7 @@ class ExpoEventController extends Controller
             ->first();
 
         if (! $registration) {
-            return response()->json(['message' => 'Your group is not registered for this expo event.'], 404);
+            return $this->notFoundResponse('Your group is not registered for this expo event.');
         }
 
         // Get EXPO assessment components
@@ -269,31 +263,35 @@ class ExpoEventController extends Controller
                 'sort_order' => $c->sort_order,
             ]);
 
-        // Get all group members with their evaluation & document status
-        $members = GroupMember::with('student')->where('group_id', $group->id)->get()
-            ->map(function ($member) use ($registration) {
-                $studentId = $member->student_id;
+        // Get all group members
+        $members = GroupMember::with('student')->where('group_id', $group->id)->get();
 
-                $hasEvaluation = AssessmentScoreRepository::forType('EXPO')
-                    ->where('group_id', $member->group_id)
-                    ->where('evaluator_id', $studentId)
-                    ->where('student_id', $studentId)
-                    ->exists();
+        // Batch-load evaluation existence and documents for all members to avoid N+1
+        $memberIds = $members->pluck('student_id');
+        $evalExistsMap = AssessmentScoreRepository::forType('EXPO')
+            ->where('group_id', $group->id)
+            ->whereIn('evaluator_id', $memberIds)
+            ->whereIn('student_id', $memberIds)
+            ->pluck('evaluator_id')
+            ->unique();
+        $documentsMap = ExpoStudentDocument::where('expo_registration_id', $registration->id)
+            ->whereIn('student_id', $memberIds)
+            ->keyBy('student_id');
 
-                $document = ExpoStudentDocument::where('expo_registration_id', $registration->id)
-                    ->where('student_id', $studentId)
-                    ->first();
+        // Map members with their evaluation & document status
+        $members = $members->map(function ($member) use ($evalExistsMap, $documentsMap) {
+            $studentId = $member->student_id;
 
-                return [
-                    'id' => $studentId,
-                    'name' => $member->student->name,
-                    'nim' => $member->student->nim,
-                    'is_leader' => $member->is_leader,
-                    'has_submitted_evaluation' => $hasEvaluation,
-                    'has_uploaded_document' => $document !== null,
-                    'document_status' => $document?->status,
-                ];
-            });
+            return [
+                'id' => $studentId,
+                'name' => $member->student->name,
+                'nim' => $member->student->nim,
+                'is_leader' => $member->is_leader,
+                'has_submitted_evaluation' => $evalExistsMap->contains($studentId),
+                'has_uploaded_document' => $documentsMap->has($studentId),
+                'document_status' => $documentsMap->get($studentId)?->status,
+            ];
+        });
 
         // Current user's existing scores
         $existingScores = AssessmentScoreRepository::forType('EXPO')
@@ -321,7 +319,7 @@ class ExpoEventController extends Controller
             ->where('student_id', $user->id)
             ->first();
 
-        return response()->json([
+        return $this->successResponse([
             'expo_event' => [
                 'id' => $expoEvent->id,
                 'name' => $expoEvent->name,
@@ -360,7 +358,7 @@ class ExpoEventController extends Controller
         $groupMember = GroupMember::where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         $registration = ExpoRegistration::where('expo_event_id', $expoEvent->id)
@@ -369,7 +367,7 @@ class ExpoEventController extends Controller
             ->first();
 
         if (! $registration) {
-            return response()->json(['message' => 'Your group is not registered for this expo event.'], 404);
+            return $this->notFoundResponse('Your group is not registered for this expo event.');
         }
 
         $validated = $request->validate([
@@ -412,13 +410,11 @@ class ExpoEventController extends Controller
                 $schedulingService->tryTransitionToExpoDone($group);
             }
 
-            return response()->json([
-                'message' => 'Self-evaluation submitted successfully.',
-            ]);
+            return $this->successResponse(null, 'Self-evaluation submitted successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to submit evaluation: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to submit evaluation: '.$e->getMessage(), 500);
         }
     }
 
@@ -431,7 +427,7 @@ class ExpoEventController extends Controller
         $groupMember = GroupMember::where('student_id', $user->id)->first();
 
         if (! $groupMember) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         $registration = ExpoRegistration::where('expo_event_id', $expoEvent->id)
@@ -440,7 +436,7 @@ class ExpoEventController extends Controller
             ->first();
 
         if (! $registration) {
-            return response()->json(['message' => 'Your group is not registered for this expo event.'], 404);
+            return $this->notFoundResponse('Your group is not registered for this expo event.');
         }
 
         $validated = $request->validate([
@@ -486,19 +482,16 @@ class ExpoEventController extends Controller
                 $schedulingService->tryTransitionToExpoDone($group);
             }
 
-            return response()->json([
-                'message' => 'Document uploaded successfully.',
-                'data' => [
-                    'id' => $document->id,
-                    'original_name' => $document->original_name,
-                    'status' => $document->status,
-                ],
-            ]);
+            return $this->successResponse([
+                'id' => $document->id,
+                'original_name' => $document->original_name,
+                'status' => $document->status,
+            ], 'Document uploaded successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
             Storage::disk('public')->delete($filePath);
 
-            return response()->json(['message' => 'Failed to upload document: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to upload document: '.$e->getMessage(), 500);
         }
     }
 }

@@ -9,6 +9,8 @@ use Illuminate\Validation\Rule;
 
 class EvaluationController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Display a listing of the resource.
      */
@@ -22,17 +24,17 @@ class EvaluationController extends Controller
             // Since evaluations are usually per student per phase
             // Let's allow filtering by group_id
             if ($request->has('group_id')) {
-                return response()->json(['data' => Evaluation::where('group_id', $request->group_id)->with('student')->get()]);
+                return $this->successResponse(Evaluation::where('group_id', $request->group_id)->with('student')->get());
             }
 
-            return response()->json(['data' => []]);
+            return $this->successResponse([]);
         }
 
         if (in_array('mahasiswa', $roles, true)) {
-            return response()->json(['data' => Evaluation::where('student_id', $user->id)->get()]);
+            return $this->successResponse(Evaluation::where('student_id', $user->id)->get());
         }
 
-        return response()->json(['data' => []]);
+        return $this->successResponse([]);
     }
 
     /**
@@ -41,7 +43,7 @@ class EvaluationController extends Controller
     public function store(Request $request)
     {
         if (! Auth::user()->hasRole('dosen')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $request->validate([
@@ -65,7 +67,7 @@ class EvaluationController extends Controller
             ]
         );
 
-        return response()->json(['message' => 'Evaluation saved', 'data' => $evaluation]);
+        return $this->successResponse($evaluation, 'Evaluation saved');
     }
 
     /**

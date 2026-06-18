@@ -147,6 +147,8 @@ function generatePageNumbers(current: number, last: number): (number | string)[]
 function getRowId<T>(row: T, rowIdKey: string): number | string {
   const id = (row as Record<string, unknown>)[rowIdKey];
   if (typeof id === 'number' || typeof id === 'string') return id;
+  // Fallback to random string if id is undefined/null
+  if (id == null) return `row-${Math.random().toString(36).substring(2, 9)}`;
   return String(id);
 }
 

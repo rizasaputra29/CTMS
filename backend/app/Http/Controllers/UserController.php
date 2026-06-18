@@ -21,6 +21,8 @@ use Illuminate\Validation\ValidationException;
 
 class UserController extends Controller
 {
+    use ApiResponseTrait;
+
     public function index(Request $request)
     {
         $query = User::with('roles');
@@ -71,12 +73,12 @@ class UserController extends Controller
         $perPage = min(max($perPage, 5), 100);
         $users = $query->paginate($perPage);
 
-        return response()->json($users);
+        return $this->paginatedResponse($users);
     }
 
     public function show(User $user)
     {
-        return response()->json($user->load('roles'));
+        return $this->successResponse($user->load('roles'));
     }
 
     public function store(Request $request)
@@ -102,13 +104,13 @@ class UserController extends Controller
         $roleIds = \App\Models\Role::whereIn('slug', $validated['roles'])->pluck('id');
         $user->roles()->sync($roleIds);
 
-        return response()->json($user->load('roles'), 201);
+        return $this->createdResponse($user->load('roles'));
     }
 
     public function update(Request $request, User $user)
     {
         if ($user->id === 1) {
-            return response()->json(['message' => 'Super admin account cannot be modified.'], 403);
+            return $this->unauthorizedResponse('Super admin account cannot be modified.');
         }
 
         $validated = $request->validate([
@@ -145,7 +147,7 @@ class UserController extends Controller
 
         $user->update($validated);
 
-        return response()->json($user->load('roles'));
+        return $this->successResponse($user->load('roles'));
     }
 
     private function ensureMahasiswaRoleIsExclusive(array $roles): void
@@ -162,7 +164,7 @@ class UserController extends Controller
     public function destroy(User $user)
     {
         if ($user->id === 1) {
-            return response()->json(['message' => 'Super admin account cannot be deleted.'], 403);
+            return $this->unauthorizedResponse('Super admin account cannot be deleted.');
         }
 
         DB::beginTransaction();
@@ -175,12 +177,12 @@ class UserController extends Controller
             $user->delete();
             DB::commit();
 
-            return response()->json(['message' => 'User deleted']);
+            return $this->successResponse(null, 'User deleted');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('user.delete.failed', ['user_id' => $user->id, 'error' => $e->getMessage()]);
 
-            return response()->json(['message' => 'Failed to delete user: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to delete user: '.$e->getMessage(), 500);
         }
     }
 
@@ -309,7 +311,7 @@ class UserController extends Controller
         $admin = $request->user();
 
         if (! $student->hasRole('mahasiswa')) {
-            return response()->json(['message' => 'Target user harus mahasiswa.'], 400);
+            return $this->errorResponse('Target user harus mahasiswa.', 400);
         }
 
         $registration = PeriodRegistration::where('user_id', $student->id)
@@ -317,7 +319,7 @@ class UserController extends Controller
             ->first();
 
         if (! $registration) {
-            return response()->json(['message' => 'Mahasiswa tidak terdaftar pada periode ini.'], 404);
+            return $this->notFoundResponse('Mahasiswa tidak terdaftar pada periode ini.');
         }
 
         // Get group memberships for affected groups tracking
@@ -382,8 +384,7 @@ class UserController extends Controller
                 'related_id' => $period->id,
             ]);
 
-            return response()->json([
-                'message' => "Mahasiswa {$student->name} berhasil dikeluarkan dari periode {$period->name}.",
+            return $this->successResponse([
                 'removed_group_memberships' => $membershipRows->count(),
                 'affected_groups' => $affectedGroupIds->values(),
                 'invalidated_invitations' => $invalidatedInvitationsCount,
@@ -401,11 +402,9 @@ class UserController extends Controller
                     'id' => $admin->id,
                     'name' => $admin->name,
                 ],
-            ]);
+            ], "Mahasiswa {$student->name} berhasil dikeluarkan dari periode {$period->name}.");
         } catch (\DomainException $e) {
-            return response()->json([
-                'message' => $e->getMessage(),
-            ], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         } catch (\Exception $e) {
             Log::error('admin.period.kick_student.failed', [
                 'period_id' => $period->id,
@@ -414,9 +413,7 @@ class UserController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return response()->json([
-                'message' => 'Gagal mengeluarkan mahasiswa dari periode: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Gagal mengeluarkan mahasiswa dari periode: '.$e->getMessage(), 500);
         }
     }
 
@@ -432,15 +429,16 @@ class UserController extends Controller
 
         $file = $request->file('file');
         $handle = fopen($file->getPathname(), 'r');
-        if (!$handle) {
-            return response()->json(['message' => 'Failed to read file.'], 400);
+        if (! $handle) {
+            return $this->errorResponse('Failed to read file.', 400);
         }
 
         // Read and normalize header
         $header = fgetcsv($handle);
-        if (!$header) {
+        if (! $header) {
             fclose($handle);
-            return response()->json(['message' => 'CSV file is empty or invalid.'], 400);
+
+            return $this->errorResponse('CSV file is empty or invalid.', 400);
         }
         $header = array_map(fn ($h) => strtolower(trim($h)), $header);
 
@@ -468,32 +466,37 @@ class UserController extends Controller
             $nip = trim($data['nip'] ?? '');
             $password = trim($data['password'] ?? '');
 
-            if (!$name || !$email || !$role) {
+            if (! $name || ! $email || ! $role) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: name, email, and role are required.";
+
                 continue;
             }
 
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: invalid email format.";
+
                 continue;
             }
 
             if (User::where('email', $email)->exists()) {
                 $skipped++;
+
                 continue;
             }
 
-            if (!in_array($role, $allowedRoles, true)) {
+            if (! in_array($role, $allowedRoles, true)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: invalid role '{$role}'.";
+
                 continue;
             }
 
             if ($role === 'mahasiswa' && (empty($nim) || strlen($nim) < 8)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: NIM required for mahasiswa and must be at least 8 characters.";
+
                 continue;
             }
 
@@ -501,6 +504,7 @@ class UserController extends Controller
             if ($roleIds->isEmpty()) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: role '{$role}' not found in database.";
+
                 continue;
             }
 
@@ -521,13 +525,12 @@ class UserController extends Controller
 
         fclose($handle);
 
-        return response()->json([
-            'message' => "Import complete: {$created} created, {$skipped} skipped, {$failed} failed.",
+        return $this->successResponse([
             'created' => $created,
             'skipped' => $skipped,
             'failed' => $failed,
             'errors' => array_slice($errors, 0, 20),
-        ]);
+        ], "Import complete: {$created} created, {$skipped} skipped, {$failed} failed.");
     }
 
     /**
@@ -536,7 +539,7 @@ class UserController extends Controller
     public function downloadImportTemplate()
     {
         $headers = ['name', 'email', 'role', 'nim', 'nip', 'password'];
-        $csv = implode(',', $headers) . "\n";
+        $csv = implode(',', $headers)."\n";
         $csv .= "Budi Santoso,budi@example.com,mahasiswa,12345678,,\n";
         $csv .= "Dr. Siti Aminah,siti@example.com,dosen,,1987654321,\n";
         $csv .= "Admin Utama,admin@example.com,admin,,,secret123\n";

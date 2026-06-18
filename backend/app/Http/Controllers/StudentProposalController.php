@@ -14,7 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class StudentProposalController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected $stateMachine;
 
@@ -35,7 +35,7 @@ class StudentProposalController extends Controller
             ->orderBy('name')
             ->get();
 
-        return response()->json(['data' => $lecturers]);
+        return $this->successResponse($lecturers);
     }
 
     /**
@@ -65,19 +65,19 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json(['message' => 'You must be in a group to propose a title.'], 400);
+            return $this->errorResponse('You must be in a group to propose a title.', 400);
         }
 
         // Check if user is leader
         if (! $membership->is_leader) {
-            return response()->json(['message' => 'Only the group leader can propose a title.'], 403);
+            return $this->unauthorizedResponse('Only the group leader can propose a title.');
         }
 
         $group = Group::with('period')->find($membership->group_id);
 
         // Check if period is finalized - block create after finalization
         if ($group->period && $group->period->is_finalized) {
-            return response()->json(['message' => 'Periode sudah difinalisasi. Pengajuan judul baru tidak diperbolehkan.'], 403);
+            return $this->unauthorizedResponse('Periode sudah difinalisasi. Pengajuan judul baru tidak diperbolehkan.');
         }
 
         // Check minimum members requirement
@@ -86,12 +86,12 @@ class StudentProposalController extends Controller
         $memberCount = GroupMember::where('group_id', $group->id)->count();
         $minSize = $group->period->min_group_size ?? 3;
         if (! $group->is_solo && $memberCount < $minSize) {
-            return response()->json(['message' => "Kelompok harus memiliki minimal {$minSize} anggota untuk mengajukan judul. Tambahkan anggota terlebih dahulu."], 400);
+            return $this->errorResponse("Kelompok harus memiliki minimal {$minSize} anggota untuk mengajukan judul. Tambahkan anggota terlebih dahulu.", 400);
         }
 
         // Check if group already has a title assigned
         if ($group->title_id && $group->status === 'APPROVED') {
-            return response()->json(['message' => 'Your group already has an approved title.'], 400);
+            return $this->errorResponse('Your group already has an approved title.', 400);
         }
 
         // Check for pending proposal
@@ -100,12 +100,12 @@ class StudentProposalController extends Controller
             ->exists();
 
         if ($pendingProposal) {
-            return response()->json(['message' => 'You already have a pending proposal. Wait for supervisor response.'], 400);
+            return $this->errorResponse('You already have a pending proposal. Wait for supervisor response.', 400);
         }
 
         // Check group status allows proposing
         if (! in_array($group->status, ['PENDING', 'READY_FOR_BIDDING', 'REJECTED', 'FORMING', 'FORMING_SOLO'])) {
-            return response()->json(['message' => 'Your group is not eligible to propose a title at this time.'], 400);
+            return $this->errorResponse('Your group is not eligible to propose a title at this time.', 400);
         }
 
         // Mutual Exclusive: Block proposing if group has active bids (normal groups only)
@@ -118,9 +118,7 @@ class StudentProposalController extends Controller
                 ->exists();
 
             if ($hasActiveBid) {
-                return response()->json([
-                    'message' => 'Tidak dapat mengajukan proposal karena kelompok sudah memiliki bid yang sedang diproses atau diterima.',
-                ], 400);
+                return $this->errorResponse('Tidak dapat mengajukan proposal karena kelompok sudah memiliki bid yang sedang diproses atau diterima.', 400);
             }
         }
 
@@ -138,13 +136,13 @@ class StudentProposalController extends Controller
             ->count();
 
         if (($bidCount + $proposalCount) >= 3) {
-            return response()->json(['message' => 'Maximum 3 titles allowed (bids + proposals combined).'], 400);
+            return $this->errorResponse('Maximum 3 titles allowed (bids + proposals combined).', 400);
         }
 
         // V4: Resolve period through student's group
         $period = $group->period;
         if (! $period || ! $period->is_active) {
-            return response()->json(['message' => 'No active academic period for your group.'], 400);
+            return $this->errorResponse('No active academic period for your group.', 400);
         }
 
         // Verify supervisor is a valid lecturer
@@ -152,7 +150,7 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $supervisor || ! $supervisor->hasRole('dosen')) {
-            return response()->json(['message' => 'Selected supervisor is not a valid lecturer.'], 400);
+            return $this->errorResponse('Selected supervisor is not a valid lecturer.', 400);
         }
 
         DB::beginTransaction();
@@ -191,14 +189,14 @@ class StudentProposalController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->createdResponse([
                 'message' => 'Proposal submitted successfully.',
                 'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']),
-            ], 201);
+            ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to submit proposal: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to submit proposal: '.$e->getMessage(), 500);
         }
     }
 
@@ -216,7 +214,7 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json([
+            return $this->successResponse([
                 'proposals' => [],
                 'flow' => $this->denyProposalFlow('NO_GROUP'),
             ]);
@@ -230,7 +228,7 @@ class StudentProposalController extends Controller
 
         $group = Group::with(['period', 'members'])->find($membership->group_id);
 
-        return response()->json([
+        return $this->successResponse([
             'proposals' => $proposals,
             'flow' => $this->buildProposalFlowPayload($group, $membership),
         ]);
@@ -261,7 +259,7 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $membership || ! $membership->is_leader) {
-            return response()->json(['message' => 'Unauthorized. Only group leader can edit proposal.'], 403);
+            return $this->unauthorizedResponse('Unauthorized. Only group leader can edit proposal.');
         }
 
         // Allow editing REJECTED or PENDING proposals
@@ -272,7 +270,7 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $title) {
-            return response()->json(['message' => 'No editable proposal found. Only PENDING, REJECTED, or UNDER_REVIEW proposals can be edited.'], 404);
+            return $this->notFoundResponse('No editable proposal found. Only PENDING, REJECTED, or UNDER_REVIEW proposals can be edited.');
         }
 
         // For REJECTED proposals, check no other pending proposal exists
@@ -282,7 +280,7 @@ class StudentProposalController extends Controller
                 ->exists();
 
             if ($pendingExists) {
-                return response()->json(['message' => 'You already have a pending proposal.'], 400);
+                return $this->errorResponse('You already have a pending proposal.', 400);
             }
         }
 
@@ -332,14 +330,14 @@ class StudentProposalController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => 'Proposal updated successfully.',
                 'title' => $title->load(['proposedByGroup.members.student', 'proposedSupervisor', 'stakeholders']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to update: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to update: '.$e->getMessage(), 500);
         }
     }
 
@@ -363,7 +361,7 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json(['message' => 'Hanya ketua kelompok yang dapat membatalkan proposal.'], 403);
+            return $this->unauthorizedResponse('Hanya ketua kelompok yang dapat membatalkan proposal.');
         }
 
         // Find proposal
@@ -373,19 +371,19 @@ class StudentProposalController extends Controller
             ->first();
 
         if (! $title) {
-            return response()->json(['message' => 'Proposal tidak ditemukan.'], 404);
+            return $this->notFoundResponse('Proposal tidak ditemukan.');
         }
 
         $group = Group::with('period')->find($membership->group_id);
 
         // Check if period is finalized - block delete after finalization
         if ($group->period && $group->period->is_finalized) {
-            return response()->json(['message' => 'Periode sudah difinalisasi. Pembatalan proposal tidak diperbolehkan.'], 403);
+            return $this->unauthorizedResponse('Periode sudah difinalisasi. Pembatalan proposal tidak diperbolehkan.');
         }
 
         // PENDING, REJECTED, or UNDER_REVIEW proposals can be cancelled
         if (! in_array($title->supervisor_approval_status, ['PENDING', 'REJECTED', 'UNDER_REVIEW'])) {
-            return response()->json(['message' => 'Proposal sudah disetujui dan tidak dapat dibatalkan. Hubungi admin jika ada kebutuhan khusus.'], 400);
+            return $this->errorResponse('Proposal sudah disetujui dan tidak dapat dibatalkan. Hubungi admin jika ada kebutuhan khusus.', 400);
         }
 
         DB::beginTransaction();
@@ -404,11 +402,11 @@ class StudentProposalController extends Controller
 
             DB::commit();
 
-            return response()->json(['message' => 'Proposal berhasil dibatalkan.']);
+            return $this->successResponse(null, 'Proposal berhasil dibatalkan.');
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Gagal membatalkan proposal: '.$e->getMessage()], 500);
+            return $this->errorResponse('Gagal membatalkan proposal: '.$e->getMessage(), 500);
         }
     }
 

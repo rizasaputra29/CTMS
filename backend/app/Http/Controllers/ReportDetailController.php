@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Group;
 use App\Models\PeerReview;
+use App\Models\PeriodAssessmentComponent;
+use App\Models\User;
 use App\Repositories\AssessmentScoreRepository;
 use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
@@ -11,6 +13,8 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportDetailController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get detailed assessment scores data.
      */
@@ -94,8 +98,7 @@ class ReportDetailController extends Controller
             return $score;
         });
 
-        return response()->json([
-            'data' => $data,
+        return $this->envelopeResponse($data, [
             'meta' => [
                 'current_page' => $scores->currentPage(),
                 'last_page' => $scores->lastPage(),
@@ -115,10 +118,14 @@ class ReportDetailController extends Controller
             'group_id' => 'nullable|integer',
             'page' => 'nullable|integer|min:1',
             'per_page' => 'nullable|integer|min:10|max:100',
+            'sort_by' => 'nullable|in:created_at,reviewer,reviewee,raw_score,score',
+            'sort_order' => 'nullable|in:asc,desc',
         ]);
 
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
+        $sortBy = $request->input('sort_by', 'created_at');
+        $sortOrder = $request->input('sort_order', 'desc');
 
         $query = PeerReview::with(['reviewer', 'reviewee', 'periodIndicator.template', 'group.title'])
             ->whereHas('group', function ($q) use ($periodId) {
@@ -130,8 +137,8 @@ class ReportDetailController extends Controller
             $query->where('group_id', $request->group_id);
         }
 
-        // Sort by date descending
-        $query->orderBy('created_at', 'desc');
+        // Apply sorting
+        $this->applyPeerReviewSorting($query, $sortBy, $sortOrder);
 
         // Check if export requested
         if ($request->input('format') === 'csv') {
@@ -150,8 +157,7 @@ class ReportDetailController extends Controller
             return $array;
         });
 
-        return response()->json([
-            'data' => $data,
+        return $this->envelopeResponse($data, [
             'meta' => [
                 'current_page' => $reviews->currentPage(),
                 'last_page' => $reviews->lastPage(),
@@ -159,6 +165,35 @@ class ReportDetailController extends Controller
                 'total' => $reviews->total(),
             ],
         ]);
+    }
+
+    /**
+     * Apply sorting to peer review query based on sort parameters.
+     */
+    private function applyPeerReviewSorting($query, string $sortBy, string $sortOrder): void
+    {
+        switch ($sortBy) {
+            case 'reviewer':
+                $query->join('students as reviewer_student', 'peer_reviews.reviewer_id', '=', 'reviewer_student.id')
+                    ->orderBy('reviewer_student.name', $sortOrder)
+                    ->select('peer_reviews.*');
+                break;
+            case 'reviewee':
+                $query->join('students as reviewee_student', 'peer_reviews.reviewee_id', '=', 'reviewee_student.id')
+                    ->orderBy('reviewee_student.name', $sortOrder)
+                    ->select('peer_reviews.*');
+                break;
+            case 'raw_score':
+                $query->orderBy('raw_score', $sortOrder);
+                break;
+            case 'score':
+                $query->orderBy('score', $sortOrder);
+                break;
+            case 'created_at':
+            default:
+                $query->orderBy('created_at', $sortOrder);
+                break;
+        }
     }
 
     /**
@@ -177,7 +212,7 @@ class ReportDetailController extends Controller
 
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
-        $gradeService = new GradeCalculationService;
+        $gradeService = app(\App\Services\GradeCalculationService::class);
 
         // Preload period data for batch calculations
         $gradeService->preloadPeriodData($periodId);
@@ -311,8 +346,7 @@ class ReportDetailController extends Controller
         $offset = ($page - 1) * $perPage;
         $paginatedStudents = array_slice($students, $offset, $perPage);
 
-        return response()->json([
-            'data' => $paginatedStudents,
+        return $this->envelopeResponse($paginatedStudents, [
             'meta' => [
                 'current_page' => $page,
                 'last_page' => ceil($total / $perPage),
@@ -337,7 +371,7 @@ class ReportDetailController extends Controller
 
         $periodId = $request->period_id;
         $perPage = $request->input('per_page', 50);
-        $gradeService = new GradeCalculationService;
+        $gradeService = app(\App\Services\GradeCalculationService::class);
 
         // Preload period data for batch calculations
         $gradeService->preloadPeriodData($periodId);
@@ -443,8 +477,7 @@ class ReportDetailController extends Controller
         $offset = ($page - 1) * $perPage;
         $paginatedStudents = array_slice($students, $offset, $perPage);
 
-        return response()->json([
-            'data' => $paginatedStudents,
+        return $this->envelopeResponse($paginatedStudents, [
             'meta' => [
                 'current_page' => $page,
                 'last_page' => ceil($total / $perPage),
@@ -520,8 +553,7 @@ class ReportDetailController extends Controller
             ];
         });
 
-        return response()->json([
-            'data' => $transformedGroups,
+        return $this->envelopeResponse($transformedGroups, [
             'meta' => [
                 'current_page' => $groups->currentPage(),
                 'last_page' => $groups->lastPage(),
@@ -664,6 +696,156 @@ class ReportDetailController extends Controller
     }
 
     /**
+     * Get student evaluation scores grouped by phase and evaluator for table views.
+     */
+    public function phaseEvaluatorScores(Request $request)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+            'phase' => 'required|string|in:pdc1,pdc2,ta',
+            'student_search' => 'nullable|string',
+            'sort_by' => 'nullable|string|in:group,name',
+            'page' => 'nullable|integer|min:1',
+            'per_page' => 'nullable|integer|min:10|max:100',
+        ]);
+
+        $periodId = $request->period_id;
+        $phase = $request->phase;
+        $perPage = $request->input('per_page', 50);
+        $sortBy = $request->input('sort_by', 'group');
+        $search = $request->input('student_search', '');
+
+        $phaseTypes = match ($phase) {
+            'pdc1' => ['SEMPRO', 'BIMBINGAN_SEMPRO'],
+            'pdc2' => ['NILAI_DOSEN', 'MILESTONE', 'EXPO', 'PEER_REVIEW'],
+            'ta' => ['SIDANG_TA', 'BIMBINGAN_TA'],
+            default => [],
+        };
+
+        // Get all groups in period with students (include soft-deleted members)
+        $groups = Group::with(['members' => function ($query) {
+            $query->withTrashed()->with('student');
+        }, 'title'])
+            ->where('period_id', $periodId)
+            ->get();
+
+        // Preload all assessment scores and roles for the period
+        $gradeService = app(GradeCalculationService::class);
+        $gradeService->preloadPeriodData($periodId);
+
+        $students = [];
+        foreach ($groups as $group) {
+            foreach ($group->members as $member) {
+                $student = $member->student;
+                if (! $student) {
+                    continue;
+                }
+
+                // Filter by search
+                if ($search) {
+                    $searchLower = strtolower($search);
+                    $nameMatch = stripos(strtolower($student->name), $searchLower) !== false;
+                    $nimMatch = stripos(strtolower($student->nim ?? ''), $searchLower) !== false;
+                    if (! $nameMatch && ! $nimMatch) {
+                        continue;
+                    }
+                }
+
+                $studentId = $student->id;
+                $groupId = $group->id;
+
+                $evaluations = [];
+                $overallComplete = 0;
+                $overallTotal = 0;
+
+                foreach ($phaseTypes as $type) {
+                    if ($type === 'PEER_REVIEW') {
+                        $peerReviewScores = $gradeService->getPeerReviewsFromCache($studentId, $groupId);
+                        $hasScore = ! empty($peerReviewScores);
+                        $score = $hasScore ? $gradeService->calculatePeerReviewAverageFromCache($peerReviewScores) : null;
+
+                        $evaluations['PEER_REVIEW'] = [
+                            'score' => $score !== null ? round($score, 2) : null,
+                            'status' => $hasScore ? 'COMPLETE' : 'NOT_STARTED',
+                            'evaluators' => [['evaluator_id' => null, 'name' => 'Peers', 'role' => 'PEER', 'score' => $score !== null ? round($score, 2) : null]],
+                        ];
+
+                        $overallTotal++;
+                        if ($score !== null) {
+                            $overallComplete++;
+                        }
+
+                        continue;
+                    }
+
+                    $evaluators = $gradeService->getEvaluatorsWithScoresFromCache($studentId, $groupId, $type);
+                    $hasEvaluators = ! empty($evaluators);
+                    $evaluatorScores = array_filter(array_column($evaluators, 'score'), fn ($s) => $s !== null);
+                    $score = $hasEvaluators && ! empty($evaluatorScores)
+                        ? round(array_sum($evaluatorScores) / count($evaluatorScores), 2)
+                        : null;
+
+                    $totalComponents = count($evaluators);
+                    $completedComponents = count($evaluatorScores);
+
+                    $status = 'NOT_STARTED';
+                    if ($completedComponents === $totalComponents && $totalComponents > 0) {
+                        $status = 'COMPLETE';
+                    } elseif ($completedComponents > 0 || $hasEvaluators) {
+                        $status = 'PARTIAL';
+                    }
+
+                    $evaluations[$type] = [
+                        'score' => $score,
+                        'status' => $status,
+                        'evaluators' => $evaluators,
+                    ];
+
+                    $overallTotal++;
+                    if ($status === 'COMPLETE') {
+                        $overallComplete++;
+                    }
+                }
+
+                $students[] = [
+                    'student_id' => $studentId,
+                    'student_name' => $student->name,
+                    'student_nim' => $student->nim ?? '',
+                    'group_id' => $groupId,
+                    'group_name' => $group->code ?? "Group {$groupId}",
+                    'evaluations' => $evaluations,
+                    'overall_status' => $overallTotal === 0 ? 'NOT_STARTED' : ($overallComplete === $overallTotal ? 'COMPLETE' : ($overallComplete > 0 || $overallTotal > 0 ? 'PARTIAL' : 'NOT_STARTED')),
+                ];
+            }
+        }
+
+        // Clear cache after building response
+        $gradeService->clearCache();
+
+        // Sort students
+        if ($sortBy === 'name') {
+            usort($students, fn ($a, $b) => strcmp($a['student_name'], $b['student_name']));
+        } else {
+            usort($students, fn ($a, $b) => strcmp($a['group_name'], $b['group_name']) ?: strcmp($a['student_name'], $b['student_name']));
+        }
+
+        // Manual pagination
+        $page = $request->input('page', 1);
+        $total = count($students);
+        $offset = ($page - 1) * $perPage;
+        $paginatedStudents = array_slice($students, $offset, $perPage);
+
+        return $this->envelopeResponse($paginatedStudents, [
+            'meta' => [
+                'current_page' => $page,
+                'last_page' => ceil($total / $perPage),
+                'per_page' => $perPage,
+                'total' => $total,
+            ],
+        ]);
+    }
+
+    /**
      * Get student evaluation summary with all 8 evaluation types.
      */
     public function studentEvaluationsSummary(Request $request)
@@ -774,8 +956,7 @@ class ReportDetailController extends Controller
         $offset = ($page - 1) * $perPage;
         $paginatedStudents = array_slice($students, $offset, $perPage);
 
-        return response()->json([
-            'data' => $paginatedStudents,
+        return $this->envelopeResponse($paginatedStudents, [
             'meta' => [
                 'current_page' => $page,
                 'last_page' => ceil($total / $perPage),
@@ -849,7 +1030,7 @@ class ReportDetailController extends Controller
         // Validate evaluation type
         $supportedTypes = AssessmentScoreRepository::getSupportedTypes();
         if (! in_array($evaluationType, $supportedTypes)) {
-            return response()->json(['error' => 'Invalid evaluation type'], 400);
+            return $this->errorResponse('Invalid evaluation type', 400);
         }
 
         // Get student and group info (include soft-deleted members)
@@ -863,13 +1044,21 @@ class ReportDetailController extends Controller
             ->first();
 
         if (! $group) {
-            return response()->json(['error' => 'Student not found in this period'], 404);
+            return $this->notFoundResponse('Student not found in this period');
         }
 
         $student = $group->members->firstWhere('student_id', $studentId)?->student;
         if (! $student) {
-            return response()->json(['error' => 'Student not found'], 404);
+            return $this->notFoundResponse('Student not found');
         }
+
+        // Get ALL period assessment components for this evaluation type, ordered by code
+        $allComponents = PeriodAssessmentComponent::with('template')
+            ->where('period_id', $periodId)
+            ->where('type', $evaluationType)
+            ->get()
+            ->sortBy(fn ($c) => $c->template?->code ?? '')
+            ->values();
 
         // Get all scores for this evaluation type
         $scores = AssessmentScoreRepository::forType($evaluationType)
@@ -878,105 +1067,187 @@ class ReportDetailController extends Controller
             ->with(['periodComponent.template', 'evaluator:id,name'])
             ->get();
 
+        // EXPO special handling - simplified view with only combined score
+        if ($evaluationType === 'EXPO') {
+            $gradeService = app(GradeCalculationService::class);
+            $pdc2Data = $gradeService->calculatePDC2ForStudent($studentId, $group->id);
+            $expoData = $pdc2Data['components']['EXPO'] ?? null;
+
+            $overallScore = $expoData['score'] ?? null;
+            $status = $overallScore !== null ? 'COMPLETE' : 'NOT_STARTED';
+            $lastEvaluated = null;
+
+            // Find last evaluated date
+            foreach ($scores as $score) {
+                if ($score->created_at && (! $lastEvaluated || $score->created_at > $lastEvaluated)) {
+                    $lastEvaluated = $score->created_at;
+                }
+            }
+
+            return $this->successResponse([
+                'student' => [
+                    'id' => $student->id,
+                    'name' => $student->name,
+                    'nim' => $student->nim ?? '',
+                    'group_id' => $group->id,
+                    'group_name' => $group->code ?? "Group {$group->id}",
+                ],
+                'evaluation_type' => $evaluationType,
+                'overall' => [
+                    'score' => $overallScore,
+                    'status' => $status,
+                    'total_evaluators' => 0,
+                    'completed_evaluators' => 0,
+                    'last_evaluated_at' => $lastEvaluated ? $lastEvaluated->format('M d, Y') : null,
+                ],
+                'evaluators' => [], // No evaluator breakdown for EXPO
+                'unassigned' => [
+                    'components' => [],
+                    'total' => 0,
+                ],
+            ]);
+        }
+
+        // For other evaluation types: build evaluator data with ALL components (scored and unscored)
         // Group scores by evaluator
-        $evaluatorGroups = [];
-        $unassignedComponents = [];
+        $evaluatorScores = [];
         $lastEvaluatedOverall = null;
 
         foreach ($scores as $score) {
-            $component = [
-                'component_id' => $score->periodComponent?->id ?? $score->component_id,
-                'component_code' => $score->periodComponent?->template?->code ?? $score->component?->code ?? 'N/A',
-                'component_name' => $score->periodComponent?->template?->name ?? $score->component?->name ?? 'Unknown',
-                'weight' => $score->periodComponent?->template?->weight ?? $score->component?->weight ?? 1,
-                'score' => $score->score,
-                'notes' => $score->notes,
-                'evaluated_at' => $score->created_at ? $score->created_at->format('M d, Y') : null,
-            ];
-
             // Track last evaluated date
             if ($score->created_at && (! $lastEvaluatedOverall || $score->created_at > $lastEvaluatedOverall)) {
                 $lastEvaluatedOverall = $score->created_at;
             }
 
-            // Group by evaluator
+            $evaluatorId = null;
             if ($score->evaluator) {
                 $evaluatorId = $score->evaluator->id;
-
-                if (! isset($evaluatorGroups[$evaluatorId])) {
-                    $evaluatorGroups[$evaluatorId] = [
-                        'evaluator_id' => $evaluatorId,
-                        'name' => $score->evaluator->name,
-                        'role' => $score->evaluator->role ?? 'Evaluator',
-                        'components' => [],
-                    ];
-                }
-
-                $evaluatorGroups[$evaluatorId]['components'][] = $component;
-            } else {
-                $unassignedComponents[] = $component;
             }
+
+            if (! isset($evaluatorScores[$evaluatorId])) {
+                $evaluatorScores[$evaluatorId] = [
+                    'evaluator_id' => $evaluatorId,
+                    'name' => $score->evaluator?->name ?? 'Unknown',
+                    'role' => $score->evaluator?->role ?? 'Evaluator',
+                    'components' => [],
+                ];
+            }
+
+            $evaluatorScores[$evaluatorId]['components'][$score->periodComponent?->id ?? $score->component_id] = [
+                'component_id' => $score->periodComponent?->id ?? $score->component_id,
+                'score' => $score->score,
+                'notes' => $score->notes,
+                'evaluated_at' => $score->created_at ? $score->created_at->format('M d, Y') : null,
+            ];
         }
 
-        // Build evaluator data with normalized weights and calculations
+        // Resolve evaluator roles
+        foreach ($evaluatorScores as $evaluatorId => &$evaluatorData) {
+            if ($group->supervisor_1_id == $evaluatorId) {
+                $evaluatorData['role'] = 'SUPERVISOR_1';
+            } elseif ($group->supervisor_2_id == $evaluatorId) {
+                $evaluatorData['role'] = 'SUPERVISOR_2';
+            } else {
+                // Check for examiner roles
+                $taSchedule = \App\Models\TaDefenseSchedule::where('group_id', $group->id)
+                    ->where('status', '!=', 'CANCELLED')
+                    ->whereHas('students', function ($query) use ($studentId) {
+                        $query->where('student_id', $studentId);
+                    })
+                    ->first();
+
+                if ($taSchedule) {
+                    if ($taSchedule->examiner_1_id == $evaluatorId) {
+                        $evaluatorData['role'] = 'EXAMINER_1';
+                    } elseif ($taSchedule->examiner_2_id == $evaluatorId) {
+                        $evaluatorData['role'] = 'EXAMINER_2';
+                    }
+                } else {
+                    $seminarSchedule = \App\Models\SeminarSchedule::where('group_id', $group->id)
+                        ->where('status', '!=', 'CANCELLED')
+                        ->whereIn('type', ['SEMPRO', 'EXPO'])
+                        ->first();
+
+                    if ($seminarSchedule) {
+                        if ($seminarSchedule->examiner_1_id == $evaluatorId) {
+                            $evaluatorData['role'] = 'EXAMINER_1';
+                        } elseif ($seminarSchedule->examiner_2_id == $evaluatorId) {
+                            $evaluatorData['role'] = 'EXAMINER_2';
+                        }
+                    }
+                }
+            }
+        }
+        unset($evaluatorData); // Break reference
+
+        // Build evaluators with all components (scored and unscored)
         $evaluators = [];
         $completedEvaluators = 0;
 
-        foreach ($evaluatorGroups as $evaluatorId => $evaluatorData) {
-            $components = $evaluatorData['components'];
-
-            // Calculate total weight for normalization
-            $totalWeight = array_sum(array_column($components, 'weight'));
-
-            // Normalize weights and build component data
-            $normalizedComponents = [];
+        foreach ($evaluatorScores as $evaluatorId => $evaluatorData) {
+            $components = [];
             $scoredCount = 0;
-            $totalScore = 0;
+            $totalWeighted = 0;
+            $calculationBreakdown = [];
 
-            foreach ($components as $comp) {
-                $normalizedWeight = $totalWeight > 0 ? round(($comp['weight'] / $totalWeight) * 100, 2) : 0;
+            // Calculate total weight for this evaluator's components
+            $totalWeight = 0;
+            foreach ($allComponents as $periodComponent) {
+                $totalWeight += $periodComponent->template?->weight ?? 1;
+            }
 
-                $normalizedComponents[] = [
-                    'component_id' => $comp['component_id'],
-                    'component_code' => $comp['component_code'],
-                    'component_name' => $comp['component_name'],
-                    'weight' => $comp['weight'],
+            foreach ($allComponents as $periodComponent) {
+                $template = $periodComponent->template;
+                $componentId = $periodComponent->id;
+                $scoreData = $evaluatorData['components'][$componentId] ?? null;
+                $normalizedWeight = $totalWeight > 0 ? round((($template?->weight ?? 1) / $totalWeight) * 100, 2) : 0;
+
+                $componentData = [
+                    'component_id' => $componentId,
+                    'component_code' => $template?->code ?? 'N/A',
+                    'component_name' => $template?->name ?? 'Unknown',
+                    'weight' => $template?->weight ?? 1,
                     'normalized_weight' => $normalizedWeight,
-                    'score' => $comp['score'],
-                    'notes' => $comp['notes'],
-                    'evaluated_at' => $comp['evaluated_at'],
+                    'score' => $scoreData['score'] ?? null,
+                    'notes' => $scoreData['notes'] ?? null,
+                    'evaluated_at' => $scoreData['evaluated_at'] ?? null,
                 ];
 
-                if ($comp['score'] !== null) {
+                $components[] = $componentData;
+
+                if ($scoreData && $scoreData['score'] !== null) {
                     $scoredCount++;
-                    $totalScore += $comp['score'] * $normalizedWeight;
+                    $totalWeighted += $scoreData['score'] * $normalizedWeight;
+
+                    // Add to calculation breakdown
+                    $calculationBreakdown[] = [
+                        'component' => $template?->name ?? 'Unknown',
+                        'score' => $scoreData['score'],
+                        'weight' => $normalizedWeight,
+                        'weighted' => round($scoreData['score'] * $normalizedWeight / 100, 2),
+                    ];
+                } else {
+                    // Add unscored component to breakdown with 0 contribution
+                    $calculationBreakdown[] = [
+                        'component' => $template?->name ?? 'Unknown',
+                        'score' => 0,
+                        'weight' => $normalizedWeight,
+                        'weighted' => 0,
+                    ];
                 }
             }
 
-            // Calculate evaluator's final score (weights sum to 100)
-            $finalScore = $scoredCount > 0 && $totalWeight > 0 ? round($totalScore / 100, 2) : null;
+            // Calculate evaluator's final score
+            $finalScore = $scoredCount > 0 ? round($totalWeighted / 100, 2) : null;
 
             // Determine evaluator status
-            $totalComponents = count($components);
+            $totalComponents = count($allComponents);
             $evaluatorStatus = 'NOT_STARTED';
             if ($scoredCount === $totalComponents && $totalComponents > 0) {
                 $evaluatorStatus = 'COMPLETE';
                 $completedEvaluators++;
             } elseif ($scoredCount > 0) {
                 $evaluatorStatus = 'PARTIAL';
-            }
-
-            // Build calculation breakdown
-            $calculationBreakdown = [];
-            foreach ($normalizedComponents as $comp) {
-                if ($comp['score'] !== null) {
-                    $calculationBreakdown[] = [
-                        'component' => $comp['component_name'],
-                        'score' => $comp['score'],
-                        'weight' => $comp['normalized_weight'],
-                        'weighted' => round($comp['score'] * $comp['normalized_weight'] / 100, 2),
-                    ];
-                }
             }
 
             $evaluators[] = [
@@ -987,12 +1258,12 @@ class ReportDetailController extends Controller
                 'score' => $finalScore,
                 'total_components' => $totalComponents,
                 'scored_components' => $scoredCount,
-                'components' => $normalizedComponents,
+                'components' => $components,
                 'calculation_summary' => [
                     'formula' => 'Σ(score × normalized_weight) / 100',
                     'breakdown' => $calculationBreakdown,
                     'total_weight' => 100,
-                    'weighted_sum' => $finalScore !== null ? round($totalScore / 100, 2) : 0,
+                    'weighted_sum' => $finalScore !== null ? round($totalWeighted / 100, 2) : 0,
                     'final_score' => $finalScore,
                 ],
             ];
@@ -1006,31 +1277,15 @@ class ReportDetailController extends Controller
         $overallStatus = 'NOT_STARTED';
         $totalEvaluators = count($evaluators);
 
-        if (count($unassignedComponents) > 0) {
-            $overallStatus = 'PARTIAL';
-        } elseif ($totalEvaluators === 0) {
+        if ($totalEvaluators === 0) {
             $overallStatus = 'NOT_STARTED';
-        } elseif ($completedEvaluators === $totalEvaluators) {
+        } elseif ($completedEvaluators === $totalEvaluators && $totalEvaluators > 0) {
             $overallStatus = 'COMPLETE';
         } elseif ($completedEvaluators > 0 || count(array_filter($evaluators, fn ($e) => $e['status'] === 'PARTIAL')) > 0) {
             $overallStatus = 'PARTIAL';
         }
 
-        // Format unassigned components
-        $unassigned = [];
-        foreach ($unassignedComponents as $comp) {
-            $unassigned[] = [
-                'component_id' => $comp['component_id'],
-                'component_code' => $comp['component_code'],
-                'component_name' => $comp['component_name'],
-                'weight' => $comp['weight'],
-                'score' => $comp['score'],
-                'notes' => $comp['notes'],
-                'evaluated_at' => $comp['evaluated_at'],
-            ];
-        }
-
-        return response()->json([
+        return $this->successResponse([
             'student' => [
                 'id' => $student->id,
                 'name' => $student->name,
@@ -1048,8 +1303,8 @@ class ReportDetailController extends Controller
             ],
             'evaluators' => $evaluators,
             'unassigned' => [
-                'components' => $unassigned,
-                'total' => count($unassigned),
+                'components' => [],
+                'total' => 0,
             ],
         ]);
     }
@@ -1168,5 +1423,258 @@ class ReportDetailController extends Controller
 
             fclose($handle);
         }, 'student_evaluations_summary.csv', ['Content-Type' => 'text/csv']);
+    }
+
+    /**
+     * Get detailed breakdown for a specific evaluator.
+     * Returns all components (scored and unscored) ordered by component code.
+     */
+    public function evaluatorDetail(Request $request, $studentId, $evaluationType, $evaluatorId)
+    {
+        $request->validate([
+            'period_id' => 'required|exists:periods,id',
+        ]);
+
+        $periodId = $request->period_id;
+
+        // Validate evaluation type
+        $supportedTypes = AssessmentScoreRepository::getSupportedTypes();
+        if (! in_array($evaluationType, $supportedTypes)) {
+            return $this->errorResponse('Invalid evaluation type', 400);
+        }
+
+        // Get student and group info
+        $group = Group::where('period_id', $periodId)
+            ->whereHas('members', function ($q) use ($studentId) {
+                $q->withTrashed()->where('student_id', $studentId);
+            })
+            ->with(['members' => function ($q) {
+                $q->withTrashed()->with('student');
+            }, 'title'])
+            ->first();
+
+        if (! $group) {
+            return $this->notFoundResponse('Student not found in this period');
+        }
+
+        $student = $group->members->firstWhere('student_id', $studentId)?->student;
+        if (! $student) {
+            return $this->notFoundResponse('Student not found');
+        }
+
+        // Get ALL period assessment components for this evaluation type, ordered by code
+        $allComponents = PeriodAssessmentComponent::with('template')
+            ->where('period_id', $periodId)
+            ->where('type', $evaluationType)
+            ->get()
+            ->sortBy(fn ($c) => $c->template?->code ?? '')
+            ->values();
+
+        // Determine the correct evaluator column based on evaluation type
+        $usesExaminer = in_array($evaluationType, ['SEMPRO', 'SIDANG_TA']);
+
+        // Get all scores for this student/evaluation type from this specific evaluator
+        // Use the correct column name based on evaluation type
+        $scoreQuery = AssessmentScoreRepository::forType($evaluationType)
+            ->where('student_id', $studentId)
+            ->where('group_id', $group->id);
+
+        // Apply the evaluator filter with the correct column name
+        if ($usesExaminer) {
+            $scoreQuery->where('examiner_id', $evaluatorId);
+        } else {
+            $scoreQuery->where('evaluator_id', $evaluatorId);
+        }
+
+        // Get all scores (don't key by period_component_id since it may be NULL)
+        $allScores = $scoreQuery
+            ->with(['periodComponent.template', 'evaluator:id,name'])
+            ->get();
+
+        // Create lookup maps for efficient matching
+        $scoresByPeriodComponent = $allScores
+            ->filter(fn ($s) => $s->period_component_id !== null)
+            ->keyBy('period_component_id');
+
+        $scoresByComponent = $allScores
+            ->filter(fn ($s) => $s->component_id !== null)
+            ->keyBy('component_id');
+
+        // Find the evaluator info - use evaluator relationship (which is aliased in models with examiner_id)
+        $evaluatorInfo = $allScores->first()?->evaluator;
+        if (! $evaluatorInfo) {
+            // Try to get evaluator info directly
+            $evaluatorInfo = User::find($evaluatorId);
+            if (! $evaluatorInfo) {
+                return $this->notFoundResponse('Evaluator not found');
+            }
+        }
+
+        // Resolve evaluator role
+        $role = 'Evaluator';
+        if ($group->supervisor_1_id == $evaluatorId) {
+            $role = 'SUPERVISOR_1';
+        } elseif ($group->supervisor_2_id == $evaluatorId) {
+            $role = 'SUPERVISOR_2';
+        } else {
+            // Check if evaluator is an examiner for this student
+            // Check TA defense schedules
+            $taSchedule = \App\Models\TaDefenseSchedule::where('group_id', $group->id)
+                ->where('status', '!=', 'CANCELLED')
+                ->whereHas('students', function ($query) use ($studentId) {
+                    $query->where('student_id', $studentId);
+                })
+                ->first();
+
+            if ($taSchedule) {
+                if ($taSchedule->examiner_1_id == $evaluatorId) {
+                    $role = 'EXAMINER_1';
+                } elseif ($taSchedule->examiner_2_id == $evaluatorId) {
+                    $role = 'EXAMINER_2';
+                }
+            } else {
+                // Check seminar schedules (SEMPRO/EXPO)
+                $seminarSchedule = \App\Models\SeminarSchedule::where('group_id', $group->id)
+                    ->where('status', '!=', 'CANCELLED')
+                    ->whereIn('type', ['SEMPRO', 'EXPO'])
+                    ->first();
+
+                if ($seminarSchedule) {
+                    if ($seminarSchedule->examiner_1_id == $evaluatorId) {
+                        $role = 'EXAMINER_1';
+                    } elseif ($seminarSchedule->examiner_2_id == $evaluatorId) {
+                        $role = 'EXAMINER_2';
+                    }
+                }
+            }
+        }
+
+        // Build component list with all components (scored and unscored)
+        $components = [];
+        $scoredCount = 0;
+        $totalScore = 0;
+        $calculationBreakdown = [];
+        $lastEvaluatedAt = null;
+
+        // Calculate total weight first for normalized weight calculation
+        $totalWeight = 0;
+        foreach ($allComponents as $periodComponent) {
+            $totalWeight += $periodComponent->template?->weight ?? 1;
+        }
+
+        // Track which scores have been assigned to prevent duplicates
+        $assignedScoreIds = [];
+
+        foreach ($allComponents as $periodComponent) {
+            $template = $periodComponent->template;
+
+            // Try to match score by period_component_id first, then by component_id
+            $score = null;
+
+            // Method 1: Match by period_component_id (preferred for future data)
+            if ($scoresByPeriodComponent->has($periodComponent->id)) {
+                $score = $scoresByPeriodComponent->get($periodComponent->id);
+                $assignedScoreIds[] = $score->id;
+            }
+            // Method 2: Match by component_id using the template's component_id
+            elseif ($template?->id && $scoresByComponent->has($template->id)) {
+                $score = $scoresByComponent->get($template->id);
+                $assignedScoreIds[] = $score->id;
+            }
+            // Method 3: For legacy data with NULL component_id, match by unassigned scores
+            else {
+                // Find first unassigned score that hasn't been used yet
+                $unassignedScore = $allScores
+                    ->filter(fn ($s) => $s->score !== null &&
+                        ! in_array($s->id, $assignedScoreIds) &&
+                        ($s->period_component_id === null || ! $scoresByPeriodComponent->has($s->period_component_id))
+                    )
+                    ->first();
+
+                if ($unassignedScore) {
+                    $score = $unassignedScore;
+                    $assignedScoreIds[] = $score->id;
+                }
+            }
+
+            $componentData = [
+                'component_id' => $periodComponent->id,
+                'component_code' => $template?->code ?? 'N/A',
+                'component_name' => $template?->name ?? 'Unknown',
+                'weight' => $template?->weight ?? 1,
+                'normalized_weight' => $totalWeight > 0 ? round((($template?->weight ?? 1) / $totalWeight) * 100, 2) : 0,
+                'score' => $score?->score,
+                'notes' => $score?->notes,
+                'evaluated_at' => $score?->created_at ? $score->created_at->format('M d, Y') : null,
+            ];
+
+            $components[] = $componentData;
+
+            if ($score && $score->score !== null) {
+                $scoredCount++;
+                $totalScore += $score->score * ($template?->weight ?? 1);
+
+                // Add to calculation breakdown
+                $calculationBreakdown[] = [
+                    'component' => $template?->name ?? 'Unknown',
+                    'score' => $score->score,
+                    'weight' => $template?->weight ?? 1,
+                    'weighted' => round($score->score * ($template?->weight ?? 1) / 100, 2),
+                ];
+
+                if ($score->created_at && (! $lastEvaluatedAt || $score->created_at > $lastEvaluatedAt)) {
+                    $lastEvaluatedAt = $score->created_at;
+                }
+            } else {
+                // Add unscored component to breakdown with 0 contribution
+                $calculationBreakdown[] = [
+                    'component' => $template?->name ?? 'Unknown',
+                    'score' => 0,
+                    'weight' => $template?->weight ?? 1,
+                    'weighted' => 0,
+                ];
+            }
+        }
+
+        // Calculate final score (totalWeight already calculated above)
+        $finalScore = $scoredCount > 0 && $totalWeight > 0 ? round($totalScore / $totalWeight, 2) : null;
+
+        // Determine status
+        $totalComponents = count($allComponents);
+        $status = 'NOT_STARTED';
+        if ($scoredCount === $totalComponents && $totalComponents > 0) {
+            $status = 'COMPLETE';
+        } elseif ($scoredCount > 0) {
+            $status = 'PARTIAL';
+        }
+
+        return $this->successResponse([
+            'student' => [
+                'id' => $student->id,
+                'name' => $student->name,
+                'nim' => $student->nim ?? '',
+                'group_id' => $group->id,
+                'group_name' => $group->code ?? "Group {$group->id}",
+            ],
+            'evaluation_type' => $evaluationType,
+            'evaluator' => [
+                'evaluator_id' => $evaluatorId,
+                'name' => $evaluatorInfo->name,
+                'role' => $role,
+                'status' => $status,
+                'score' => $finalScore,
+                'total_components' => $totalComponents,
+                'scored_components' => $scoredCount,
+                'components' => $components,
+                'calculation_summary' => [
+                    'formula' => 'Σ(score × weight) / Σ(weights)',
+                    'breakdown' => $calculationBreakdown,
+                    'total_weight' => $totalWeight,
+                    'weighted_sum' => $finalScore !== null ? round($totalScore / 100, 2) : 0,
+                    'final_score' => $finalScore,
+                ],
+                'last_evaluated_at' => $lastEvaluatedAt ? $lastEvaluatedAt->format('M d, Y') : null,
+            ],
+        ]);
     }
 }

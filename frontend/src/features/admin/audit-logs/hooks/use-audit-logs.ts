@@ -7,6 +7,8 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 import type { AuditLog, AuditLogPeriod, AuditLogPagination } from '@/features/admin/audit-logs/types';
 
+const QUERY_KEY = ['admin', 'audit-logs'] as const;
+
 const PER_PAGE_OPTIONS = [15, 30, 50, 100];
 
 const fetchActionTypes = async (): Promise<string[]> => {
@@ -81,19 +83,19 @@ export function useAuditLogs() {
     }, [searchQuery]);
 
     const { data: actionTypes = [] } = useQuery({
-        queryKey: ['admin', 'audit-logs', 'action-types'],
+        queryKey: [...QUERY_KEY, 'action-types'],
         queryFn: fetchActionTypes,
         staleTime: Infinity,
     });
 
     const { data: periods = [] } = useQuery({
-        queryKey: ['periods-list'],
+        queryKey: [...QUERY_KEY, 'periods'],
         queryFn: fetchPeriods,
         staleTime: Infinity,
     });
 
     const { data, isLoading, error } = useQuery({
-        queryKey: ['admin', 'audit-logs', page, perPage, selectedAction, selectedPeriod, debouncedSearchQuery, dateFrom, dateTo],
+        queryKey: [...QUERY_KEY, page, perPage, selectedAction, selectedPeriod, debouncedSearchQuery, dateFrom, dateTo],
         queryFn: () => fetchLogs({ page, perPage, selectedAction, selectedPeriod, searchQuery: debouncedSearchQuery, dateFrom, dateTo }),
     });
 

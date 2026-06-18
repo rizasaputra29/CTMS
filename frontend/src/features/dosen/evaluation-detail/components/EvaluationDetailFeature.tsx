@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
-import { ScoringRubric, calculateWeightedScore } from '@/components/common'
+import { ScoringRubric, calculateWeightedScore } from '@/components/common/ScoringRubric'
 import { 
     ArrowLeft, 
     Save, 

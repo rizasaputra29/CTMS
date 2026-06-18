@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Log;
 
 class TaSubmissionController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected GroupStateMachine $stateMachine;
 
@@ -43,7 +43,7 @@ class TaSubmissionController extends Controller
             ->where('student_id', $user->id)
             ->first();
 
-        return response()->json(['data' => $submission]);
+        return $this->successResponse($submission);
     }
 
     /**
@@ -60,7 +60,7 @@ class TaSubmissionController extends Controller
         // Find student's group
         $membership = GroupMember::where('student_id', $user->id)->first();
         if (! $membership) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         $group = Group::with('period')->findOrFail($membership->group_id);
@@ -69,16 +69,13 @@ class TaSubmissionController extends Controller
 
         // Gate: group must be at least PDC2_ACTIVE
         if (! $this->stateMachine->isAtLeast($group, 'PDC2_ACTIVE')) {
-            return response()->json(['message' => 'Group must be at least in PDC2_ACTIVE status.'], 400);
+            return $this->errorResponse('Group must be at least in PDC2_ACTIVE status.', 400);
         }
 
         // Gate: Check if group is ready for TA Individual submission
         $readyCheck = $this->checkReadyForTaIndividual($group);
         if (! $readyCheck['ready']) {
-            return response()->json([
-                'message' => 'Your group is not ready for TA Individual submission. Please complete all requirements.',
-                'requirements' => $readyCheck['requirements'],
-            ], 403);
+            return $this->errorResponse('Your group is not ready for TA Individual submission. Please complete all requirements.', 403);
         }
 
         // Create or update TA submission
@@ -91,10 +88,7 @@ class TaSubmissionController extends Controller
             ]
         );
 
-        return response()->json([
-            'message' => 'TA draft uploaded.',
-            'data' => $submission,
-        ]);
+        return $this->successResponse($submission, 'TA draft uploaded.');
     }
 
     /**
@@ -118,10 +112,7 @@ class TaSubmissionController extends Controller
             'feedback' => null,
         ]);
 
-        return response()->json([
-            'message' => 'TA revision submitted.',
-            'data' => $submission->fresh(),
-        ]);
+        return $this->successResponse($submission->fresh(), 'TA revision submitted.');
     }
 
     /**
@@ -190,10 +181,7 @@ class TaSubmissionController extends Controller
                 ],
             ]);
 
-            return response()->json([
-                'message' => 'Pendaftaran sidang TA berhasil.',
-                'data' => $submission->fresh(),
-            ]);
+            return $this->successResponse($submission->fresh(), 'Pendaftaran sidang TA berhasil.');
         });
     }
 
@@ -226,10 +214,7 @@ class TaSubmissionController extends Controller
             ]);
         }
 
-        return response()->json([
-            'message' => "TA review: {$request->result}",
-            'data' => $submission->fresh(),
-        ]);
+        return $this->successResponse($submission->fresh(), "TA review: {$request->result}");
     }
 
     /**
@@ -243,7 +228,7 @@ class TaSubmissionController extends Controller
         $this->ensurePeriodIsActive($submission->group);
 
         if ($submission->status !== 'TA_REGISTERED') {
-            return response()->json(['message' => 'TA must be in TA_REGISTERED status.'], 400);
+            return $this->errorResponse('TA must be in TA_REGISTERED status.', 400);
         }
 
         return DB::transaction(function () use ($user, $submission) {
@@ -272,11 +257,7 @@ class TaSubmissionController extends Controller
                 $this->stateMachine->transition($group, 'CLOSED');
             }
 
-            return response()->json([
-                'message' => 'TA marked as defended.',
-                'data' => $submission->fresh(),
-                'group' => $group->fresh(),
-            ]);
+            return $this->envelopeResponse($submission->fresh(), ['group' => $group->fresh()], 'TA marked as defended.');
         });
     }
 
@@ -402,17 +383,13 @@ class TaSubmissionController extends Controller
             // Check if group is ready for TA individual
             $membership = GroupMember::where('student_id', $user->id)->first();
             if (! $membership) {
-                return response()->json(['message' => 'You are not in a group.'], 400);
+                return $this->errorResponse('You are not in a group.', 400);
             }
 
             $group = Group::with(['title', 'supervisor1', 'supervisor2'])->find($membership->group_id);
 
             if ($group->status !== 'READY_FOR_TA_INDIVIDUAL') {
-                return response()->json([
-                    'can_access' => false,
-                    'status' => 'TA_LOCKED',
-                    'message' => 'TA phase is locked. Your group must complete EXPO first.',
-                ]);
+                return $this->successResponse(['can_access' => false, 'status' => 'TA_LOCKED', 'message' => 'TA phase is locked. Your group must complete EXPO first.']);
             }
 
             // Create initial submission with TA_DOCUMENTS_REQUIRED status
@@ -427,14 +404,7 @@ class TaSubmissionController extends Controller
             $submission = TaSubmission::with(['group.title', 'group.supervisor1', 'group.supervisor2'])
                 ->find($submission->id);
 
-            return response()->json([
-                'can_access' => true,
-                'status' => 'TA_DOCUMENTS_REQUIRED',
-                'submission' => $submission,
-                'group' => $submission->group,
-                'documents' => [],
-                'document_requirements' => $this->getTaDocumentRequirements($group->period_id),
-            ]);
+            return $this->successResponse(['can_access' => true, 'status' => 'TA_DOCUMENTS_REQUIRED', 'submission' => $submission, 'group' => $submission->group, 'documents' => [], 'document_requirements' => $this->getTaDocumentRequirements($group->period_id)]);
         }
 
         $documents = Document::where('student_id', $user->id)
@@ -452,14 +422,7 @@ class TaSubmissionController extends Controller
         $submission = TaSubmission::with(['group.title', 'group.supervisor1', 'group.supervisor2'])
             ->find($submission->id);
 
-        return response()->json([
-            'can_access' => true,
-            'status' => $submission->status,
-            'submission' => $submission,
-            'group' => $submission->group,
-            'documents' => $documents,
-            'document_requirements' => $documentRequirements,
-        ]);
+        return $this->successResponse(['can_access' => true, 'status' => $submission->status, 'submission' => $submission, 'group' => $submission->group, 'documents' => $documents, 'document_requirements' => $documentRequirements]);
     }
 
     /**
@@ -482,7 +445,7 @@ class TaSubmissionController extends Controller
 
         $submission = TaSubmission::where('student_id', $user->id)->first();
         if (! $submission) {
-            return response()->json(['message' => 'TA submission not found.'], 404);
+            return $this->notFoundResponse('TA submission not found.');
         }
 
         $documents = Document::where('student_id', $user->id)
@@ -491,10 +454,7 @@ class TaSubmissionController extends Controller
 
         $documentRequirements = $this->getTaDocumentRequirements($submission->group->period_id);
 
-        return response()->json([
-            'documents' => $documents,
-            'document_requirements' => $documentRequirements,
-        ]);
+        return $this->successResponse(['documents' => $documents, 'document_requirements' => $documentRequirements]);
     }
 
     /**
@@ -511,14 +471,14 @@ class TaSubmissionController extends Controller
 
         $submission = TaSubmission::with('group.period')->where('student_id', $user->id)->first();
         if (! $submission) {
-            return response()->json(['message' => 'TA submission not found.'], 404);
+            return $this->notFoundResponse('TA submission not found.');
         }
 
         $this->ensurePeriodIsActive($submission->group);
 
         // Check if submission is in a valid state for document upload
         if (! in_array($submission->status, ['TA_DOCUMENTS_REQUIRED', 'TA_DOCUMENTS_UNDER_REVIEW'])) {
-            return response()->json(['message' => 'Cannot upload documents at this stage.'], 403);
+            return $this->unauthorizedResponse('Cannot upload documents at this stage.');
         }
 
         // Handle file upload
@@ -559,10 +519,7 @@ class TaSubmissionController extends Controller
         // Update submission status to UNDER_REVIEW
         $submission->update(['status' => 'TA_DOCUMENTS_UNDER_REVIEW']);
 
-        return response()->json([
-            'message' => 'Document uploaded successfully.',
-            'document' => $document,
-        ]);
+        return $this->successResponse(['message' => 'Document uploaded successfully.', 'document' => $document]);
     }
 
     /**
@@ -586,7 +543,7 @@ class TaSubmissionController extends Controller
         $isSupervisor = in_array($user->id, [$group->supervisor_1_id, $group->supervisor_2_id]);
 
         if (! $isSupervisor && ! $user->hasRole('admin')) {
-            return response()->json(['message' => 'Unauthorized. Only supervisors or admin can review documents.'], 403);
+            return $this->unauthorizedResponse('Unauthorized. Only supervisors or admin can review documents.');
         }
 
         $document->update([
@@ -598,10 +555,7 @@ class TaSubmissionController extends Controller
         // Check if all required documents are approved
         $this->checkAllDocumentsApproved($document->student_id, $document->group_id);
 
-        return response()->json([
-            'message' => "Document {$request->action}D.",
-            'document' => $document->fresh(),
-        ]);
+        return $this->successResponse(['message' => "Document {$request->action}D.", 'document' => $document->fresh()]);
     }
 
     /**

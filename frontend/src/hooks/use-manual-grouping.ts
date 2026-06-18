@@ -1,7 +1,10 @@
 import { useState, useCallback } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type { Group } from '@/types/finalization';
+
+const QUERY_KEY = ['admin', 'manual-grouping'] as const;
 
 // Use Group type directly since backend returns full Group objects
 type AvailableGroup = Group;
@@ -20,6 +23,19 @@ interface AvailableTitle {
 interface Lecturer {
   id: number;
   name: string;
+}
+
+interface CreateManualGroupPayload {
+  student_ids: number[];
+  period_id: number;
+  option: 'no_title' | 'assign_title' | 'add_title';
+  title_id?: number;
+  new_title?: {
+    title: string;
+    description?: string;
+    specializations: string[];
+    lecturer_id: number;
+  };
 }
 
 interface UseManualGroupingReturn {
@@ -62,70 +78,122 @@ interface UseManualGroupingReturn {
 }
 
 export function useManualGrouping(): UseManualGroupingReturn {
-  const [availableGroups, setAvailableGroups] = useState<AvailableGroup[]>([]);
-  const [availableTitles, setAvailableTitles] = useState<AvailableTitle[]>([]);
-  const [lecturers, setLecturers] = useState<Lecturer[]>([]);
-  const [fetchingGroups, setFetchingGroups] = useState(false);
-  const [fetchingTitles, setFetchingTitles] = useState(false);
-  const [fetchingLecturers, setFetchingLecturers] = useState(false);
-  const [creatingGroup, setCreatingGroup] = useState(false);
-  const [addingMembers, setAddingMembers] = useState(false);
-  const [promotingToReady, setPromotingToReady] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Period state per query — distinguishes "never called" from "called with no period"
+  const [groupsPeriodId, setGroupsPeriodId] = useState<number | undefined>(undefined);
+  const [titlesPeriodId, setTitlesPeriodId] = useState<number | undefined>(undefined);
+  const [lecturersPeriodId, setLecturersPeriodId] = useState<number | undefined>(undefined);
+
+  // Enabled flags — queries only fire after their fetch function is called
+  const [groupsEnabled, setGroupsEnabled] = useState(false);
+  const [titlesEnabled, setTitlesEnabled] = useState(false);
+  const [lecturersEnabled, setLecturersEnabled] = useState(false);
+
+  // ── Queries ────────────────────────────────────────────────────────
+
+  const groupsQuery = useQuery<AvailableGroup[]>({
+    queryKey: [...QUERY_KEY, 'groups', groupsPeriodId],
+    queryFn: async () => {
+      const params = groupsPeriodId ? { period_id: groupsPeriodId } : {};
+      const response = await api.get('/admin/finalization/available-groups', { params });
+      return response.data.groups || [];
+    },
+    enabled: groupsEnabled,
+  });
+
+  const titlesQuery = useQuery<AvailableTitle[]>({
+    queryKey: [...QUERY_KEY, 'titles', titlesPeriodId],
+    queryFn: async () => {
+      const params = titlesPeriodId ? { period_id: titlesPeriodId } : {};
+      const response = await api.get('/admin/finalization/available-titles', { params });
+      return response.data.titles || [];
+    },
+    enabled: titlesEnabled,
+  });
+
+  const lecturersQuery = useQuery<Lecturer[]>({
+    queryKey: [...QUERY_KEY, 'lecturers', lecturersPeriodId],
+    queryFn: async () => {
+      const params = lecturersPeriodId ? { period_id: lecturersPeriodId } : {};
+      const response = await api.get('/admin/finalization/lecturers', { params });
+      return response.data.lecturers || [];
+    },
+    enabled: lecturersEnabled,
+  });
+
+  // ── Fetch functions (set periodId + enable query) ──────────────────
 
   const fetchAvailableGroups = useCallback(async (periodId?: number) => {
-    setFetchingGroups(true);
-    try {
-      const params = periodId ? { period_id: periodId } : {};
-      const response = await api.get('/admin/finalization/available-groups', { params });
-      setAvailableGroups(response.data.groups || []);
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal memuat grup yang tersedia'
-        : 'Terjadi kesalahan';
-      toast.error(message);
-      setAvailableGroups([]);
-    } finally {
-      setFetchingGroups(false);
-    }
+    setGroupsPeriodId(periodId);
+    setGroupsEnabled(true);
   }, []);
 
   const fetchAvailableTitles = useCallback(async (periodId?: number) => {
-    setFetchingTitles(true);
-    try {
-      const params = periodId ? { period_id: periodId } : {};
-      const response = await api.get('/admin/finalization/available-titles', { params });
-      console.log('Fetched available titles:', response.data.titles);
-      setAvailableTitles(response.data.titles || []);
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal memuat judul yang tersedia'
-        : 'Terjadi kesalahan';
-      toast.error(message);
-      console.error('Error fetching titles:', err);
-      setAvailableTitles([]);
-    } finally {
-      setFetchingTitles(false);
-    }
+    setTitlesPeriodId(periodId);
+    setTitlesEnabled(true);
   }, []);
 
   const fetchLecturers = useCallback(async (periodId?: number) => {
-    setFetchingLecturers(true);
-    try {
-      const params = periodId ? { period_id: periodId } : {};
-      const response = await api.get('/admin/finalization/lecturers', { params });
-      console.log('Fetched lecturers:', response.data.lecturers);
-      setLecturers(response.data.lecturers || []);
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal memuat dosen'
-        : 'Terjadi kesalahan';
-      toast.error(message);
-      console.error('Error fetching lecturers:', err);
-      setLecturers([]);
-    } finally {
-      setFetchingLecturers(false);
-    }
+    setLecturersPeriodId(periodId);
+    setLecturersEnabled(true);
   }, []);
+
+  // ── Mutations ──────────────────────────────────────────────────────
+
+  const createManualGroupMutation = useMutation({
+    mutationFn: async (payload: CreateManualGroupPayload) => {
+      await api.post('/admin/finalization/create-manual-group', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast.success('Grup berhasil dibuat');
+    },
+    onError: (error: unknown) => {
+      toast.error(api.getApiErrorMessage(error, 'Gagal membuat grup'));
+    },
+  });
+
+  const addToExistingGroupMutation = useMutation({
+    mutationFn: async (payload: { group_id: number; student_ids: number[] }) => {
+      await api.post('/admin/finalization/add-to-existing-group', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast.success('Anggota berhasil ditambahkan ke grup');
+    },
+    onError: (error: unknown) => {
+      toast.error(api.getApiErrorMessage(error, 'Gagal menambahkan anggota'));
+    },
+  });
+
+  const assignTitleMutation = useMutation({
+    mutationFn: async (payload: { group_id: number; title_id: number }) => {
+      await api.post('/admin/finalization/assign-title', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast.success('Judul berhasil ditetapkan');
+    },
+    onError: (error: unknown) => {
+      toast.error(api.getApiErrorMessage(error, 'Gagal menetapkan judul'));
+    },
+  });
+
+  const promoteMutation = useMutation({
+    mutationFn: async (payload: { group_id: number }) => {
+      await api.post('/admin/finalization/promote-to-ready', payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEY });
+      toast.success('Grup berhasil dipromosikan ke Ready for Finalization');
+    },
+    onError: (error: unknown) => {
+      toast.error(api.getApiErrorMessage(error, 'Gagal mempromosikan grup'));
+    },
+  });
+
+  // ── Wrapped mutation functions (preserve original return type) ─────
 
   const createManualGroup = useCallback(async ({
     studentIds,
@@ -145,18 +213,15 @@ export function useManualGrouping(): UseManualGroupingReturn {
       lecturerId: number;
     };
   }): Promise<boolean> => {
-    setCreatingGroup(true);
     try {
-      const payload: Record<string, unknown> = {
+      const payload: CreateManualGroupPayload = {
         student_ids: studentIds,
         period_id: periodId,
         option,
       };
-
       if (option === 'assign_title' && titleId) {
         payload.title_id = titleId;
       }
-
       if (option === 'add_title' && newTitle) {
         payload.new_title = {
           title: newTitle.title,
@@ -165,20 +230,12 @@ export function useManualGrouping(): UseManualGroupingReturn {
           lecturer_id: newTitle.lecturerId,
         };
       }
-
-      await api.post('/admin/finalization/create-manual-group', payload);
-      toast.success('Grup berhasil dibuat');
+      await createManualGroupMutation.mutateAsync(payload);
       return true;
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal membuat grup'
-        : 'Terjadi kesalahan';
-      toast.error(message);
+    } catch {
       return false;
-    } finally {
-      setCreatingGroup(false);
     }
-  }, []);
+  }, [createManualGroupMutation]);
 
   const addToExistingGroup = useCallback(async ({
     groupId,
@@ -187,24 +244,16 @@ export function useManualGrouping(): UseManualGroupingReturn {
     groupId: number;
     studentIds: number[];
   }): Promise<boolean> => {
-    setAddingMembers(true);
     try {
-      await api.post('/admin/finalization/add-to-existing-group', {
+      await addToExistingGroupMutation.mutateAsync({
         group_id: groupId,
         student_ids: studentIds,
       });
-      toast.success('Anggota berhasil ditambahkan ke grup');
       return true;
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal menambahkan anggota'
-        : 'Terjadi kesalahan';
-      toast.error(message);
+    } catch {
       return false;
-    } finally {
-      setAddingMembers(false);
     }
-  }, []);
+  }, [addToExistingGroupMutation]);
 
   const assignTitle = useCallback(async ({
     groupId,
@@ -214,55 +263,48 @@ export function useManualGrouping(): UseManualGroupingReturn {
     titleId: number;
   }): Promise<boolean> => {
     try {
-      await api.post('/admin/finalization/assign-title', {
+      await assignTitleMutation.mutateAsync({
         group_id: groupId,
         title_id: titleId,
       });
-      toast.success('Judul berhasil ditetapkan');
       return true;
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal menetapkan judul'
-        : 'Terjadi kesalahan';
-      toast.error(message);
+    } catch {
       return false;
     }
-  }, []);
+  }, [assignTitleMutation]);
 
   const promoteToReadyForFinalization = useCallback(async ({
     groupId,
   }: {
     groupId: number;
   }): Promise<boolean> => {
-    setPromotingToReady(true);
     try {
-      await api.post('/admin/finalization/promote-to-ready', {
-        group_id: groupId,
-      });
-      toast.success('Grup berhasil dipromosikan ke Ready for Finalization');
+      await promoteMutation.mutateAsync({ group_id: groupId });
       return true;
-    } catch (err) {
-      const message = api.isAxiosError(err)
-        ? err.response?.data?.message || 'Gagal mempromosikan grup'
-        : 'Terjadi kesalahan';
-      toast.error(message);
+    } catch {
       return false;
-    } finally {
-      setPromotingToReady(false);
     }
-  }, []);
+  }, [promoteMutation]);
+
+  // ── Return ─────────────────────────────────────────────────────────
 
   return {
-    availableGroups,
-    availableTitles,
-    lecturers,
-    loading: fetchingGroups || fetchingTitles || fetchingLecturers || creatingGroup || addingMembers || promotingToReady,
-    creatingGroup,
-    addingMembers,
-    promotingToReady,
-    fetchingGroups,
-    fetchingTitles,
-    fetchingLecturers,
+    availableGroups: groupsQuery.data || [],
+    availableTitles: titlesQuery.data || [],
+    lecturers: lecturersQuery.data || [],
+    loading:
+      groupsQuery.isFetching ||
+      titlesQuery.isFetching ||
+      lecturersQuery.isFetching ||
+      createManualGroupMutation.isPending ||
+      addToExistingGroupMutation.isPending ||
+      promoteMutation.isPending,
+    creatingGroup: createManualGroupMutation.isPending,
+    addingMembers: addToExistingGroupMutation.isPending,
+    promotingToReady: promoteMutation.isPending,
+    fetchingGroups: groupsQuery.isFetching,
+    fetchingTitles: titlesQuery.isFetching,
+    fetchingLecturers: lecturersQuery.isFetching,
     fetchAvailableGroups,
     fetchAvailableTitles,
     fetchLecturers,

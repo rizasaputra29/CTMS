@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\DB;
 
 class RegistrationController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Check if the authenticated user is registered for a specific period.
      */
@@ -20,7 +22,7 @@ class RegistrationController extends Controller
             ->where('period_id', $periodId)
             ->exists();
 
-        return response()->json([
+        return $this->successResponse([
             'is_registered' => $isRegistered,
         ]);
     }
@@ -39,12 +41,12 @@ class RegistrationController extends Controller
 
         // Guard: Only students can register
         if (! $user->hasRole('mahasiswa')) {
-            return response()->json(['message' => 'Only students can register for an academic period.'], 403);
+            return $this->unauthorizedResponse('Only students can register for an academic period.');
         }
 
         // Guard: Period must be open
         if (! $period->isRegistrationOpen()) {
-            return response()->json(['message' => 'Registration for this period is closed.'], 400);
+            return $this->errorResponse('Registration for this period is closed.', 400);
         }
 
         // Guard: User can only be registered in ONE period at a time
@@ -54,9 +56,7 @@ class RegistrationController extends Controller
         if ($existingRegistration) {
             $existingPeriod = Period::find($existingRegistration->period_id);
 
-            return response()->json([
-                'message' => "You are already registered in period '{$existingPeriod->name}'. You must leave your current group before registering for a new period.",
-            ], 400);
+            return $this->errorResponse("You are already registered in period '{$existingPeriod->name}'. You must leave your current group before registering for a new period.", 400);
         }
 
         // Check if already registered for this specific period (redundant but safe)
@@ -65,7 +65,7 @@ class RegistrationController extends Controller
             ->first();
 
         if ($existing) {
-            return response()->json(['message' => 'You are already registered for this period.'], 400);
+            return $this->errorResponse('You are already registered for this period.', 400);
         }
 
         DB::beginTransaction();
@@ -77,14 +77,13 @@ class RegistrationController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'message' => "Successfully registered for {$period->name}.",
+            return $this->createdResponse([
                 'registration' => $registration,
-            ], 201);
+            ], "Successfully registered for {$period->name}.");
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Registration failed: '.$e->getMessage()], 500);
+            return $this->errorResponse('Registration failed: '.$e->getMessage(), 500);
         }
     }
 
@@ -118,7 +117,7 @@ class RegistrationController extends Controller
 
                 $registration->load('period');
 
-                return response()->json([
+                return $this->successResponse([
                     'period' => $registration->period,
                     'registration' => $registration,
                     'auto_registered' => true,
@@ -126,13 +125,13 @@ class RegistrationController extends Controller
                 ]);
             }
 
-            return response()->json([
+            return $this->successResponse([
                 'period' => null,
                 'message' => 'Not registered for any period',
             ]);
         }
 
-        return response()->json([
+        return $this->successResponse([
             'period' => $registration->period,
             'registration' => $registration,
             'auto_registered' => false,

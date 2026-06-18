@@ -14,7 +14,7 @@ use Illuminate\Http\Request;
 
 class ScheduleRequestController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected SchedulingService $schedulingService;
 
@@ -32,7 +32,7 @@ class ScheduleRequestController extends Controller
 
         $group = $this->getStudentGroup($user->id);
         if (! $group) {
-            return response()->json(['data' => ['seminars' => [], 'ta_defense' => null]]);
+            return $this->successResponse(['seminars' => [], 'ta_defense' => null]);
         }
 
         $seminars = SeminarSchedule::with(['examiner1', 'examiner2'])
@@ -44,11 +44,9 @@ class ScheduleRequestController extends Controller
             ->where('student_id', $user->id)
             ->first();
 
-        return response()->json([
-            'data' => [
-                'seminars' => $seminars,
-                'ta_defense' => $taDefense,
-            ],
+        return $this->successResponse([
+            'seminars' => $seminars,
+            'ta_defense' => $taDefense,
         ]);
     }
 
@@ -86,14 +84,14 @@ class ScheduleRequestController extends Controller
         $group = $this->getStudentGroup($user->id);
 
         if (! $group) {
-            return response()->json(['message' => 'You are not in a group.'], 400);
+            return $this->errorResponse('You are not in a group.', 400);
         }
 
         $this->ensurePeriodIsActive($group);
 
         // Eligibility: group status check
         if ($group->status !== $requiredStatus) {
-            return response()->json(['message' => "Group must be in {$requiredStatus} status to request {$type}."], 400);
+            return $this->errorResponse("Group must be in {$requiredStatus} status to request {$type}.", 400);
         }
 
         // Anti-spam: only 1 active PENDING per type per group
@@ -103,7 +101,7 @@ class ScheduleRequestController extends Controller
             ->exists();
 
         if ($pendingExists) {
-            return response()->json(['message' => "A pending {$type} request already exists."], 400);
+            return $this->errorResponse("A pending {$type} request already exists.", 400);
         }
 
         // Also check no active (non-cancelled) schedule exists
@@ -113,14 +111,14 @@ class ScheduleRequestController extends Controller
             ->exists();
 
         if ($activeExists) {
-            return response()->json(['message' => "Group already has an active {$type} schedule."], 400);
+            return $this->errorResponse("Group already has an active {$type} schedule.", 400);
         }
 
         // Validate examiner constraints
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Create as PENDING_APPROVAL (no conflict check — admin will validate)
@@ -137,10 +135,7 @@ class ScheduleRequestController extends Controller
             'requested_by' => $user->id,
         ]);
 
-        return response()->json([
-            'message' => "{$type} schedule request submitted. Awaiting admin approval.",
-            'data' => $schedule->load(['examiner1', 'examiner2']),
-        ], 201);
+        return $this->createdResponse($schedule->load(['examiner1', 'examiner2']), "{$type} schedule request submitted. Awaiting admin approval.");
     }
 
     /**
@@ -165,7 +160,7 @@ class ScheduleRequestController extends Controller
             ->first();
 
         if (! $taSubmission) {
-            return response()->json(['message' => 'Must have a TA submission in TA_REGISTERED status.'], 400);
+            return $this->errorResponse('Must have a TA submission in TA_REGISTERED status.', 400);
         }
 
         $group = Group::with('period')->findOrFail($taSubmission->group_id);
@@ -174,7 +169,7 @@ class ScheduleRequestController extends Controller
 
         // Eligibility: group status
         if (! in_array($group->status, ['PDC2_COMPLETE', 'EXPO_DONE'])) {
-            return response()->json(['message' => 'Student not eligible for TA defense. Group must be in PDC2_COMPLETE or EXPO_DONE.'], 400);
+            return $this->errorResponse('Student not eligible for TA defense. Group must be in PDC2_COMPLETE or EXPO_DONE.', 400);
         }
 
         // Anti-spam: no existing pending or active defense
@@ -183,14 +178,14 @@ class ScheduleRequestController extends Controller
             ->exists();
 
         if ($existingDefense) {
-            return response()->json(['message' => 'You already have a TA defense schedule.'], 400);
+            return $this->errorResponse('You already have a TA defense schedule.', 400);
         }
 
         // Validate examiner constraints
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Create as PENDING_APPROVAL
@@ -217,10 +212,7 @@ class ScheduleRequestController extends Controller
             'role' => 'EXAMINER_2',
         ]);
 
-        return response()->json([
-            'message' => 'TA defense schedule request submitted. Awaiting admin approval.',
-            'data' => $schedule->load(['examiners.examiner']),
-        ], 201);
+        return $this->createdResponse($schedule->load(['examiners.examiner']), 'TA defense schedule request submitted. Awaiting admin approval.');
     }
 
     /**

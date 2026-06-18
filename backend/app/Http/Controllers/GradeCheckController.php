@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Admin\GradeCheckQueryRequest;
 use App\Models\PeerReview;
 use App\Models\Period;
 use App\Models\TaDefenseEvaluation;
@@ -12,35 +13,31 @@ use Illuminate\Support\Facades\Response;
 
 class GradeCheckController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get grade check data with filtering and pagination
      */
-    public function index(Request $request)
+    public function index(GradeCheckQueryRequest $request)
     {
-        $request->validate([
-            'period_id' => 'nullable|exists:periods,id',
-            'evaluation_type' => 'nullable|string|in:SEMPRO,BIMBINGAN_SEMPRO,EXPO,MILESTONE,NILAI_DOSEN,PEER_REVIEW,SIDANG_TA,BIMBINGAN_TA',
-            'group_id' => 'nullable|exists:groups,id',
-            'student_id' => 'nullable|exists:users,id',
-            'per_page' => 'nullable|integer|min:10|max:500',
-        ]);
+        $validated = $request->validated();
 
-        $perPage = $request->input('per_page', 25);
+        $perPage = $validated['per_page'] ?? 25;
 
         // Get active period if not specified
-        $periodId = $request->input('period_id');
+        $periodId = $validated['period_id'] ?? null;
         if (! $periodId) {
             $activePeriod = Period::getActive();
             $periodId = $activePeriod?->id;
         }
 
         // If student_id is provided, return all evaluation types for that student
-        if ($request->student_id) {
+        if (! empty($validated['student_id'])) {
             return $this->getStudentAllData($request, $periodId);
         }
 
         // Build query based on evaluation type
-        $evaluationType = $request->input('evaluation_type');
+        $evaluationType = $validated['evaluation_type'] ?? null;
 
         if ($evaluationType === 'PEER_REVIEW') {
             return $this->getPeerReviewData($request, $periodId, $perPage);
@@ -221,8 +218,7 @@ class GradeCheckController extends Controller
         // Merge all data
         $allData = $formattedScores->concat($formattedPeerReviews)->concat($formattedTaDefense);
 
-        return response()->json([
-            'data' => $allData,
+        return $this->envelopeResponse($allData, [
             'pagination' => [
                 'current_page' => 1,
                 'last_page' => 1,
@@ -247,8 +243,7 @@ class GradeCheckController extends Controller
             $periodGroupIds = \App\Models\Group::where('period_id', $periodId)->pluck('id');
             // If no groups found for period, return empty result early
             if ($periodGroupIds->isEmpty()) {
-                return response()->json([
-                    'data' => [],
+                return $this->envelopeResponse([], [
                     'pagination' => [
                         'current_page' => 1,
                         'last_page' => 1,
@@ -379,8 +374,7 @@ class GradeCheckController extends Controller
             ];
         });
 
-        return response()->json([
-            'data' => $data,
+        return $this->envelopeResponse($data, [
             'pagination' => [
                 'current_page' => $scores->currentPage(),
                 'last_page' => $scores->lastPage(),
@@ -405,8 +399,7 @@ class GradeCheckController extends Controller
             $periodGroupIds = \App\Models\Group::where('period_id', $periodId)->pluck('id');
             // If no groups found for period, return empty result early
             if ($periodGroupIds->isEmpty()) {
-                return response()->json([
-                    'data' => [],
+                return $this->envelopeResponse([], [
                     'pagination' => [
                         'current_page' => 1,
                         'last_page' => 1,
@@ -470,8 +463,7 @@ class GradeCheckController extends Controller
             ];
         });
 
-        return response()->json([
-            'data' => $data,
+        return $this->envelopeResponse($data, [
             'pagination' => [
                 'current_page' => $reviews->currentPage(),
                 'last_page' => $reviews->lastPage(),
@@ -784,9 +776,7 @@ class GradeCheckController extends Controller
             ->first();
 
         if (! $student) {
-            return response()->json([
-                'error' => 'Student not found',
-            ], 404);
+            return $this->notFoundResponse('Student not found');
         }
 
         // Get assessment scores for each type
@@ -857,7 +847,7 @@ class GradeCheckController extends Controller
         $ta = $this->calculateTA($evaluations);
         $final = $this->calculateFinalScore($pdc1, $pdc2, $ta);
 
-        return response()->json([
+        return $this->successResponse([
             'student' => [
                 'id' => $student->id,
                 'name' => $student->name,
@@ -901,9 +891,7 @@ class GradeCheckController extends Controller
             ->first();
 
         if (! $student) {
-            return response()->json([
-                'error' => 'Student not found',
-            ], 404);
+            return $this->notFoundResponse('Student not found');
         }
 
         $evaluators = [];
@@ -1064,7 +1052,7 @@ class GradeCheckController extends Controller
         $overallScores = array_filter(array_column($evaluatorList, 'weighted_average'));
         $overallAverage = ! empty($overallScores) ? array_sum($overallScores) / count($overallScores) : null;
 
-        return response()->json([
+        return $this->successResponse([
             'student' => [
                 'id' => $student->id,
                 'name' => $student->name,
@@ -1169,7 +1157,7 @@ class GradeCheckController extends Controller
         $pdc2Complete = $students->where('pdc2_complete', true)->count();
         $taComplete = $students->where('ta_complete', true)->count();
 
-        return response()->json([
+        return $this->successResponse([
             'total_students' => $totalStudents,
             'pdc1_complete' => $pdc1Complete,
             'pdc2_complete' => $pdc2Complete,

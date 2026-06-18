@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\DB;
 
 class ReportSummaryController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Get summary data for all report types.
      */
@@ -22,18 +24,16 @@ class ReportSummaryController extends Controller
 
         $periodId = $request->period_id;
 
-        return response()->json([
-            'data' => [
-                'assessments' => $this->getAssessmentSummary($periodId),
-                'peer_reviews' => $this->getPeerReviewSummary($periodId),
-                'final_grades' => $this->getFinalGradesSummary($periodId),
-                'groups' => $this->getGroupsSummary($periodId),
-            ],
+        return $this->successResponse([
+            'assessments' => $this->getAssessmentSummary($periodId),
+            'peer_reviews' => $this->getPeerReviewSummary($periodId),
+            'final_grades' => $this->getFinalGradesSummary($periodId),
+            'groups' => $this->getGroupsSummary($periodId),
         ]);
     }
 
     /**
-     * Get assessment scores summary.
+     * Get assessment scores summary with per-phase averages.
      */
     private function getAssessmentSummary(int $periodId): array
     {
@@ -61,6 +61,45 @@ class ReportSummaryController extends Controller
 
         // Get average score
         $averageScore = $totalScores > 0 ? ($totalScoreSum / $totalScores) : 0;
+
+        // Calculate per-phase averages using GradeCalculationService
+        $gradeService = app(\App\Services\GradeCalculationService::class);
+        $gradeService->preloadPeriodData($periodId);
+
+        $groups = Group::where('period_id', $periodId)
+            ->with(['members' => function ($query) {
+                $query->withTrashed()->with('student');
+            }])
+            ->get();
+
+        // Build student-group pairs for batch calculation
+        $studentGroupPairs = [];
+        foreach ($groups as $group) {
+            foreach ($group->members as $member) {
+                if ($member->student) {
+                    $studentGroupPairs[] = [
+                        'student_id' => $member->student->id,
+                        'group_id' => $group->id,
+                    ];
+                }
+            }
+        }
+
+        // Batch calculate phase grades
+        $pdc1Results = $gradeService->calculatePDC1ForStudentsBatch($studentGroupPairs);
+        $pdc2Results = $gradeService->calculatePDC2ForStudentsBatch($studentGroupPairs);
+        $taResults = $gradeService->calculateSidangTAForStudentsBatch($studentGroupPairs);
+
+        // Calculate per-phase averages and student counts
+        $pdc1Scores = collect($pdc1Results)->filter(fn ($r) => $r !== null)->pluck('grade')->all();
+        $pdc2Scores = collect($pdc2Results)->filter(fn ($r) => $r !== null)->pluck('grade')->all();
+        $taScores = collect($taResults)->filter(fn ($r) => $r !== null)->pluck('grade')->all();
+
+        $pdc1Average = count($pdc1Scores) > 0 ? round(array_sum($pdc1Scores) / count($pdc1Scores), 2) : null;
+        $pdc2Average = count($pdc2Scores) > 0 ? round(array_sum($pdc2Scores) / count($pdc2Scores), 2) : null;
+        $taAverage = count($taScores) > 0 ? round(array_sum($taScores) / count($taScores), 2) : null;
+
+        $gradeService->clearCache();
 
         // Get top 5 groups by average score
         $topGroups = $allScores
@@ -91,6 +130,12 @@ class ReportSummaryController extends Controller
             'total_groups' => $totalGroups,
             'total_students' => $totalStudents,
             'average_score' => round($averageScore, 2),
+            'pdc1_average' => $pdc1Average,
+            'pdc2_average' => $pdc2Average,
+            'ta_average' => $taAverage,
+            'pdc1_students' => count($pdc1Scores),
+            'pdc2_students' => count($pdc2Scores),
+            'ta_students' => count($taScores),
             'top_groups' => $topGroups,
         ];
     }
@@ -149,7 +194,7 @@ class ReportSummaryController extends Controller
      */
     private function getFinalGradesSummary(int $periodId): array
     {
-        $gradeService = new GradeCalculationService;
+        $gradeService = app(\App\Services\GradeCalculationService::class);
 
         // Preload all period data (5 queries total instead of 3,200+)
         $gradeService->preloadPeriodData($periodId);
@@ -290,6 +335,15 @@ class ReportSummaryController extends Controller
             'ta_complete' => $s['ta_complete'],
         ], $topStudents);
 
+        // Calculate per-phase averages for students who have scores
+        $pdc1Scores = collect($topStudents)->pluck('pdc1_score')->filter()->all();
+        $pdc2Scores = collect($topStudents)->pluck('pdc2_score')->filter()->all();
+        $taScores = collect($topStudents)->pluck('ta_score')->filter()->all();
+
+        $pdc1Average = count($pdc1Scores) > 0 ? round(array_sum($pdc1Scores) / count($pdc1Scores), 2) : null;
+        $pdc2Average = count($pdc2Scores) > 0 ? round(array_sum($pdc2Scores) / count($pdc2Scores), 2) : null;
+        $taAverage = count($taScores) > 0 ? round(array_sum($taScores) / count($taScores), 2) : null;
+
         return [
             'total_students' => $totalStudents,
             'complete' => $completeGrades,
@@ -297,6 +351,9 @@ class ReportSummaryController extends Controller
             'pdc1_complete' => $pdc1CompleteCount,
             'pdc2_complete' => $pdc2CompleteCount,
             'ta_complete' => $taCompleteCount,
+            'pdc1_average' => $pdc1Average,
+            'pdc2_average' => $pdc2Average,
+            'ta_average' => $taAverage,
             'top_students' => $topStudents,
         ];
     }

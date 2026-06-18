@@ -40,7 +40,7 @@ export default function LoginForm() {
             const res = await api.post('/login', data);
 
             // Login for all users (single and multi-role) - no role selection dialog
-            login(res.data.access_token, res.data.user, res.data.roles);
+            login(res.data.data.access_token, res.data.data.user, res.data.data.roles);
             toast.success('Login successful');
         } catch (err: unknown) {
             if (api.isAxiosError(err)) {

@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\ResolvesActivePeriods;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\Location;
-use App\Models\Period;
 use App\Models\SeminarEvaluation;
 use App\Models\SeminarSchedule;
 use App\Models\User;
@@ -15,12 +15,13 @@ use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class SemproController extends Controller
 {
+    use ApiResponseTrait, ResolvesActivePeriods;
+
     protected GroupStateMachine $stateMachine;
 
     protected SchedulingService $schedulingService;
@@ -117,20 +118,7 @@ class SemproController extends Controller
             $schedule->examiner_student_averages = array_values($examinerAverages);
         }
 
-        return response()->json(['data' => $schedules]);
-    }
-
-    /**
-     * Get cached active and finalized period IDs.
-     */
-    private function getActiveAndFinalizedPeriodIds(): array
-    {
-        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
-            return Period::where('is_active', true)
-                ->orWhere('is_finalized', true)
-                ->pluck('id')
-                ->toArray();
-        });
+        return $this->successResponse($schedules);
     }
 
     /**
@@ -154,7 +142,7 @@ class SemproController extends Controller
         $group = Group::with(['supervisor1', 'supervisor2'])->findOrFail($request->group_id);
 
         if ($group->status !== 'READY_FOR_SEMPRO') {
-            return response()->json(['message' => 'Group must be in READY_FOR_SEMPRO status.'], 400);
+            return $this->errorResponse('Group must be in READY_FOR_SEMPRO status.', 400);
         }
 
         // Validate examiner cannot be supervisor
@@ -164,11 +152,11 @@ class SemproController extends Controller
         ]);
 
         if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
 
         if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Check existing SEMPRO schedule - use lock to prevent race conditions
@@ -178,11 +166,10 @@ class SemproController extends Controller
             ->lockForUpdate()
             ->first();
         if ($existing) {
-            return response()->json([
-                'message' => 'Group already has an active SEMPRO schedule.',
+            return $this->errorResponse('Group already has an active SEMPRO schedule.', 400, [
                 'existing_schedule_id' => $existing->id,
                 'existing_status' => $existing->status,
-            ], 400);
+            ]);
         }
 
         // Check for and restore soft-deleted schedule, clean up old scores
@@ -201,7 +188,7 @@ class SemproController extends Controller
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Determine room/location for conflict checking
@@ -221,7 +208,7 @@ class SemproController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         // Use updateOrCreate to handle the unique constraint - update existing or create new
@@ -278,10 +265,7 @@ class SemproController extends Controller
             $schedule->id
         );
 
-        return response()->json([
-            'message' => 'SEMPRO scheduled.',
-            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
-        ]);
+        return $this->successResponse($schedule->load(['examiner1', 'examiner2', 'evaluations']), 'SEMPRO scheduled.');
     }
 
     /**
@@ -302,7 +286,7 @@ class SemproController extends Controller
         $schedule = SeminarSchedule::with('group')->findOrFail($id);
 
         if ($schedule->type !== 'SEMPRO') {
-            return response()->json(['message' => 'This endpoint only updates SEMPRO schedules.'], 400);
+            return $this->errorResponse('This endpoint only updates SEMPRO schedules.', 400);
         }
 
         $group = $schedule->group;
@@ -314,11 +298,11 @@ class SemproController extends Controller
         ]);
 
         if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
 
         if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Determine room/location
@@ -335,7 +319,7 @@ class SemproController extends Controller
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Double-booking & room conflict check
@@ -348,7 +332,7 @@ class SemproController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         // Update the schedule
@@ -397,10 +381,7 @@ class SemproController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
-        return response()->json([
-            'message' => 'SEMPRO schedule updated.',
-            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
-        ]);
+        return $this->successResponse($schedule->load(['examiner1', 'examiner2', 'evaluations']), 'SEMPRO schedule updated.');
     }
 
     /**
@@ -411,11 +392,11 @@ class SemproController extends Controller
         $schedule = SeminarSchedule::with('group')->findOrFail($id);
 
         if ($schedule->type !== 'SEMPRO') {
-            return response()->json(['message' => 'This endpoint only cancels SEMPRO schedules.'], 400);
+            return $this->errorResponse('This endpoint only cancels SEMPRO schedules.', 400);
         }
 
         if ($schedule->status === 'COMPLETED') {
-            return response()->json(['message' => 'Cannot cancel completed SEMPRO schedule.'], 400);
+            return $this->errorResponse('Cannot cancel completed SEMPRO schedule.', 400);
         }
 
         $group = $schedule->group;
@@ -440,9 +421,7 @@ class SemproController extends Controller
             'payload' => ['group_id' => $group->id],
         ]);
 
-        return response()->json([
-            'message' => 'SEMPRO schedule deleted.',
-        ]);
+        return $this->successResponse(null, 'SEMPRO schedule deleted.');
     }
 
     /**
@@ -463,7 +442,7 @@ class SemproController extends Controller
             ->first();
 
         if (! $evaluation) {
-            return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
+            return $this->unauthorizedResponse('You are not assigned as examiner for this schedule.');
         }
 
         // Get schedule for deadline tracking
@@ -503,14 +482,11 @@ class SemproController extends Controller
                 }
             }
 
-            return response()->json([
-                'message' => $evaluationResult['all_submitted']
-                    ? "All evaluations submitted. SEMPRO result: {$evaluationResult['result']}"
-                    : 'Evaluation submitted. Waiting for other examiner.',
-                'data' => $evaluationResult,
-            ]);
+            return $this->successResponse($evaluationResult, $evaluationResult['all_submitted']
+                ? "All evaluations submitted. SEMPRO result: {$evaluationResult['result']}"
+                : 'Evaluation submitted. Waiting for other examiner.');
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         }
     }
 
@@ -540,7 +516,7 @@ class SemproController extends Controller
         $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Conflict check (authoritative — only at approval)
@@ -553,7 +529,7 @@ class SemproController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         $schedule->update([
@@ -597,10 +573,7 @@ class SemproController extends Controller
             $schedule->id
         );
 
-        return response()->json([
-            'message' => 'SEMPRO schedule approved.',
-            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
-        ]);
+        return $this->successResponse($schedule->load(['examiner1', 'examiner2', 'evaluations']), 'SEMPRO schedule approved.');
     }
 
     /**
@@ -637,10 +610,7 @@ class SemproController extends Controller
             );
         }
 
-        return response()->json([
-            'message' => 'SEMPRO schedule request rejected.',
-            'data' => $schedule,
-        ]);
+        return $this->successResponse($schedule, 'SEMPRO schedule request rejected.');
     }
 
     /**
@@ -652,17 +622,17 @@ class SemproController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedule = SeminarSchedule::with('group')->findOrFail($id);
 
         if ($schedule->type !== 'SEMPRO') {
-            return response()->json(['message' => 'This endpoint only updates SEMPRO schedules.'], 400);
+            return $this->errorResponse('This endpoint only updates SEMPRO schedules.', 400);
         }
 
         if ($schedule->status === 'DONE') {
-            return response()->json(['message' => 'Cannot assign examiners to completed schedule.'], 400);
+            return $this->errorResponse('Cannot assign examiners to completed schedule.', 400);
         }
 
         $request->validate([
@@ -679,11 +649,11 @@ class SemproController extends Controller
         ]);
 
         if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
 
         if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Validate examiners are dosen
@@ -693,13 +663,13 @@ class SemproController extends Controller
             ->get();
 
         if ($examiners->count() !== 2) {
-            return response()->json(['message' => 'Both examiners must be dosen (lecturers).'], 400);
+            return $this->errorResponse('Both examiners must be dosen (lecturers).', 400);
         }
 
         // Validate examiner constraints
         $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
         if ($constraintError) {
-            return response()->json(['message' => $constraintError], 400);
+            return $this->errorResponse($constraintError, 400);
         }
 
         // Double-booking & room conflict check
@@ -714,7 +684,7 @@ class SemproController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         DB::beginTransaction();
@@ -748,15 +718,12 @@ class SemproController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'message' => 'Examiners assigned successfully.',
-                'data' => $schedule->fresh()->load(['examiner1', 'examiner2', 'evaluations']),
-            ]);
+            return $this->successResponse($schedule->fresh()->load(['examiner1', 'examiner2', 'evaluations']), 'Examiners assigned successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('Failed to assign examiners', ['error' => $e->getMessage()]);
 
-            return response()->json(['message' => 'Failed to assign examiners: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to assign examiners: '.$e->getMessage(), 500);
         }
     }
 }

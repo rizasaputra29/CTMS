@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class BidController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected BiddingService $biddingService;
 
@@ -41,7 +41,7 @@ class BidController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json(['data' => []]);
+            return $this->successResponse([]);
         }
 
         $bids = Bid::with(['title.lecturer', 'proposedSupervisor1', 'proposedSupervisor2'])
@@ -51,8 +51,7 @@ class BidController extends Controller
 
         $group = Group::with(['period', 'members'])->find($membership->group_id);
 
-        return response()->json([
-            'data' => $bids,
+        return $this->envelopeResponse($bids, [
             'flow' => $this->buildBiddingFlowPayload($group, $membership),
         ]);
     }
@@ -85,18 +84,18 @@ class BidController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengajukan bidding.'], 403);
+            return $this->unauthorizedResponse('Hanya ketua kelompok yang dapat mengajukan bidding.');
         }
 
         // Validate supervisors are dosen
         $sup1 = User::find($request->proposed_supervisor_1_id);
         if (! $sup1 || ! $sup1->hasRole('dosen')) {
-            return response()->json(['message' => 'Pembimbing 1 harus berupa dosen.'], 400);
+            return $this->errorResponse('Pembimbing 1 harus berupa dosen.', 400);
         }
         if ($request->proposed_supervisor_2_id) {
             $sup2 = User::find($request->proposed_supervisor_2_id);
             if (! $sup2 || ! $sup2->hasRole('dosen')) {
-                return response()->json(['message' => 'Pembimbing 2 harus berupa dosen.'], 400);
+                return $this->errorResponse('Pembimbing 2 harus berupa dosen.', 400);
             }
         }
 
@@ -107,30 +106,30 @@ class BidController extends Controller
         // Member count check first - if enough members, allow bidding
         $minSize = $group->period->min_group_size ?? 3;
         if ($group->members->count() < $minSize) {
-            return response()->json([
-                'message' => 'Kelompok Anda memiliki '.$group->members->count().' anggota. Minimal '.$minSize.' anggota diperlukan untuk melakukan bidding pada judul Dosen.',
-            ], 403);
+            return $this->unauthorizedResponse(
+                'Kelompok Anda memiliki '.$group->members->count().' anggota. Minimal '.$minSize.' anggota diperlukan untuk melakukan bidding pada judul Dosen.'
+            );
         }
 
         // Solo seeker check - Solo groups cannot bid on lecturer titles
         if ($group->is_solo) {
-            return response()->json([
-                'message' => 'Kelompok solo seeker hanya dapat mengajukan judul sendiri. Silakan bubarkan grup dan buat grup normal jika ingin bidding pada judul dosen.',
-            ], 403);
+            return $this->unauthorizedResponse(
+                'Kelompok solo seeker hanya dapat mengajukan judul sendiri. Silakan bubarkan grup dan buat grup normal jika ingin bidding pada judul dosen.'
+            );
         }
 
         // Status check - FORMING_SOLO can only propose their own title, cannot bid on lecturer titles
         if ($group->status === 'FORMING_SOLO') {
-            return response()->json([
-                'message' => 'Anda belum bisa bidding karena belum memiliki judul sendiri. Ajukan proposal judul terlebih dahulu.',
-            ], 403);
+            return $this->unauthorizedResponse(
+                'Anda belum bisa bidding karena belum memiliki judul sendiri. Ajukan proposal judul terlebih dahulu.'
+            );
         }
 
         // Allow bidding if group has enough members and is in valid status
         // FORMING with 3+ members, READY_FOR_BIDDING, or WAITING_SUPERVISOR_APPROVAL can all bid
         $validStatuses = ['FORMING', 'READY_FOR_BIDDING', 'WAITING_SUPERVISOR_APPROVAL'];
         if (! in_array($group->status, $validStatuses)) {
-            return response()->json(['message' => 'Kelompok belum siap untuk bidding.'], 400);
+            return $this->errorResponse('Kelompok belum siap untuk bidding.', 400);
         }
 
         // Mutual Exclusive: Block bidding if group has active proposal (normal groups only)
@@ -141,23 +140,24 @@ class BidController extends Controller
                 ->exists();
 
             if ($hasActiveProposal) {
-                return response()->json([
-                    'message' => 'Tidak dapat mengajukan bid karena kelompok sudah memiliki proposal yang sedang diproses atau disetujui.',
-                ], 400);
+                return $this->errorResponse(
+                    'Tidak dapat mengajukan bid karena kelompok sudah memiliki proposal yang sedang diproses atau disetujui.',
+                    400
+                );
             }
         }
 
         // Window check
         if ($group->period->is_finalized) {
-            return response()->json(['message' => 'Pendaftaran untuk periode ini sudah ditutup.'], 400);
+            return $this->errorResponse('Pendaftaran untuk periode ini sudah ditutup.', 400);
         }
 
         if ($this->biddingService->isBiddingLocked($group->period)) {
-            return response()->json(['message' => 'Bidding ditutup untuk periode ini.'], 400);
+            return $this->errorResponse('Bidding ditutup untuk periode ini.', 400);
         }
 
         if (! $this->biddingService->isWindowOpen($group->period)) {
-            return response()->json(['message' => 'Waktu bidding belum dibuka.'], 400);
+            return $this->errorResponse('Waktu bidding belum dibuka.', 400);
         }
 
         // Combined limit: bids + student proposals <= 3
@@ -169,7 +169,7 @@ class BidController extends Controller
             ->count();
 
         if (($bidCount + $proposalCount) >= 3) {
-            return response()->json(['message' => 'Maksimal 3 judul diperbolehkan (bidding + proposal digabungkan).'], 400);
+            return $this->errorResponse('Maksimal 3 judul diperbolehkan (bidding + proposal digabungkan).', 400);
         }
 
         // Check if already bidding on this title
@@ -178,7 +178,7 @@ class BidController extends Controller
             ->exists();
 
         if ($existingBid) {
-            return response()->json(['message' => 'Anda sudah mengajukan bid untuk judul ini.'], 400);
+            return $this->errorResponse('Anda sudah mengajukan bid untuk judul ini.', 400);
         }
 
         // Auto-assign priority: max existing priority + 1
@@ -194,10 +194,10 @@ class BidController extends Controller
             'proposed_supervisor_2_id' => $request->proposed_supervisor_2_id,
         ]);
 
-        return response()->json([
-            'message' => 'Bid submitted successfully.',
-            'data' => $bid->load(['title.lecturer', 'proposedSupervisor1', 'proposedSupervisor2']),
-        ], 201);
+        return $this->createdResponse(
+            $bid->load(['title.lecturer', 'proposedSupervisor1', 'proposedSupervisor2']),
+            'Bid submitted successfully.'
+        );
     }
 
     /**
@@ -211,7 +211,7 @@ class BidController extends Controller
             ->first();
 
         if (! $membership || ! $membership->is_leader) {
-            return response()->json(['message' => 'Hanya ketua kelompok yang dapat menghapus bidding.'], 403);
+            return $this->unauthorizedResponse('Hanya ketua kelompok yang dapat menghapus bidding.');
         }
 
         $bid = Bid::where('id', $id)
@@ -223,12 +223,12 @@ class BidController extends Controller
         $this->ensurePeriodIsActive($group);
 
         if ($this->biddingService->isBiddingLocked($group->period)) {
-            return response()->json(['message' => 'Bidding ditutup. Tidak dapat menghapus bidding.'], 400);
+            return $this->errorResponse('Bidding ditutup. Tidak dapat menghapus bidding.', 400);
         }
 
         $bid->delete();
 
-        return response()->json(['message' => 'Bid deleted successfully.']);
+        return $this->successResponse(null, 'Bid deleted successfully.');
     }
 
     /**
@@ -248,7 +248,7 @@ class BidController extends Controller
             ->first();
 
         if (! $membership || ! $membership->is_leader) {
-            return response()->json(['message' => 'Hanya ketua kelompok yang dapat mengubah urutan bidding.'], 403);
+            return $this->unauthorizedResponse('Hanya ketua kelompok yang dapat mengubah urutan bidding.');
         }
 
         $group = Group::with('period')->find($membership->group_id);
@@ -256,7 +256,7 @@ class BidController extends Controller
         $this->ensurePeriodIsActive($group);
 
         if ($this->biddingService->isBiddingLocked($group->period)) {
-            return response()->json(['message' => 'Bidding ditutup. Tidak dapat mengubah urutan.'], 400);
+            return $this->errorResponse('Bidding ditutup. Tidak dapat mengubah urutan.', 400);
         }
 
         DB::beginTransaction();
@@ -268,11 +268,11 @@ class BidController extends Controller
             }
             DB::commit();
 
-            return response()->json(['message' => 'Urutan prioritas berhasil disimpan.']);
+            return $this->successResponse(null, 'Urutan prioritas berhasil disimpan.');
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Gagal menyimpan urutan: '.$e->getMessage()], 500);
+            return $this->errorResponse('Gagal menyimpan urutan: '.$e->getMessage(), 500);
         }
     }
 
@@ -316,8 +316,7 @@ class BidController extends Controller
             return $bid;
         });
 
-        return response()->json([
-            'data' => $bids,
+        return $this->envelopeResponse($bids, [
             'flow' => $this->buildLecturerBidFlowPayload($selectedPeriod),
         ]);
     }
@@ -338,14 +337,14 @@ class BidController extends Controller
 
         // Verify lecturer owns the title
         if ($bid->title->lecturer_id !== $user->id) {
-            return response()->json(['message' => 'Anda tidak memiliki akses.'], 403);
+            return $this->unauthorizedResponse('Anda tidak memiliki akses.');
         }
 
         // Check lock
         $group = Group::with('period')->find($bid->group_id);
         $this->ensurePeriodIsActive($group);
         if ($this->biddingService->isBiddingLocked($group->period)) {
-            return response()->json(['message' => 'Bidding ditutup. Tidak dapat mengubah rekomendasi.'], 400);
+            return $this->errorResponse('Bidding ditutup. Tidak dapat mengubah rekomendasi.', 400);
         }
 
         // Store title info before potential deletion
@@ -360,9 +359,10 @@ class BidController extends Controller
                 ->first();
 
             if ($existingAcceptedBid) {
-                return response()->json([
-                    'message' => 'Anda sudah menerima kelompok lain untuk judul ini. Hanya satu kelompok yang dapat diterima per judul.',
-                ], 400);
+                return $this->errorResponse(
+                    'Anda sudah menerima kelompok lain untuk judul ini. Hanya satu kelompok yang dapat diterima per judul.',
+                    400
+                );
             }
 
             // Update this bid to ACCEPT
@@ -473,10 +473,7 @@ class BidController extends Controller
                 $otherBid->delete();
             }
 
-            return response()->json([
-                'message' => 'Bid diterima. Semua bid lain dari kelompok ini otomatis dihapus.',
-                'data' => $bid->fresh(),
-            ]);
+            return $this->successResponse($bid->fresh(), 'Bid diterima. Semua bid lain dari kelompok ini otomatis dihapus.');
         }
 
         // REJECT Logic - DELETE the bid immediately
@@ -516,14 +513,10 @@ class BidController extends Controller
             // DELETE the bid immediately
             $bid->delete();
 
-            return response()->json([
-                'message' => 'Bid ditolak dan dihapus.',
-            ]);
+            return $this->successResponse(null, 'Bid ditolak dan dihapus.');
         }
 
-        return response()->json([
-            'message' => 'Recommendation submitted.',
-        ]);
+        return $this->successResponse(null, 'Recommendation submitted.');
     }
 
     private function buildBiddingFlowPayload(?Group $group, ?GroupMember $membership): array

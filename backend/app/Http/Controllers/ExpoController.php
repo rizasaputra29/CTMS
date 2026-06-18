@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
+use App\Concerns\ResolvesActivePeriods;
 use App\Models\AuditLog;
 use App\Models\Group;
 use App\Models\Location;
@@ -13,12 +14,11 @@ use App\Services\GroupStateMachine;
 use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class ExpoController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod, ResolvesActivePeriods;
 
     protected GroupStateMachine $stateMachine;
 
@@ -58,20 +58,7 @@ class ExpoController extends Controller
             })
             ->orderByDesc('date');
 
-        return response()->json(['data' => $query->get()]);
-    }
-
-    /**
-     * Get cached active and finalized period IDs.
-     */
-    private function getActiveAndFinalizedPeriodIds(): array
-    {
-        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
-            return Period::where('is_active', true)
-                ->orWhere('is_finalized', true)
-                ->pluck('id')
-                ->toArray();
-        });
+        return $this->successResponse($query->get());
     }
 
     /**
@@ -96,21 +83,21 @@ class ExpoController extends Controller
         $this->ensurePeriodIsActive($group);
 
         if ($group->status !== 'PDC2_READY_FOR_EXPO') {
-            return response()->json(['message' => 'Group must be in PDC2_READY_FOR_EXPO status.'], 400);
+            return $this->errorResponse('Group must be in PDC2_READY_FOR_EXPO status.', 400);
         }
 
         // Check TA eligibility
         if (! $this->eligibilityService->isEligible($group)) {
-            return response()->json(['message' => 'Group does not meet Expo TA eligibility requirements.'], 400);
+            return $this->errorResponse('Group does not meet Expo TA eligibility requirements.', 400);
         }
 
         // Validate examiners cannot be supervisors (only if examiners are provided)
         $supervisorIds = $group->supervisors()->pluck('supervisor_id')->toArray();
         if ($request->examiner_1_id && in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
         if ($request->examiner_2_id && in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['message' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Check existing EXPO schedule
@@ -119,7 +106,7 @@ class ExpoController extends Controller
             ->where('status', '!=', 'CANCELLED')
             ->first();
         if ($existing) {
-            return response()->json(['message' => 'Group already has an EXPO schedule.'], 400);
+            return $this->errorResponse('Group already has an EXPO schedule.', 400);
         }
 
         // Determine room/location for conflict checking
@@ -140,7 +127,7 @@ class ExpoController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         $schedule = SeminarSchedule::create([
@@ -191,10 +178,7 @@ class ExpoController extends Controller
             );
         }
 
-        return response()->json([
-            'message' => 'EXPO scheduled.',
-            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
-        ]);
+        return $this->successResponse($schedule->load(['examiner1', 'examiner2', 'evaluations']), 'EXPO scheduled.');
     }
 
     /**
@@ -215,7 +199,7 @@ class ExpoController extends Controller
             ->first();
 
         if (! $evaluation) {
-            return response()->json(['message' => 'You are not assigned as examiner for this schedule.'], 403);
+            return $this->unauthorizedResponse('You are not assigned as examiner for this schedule.');
         }
 
         // Get schedule for deadline tracking
@@ -255,14 +239,11 @@ class ExpoController extends Controller
                 }
             }
 
-            return response()->json([
-                'message' => $result['all_submitted']
-                    ? "All evaluations submitted. EXPO result: {$result['result']}"
-                    : 'Evaluation submitted. Waiting for other examiner.',
-                'data' => $result,
-            ]);
+            return $this->successResponse($result, $result['all_submitted']
+                ? "All evaluations submitted. EXPO result: {$result['result']}"
+                : 'Evaluation submitted. Waiting for other examiner.');
         } catch (\InvalidArgumentException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
+            return $this->errorResponse($e->getMessage(), 400);
         }
     }
 
@@ -296,7 +277,7 @@ class ExpoController extends Controller
         if (! empty($examinerIds)) {
             $constraintError = $this->schedulingService->validateExaminerConstraints($group, $examinerIds);
             if ($constraintError) {
-                return response()->json(['message' => $constraintError], 400);
+                return $this->errorResponse($constraintError, 400);
             }
         }
 
@@ -310,7 +291,7 @@ class ExpoController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json(['message' => 'Scheduling conflicts detected.', 'conflicts' => $conflicts], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
         }
 
         $schedule->update([
@@ -352,10 +333,7 @@ class ExpoController extends Controller
             $schedule->id
         );
 
-        return response()->json([
-            'message' => 'EXPO schedule approved.',
-            'data' => $schedule->load(['examiner1', 'examiner2', 'evaluations']),
-        ]);
+        return $this->successResponse($schedule->load(['examiner1', 'examiner2', 'evaluations']), 'EXPO schedule approved.');
     }
 
     /**
@@ -393,6 +371,6 @@ class ExpoController extends Controller
             );
         }
 
-        return response()->json(['message' => 'EXPO schedule request rejected.', 'data' => $schedule]);
+        return $this->successResponse($schedule, 'EXPO schedule request rejected.');
     }
 }

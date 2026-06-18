@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 
 class TitleApprovalController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     protected $stateMachine;
 
@@ -57,8 +57,7 @@ class TitleApprovalController extends Controller
             return $proposal;
         });
 
-        return response()->json([
-            'data' => $proposals,
+        return $this->envelopeResponse($proposals, [
             'flow' => $this->buildLecturerProposalFlowPayload($selectedPeriod),
         ]);
     }
@@ -77,10 +76,10 @@ class TitleApprovalController extends Controller
             ->first();
 
         if (! $proposal) {
-            return response()->json(['message' => 'Proposal not found.'], 404);
+            return $this->notFoundResponse('Proposal not found.');
         }
 
-        return response()->json(['data' => $proposal]);
+        return $this->successResponse($proposal);
     }
 
     /**
@@ -102,12 +101,12 @@ class TitleApprovalController extends Controller
             ->first();
 
         if (! $title) {
-            return response()->json(['message' => 'Proposal not found or already processed.'], 404);
+            return $this->notFoundResponse('Proposal not found or already processed.');
         }
 
         // Guard: prevent double-approval race condition
         if ($title->supervisor_approval_status === 'APPROVED') {
-            return response()->json(['message' => 'Proposal already approved.'], 409);
+            return $this->errorResponse('Proposal already approved.', 409);
         }
 
         $group = Group::with('period')->find($title->proposed_by_group_id);
@@ -115,7 +114,7 @@ class TitleApprovalController extends Controller
         $this->ensurePeriodIsActive($group);
 
         if (! $group) {
-            return response()->json(['message' => 'Associated group not found.'], 404);
+            return $this->notFoundResponse('Associated group not found.');
         }
 
         DB::beginTransaction();
@@ -178,14 +177,14 @@ class TitleApprovalController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => "Proposal {$verb} successfully.",
                 'title' => $title->load(['proposedByGroup.members.student', 'stakeholders']),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to approve: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to approve: '.$e->getMessage(), 500);
         }
     }
 
@@ -207,7 +206,7 @@ class TitleApprovalController extends Controller
             ->first();
 
         if (! $title) {
-            return response()->json(['message' => 'Proposal not found or already processed.'], 404);
+            return $this->notFoundResponse('Proposal not found or already processed.');
         }
 
         $group = Group::with('period')->find($title->proposed_by_group_id);
@@ -215,7 +214,7 @@ class TitleApprovalController extends Controller
         $this->ensurePeriodIsActive($group);
 
         if (! $group) {
-            return response()->json(['message' => 'Associated group not found.'], 404);
+            return $this->notFoundResponse('Associated group not found.');
         }
 
         DB::beginTransaction();
@@ -254,14 +253,14 @@ class TitleApprovalController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => 'Proposal rejected.',
                 'title' => $title,
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to reject: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to reject: '.$e->getMessage(), 500);
         }
     }
 

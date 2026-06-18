@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Concerns\ResolvesActivePeriods;
+use App\Http\Requests\Admin\AssignExaminersRequest;
+use App\Http\Requests\Admin\StoreTaDefenseRequest;
+use App\Http\Requests\Admin\UpdateTaDefenseRequest;
 use App\Models\Group;
 use App\Models\Location;
 use App\Models\Notification;
-use App\Models\Period;
 use App\Models\TaDefenseEvaluation;
 use App\Models\TaDefenseSchedule;
 use App\Models\TaSubmission;
@@ -14,13 +17,13 @@ use App\Services\SchedulingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Validator;
 
 class TaDefenseScheduleController extends Controller
 {
+    use ApiResponseTrait, ResolvesActivePeriods;
+
     protected $schedulingService;
 
     public function __construct(SchedulingService $schedulingService)
@@ -37,7 +40,7 @@ class TaDefenseScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $with = ['students', 'group.title', 'group.period', 'examiner1', 'examiner2'];
@@ -99,15 +102,6 @@ class TaDefenseScheduleController extends Controller
                 ];
             })->toArray();
 
-            // Debug logging for first schedule
-            if ($schedule->id === 18) {
-                \Log::info('Schedule 18 debug', [
-                    'schedule_id' => $schedule->id,
-                    'students_count' => count($students),
-                    'students' => $students,
-                ]);
-            }
-
             return [
                 'id' => $schedule->id,
                 'student_id' => $schedule->student_id,
@@ -144,72 +138,34 @@ class TaDefenseScheduleController extends Controller
             ];
         })->toArray();
 
-        return response()->json([
-            'data' => $transformedSchedules,
-            'meta' => [
-                'current_page' => $schedules->currentPage(),
-                'last_page' => $schedules->lastPage(),
-                'total' => $schedules->total(),
-            ],
+        return $this->envelopeResponse($transformedSchedules, [
+            'current_page' => $schedules->currentPage(),
+            'last_page' => $schedules->lastPage(),
+            'total' => $schedules->total(),
         ]);
-    }
-
-    /**
-     * Get cached active and finalized period IDs.
-     */
-    private function getActiveAndFinalizedPeriodIds(): array
-    {
-        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
-            return Period::where('is_active', true)
-                ->orWhere('is_finalized', true)
-                ->pluck('id')
-                ->toArray();
-        });
     }
 
     /**
      * Create new TA defense schedule with multi-student support
      */
-    public function store(Request $request): JsonResponse
+    public function store(StoreTaDefenseRequest $request): JsonResponse
     {
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
-        $hasPeriodColumn = $this->hasPeriodColumn();
-
-        $validator = Validator::make($request->all(), [
-            'group_id' => 'required|exists:groups,id',
-            'student_ids' => 'required|array|min:1',
-            'student_ids.*' => 'exists:users,id',
-            'period_id' => $hasPeriodColumn ? 'required|exists:periods,id' : 'nullable',
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
-            'date' => 'required|date|after_or_equal:today',
-            'start_time' => 'required|date_format:H:i,H:i:s',
-            'end_time' => 'required|date_format:H:i,H:i:s|after:start_time',
-            'room' => 'nullable|string|max:100',
-            'location_id' => 'nullable|exists:locations,id',
-            'notes' => 'nullable|string|max:1000',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
-        $studentIds = $request->student_ids;
-        $group = Group::with(['supervisors', 'period', 'members'])->findOrFail($request->group_id);
+        $validated = $request->validated();
+        $studentIds = $validated['student_ids'];
+        $group = Group::with(['supervisors', 'period', 'members'])->findOrFail($validated['group_id']);
 
         // Validate all students are from the same group
         $groupMemberIds = $group->members->pluck('student_id')->toArray();
         $invalidStudents = array_diff($studentIds, $groupMemberIds);
 
         if (! empty($invalidStudents)) {
-            return response()->json([
-                'error' => 'All selected students must be from the same group',
-            ], 400);
+            return $this->errorResponse('All selected students must be from the same group', 400);
         }
 
         // Validate all students have TA_DOCUMENTS_APPROVED status
@@ -221,9 +177,7 @@ class TaDefenseScheduleController extends Controller
 
         $invalidStatusStudents = array_diff($studentIds, $validSubmissions);
         if (! empty($invalidStatusStudents)) {
-            return response()->json([
-                'error' => 'All selected students must have TA_DOCUMENTS_APPROVED status',
-            ], 400);
+            return $this->errorResponse('All selected students must have TA_DOCUMENTS_APPROVED status', 400);
         }
 
         // Check for existing scheduled defenses for these students
@@ -234,85 +188,76 @@ class TaDefenseScheduleController extends Controller
             ->exists();
 
         if ($existingScheduled) {
-            return response()->json([
-                'error' => 'One or more selected students already have a scheduled or completed defense',
-            ], 400);
+            return $this->errorResponse('One or more selected students already have a scheduled or completed defense', 400);
         }
 
         // Validate examiners are not supervisors
         $supervisorIds = $group->supervisors->pluck('id')->toArray();
 
-        if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json([
-                'error' => 'Examiner 1 cannot be a supervisor of this group',
-            ], 400);
+        if (in_array($validated['examiner_1_id'], $supervisorIds)) {
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group', 400);
         }
 
-        if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json([
-                'error' => 'Examiner 2 cannot be a supervisor of this group',
-            ], 400);
+        if (in_array($validated['examiner_2_id'], $supervisorIds)) {
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group', 400);
         }
 
         // Validate examiners are dosen
-        $examiner1 = User::find($request->examiner_1_id);
-        $examiner2 = User::find($request->examiner_2_id);
+        $examiner1 = User::find($validated['examiner_1_id']);
+        $examiner2 = User::find($validated['examiner_2_id']);
 
         if (! $examiner1->hasRole('dosen')) {
-            return response()->json(['error' => 'Examiner 1 must be a dosen'], 400);
+            return $this->errorResponse('Examiner 1 must be a dosen', 400);
         }
 
         if (! $examiner2->hasRole('dosen')) {
-            return response()->json(['error' => 'Examiner 2 must be a dosen'], 400);
+            return $this->errorResponse('Examiner 2 must be a dosen', 400);
         }
 
         // Validate scheduling conflicts
-        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $examinerIds = [$validated['examiner_1_id'], $validated['examiner_2_id']];
 
         // Determine room/location for conflict checking
-        $room = $request->room;
-        if ($request->location_id && empty($room)) {
-            $location = Location::find($request->location_id);
+        $room = $validated['room'] ?? null;
+        if (! empty($validated['location_id']) && empty($room)) {
+            $location = Location::find($validated['location_id']);
             $room = $location->name;
         }
 
         $conflicts = $this->schedulingService->validateScheduleConflicts(
             $examinerIds,
-            $request->date,
-            $request->start_time,
-            $request->end_time,
+            $validated['date'],
+            $validated['start_time'],
+            $validated['end_time'],
             $room
         );
 
         if (! empty($conflicts)) {
-            return response()->json([
-                'message' => 'Scheduling conflicts detected.',
-                'conflicts' => $conflicts,
-            ], 400);
+            return $this->errorResponse('Scheduling conflicts detected.', 400, $conflicts);
         }
 
         // Auto-calculate evaluation deadline
-        $evaluationDeadline = date('Y-m-d H:i:s', strtotime($request->date.' +2 days'));
+        $evaluationDeadline = date('Y-m-d H:i:s', strtotime($validated['date'].' +2 days'));
 
         DB::beginTransaction();
         try {
             $payload = [
-                'group_id' => $request->group_id,
+                'group_id' => $validated['group_id'],
                 'student_id' => $studentIds[0], // Backward compatibility
-                'examiner_1_id' => $request->examiner_1_id,
-                'examiner_2_id' => $request->examiner_2_id,
-                'date' => $request->date,
-                'start_time' => $request->start_time,
-                'end_time' => $request->end_time,
+                'examiner_1_id' => $validated['examiner_1_id'],
+                'examiner_2_id' => $validated['examiner_2_id'],
+                'date' => $validated['date'],
+                'start_time' => $validated['start_time'],
+                'end_time' => $validated['end_time'],
                 'room' => $room,
-                'location_id' => $request->location_id,
+                'location_id' => $validated['location_id'] ?? null,
                 'status' => 'SCHEDULED',
                 'evaluation_deadline' => $evaluationDeadline,
-                'notes' => $request->notes,
+                'notes' => $validated['notes'] ?? null,
             ];
 
-            if ($hasPeriodColumn) {
-                $payload['period_id'] = $request->period_id ?: $group->period_id;
+            if ($this->hasPeriodColumn()) {
+                $payload['period_id'] = $validated['period_id'] ?? $group->period_id;
             }
 
             $schedule = TaDefenseSchedule::create($payload);
@@ -343,10 +288,10 @@ class TaDefenseScheduleController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->createdResponse([
                 'message' => 'TA defense scheduled successfully',
                 'data' => $schedule->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2']),
-            ], 201);
+            ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
@@ -357,9 +302,7 @@ class TaDefenseScheduleController extends Controller
                 'request_data' => $request->all(),
             ]);
 
-            return response()->json([
-                'error' => 'Failed to create schedule: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Failed to create schedule: '.$e->getMessage(), 500);
         }
     }
 
@@ -385,50 +328,36 @@ class TaDefenseScheduleController extends Controller
             $user->id !== $schedule->examiner_1_id &&
             $user->id !== $schedule->examiner_2_id &&
             ! $schedule->group->supervisors->contains('id', $user->id)) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
-        return response()->json(['data' => $schedule]);
+        return $this->successResponse($schedule);
     }
 
     /**
      * Update TA defense schedule with multi-student support
      */
-    public function update(Request $request, $id): JsonResponse
+    public function update(UpdateTaDefenseRequest $request, $id): JsonResponse
     {
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedule = TaDefenseSchedule::with(['group', 'students'])->findOrFail($id);
 
         if ($schedule->status === 'DONE') {
-            return response()->json(['error' => 'Cannot update completed schedule'], 400);
+            return $this->errorResponse('Cannot update completed schedule', 400);
         }
 
-        $validator = Validator::make($request->all(), [
-            'date' => 'sometimes|date|after_or_equal:today',
-            'start_time' => 'sometimes|date_format:H:i,H:i:s',
-            'end_time' => 'sometimes|date_format:H:i,H:i:s|after:start_time',
-            'room' => 'sometimes|string|max:100',
-            'location_id' => 'nullable|exists:locations,id',
-            'notes' => 'nullable|string|max:1000',
-            'status' => 'sometimes|in:SCHEDULED,CANCELLED',
-            'student_ids' => 'sometimes|array|min:1',
-            'student_ids.*' => 'exists:users,id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+        $validated = $request->validated();
 
         DB::beginTransaction();
         try {
             // Handle student changes if provided
             if ($request->has('student_ids')) {
-                $newStudentIds = $request->student_ids;
+                $newStudentIds = $validated['student_ids'];
                 $currentStudentIds = $schedule->students->pluck('id')->toArray();
                 $group = $schedule->group;
 
@@ -437,9 +366,7 @@ class TaDefenseScheduleController extends Controller
                 $invalidStudents = array_diff($newStudentIds, $groupMemberIds);
 
                 if (! empty($invalidStudents)) {
-                    return response()->json([
-                        'error' => 'All selected students must be from the same group',
-                    ], 400);
+                    return $this->errorResponse('All selected students must be from the same group', 400);
                 }
 
                 // Validate all students have TA_DOCUMENTS_APPROVED status
@@ -451,9 +378,7 @@ class TaDefenseScheduleController extends Controller
 
                 $invalidStatusStudents = array_diff($newStudentIds, $validSubmissions);
                 if (! empty($invalidStatusStudents)) {
-                    return response()->json([
-                        'error' => 'All selected students must have TA_DOCUMENTS_APPROVED status',
-                    ], 400);
+                    return $this->errorResponse('All selected students must have TA_DOCUMENTS_APPROVED status', 400);
                 }
 
                 // Check for existing scheduled defenses (excluding current schedule)
@@ -465,9 +390,7 @@ class TaDefenseScheduleController extends Controller
                     ->exists();
 
                 if ($existingScheduled) {
-                    return response()->json([
-                        'error' => 'One or more selected students already have a scheduled or completed defense',
-                    ], 400);
+                    return $this->errorResponse('One or more selected students already have a scheduled or completed defense', 400);
                 }
 
                 // Find removed students
@@ -526,16 +449,13 @@ class TaDefenseScheduleController extends Controller
                 );
 
                 if (! empty($conflicts)) {
-                    return response()->json([
-                        'message' => 'Scheduling conflicts detected.',
-                        'conflicts' => $conflicts,
-                    ], 400);
+                    return $this->errorResponse('Scheduling conflicts detected.', 400, $conflicts);
                 }
             }
 
-            $schedule->update($request->only([
+            $schedule->update(collect($validated)->only([
                 'date', 'start_time', 'end_time', 'room', 'location_id', 'notes', 'status',
-            ]));
+            ])->toArray());
 
             // Notify all students of update
             $studentIds = $schedule->fresh()->students->pluck('id')->toArray();
@@ -543,17 +463,15 @@ class TaDefenseScheduleController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'message' => 'Schedule updated successfully',
-                'data' => $schedule->fresh()->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2']),
-            ]);
+            return $this->successResponse(
+                $schedule->fresh()->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2']),
+                'Schedule updated successfully'
+            );
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json([
-                'error' => 'Failed to update schedule: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Failed to update schedule: '.$e->getMessage(), 500);
         }
     }
 
@@ -565,7 +483,7 @@ class TaDefenseScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('mahasiswa')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedules = TaDefenseSchedule::with(['examiner1', 'examiner2', 'students'])
@@ -576,7 +494,7 @@ class TaDefenseScheduleController extends Controller
             ->orderBy('date', 'desc')
             ->get();
 
-        return response()->json(['data' => $schedules]);
+        return $this->successResponse($schedules);
     }
 
     /**
@@ -587,7 +505,7 @@ class TaDefenseScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('dosen')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedules = TaDefenseSchedule::with(['students', 'group'])
@@ -623,7 +541,7 @@ class TaDefenseScheduleController extends Controller
             return $data;
         })->toArray();
 
-        return response()->json(['data' => $transformedSchedules]);
+        return $this->successResponse($transformedSchedules);
     }
 
     /**
@@ -634,13 +552,13 @@ class TaDefenseScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedule = TaDefenseSchedule::with(['students', 'group'])->findOrFail($id);
 
         if ($schedule->status === 'DONE') {
-            return response()->json(['error' => 'Cannot cancel completed schedule'], 400);
+            return $this->errorResponse('Cannot cancel completed schedule', 400);
         }
 
         $studentIds = $schedule->students->pluck('id')->toArray();
@@ -664,16 +582,12 @@ class TaDefenseScheduleController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'message' => 'Schedule cancelled successfully. Students are now eligible for rescheduling.',
-            ]);
+            return $this->successResponse(null, 'Schedule cancelled successfully. Students are now eligible for rescheduling.');
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json([
-                'error' => 'Failed to cancel schedule: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Failed to cancel schedule: '.$e->getMessage(), 500);
         }
     }
 
@@ -686,7 +600,7 @@ class TaDefenseScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $periodId = $request->input('period_id');
@@ -780,7 +694,7 @@ class TaDefenseScheduleController extends Controller
             ];
         })->values();
 
-        return response()->json(['data' => $result]);
+        return $this->successResponse($result);
     }
 
     /**
@@ -906,28 +820,21 @@ class TaDefenseScheduleController extends Controller
      * Assign examiners to an existing TA defense schedule (admin only).
      * Validates that examiners are not supervisors and checks for conflicts.
      */
-    public function assignExaminers(Request $request, $id): JsonResponse
+    public function assignExaminers(AssignExaminersRequest $request, $id): JsonResponse
     {
         $user = Auth::user();
 
         if (! $user->hasRole('admin')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedule = TaDefenseSchedule::with(['group', 'students'])->findOrFail($id);
 
         if ($schedule->status === 'DONE') {
-            return response()->json(['error' => 'Cannot assign examiners to completed schedule'], 400);
+            return $this->errorResponse('Cannot assign examiners to completed schedule', 400);
         }
 
-        $validator = Validator::make($request->all(), [
-            'examiner_1_id' => 'required|exists:users,id',
-            'examiner_2_id' => 'required|exists:users,id|different:examiner_1_id',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
+        $validated = $request->validated();
 
         $group = $schedule->group;
 
@@ -937,22 +844,22 @@ class TaDefenseScheduleController extends Controller
             $group->supervisor_2_id,
         ]);
 
-        if (in_array($request->examiner_1_id, $supervisorIds)) {
-            return response()->json(['error' => 'Examiner 1 cannot be a supervisor of this group.'], 400);
+        if (in_array($validated['examiner_1_id'], $supervisorIds)) {
+            return $this->errorResponse('Examiner 1 cannot be a supervisor of this group.', 400);
         }
 
-        if (in_array($request->examiner_2_id, $supervisorIds)) {
-            return response()->json(['error' => 'Examiner 2 cannot be a supervisor of this group.'], 400);
+        if (in_array($validated['examiner_2_id'], $supervisorIds)) {
+            return $this->errorResponse('Examiner 2 cannot be a supervisor of this group.', 400);
         }
 
         // Validate examiners are dosen
-        $examinerIds = [$request->examiner_1_id, $request->examiner_2_id];
+        $examinerIds = [$validated['examiner_1_id'], $validated['examiner_2_id']];
         $examiners = User::whereIn('id', $examinerIds)
             ->whereHas('roles', fn ($q) => $q->where('slug', 'dosen'))
             ->get();
 
         if ($examiners->count() !== 2) {
-            return response()->json(['error' => 'Both examiners must be dosen (lecturers).'], 400);
+            return $this->errorResponse('Both examiners must be dosen (lecturers).', 400);
         }
 
         // Check for scheduling conflicts with new examiners
@@ -967,17 +874,14 @@ class TaDefenseScheduleController extends Controller
         );
 
         if (! empty($conflicts)) {
-            return response()->json([
-                'error' => 'Scheduling conflicts detected with new examiners.',
-                'conflicts' => $conflicts,
-            ], 400);
+            return $this->errorResponse('Scheduling conflicts detected with new examiners.', 400, $conflicts);
         }
 
         DB::beginTransaction();
         try {
             $schedule->update([
-                'examiner_1_id' => $request->examiner_1_id,
-                'examiner_2_id' => $request->examiner_2_id,
+                'examiner_1_id' => $validated['examiner_1_id'],
+                'examiner_2_id' => $validated['examiner_2_id'],
             ]);
 
             // Recreate evaluations for new examiners
@@ -1002,17 +906,15 @@ class TaDefenseScheduleController extends Controller
 
             DB::commit();
 
-            return response()->json([
-                'message' => 'Examiners assigned successfully',
-                'data' => $schedule->fresh()->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2']),
-            ]);
+            return $this->successResponse(
+                $schedule->fresh()->load(['students', 'group.title', 'group.period', 'examiner1', 'examiner2']),
+                'Examiners assigned successfully'
+            );
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json([
-                'error' => 'Failed to assign examiners: '.$e->getMessage(),
-            ], 500);
+            return $this->errorResponse('Failed to assign examiners: '.$e->getMessage(), 500);
         }
     }
 }

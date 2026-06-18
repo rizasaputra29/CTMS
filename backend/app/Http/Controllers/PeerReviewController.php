@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\Admin\StorePeerReviewRequest;
 use App\Models\GroupMember;
 use App\Models\PeerReview;
 use App\Models\PeriodPeerReviewIndicator;
@@ -10,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 
 class PeerReviewController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * [Mahasiswa] Get peer review form: group members + indicators + existing reviews.
      */
@@ -19,7 +22,7 @@ class PeerReviewController extends Controller
         $member = GroupMember::where('student_id', $user->id)->first();
 
         if (! $member) {
-            return response()->json(['message' => 'You are not in any group'], 404);
+            return $this->notFoundResponse('You are not in any group');
         }
 
         $group = $member->group()->with(['members.student', 'period'])->first();
@@ -62,7 +65,7 @@ class PeerReviewController extends Controller
             ->first();
         $hasSubmitted = $peerReviewStatus?->has_completed_peer_review ?? false;
 
-        return response()->json([
+        return $this->successResponse([
             'group' => $group,
             'indicators' => $indicators,
             'members' => $otherMembers,
@@ -82,14 +85,14 @@ class PeerReviewController extends Controller
         $member = GroupMember::where('student_id', $user->id)->with('group')->first();
 
         if (! $member || ! $member->group) {
-            return response()->json(['active' => false, 'expo_registered' => false]);
+            return $this->successResponse(['active' => false, 'expo_registered' => false]);
         }
 
         $stateMachine = new \App\Services\GroupStateMachine;
         $expoRegistered = $stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED');
         $hasIndicators = PeriodPeerReviewIndicator::where('period_id', $member->group->period_id)->exists();
 
-        return response()->json([
+        return $this->successResponse([
             'active' => $hasIndicators,
             'expo_registered' => $expoRegistered,
             'can_access' => $hasIndicators && $expoRegistered,
@@ -101,15 +104,9 @@ class PeerReviewController extends Controller
      * Note: Once submitted, reviews cannot be edited.
      * Optimized: Uses upsert instead of updateOrCreate in loop for better performance.
      */
-    public function store(Request $request)
+    public function store(StorePeerReviewRequest $request)
     {
-        $request->validate([
-            'reviews' => 'required|array|min:1',
-            'reviews.*.reviewee_id' => 'required|exists:users,id',
-            'reviews.*.period_indicator_id' => 'required|exists:period_peer_review_indicators,id',
-            'reviews.*.score' => 'required|numeric|min:1|max:4',
-            'reviews.*.comment' => 'nullable|string',
-        ]);
+        $validated = $request->validated();
 
         $user = $request->user();
         $member = GroupMember::with('group')->where('student_id', $user->id)->firstOrFail();
@@ -117,7 +114,7 @@ class PeerReviewController extends Controller
         $stateMachine = new \App\Services\GroupStateMachine;
         // Peer review unlocks once group is registered for EXPO (EXPO_REGISTERED status)
         if (! $stateMachine->isAtLeast($member->group, 'EXPO_REGISTERED')) {
-            return response()->json(['message' => 'Peer review is locked until your group is registered for EXPO.'], 403);
+            return $this->unauthorizedResponse('Peer review is locked until your group is registered for EXPO.');
         }
 
         // STRICT: Check if student has already completed peer review
@@ -127,14 +124,14 @@ class PeerReviewController extends Controller
             ->first();
 
         if ($existingStatus && $existingStatus->has_completed_peer_review) {
-            return response()->json(['message' => 'You have already completed peer review. Changes are not allowed after final submission.'], 403);
+            return $this->unauthorizedResponse('You have already completed peer review. Changes are not allowed after final submission.');
         }
 
         // OPTIMIZED: Use upsert instead of updateOrCreate in loop
         $reviewsData = [];
         $now = now();
 
-        foreach ($request->reviews as $review) {
+        foreach ($validated['reviews'] as $review) {
             $rawScore = $review['score']; // 1-4 scale from frontend
             $convertedScore = $rawScore * 25; // Convert to 0-100 scale
 
@@ -163,7 +160,7 @@ class PeerReviewController extends Controller
         // Check if student has completed all required reviews
         $this->checkAndUpdateCompletionStatus($user->id, $member->group_id, $member->group->period_id);
 
-        return response()->json(['message' => 'Peer review submitted', 'count' => count($reviewsData)], 201);
+        return $this->createdResponse(['count' => count($reviewsData)], 'Peer review submitted');
     }
 
     /**
@@ -197,7 +194,7 @@ class PeerReviewController extends Controller
             ];
         });
 
-        return response()->json($grouped);
+        return $this->successResponse($grouped);
     }
 
     /**
@@ -222,7 +219,7 @@ class PeerReviewController extends Controller
         $groups = $query->get();
 
         if ($groups->isEmpty()) {
-            return response()->json([
+            return $this->successResponse([
                 'period_id' => $periodId,
                 'groups_count' => 0,
                 'groups' => [],
@@ -320,7 +317,7 @@ class PeerReviewController extends Controller
             }
         }
 
-        return response()->json([
+        return $this->successResponse([
             'period_id' => $periodId,
             'groups_count' => count($result),
             'groups' => $result,
@@ -342,7 +339,7 @@ class PeerReviewController extends Controller
             ->orderBy('sort_order')
             ->get();
 
-        return response()->json($periodIndicators->map(fn ($i) => [
+        return $this->successResponse($periodIndicators->map(fn ($i) => [
             'id' => $i->id,
             'code' => $i->template->code,
             'name' => $i->template->name,
@@ -359,9 +356,7 @@ class PeerReviewController extends Controller
      */
     public function storeIndicator(Request $request)
     {
-        return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
-        ], 400);
+        return $this->errorResponse('Use PeriodPeerReviewConfigController to configure peer review indicators for a period.', 400);
     }
 
     /**
@@ -370,9 +365,7 @@ class PeerReviewController extends Controller
      */
     public function updateIndicator(Request $request, $id)
     {
-        return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
-        ], 400);
+        return $this->errorResponse('Use PeriodPeerReviewConfigController to configure peer review indicators for a period.', 400);
     }
 
     /**
@@ -381,9 +374,7 @@ class PeerReviewController extends Controller
      */
     public function destroyIndicator($id)
     {
-        return response()->json([
-            'message' => 'Use PeriodPeerReviewConfigController to configure peer review indicators for a period.',
-        ], 400);
+        return $this->errorResponse('Use PeriodPeerReviewConfigController to configure peer review indicators for a period.', 400);
     }
 
     /**
@@ -457,7 +448,7 @@ class PeerReviewController extends Controller
         $member = GroupMember::with('group')->where('student_id', $user->id)->first();
 
         if (! $member || ! $member->group) {
-            return response()->json([
+            return $this->successResponse([
                 'has_completed' => false,
                 'ta_status' => null,
                 'can_access_ta' => false,
@@ -471,7 +462,7 @@ class PeerReviewController extends Controller
         $stateMachine = new \App\Services\GroupStateMachine;
         $expoDone = $stateMachine->isAtLeast($member->group, 'EXPO_DONE');
 
-        return response()->json([
+        return $this->successResponse([
             'has_completed' => $status?->has_completed_peer_review ?? false,
             'ta_status' => $status?->ta_status ?? 'TA_BLOCKED',
             'can_access_ta' => $status?->ta_status === 'TA_ACTIVE',
@@ -502,7 +493,7 @@ class PeerReviewController extends Controller
         $groups = $query->get();
 
         if ($groups->isEmpty()) {
-            return response()->json([]);
+            return $this->successResponse([]);
         }
 
         // OPTIMIZED: Pre-load all completion counts and statuses
@@ -550,6 +541,6 @@ class PeerReviewController extends Controller
             ];
         });
 
-        return response()->json($result);
+        return $this->successResponse($result);
     }
 }

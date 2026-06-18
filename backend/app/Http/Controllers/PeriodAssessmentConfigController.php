@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Schema;
 
 class PeriodAssessmentConfigController extends Controller
 {
+    use ApiResponseTrait;
+
     private function hasPeriodAssessmentTable(): bool
     {
         return Schema::hasTable('period_assessment_components');
@@ -68,7 +70,7 @@ class PeriodAssessmentConfigController extends Controller
                 ]);
         }
 
-        return response()->json([
+        return $this->successResponse([
             'period' => $period,
             'type' => $type,
             'all_templates' => $allTemplates,
@@ -132,11 +134,10 @@ class PeriodAssessmentConfigController extends Controller
                 }
             }
 
-            return response()->json([
-                'message' => 'Assessment configuration saved',
+            return $this->createdResponse([
                 'count' => count($created),
                 'components' => $created,
-            ], 201);
+            ], 'Assessment configuration saved');
         });
     }
 
@@ -159,7 +160,7 @@ class PeriodAssessmentConfigController extends Controller
                     ->get();
 
                 if ($sourceComponents->isEmpty()) {
-                    return response()->json(['message' => 'Source period has no assessment configuration'], 400);
+                    return $this->errorResponse('Source period has no assessment configuration', 400);
                 }
 
                 // Delete existing config for this period (all types)
@@ -176,11 +177,10 @@ class PeriodAssessmentConfigController extends Controller
                     ]);
                 }
 
-                return response()->json([
-                    'message' => 'Assessment configuration copied',
+                return $this->createdResponse([
                     'count' => count($created),
                     'components' => $created,
-                ], 201);
+                ], 'Assessment configuration copied');
             }
 
             // Legacy schema fallback copy
@@ -189,7 +189,7 @@ class PeriodAssessmentConfigController extends Controller
                 ->get();
 
             if ($sourceComponents->isEmpty()) {
-                return response()->json(['message' => 'Source period has no assessment configuration'], 400);
+                return $this->errorResponse('Source period has no assessment configuration', 400);
             }
 
             AssessmentComponent::where('period_id', $periodId)->delete();
@@ -207,11 +207,10 @@ class PeriodAssessmentConfigController extends Controller
                 ]);
             }
 
-            return response()->json([
-                'message' => 'Assessment configuration copied',
+            return $this->createdResponse([
                 'count' => count($created),
                 'components' => $created,
-            ], 201);
+            ], 'Assessment configuration copied');
         });
     }
 }

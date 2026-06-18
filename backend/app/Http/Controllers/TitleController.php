@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\DB;
 
 class TitleController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod;
 
     public function index(Request $request)
     {
@@ -113,7 +113,7 @@ class TitleController extends Controller
         // Validate that selected period is active
         $selectedPeriod = \App\Models\Period::findOrFail($validated['period_id']);
         if (! $selectedPeriod->is_active) {
-            return response()->json(['message' => 'Selected period is not active.'], 422);
+            return $this->errorResponse('Selected period is not active.', 422);
         }
 
         // Set is_reserved if pre_assigned_group_id is provided
@@ -124,15 +124,15 @@ class TitleController extends Controller
                 ->findOrFail($validated['pre_assigned_group_id']);
 
             if ((int) $preAssignedGroup->period_id !== (int) $validated['period_id']) {
-                return response()->json(['message' => 'Kelompok harus berada dalam periode yang sama.'], 422);
+                return $this->errorResponse('Kelompok harus berada dalam periode yang sama.', 422);
             }
 
             if ($preAssignedGroup->status !== 'READY_FOR_BIDDING') {
-                return response()->json(['message' => 'Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.'], 422);
+                return $this->errorResponse('Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.', 422);
             }
 
             if ($preAssignedGroup->title_id) {
-                return response()->json(['message' => 'Kelompok sudah memiliki judul.'], 422);
+                return $this->errorResponse('Kelompok sudah memiliki judul.', 422);
             }
 
             $minSize = $preAssignedGroup->period?->min_group_size ?? 3;
@@ -140,9 +140,7 @@ class TitleController extends Controller
             $memberCount = $preAssignedGroup->members->count();
 
             if ($memberCount < $minSize || $memberCount > $maxSize) {
-                return response()->json([
-                    'message' => "Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
-                ], 422);
+                return $this->errorResponse("Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.", 422);
             }
         }
 
@@ -188,11 +186,11 @@ class TitleController extends Controller
 
             DB::commit();
 
-            return response()->json($title->fresh(), 201);
+            return $this->createdResponse($title->fresh());
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to create title: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to create title: '.$e->getMessage(), 500);
         }
     }
 
@@ -211,7 +209,7 @@ class TitleController extends Controller
         $this->ensureModelPeriodActive($title);
 
         if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized');
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         // Convert empty string to null for pre_assigned_group_id
@@ -276,21 +274,21 @@ class TitleController extends Controller
                     if ((int) $newGroup->period_id !== (int) $title->period_id) {
                         DB::rollBack();
 
-                        return response()->json(['message' => 'Kelompok harus berada dalam periode yang sama.'], 422);
+                        return $this->errorResponse('Kelompok harus berada dalam periode yang sama.', 422);
                     }
 
                     // Validate group status
                     if ($newGroup->status !== 'READY_FOR_BIDDING') {
                         DB::rollBack();
 
-                        return response()->json(['message' => 'Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.'], 422);
+                        return $this->errorResponse('Kelompok harus berstatus READY_FOR_BIDDING untuk assign judul.', 422);
                     }
 
                     // Validate group doesn't already have a title
                     if ($newGroup->title_id && $newGroup->title_id !== $title->id) {
                         DB::rollBack();
 
-                        return response()->json(['message' => 'Kelompok sudah memiliki judul.'], 422);
+                        return $this->errorResponse('Kelompok sudah memiliki judul.', 422);
                     }
 
                     // Validate member count
@@ -301,9 +299,7 @@ class TitleController extends Controller
                     if ($memberCount < $minSize || $memberCount > $maxSize) {
                         DB::rollBack();
 
-                        return response()->json([
-                            'message' => "Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.",
-                        ], 422);
+                        return $this->errorResponse("Jumlah anggota kelompok ({$memberCount}) harus antara {$minSize} dan {$maxSize}.", 422);
                     }
 
                     // Assign group to title
@@ -332,11 +328,11 @@ class TitleController extends Controller
 
             DB::commit();
 
-            return response()->json($title->fresh());
+            return $this->successResponse($title->fresh());
         } catch (\Throwable $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to update title: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to update title: '.$e->getMessage(), 500);
         }
     }
 
@@ -345,7 +341,7 @@ class TitleController extends Controller
         $this->ensureModelPeriodActive($title);
 
         if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized');
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         // Get affected groups before deletion
@@ -386,10 +382,7 @@ class TitleController extends Controller
 
         $title->delete();
 
-        return response()->json([
-            'message' => 'Title deleted',
-            'affected_groups' => $revertedGroups,
-        ]);
+        return $this->successResponse(['message' => 'Title deleted', 'affected_groups' => $revertedGroups]);
     }
 
     /**
@@ -403,7 +396,7 @@ class TitleController extends Controller
 
         // 1. Authorization: User is the lecturer who created this title
         if ($request->user()->id !== $title->lecturer_id) {
-            abort(403, 'Only the lecturer can withdraw approval from this title');
+            return $this->unauthorizedResponse('Only the lecturer can withdraw approval from this title');
         }
 
         // 2. Validation: Title must be approved
@@ -420,7 +413,7 @@ class TitleController extends Controller
         }
 
         if (! $isApproved) {
-            return response()->json(['message' => 'Title is not approved'], 422);
+            return $this->errorResponse('Title is not approved', 422);
         }
 
         // 3. Find affected groups bidding on this title (exclude those already at READY_FOR_FINALIZATION)
@@ -430,7 +423,7 @@ class TitleController extends Controller
 
         // 4. If no groups affected, title might not be actively bidded on
         if ($affectedGroups->isEmpty()) {
-            return response()->json(['message' => 'No groups to affect or all groups already finalized'], 422);
+            return $this->errorResponse('No groups to affect or all groups already finalized', 422);
         }
 
         // 5. Update title status based on title source
@@ -473,10 +466,7 @@ class TitleController extends Controller
             $notificationService->notifyGroupOfWithdrawal($group, $title, $reason);
         }
 
-        return response()->json([
-            'message' => 'Approval withdrawn successfully',
-            'affected_groups_count' => $affectedGroups->count(),
-        ]);
+        return $this->successResponse(['message' => 'Approval withdrawn successfully', 'affected_groups_count' => $affectedGroups->count()]);
     }
 
     /**
@@ -486,7 +476,7 @@ class TitleController extends Controller
     {
         // Authorization: Lecturer who created this title, or admin
         if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized');
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $audits = $title->approvalAudits()
@@ -511,7 +501,7 @@ class TitleController extends Controller
                 ];
             });
 
-        return response()->json($audits);
+        return $this->successResponse($audits);
     }
 
     /**
@@ -521,7 +511,7 @@ class TitleController extends Controller
     {
         // Authorization: Lecturer who created this title, or admin
         if ($request->user()->id !== $title->lecturer_id && ! $request->user()->hasRole('admin')) {
-            abort(403, 'Unauthorized');
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $audits = $title->deletionAudits()
@@ -544,6 +534,6 @@ class TitleController extends Controller
                 ];
             });
 
-        return response()->json($audits);
+        return $this->successResponse($audits);
     }
 }

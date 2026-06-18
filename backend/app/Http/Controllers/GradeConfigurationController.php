@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 
 class GradeConfigurationController extends Controller
 {
+    use ApiResponseTrait;
+
     private const DEFAULT_PDC1_WEIGHTS = [
         'SEMPRO' => 50,
         'BIMBINGAN_SEMPRO' => 50,
@@ -42,7 +44,7 @@ class GradeConfigurationController extends Controller
 
         $weights = $period->grade_configuration['pdc1'] ?? self::DEFAULT_PDC1_WEIGHTS;
 
-        return response()->json([
+        return $this->successResponse([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'pdc1_weights' => $weights,
@@ -59,7 +61,7 @@ class GradeConfigurationController extends Controller
 
         $weights = $period->grade_configuration['pdc2'] ?? self::DEFAULT_PDC2_WEIGHTS;
 
-        return response()->json([
+        return $this->successResponse([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'pdc2_weights' => $weights,
@@ -76,7 +78,7 @@ class GradeConfigurationController extends Controller
 
         $weights = $period->grade_configuration['ta'] ?? self::DEFAULT_TA_WEIGHTS;
 
-        return response()->json([
+        return $this->successResponse([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'ta_weights' => $weights,
@@ -130,11 +132,10 @@ class GradeConfigurationController extends Controller
 
         $period->update(['grade_configuration' => $gradeConfig]);
 
-        return response()->json([
-            'message' => 'Grade configuration updated successfully',
+        return $this->successResponse([
             'period_id' => $periodId,
             'grade_configuration' => $gradeConfig,
-        ]);
+        ], 'Grade configuration updated successfully');
     }
 
     /**
@@ -185,7 +186,7 @@ class GradeConfigurationController extends Controller
             $totalWeight += $weight;
         }
 
-        return response()->json([
+        return $this->successResponse([
             'group_id' => $groupId,
             'group_name' => $group->code,
             'period_id' => $period->id,
@@ -244,7 +245,7 @@ class GradeConfigurationController extends Controller
             $totalWeight += $weight;
         }
 
-        return response()->json([
+        return $this->successResponse([
             'group_id' => $groupId,
             'group_name' => $group->code,
             'period_id' => $period->id,
@@ -263,7 +264,7 @@ class GradeConfigurationController extends Controller
 
         $config = $period->grade_configuration ?? [];
 
-        return response()->json([
+        return $this->successResponse([
             'period_id' => $periodId,
             'period_name' => $period->name,
             'pdc1' => [
@@ -299,11 +300,10 @@ class GradeConfigurationController extends Controller
 
         $period->update(['grade_configuration' => $gradeConfig]);
 
-        return response()->json([
-            'message' => 'Grade configuration reset to defaults',
+        return $this->successResponse([
             'period_id' => $periodId,
             'grade_configuration' => $gradeConfig,
-        ]);
+        ], 'Grade configuration reset to defaults');
     }
 
     /**
@@ -319,10 +319,7 @@ class GradeConfigurationController extends Controller
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
-            return response()->json([
-                'message' => 'Student is not assigned to any group',
-                'grades' => null,
-            ], 404);
+            return $this->notFoundResponse('Student is not assigned to any group');
         }
 
         $group = $groupMember->group;
@@ -364,7 +361,7 @@ class GradeConfigurationController extends Controller
             $totalWeight += $weight;
         }
 
-        return response()->json([
+        return $this->successResponse([
             'student_id' => $studentId,
             'student_name' => $student->name,
             'group_id' => $group->id,
@@ -389,10 +386,7 @@ class GradeConfigurationController extends Controller
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
-            return response()->json([
-                'message' => 'You are not assigned to any group',
-                'grades' => null,
-            ], 404);
+            return $this->errorResponse('You are not assigned to any group', 404);
         }
 
         $group = $groupMember->group;
@@ -404,8 +398,7 @@ class GradeConfigurationController extends Controller
         );
 
         if (! $grades) {
-            return response()->json([
-                'message' => 'No grades available yet',
+            return $this->successResponse([
                 'grades' => null,
                 'group' => [
                     'id' => $group->id,
@@ -415,10 +408,10 @@ class GradeConfigurationController extends Controller
                     'id' => $group->period->id,
                     'name' => $group->period->name,
                 ],
-            ]);
+            ], 'No grades available yet');
         }
 
-        return response()->json([
+        return $this->successResponse([
             'grades' => $grades,
             'group' => [
                 'id' => $group->id,
@@ -449,10 +442,7 @@ class GradeConfigurationController extends Controller
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
-            return response()->json([
-                'message' => 'Student is not assigned to any group',
-                'grades' => null,
-            ], 404);
+            return $this->errorResponse('Student is not assigned to any group', 404);
         }
 
         $group = $groupMember->group;
@@ -463,7 +453,7 @@ class GradeConfigurationController extends Controller
             $group->id
         );
 
-        return response()->json([
+        return $this->successResponse([
             'grades' => $grades,
             'group' => [
                 'id' => $group->id,

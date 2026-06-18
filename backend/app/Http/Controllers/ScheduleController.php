@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Concerns\RequiresActivePeriod;
+use App\Concerns\ResolvesActivePeriods;
 use App\Models\ExpoRegistration;
 use App\Models\Group;
 use App\Models\GroupMember;
-use App\Models\Period;
 use App\Models\Schedule;
 use App\Models\SeminarSchedule;
 use App\Models\TaDefenseSchedule;
@@ -14,11 +14,10 @@ use App\Services\NotificationService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 
 class ScheduleController extends Controller
 {
-    use RequiresActivePeriod;
+    use ApiResponseTrait, RequiresActivePeriod, ResolvesActivePeriods;
 
     protected $schedulingService;
 
@@ -52,18 +51,14 @@ class ScheduleController extends Controller
 
         // Admin can only see SEMPRO, SIDANG, EXPO, BIMBINGAN schedules
         if ($user->hasRole('admin')) {
-            return response()->json([
-                'data' => $query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO', 'BIMBINGAN'])->get(),
-            ]);
+            return $this->successResponse($query->whereIn('type', ['SEMPRO', 'SIDANG', 'EXPO', 'BIMBINGAN'])->get());
         }
 
         // Dosen can only see BIMBINGAN schedules they created
         if ($user->hasRole('dosen')) {
-            return response()->json([
-                'data' => $query->where('type', 'BIMBINGAN')
-                    ->where('created_by', $user->id)
-                    ->get(),
-            ]);
+            return $this->successResponse($query->where('type', 'BIMBINGAN')
+                ->where('created_by', $user->id)
+                ->get());
         }
 
         // Mahasiswa can only see their own group's schedule (exclude rejected groups)
@@ -75,28 +70,13 @@ class ScheduleController extends Controller
                 })
                 ->first();
             if (! $groupMember) {
-                return response()->json(['data' => []]);
+                return $this->successResponse([]);
             }
 
-            return response()->json([
-                'data' => $query->where('group_id', $groupMember->group_id)->get(),
-            ]);
+            return $this->successResponse($query->where('group_id', $groupMember->group_id)->get());
         }
 
-        return response()->json(['data' => []]);
-    }
-
-    /**
-     * Get cached active and finalized period IDs.
-     */
-    private function getActiveAndFinalizedPeriodIds(): array
-    {
-        return Cache::remember('periods:active_and_finalized_ids', now()->addMinutes(5), function () {
-            return Period::where('is_active', true)
-                ->orWhere('is_finalized', true)
-                ->pluck('id')
-                ->toArray();
-        });
+        return $this->successResponse([]);
     }
 
     /**
@@ -107,7 +87,7 @@ class ScheduleController extends Controller
         $user = Auth::user();
 
         if ($user->hasRole('mahasiswa')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         // Dosen can only create BIMBINGAN, Admin can only create SEMPRO/SIDANG/EXPO
@@ -146,9 +126,7 @@ class ScheduleController extends Controller
             });
 
             if (! $isSupervisor) {
-                return response()->json([
-                    'message' => 'Unauthorized. You can only create BIMBINGAN schedules for groups you supervise.',
-                ], 403);
+                return $this->unauthorizedResponse('Unauthorized. You can only create BIMBINGAN schedules for groups you supervise.');
             }
 
             // Set created_by to current user
@@ -197,10 +175,7 @@ class ScheduleController extends Controller
             }
 
             if (! empty($conflicts)) {
-                return response()->json([
-                    'message' => 'Scheduling conflicts detected.',
-                    'conflicts' => $conflicts,
-                ], 400);
+                return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
             }
         }
 
@@ -219,7 +194,7 @@ class ScheduleController extends Controller
             $notificationService->notifySupervisorsOfSchedule($group, $schedule, $request->type);
         }
 
-        return response()->json(['message' => 'Schedule created successfully', 'data' => $schedule], 201);
+        return $this->createdResponse($schedule, 'Schedule created successfully');
     }
 
     /**
@@ -238,7 +213,7 @@ class ScheduleController extends Controller
         $user = Auth::user();
 
         if ($user->hasRole('mahasiswa')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $allowedTypes = $user->hasRole('dosen')
@@ -311,16 +286,13 @@ class ScheduleController extends Controller
             }
 
             if (! empty($conflicts)) {
-                return response()->json([
-                    'message' => 'Scheduling conflicts detected.',
-                    'conflicts' => $conflicts,
-                ], 400);
+                return $this->errorResponse('Scheduling conflicts detected.', 400, ['conflicts' => $conflicts]);
             }
         }
 
         $schedule->update($data);
 
-        return response()->json(['message' => 'Schedule updated successfully', 'data' => $schedule]);
+        return $this->successResponse($schedule, 'Schedule updated successfully');
     }
 
     /**
@@ -329,7 +301,7 @@ class ScheduleController extends Controller
     public function destroy(string $id)
     {
         if (Auth::user()->hasRole('mahasiswa')) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $schedule = Schedule::with('group')->find($id);
@@ -338,7 +310,7 @@ class ScheduleController extends Controller
         }
         Schedule::destroy($id);
 
-        return response()->json(['message' => 'Schedule deleted successfully']);
+        return $this->successResponse(null, 'Schedule deleted successfully');
     }
 
     /**
@@ -349,7 +321,7 @@ class ScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('mahasiswa')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $groupMember = GroupMember::where('student_id', $user->id)
@@ -359,7 +331,7 @@ class ScheduleController extends Controller
             ->first();
 
         if (! $groupMember) {
-            return response()->json(['data' => []]);
+            return $this->successResponse([]);
         }
 
         $groupId = $groupMember->group_id;
@@ -370,7 +342,7 @@ class ScheduleController extends Controller
             ->find($groupId);
 
         if (! $group) {
-            return response()->json(['data' => []]);
+            return $this->successResponse([]);
         }
 
         $periodName = $group->period->name ?? null;
@@ -553,7 +525,7 @@ class ScheduleController extends Controller
             return strtotime($a['date']) - strtotime($b['date']);
         });
 
-        return response()->json(['data' => $allSchedules]);
+        return $this->successResponse($allSchedules);
     }
 
     /**
@@ -564,7 +536,7 @@ class ScheduleController extends Controller
         $user = Auth::user();
 
         if (! $user->hasRole('dosen')) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return $this->unauthorizedResponse('Unauthorized');
         }
 
         $allSchedules = [];
@@ -922,6 +894,6 @@ class ScheduleController extends Controller
             return strtotime($a['date']) - strtotime($b['date']);
         });
 
-        return response()->json(['data' => $allSchedules]);
+        return $this->successResponse($allSchedules);
     }
 }

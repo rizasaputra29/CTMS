@@ -5,6 +5,8 @@ import api from "@/lib/api";
 import { toast } from "sonner";
 import type { Group, PeriodOption, PaginationData } from "../types";
 
+const QUERY_KEY = ['admin', 'groups'] as const;
+
 interface UseGroupsReturn {
   groups: Group[];
   periods: PeriodOption[];
@@ -32,9 +34,6 @@ export function useGroups(): UseGroupsReturn {
     async (page: number = 1, perPage?: number) => {
       setLoading(true);
       try {
-        const periodsRes = await api.get("/periods-list");
-        setPeriods(periodsRes.data?.data || []);
-
         const params: Record<string, string> = {
           page: page.toString(),
           per_page: (perPage ?? pagination.per_page).toString(),
@@ -44,7 +43,12 @@ export function useGroups(): UseGroupsReturn {
           params.period_id = selectedPeriod;
         }
 
-        const groupsRes = await api.get("/admin/groups", { params });
+        const [periodsRes, groupsRes] = await Promise.all([
+          api.get("/periods-list"),
+          api.get("/admin/groups", { params }),
+        ]);
+
+        setPeriods(periodsRes.data?.data || []);
         setGroups(groupsRes.data.data || []);
         setPagination({
           current_page: groupsRes.data.current_page || 1,
@@ -54,7 +58,7 @@ export function useGroups(): UseGroupsReturn {
         });
       } catch (error) {
         console.error("Failed to fetch groups data", error);
-        toast.error("Failed to load groups");
+        toast.error(api.getApiErrorMessage(error, "Failed to load groups"));
       } finally {
         setLoading(false);
       }
@@ -74,7 +78,7 @@ export function useGroups(): UseGroupsReturn {
         toast.success("Group deleted successfully");
       } catch (error: unknown) {
         console.error("Failed to delete group", error);
-        toast.error("Failed to delete group");
+        toast.error(api.getApiErrorMessage(error, "Failed to delete group"));
       }
     },
     []

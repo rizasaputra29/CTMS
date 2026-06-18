@@ -61,7 +61,23 @@ trait ApiResponseTrait
     }
 
     /**
-     * Created response format (201)
+     * Envelope response with extra top-level keys alongside data
+     *
+     * @param  mixed  $data
+     * @param  array  $extra  Additional top-level keys (e.g. pagination, meta)
+     * @return \Illuminate\Http\JsonResponse
+     */
+    protected function envelopeResponse($data, array $extra = [], string $message = 'Success')
+    {
+        return response()->json(array_merge([
+            'success' => true,
+            'message' => $message,
+            'data' => $data,
+        ], $extra));
+    }
+
+    /**
+     * Created response (201)
      *
      * @param  mixed  $data
      * @return \Illuminate\Http\JsonResponse

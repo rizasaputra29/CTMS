@@ -6,6 +6,8 @@ import api from '@/lib/api';
 import { toast } from 'sonner';
 import type { Period, PhaseSummary, PhaseRequirement } from '../types';
 
+const QUERY_KEY = ["admin", "document-requirements"] as const;
+
 const PHASES = ['PDC1', 'SEMPRO', 'PDC2', 'EXPO', 'TA', 'SIDANG'];
 
 const DEFAULT_DOCUMENTS: Record<string, string[]> = {
@@ -58,7 +60,7 @@ export function useDocumentRequirements() {
     const [selectedPeriodId, setSelectedPeriodId] = useState<string>('');
 
     const periodsQuery = useQuery({
-        queryKey: ['admin', 'periods-list'],
+        queryKey: [...QUERY_KEY, 'periods-list'],
         queryFn: fetchPeriods,
     });
 
@@ -68,13 +70,13 @@ export function useDocumentRequirements() {
     );
 
     const summariesQuery = useQuery({
-        queryKey: ['admin', 'document-requirements', 'summaries', effectivePeriodId],
+        queryKey: [...QUERY_KEY, 'summaries', effectivePeriodId],
         queryFn: () => fetchSummaries(effectivePeriodId),
         enabled: !!effectivePeriodId,
     });
 
     const requirementsQuery = useQuery({
-        queryKey: ['admin', 'document-requirements', 'requirements', effectivePeriodId],
+        queryKey: [...QUERY_KEY, 'requirements', effectivePeriodId],
         queryFn: () => fetchRequirements(effectivePeriodId),
         enabled: !!effectivePeriodId,
     });
@@ -83,11 +85,11 @@ export function useDocumentRequirements() {
         mutationFn: ({ periodId, requirements }: { periodId: number; requirements: PhaseRequirement[] }) =>
             saveRequirements(periodId, requirements),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'document-requirements'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Document requirements saved successfully');
         },
-        onError: () => {
-            toast.error('Failed to save requirements');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to save requirements'));
         },
     });
 
@@ -106,11 +108,11 @@ export function useDocumentRequirements() {
             return saveRequirements(parseInt(periodId), requirements);
         },
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['admin', 'document-requirements'] });
+            queryClient.invalidateQueries({ queryKey: QUERY_KEY });
             toast.success('Default documents loaded for all phases');
         },
-        onError: () => {
-            toast.error('Failed to load default documents');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to load default documents'));
         },
     });
 

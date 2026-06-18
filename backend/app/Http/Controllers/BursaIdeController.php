@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\DB;
 
 class BursaIdeController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Solo Seeker statuses — FORMING_SOLO and FORMING transitions to WAITING_SUPERVISOR_APPROVAL
      * after proposing a title, then back to FORMING/FORMING_SOLO after Pre-Approval.
@@ -83,8 +85,7 @@ class BursaIdeController extends Controller
             ->pluck('group_id')
             ->toArray();
 
-        return response()->json([
-            'data' => $titles,
+        return $this->envelopeResponse($titles, [
             'can_request_join' => $canRequestJoin,
             'my_pending_requests' => $myPendingRequests,
             'flow' => $this->buildBursaFlowPayload($user),
@@ -105,25 +106,23 @@ class BursaIdeController extends Controller
 
         // Guard: Check if period is finalized
         if ($group->period->is_finalized) {
-            return response()->json(['message' => 'Pendaftaran untuk periode ini sudah ditutup.'], 400);
+            return $this->errorResponse('Pendaftaran untuk periode ini sudah ditutup.', 400);
         }
 
         // Guard: Only solo seekers can receive join requests
         if (! $group->is_solo) {
-            return response()->json([
-                'message' => 'Grup ini tidak menerima permintaan bergabung.',
-            ], 400);
+            return $this->errorResponse('Grup ini tidak menerima permintaan bergabung.', 400);
         }
 
         // Guard: only Solo Seeker groups can be joined
         if (! in_array($group->status, self::SOLO_STATUSES)) {
-            return response()->json(['message' => 'This group is not accepting join requests.'], 400);
+            return $this->errorResponse('This group is not accepting join requests.', 400);
         }
 
         // LOCKED: After READY_FOR_FINALIZATION, cannot request to join
         $stateMachine = app(\App\Services\GroupStateMachine::class);
         if ($stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
-            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima permintaan bergabung.'], 400);
+            return $this->errorResponse('Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima permintaan bergabung.', 400);
         }
 
         // Guard: Check user eligibility (Ghost or FORMING)
@@ -134,14 +133,14 @@ class BursaIdeController extends Controller
         if ($userMembership) {
             $userGroup = Group::find($userMembership->group_id);
             if (! $userGroup || ! in_array($userGroup->status, self::SOLO_STATUSES)) {
-                return response()->json(['message' => 'Anda sudah terdaftar di grup permanen atau sedang melakukan bidding.'], 400);
+                return $this->errorResponse('Anda sudah terdaftar di grup permanen atau sedang melakukan bidding.', 400);
             }
             if (! $userMembership->is_leader) {
-                return response()->json(['message' => 'Hanya Ketua Kelompok yang dapat mengajukan penggabungan ke ide lain.'], 400);
+                return $this->errorResponse('Hanya Ketua Kelompok yang dapat mengajukan penggabungan ke ide lain.', 400);
             }
             // Solo seekers can't request to join their own group
             if ($userGroup->id === $group->id) {
-                return response()->json(['message' => 'You cannot request to join your own group.'], 400);
+                return $this->errorResponse('You cannot request to join your own group.', 400);
             }
         }
 
@@ -152,7 +151,7 @@ class BursaIdeController extends Controller
             ->exists();
 
         if ($existingRequest) {
-            return response()->json(['message' => 'You already have a pending request for this group.'], 400);
+            return $this->errorResponse('You already have a pending request for this group.', 400);
         }
 
         // Guard: Group capacity for merged team
@@ -165,7 +164,7 @@ class BursaIdeController extends Controller
         $maxMembers = $group->period->max_group_size ?? 4;
 
         if (($sourceCount + $targetCount) > $maxMembers) {
-            return response()->json(['message' => "Jumlah anggota gabungan ({$sourceCount} + {$targetCount}) melebihi kuota maksimal {$maxMembers} orang."], 400);
+            return $this->errorResponse("Jumlah anggota gabungan ({$sourceCount} + {$targetCount}) melebihi kuota maksimal {$maxMembers} orang.", 400);
         }
 
         $joinRequest = JoinRequest::updateOrCreate(
@@ -196,10 +195,10 @@ class BursaIdeController extends Controller
             ]);
         }
 
-        return response()->json([
+        return $this->createdResponse([
             'message' => 'Join request sent successfully.',
             'join_request' => $joinRequest,
-        ], 201);
+        ]);
     }
 
     /**
@@ -215,7 +214,7 @@ class BursaIdeController extends Controller
             ->first();
 
         if (! $membership) {
-            return response()->json(['data' => []]);
+            return $this->successResponse([]);
         }
 
         $requests = JoinRequest::where('group_id', $membership->group_id)
@@ -224,7 +223,7 @@ class BursaIdeController extends Controller
             ->orderBy('created_at', 'asc')
             ->get();
 
-        return response()->json(['data' => $requests]);
+        return $this->successResponse($requests);
     }
 
     /**
@@ -244,7 +243,7 @@ class BursaIdeController extends Controller
             ->first();
 
         if (! $joinRequest) {
-            return response()->json(['message' => 'Join request not found or already processed.'], 404);
+            return $this->notFoundResponse('Join request not found or already processed.');
         }
 
         // Verify current user is leader of the target group
@@ -254,19 +253,19 @@ class BursaIdeController extends Controller
             ->first();
 
         if (! $leaderMembership) {
-            return response()->json(['message' => 'Only the group leader can accept join requests.'], 403);
+            return $this->unauthorizedResponse('Only the group leader can accept join requests.');
         }
 
         $group = Group::with('period')->find($joinRequest->group_id);
 
         if (! $group || ! in_array($group->status, self::SOLO_STATUSES)) {
-            return response()->json(['message' => 'Group is not accepting members.'], 400);
+            return $this->errorResponse('Group is not accepting members.', 400);
         }
 
         // LOCKED: After READY_FOR_FINALIZATION, cannot accept new members
         $stateMachine = app(\App\Services\GroupStateMachine::class);
         if ($stateMachine->isAtLeast($group, 'READY_FOR_FINALIZATION')) {
-            return response()->json(['message' => 'Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.'], 400);
+            return $this->errorResponse('Kelompok sudah terkunci (Ready for Finalization) dan tidak menerima anggota baru.', 400);
         }
 
         // SECURITY FIX: For solo seeker groups, check if title is still APPROVED
@@ -274,7 +273,7 @@ class BursaIdeController extends Controller
         if ($group->is_solo && $group->title_id) {
             $title = \App\Models\Title::find($group->title_id);
             if (! $title || $title->supervisor_approval_status !== 'APPROVED') {
-                return response()->json(['message' => 'Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat menerima anggota baru.'], 400);
+                return $this->errorResponse('Judul kelompok ini telah dibatalkan oleh dosen. Tidak dapat menerima anggota baru.', 400);
             }
         }
 
@@ -286,14 +285,14 @@ class BursaIdeController extends Controller
 
             DB::commit();
 
-            return response()->json([
+            return $this->successResponse([
                 'message' => 'Join request accepted. Student has been added to your group.',
                 'group' => $group->fresh()->load('members.student'),
             ]);
         } catch (\Exception $e) {
             DB::rollBack();
 
-            return response()->json(['message' => 'Failed to accept: '.$e->getMessage()], 500);
+            return $this->errorResponse('Failed to accept: '.$e->getMessage(), 500);
         }
     }
 
@@ -309,7 +308,7 @@ class BursaIdeController extends Controller
             ->first();
 
         if (! $joinRequest) {
-            return response()->json(['message' => 'Join request not found or already processed.'], 404);
+            return $this->notFoundResponse('Join request not found or already processed.');
         }
 
         // Verify current user is leader of the target group
@@ -319,7 +318,7 @@ class BursaIdeController extends Controller
             ->first();
 
         if (! $leaderMembership) {
-            return response()->json(['message' => 'Only the group leader can reject join requests.'], 403);
+            return $this->unauthorizedResponse('Only the group leader can reject join requests.');
         }
 
         $joinRequest->update(['status' => 'REJECTED']);
@@ -334,7 +333,7 @@ class BursaIdeController extends Controller
             'related_id' => $joinRequest->group_id,
         ]);
 
-        return response()->json(['message' => 'Join request rejected.']);
+        return $this->successResponse(null, 'Join request rejected.');
     }
 
     private function buildBursaFlowPayload($user): array

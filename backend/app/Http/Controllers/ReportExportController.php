@@ -7,12 +7,13 @@ use App\Models\Group;
 use App\Models\PeerReview;
 use App\Models\User;
 use App\Repositories\AssessmentScoreRepository;
-use App\Services\GradeCalculationService;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ReportExportController extends Controller
 {
+    use ApiResponseTrait;
+
     /**
      * Export data as CSV.
      * Supported types: assessments, peer-reviews, grade-consistency, groups
@@ -31,7 +32,7 @@ class ReportExportController extends Controller
             'grade-consistency' => $this->exportGradeConsistency($periodId),
             'groups' => $this->exportGroups($periodId),
             'final-grades' => $this->exportFinalGrades($periodId),
-            default => response()->json(['message' => 'Unknown report type'], 400),
+            default => $this->errorResponse('Unknown report type', 400),
         };
     }
 
@@ -282,7 +283,7 @@ class ReportExportController extends Controller
      */
     private function exportFinalGrades($periodId): StreamedResponse
     {
-        $gradeService = new GradeCalculationService;
+        $gradeService = app(\App\Services\GradeCalculationService::class);
 
         // Get all groups in the period with their members (include soft-deleted)
         $groups = Group::where('period_id', $periodId)

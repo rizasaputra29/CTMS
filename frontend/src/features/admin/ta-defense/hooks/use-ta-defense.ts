@@ -2,7 +2,6 @@
 
 import { useState, useMemo, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import axios from 'axios';
 import api from '@/lib/api';
 import { toast } from 'sonner';
 import type {
@@ -16,6 +15,8 @@ import type {
     StatusFilter,
 } from '../types';
 import type { TaDefenseFormData } from '@/lib/validations/ta-defense';
+
+const QUERY_KEY = ['admin', 'ta-defense'] as const;
 
 function isStatusFilter(value: string): value is StatusFilter {
     return ['ALL', 'SCHEDULED', 'DONE', 'CANCELLED'].includes(value);
@@ -38,7 +39,7 @@ interface UseTaDefenseReturn {
     handleSort: (key: SortKey) => void;
     filteredSchedules: TaDefenseSchedule[];
     isLoading: boolean;
-    fetchEligibleGroups: (periodId: string) => Promise<void>;
+    fetchEligibleGroups: (periodId: string) => void;
     createSchedule: (data: TaDefenseFormData) => Promise<void>;
     updateSchedule: (variables: { id: number; data: TaDefenseFormData; periodId: number }) => Promise<void>;
     cancelSchedule: (id: number) => Promise<void>;
@@ -50,6 +51,7 @@ interface UseTaDefenseReturn {
 export function useTaDefense(): UseTaDefenseReturn {
     const queryClient = useQueryClient();
     const [selectedPeriod, setSelectedPeriod] = useState<string>('all');
+    const [dialogPeriodId, setDialogPeriodId] = useState<string>('');
     const [searchQuery, setSearchQuery] = useState('');
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
     const [sortKey, setSortKey] = useState<SortKey>('date');
@@ -77,7 +79,7 @@ export function useTaDefense(): UseTaDefenseReturn {
     });
 
     const { data: locations = [], isLoading: isLoadingLocations } = useQuery<Location[]>({
-        queryKey: ['locations'],
+        queryKey: [...QUERY_KEY, 'locations'],
         queryFn: async () => {
             const res = await api.get('/locations');
             return res.data?.data || [];
@@ -86,7 +88,7 @@ export function useTaDefense(): UseTaDefenseReturn {
     });
 
     const { data: schedules = [], isLoading: isLoadingSchedules } = useQuery<TaDefenseSchedule[]>({
-        queryKey: ['admin', 'ta-defense-schedules', selectedPeriod],
+        queryKey: [...QUERY_KEY, 'schedules', selectedPeriod],
         queryFn: async () => {
             const params: Record<string, string> = {};
             if (selectedPeriod) {
@@ -98,33 +100,28 @@ export function useTaDefense(): UseTaDefenseReturn {
         enabled: isEnabled,
     });
 
-    const { data: eligibleGroups = [], isLoading: isLoadingEligible } = useQuery<EligibleStudentData[]>({
-        queryKey: ['admin', 'ta-defense-schedules', 'eligible-students', selectedPeriod],
+    const { data: eligibleGroups = [] } = useQuery<EligibleStudentData[]>({
+        queryKey: [...QUERY_KEY, 'schedules', 'eligible-students', dialogPeriodId],
         queryFn: async () => {
-            if (!selectedPeriod || selectedPeriod === 'all') return [];
+            if (!dialogPeriodId) return [];
             const res = await api.get('/admin/ta-defense-schedules/eligible-students', {
-                params: { period_id: selectedPeriod },
+                params: { period_id: dialogPeriodId },
             });
             return res.data.data || [];
         },
-        enabled: isEnabled && !!selectedPeriod && selectedPeriod !== 'all',
+        enabled: isEnabled && !!dialogPeriodId,
     });
 
-    const fetchEligibleGroups = useCallback(async (periodId: string) => {
-        if (!periodId || periodId === 'all') return;
-        await queryClient.fetchQuery({
-            queryKey: ['admin', 'ta-defense-schedules', 'eligible-students', periodId],
-            queryFn: async () => {
-                const res = await api.get('/admin/ta-defense-schedules/eligible-students', {
-                    params: { period_id: periodId },
-                });
-                return res.data.data || [];
-            },
-        });
-    }, [queryClient]);
+    const fetchEligibleGroups = useCallback((periodId: string) => {
+        if (!periodId || periodId === 'all') {
+            setDialogPeriodId('');
+            return;
+        }
+        setDialogPeriodId(periodId);
+    }, []);
 
     const invalidateSchedules = useCallback(() => {
-        queryClient.invalidateQueries({ queryKey: ['admin', 'ta-defense-schedules'] });
+        queryClient.invalidateQueries({ queryKey: QUERY_KEY });
     }, [queryClient]);
 
     const createMutation = useMutation({
@@ -148,10 +145,7 @@ export function useTaDefense(): UseTaDefenseReturn {
             invalidateSchedules();
         },
         onError: (error: unknown) => {
-            const message = axios.isAxiosError(error)
-                ? (error.response?.data?.message as string) || 'Failed to create schedule'
-                : 'Failed to create schedule';
-            toast.error(message);
+            toast.error(api.getApiErrorMessage(error, 'Failed to create schedule'));
         },
     });
 
@@ -174,10 +168,7 @@ export function useTaDefense(): UseTaDefenseReturn {
             invalidateSchedules();
         },
         onError: (error: unknown) => {
-            const message = axios.isAxiosError(error)
-                ? (error.response?.data?.message as string) || 'Failed to update schedule'
-                : 'Failed to update schedule';
-            toast.error(message);
+            toast.error(api.getApiErrorMessage(error, 'Failed to update schedule'));
         },
     });
 
@@ -190,8 +181,8 @@ export function useTaDefense(): UseTaDefenseReturn {
             toast.success('Schedule cancelled');
             invalidateSchedules();
         },
-        onError: () => {
-            toast.error('Failed to cancel schedule');
+        onError: (error: unknown) => {
+            toast.error(api.getApiErrorMessage(error, 'Failed to cancel schedule'));
         },
     });
 
@@ -248,7 +239,7 @@ export function useTaDefense(): UseTaDefenseReturn {
         return filteredAndSorted.filter(s => s.status === statusFilter);
     }, [filteredAndSorted, statusFilter]);
 
-    const isLoading = isLoadingPeriods || isLoadingDosens || isLoadingLocations || isLoadingSchedules || isLoadingEligible;
+    const isLoading = isLoadingPeriods || isLoadingDosens || isLoadingLocations || isLoadingSchedules;
 
     return {
         periods,

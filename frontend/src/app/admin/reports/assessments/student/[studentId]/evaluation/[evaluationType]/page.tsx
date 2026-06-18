@@ -155,7 +155,7 @@ const getScoreColor = (score: number | null): string => {
     return 'text-red-600';
 };
 
-function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; index: number }) {
+function EvaluatorSection({ evaluator, index, studentId, evaluationType, periodId }: { evaluator: EvaluatorData; index: number; studentId: string | null; evaluationType: string | null; periodId: string | null }) {
     const [isOpen, setIsOpen] = useState(true);
     const statusConfig = getStatusConfig(evaluator.status);
     const progressPercent = evaluator.total_components > 0 
@@ -170,6 +170,10 @@ function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; inde
     ];
     const color = colors[index % colors.length];
 
+    const evaluatorDetailUrl = evaluator.evaluator_id && studentId && evaluationType
+        ? `/admin/reports/assessments/student/${studentId}/evaluation/${evaluationType}/evaluator/${evaluator.evaluator_id}?period_id=${periodId}`
+        : null;
+
     return (
         <Collapsible open={isOpen} onOpenChange={setIsOpen}>
             <Card className={`${color.border} overflow-hidden`}>
@@ -182,7 +186,15 @@ function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; inde
                                     <User className="h-6 w-6" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-xl">{evaluator.name}</CardTitle>
+                                    <CardTitle className="text-xl">
+                                        {evaluatorDetailUrl ? (
+                                            <Link href={evaluatorDetailUrl} className="hover:underline" onClick={(e) => e.stopPropagation()}>
+                                                {evaluator.name}
+                                            </Link>
+                                        ) : (
+                                            evaluator.name
+                                        )}
+                                    </CardTitle>
                                     <CardDescription className="text-sm mt-1">
                                         {ROLE_LABELS[evaluator.role] || evaluator.role}
                                     </CardDescription>
@@ -243,7 +255,7 @@ function EvaluatorSection({ evaluator, index }: { evaluator: EvaluatorData; inde
                                             </TableCell>
                                             <TableCell className="text-center">{component.weight}%</TableCell>
                                             <TableCell className="text-center font-medium text-blue-600">
-                                                {component.normalized_weight.toFixed(1)}%
+                                                {component.normalized_weight?.toFixed(1) ?? '–'}%
                                             </TableCell>
                                             <TableCell className="text-center">
                                                 {component.score !== null ? (
@@ -601,7 +613,14 @@ export default function EvaluationDetailPage() {
                 </h2>
                 
                 {data.evaluators.map((evaluator, index) => (
-                    <EvaluatorSection key={evaluator.evaluator_id || index} evaluator={evaluator} index={index} />
+                    <EvaluatorSection 
+                        key={evaluator.evaluator_id || index} 
+                        evaluator={evaluator} 
+                        index={index} 
+                        studentId={studentId}
+                        evaluationType={evaluationType}
+                        periodId={periodId}
+                    />
                 ))}
             </div>
 
