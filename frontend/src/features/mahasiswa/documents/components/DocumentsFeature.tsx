@@ -71,8 +71,8 @@ export function DocumentsFeature() {
                     api.get('/mahasiswa/workflow'),
                     api.get('/mahasiswa/documents'),
                 ]);
-                setWorkflow(workflowRes.data);
-                setDocuments(docsRes.data?.data || []);
+                setWorkflow(workflowRes.data?.data ?? workflowRes.data);
+                setDocuments(docsRes.data?.data ?? docsRes.data ?? []);
             }
         } catch (error) {
             console.error('Failed to fetch data', error);

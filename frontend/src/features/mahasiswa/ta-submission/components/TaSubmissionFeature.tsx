@@ -132,8 +132,8 @@ export function TaSubmissionFeature() {
         api.get('/mahasiswa/ta-detailed-status'),
         api.get('/mahasiswa/workflow').catch(() => ({ data: null })),
       ]);
-      setStatusData(taRes.data);
-      setWorkflowData(workflowRes.data);
+      setStatusData(taRes.data?.data ?? taRes.data);
+      setWorkflowData(workflowRes.data?.data ?? workflowRes.data);
     } catch (err: unknown) {
       console.error('Failed to fetch TA data', err);
       if (api.isAxiosError(err) && err.response?.status === 400) {
@@ -189,7 +189,8 @@ export function TaSubmissionFeature() {
     try {
       setGradesLoading(true);
       const response = await api.get('/mahasiswa/my-grades');
-      const grades: { ta: GradeSection | null } | null = response.data?.grades || null;
+      const responseData = response.data?.data ?? response.data;
+      const grades: { ta: GradeSection | null } | null = responseData?.grades || null;
       setGradesData(grades?.ta || null);
     } catch (err) {
       console.error('Failed to fetch grades', err);

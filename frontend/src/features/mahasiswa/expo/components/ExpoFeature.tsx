@@ -57,8 +57,12 @@ export function ExpoFeature() {
             toast.success('Successfully withdrawn from expo.');
             fetchEvents();
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Withdrawal failed'));
-            else toast.error('Withdrawal failed');
+            let message = 'Withdrawal failed';
+            if (api.isAxiosError(error)) {
+                const serverMessage = api.getApiErrorMessage(error, '');
+                if (serverMessage) message = serverMessage;
+            }
+            toast.error(message);
         } finally {
             setWithdrawing(null);
         }

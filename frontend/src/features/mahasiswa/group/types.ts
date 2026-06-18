@@ -50,4 +50,5 @@ export interface JoinRequest {
 export interface NotificationItem {
     type: string;
     message: string;
+    is_read?: boolean;
 }

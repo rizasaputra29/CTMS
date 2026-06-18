@@ -107,9 +107,10 @@ export function GroupFeature() {
     useEffect(() => {
         const checkWithdrawalNotification = async () => {
             try {
-                const response = await api.get('/notifications/unread');
-                const withdrawalNotif = response.data?.find(
-                    (n: NotificationItem) => n.type === 'title_approval_withdrawn'
+                const response = await api.get('/notifications');
+                const notifications = response.data?.data ?? response.data ?? [];
+                const withdrawalNotif = notifications.find(
+                    (n: NotificationItem) => n.type === 'title_approval_withdrawn' && !n.is_read
                 );
 
                 if (withdrawalNotif) {

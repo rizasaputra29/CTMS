@@ -276,6 +276,7 @@ class ExpoEventController extends Controller
             ->unique();
         $documentsMap = ExpoStudentDocument::where('expo_registration_id', $registration->id)
             ->whereIn('student_id', $memberIds)
+            ->get()
             ->keyBy('student_id');
 
         // Map members with their evaluation & document status
