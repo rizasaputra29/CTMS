@@ -44,7 +44,7 @@ export function usePeriodWizard({
     queryKey: [...QUERY_KEY, "evaluation-setup"],
     queryFn: async () => {
       const response = await api.get("/admin/evaluation-setup/check");
-      return response.data as { hasTemplates: boolean; message: string };
+      return (response.data?.data ?? response.data) as { hasTemplates: boolean; message: string };
     },
     staleTime: Infinity,
     retry: false,

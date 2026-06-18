@@ -93,4 +93,19 @@ class AssessmentComponentTemplateController extends Controller
 
         return $this->successResponse(null, 'Template deleted');
     }
+
+    /**
+     * Check if evaluation setup (templates) exist for the period wizard.
+     */
+    public function check()
+    {
+        $count = AssessmentComponentTemplate::where('is_active', true)->count();
+
+        return $this->successResponse([
+            'hasTemplates' => $count > 0,
+            'message' => $count > 0
+                ? "Tersedia {$count} komponen asesment"
+                : 'Belum ada komponen asesment. Silakan buat terlebih dahulu di Bank Soal.',
+        ]);
+    }
 }

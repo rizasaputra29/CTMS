@@ -36,7 +36,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const storedRole = localStorage.getItem("activeRole");
         const response = await api.get("/user");
-        const userData = response.data.data;
+        const userData = response.data?.data;
+        if (!userData) {
+          throw new Error("No user data in response");
+        }
         setUser(userData);
 
         if (storedRole && userData.roles?.includes(storedRole)) {

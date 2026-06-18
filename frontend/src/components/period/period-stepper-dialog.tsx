@@ -158,7 +158,7 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
         setCheckingSetup(true);
         try {
             const response = await api.get('/admin/evaluation-setup/check');
-            setEvaluationSetup(response.data);
+            setEvaluationSetup(response.data?.data ?? response.data);
         } catch {
             setEvaluationSetup({ hasTemplates: true, message: 'Evaluation setup available' });
         } finally {

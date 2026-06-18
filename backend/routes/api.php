@@ -51,30 +51,7 @@ Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
 
 Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
-    Route::get('/user', function (Request $request) {
-        $user = $request->user()->load('roles:id,name,slug');
-        $activeRole = null;
-
-        if ($request->hasSession()) {
-            $activeRole = $request->session()->get('active_role');
-        }
-
-        $roles = $user->roleSlugs();
-        if (! $activeRole) {
-            $activeRole = count($roles) > 0 ? $roles[0] : null;
-        }
-
-        return response()->json([
-            'id' => $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'nip' => $user->nip,
-            'nim' => $user->nim,
-            'is_active' => $user->is_active,
-            'roles' => $roles,
-            'active_role' => $activeRole,
-        ]);
-    });
+    Route::get('/user', [AuthController::class, 'me']);
 
     Route::get('/user/roles', [RoleController::class, 'index']);
     Route::post('/user/active-role', [RoleController::class, 'setActiveRole']);
@@ -172,6 +149,9 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'show']);
         Route::put('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'update']);
         Route::delete('/assessment-templates/{id}', [AssessmentComponentTemplateController::class, 'destroy']);
+
+        // Evaluation Setup Check (used by period wizard)
+        Route::get('/evaluation-setup/check', [AssessmentComponentTemplateController::class, 'check']);
 
         // Period Assessment Configuration (pilih komponen dari bank soal)
         Route::get('/periods/{period}/assessment-config', [PeriodAssessmentConfigController::class, 'show']);
