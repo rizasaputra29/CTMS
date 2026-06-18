@@ -40,7 +40,7 @@ ssh ${VPS_USER}@${VPS_IP} << 'REMOTE_SCRIPT'
     }
     
     echo "[2/6] Pulling latest code..."
-    git pull origin main || {
+    git pull origin dev || {
         echo "Git pull failed. Please check your repository configuration."
         exit 1
     }
