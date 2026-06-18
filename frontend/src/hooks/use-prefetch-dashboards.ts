@@ -23,7 +23,7 @@ const queryKeys = {
 // Fetch functions
 const fetchAdminDashboard = async () => {
   const response = await api.get("/admin/dashboard");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchAdminPeriods = async () => {
@@ -33,39 +33,39 @@ const fetchAdminPeriods = async () => {
 
 const fetchAdminGroups = async () => {
   const response = await api.get("/admin/groups", { params: { per_page: 5 } });
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchDosenDashboard = async (periodId?: string) => {
   const params = periodId ? { period_id: periodId } : undefined;
   const response = await api.get("/dosen/dashboard", { params });
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchDosenSupervised = async (periodId?: string) => {
   const params = periodId ? { period_id: periodId } : undefined;
   const response = await api.get("/dosen/groups/supervised", { params });
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchDosenEvalCount = async () => {
   const response = await api.get("/dosen/supervisor-evaluation/pending-count");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchMahasiswaMyPeriod = async () => {
   const response = await api.get("/mahasiswa/my-period");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchMahasiswaDashboard = async () => {
   const response = await api.get("/mahasiswa/dashboard");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchMahasiswaWorkflow = async () => {
   const response = await api.get("/mahasiswa/dashboard/workflow");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 export function usePrefetchDashboards() {

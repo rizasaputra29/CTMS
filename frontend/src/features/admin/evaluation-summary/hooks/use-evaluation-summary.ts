@@ -10,7 +10,7 @@ const QUERY_KEY = ['admin', 'evaluation-summary'] as const;
 
 async function fetchEvaluationSummary(scheduleId: string): Promise<EvaluationSummaryData> {
     const res = await api.get(`/admin/supervisor-evaluation/schedules/${scheduleId}/summary`);
-    return res.data;
+    return res.data?.data ?? res.data;
 }
 
 async function exportEvaluationSummary(scheduleId: string) {

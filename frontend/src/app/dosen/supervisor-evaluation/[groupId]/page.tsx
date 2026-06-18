@@ -90,20 +90,20 @@ export default function SupervisorEvaluationDetailPage() {
       setLoading(true);
       const studentParam = studentId ? `&student_id=${studentId}` : '';
       const response = await api.get(`/dosen/supervisor-evaluation/form/${groupId}?type=${evaluationType}${studentParam}`);
-      const data = response.data;
+      const data = response.data?.data ?? response.data;
       
       setGroup(data.group);
       setSchedule(data.schedule);
-      setComponents(data.components);
-      setStudents(data.students);
+      setComponents(data.components ?? []);
+      setStudents(data.students ?? []);
 
       // Initialize scores and notes
       const initialScores: Record<string, number> = {};
       const initialNotes: Record<string, string> = {};
       let hasExistingScores = false;
 
-      data.students.forEach((student: Student) => {
-        student.scores.forEach((score: StudentScore) => {
+      (data.students ?? []).forEach((student: Student) => {
+        (student.scores ?? []).forEach((score: StudentScore) => {
           const key = `${score.period_component_id}_${student.id}`;
           initialScores[key] = score.score || 0;
           initialNotes[key] = score.notes || '';

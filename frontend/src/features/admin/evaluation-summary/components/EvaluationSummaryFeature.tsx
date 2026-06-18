@@ -52,8 +52,8 @@ export function EvaluationSummaryFeature({ scheduleId }: EvaluationSummaryFeatur
 
     const evaluationTypes = (() => {
         const types = new Set<string>();
-        data.summary.forEach((student) => {
-            Object.keys(student.scores).forEach((type) => types.add(type));
+        (data.summary ?? []).forEach((student) => {
+            Object.keys(student.scores ?? {}).forEach((type) => types.add(type));
         });
         return Array.from(types);
     })();
@@ -121,7 +121,7 @@ export function EvaluationSummaryFeature({ scheduleId }: EvaluationSummaryFeatur
 
                     {evaluationTypes.map((type) => (
                         <TabsContent key={type} value={type} className="space-y-6">
-                            {data.summary.map((studentData) => (
+                            {(data.summary ?? []).map((studentData) => (
                                 <Card key={studentData.student.id}>
                                     <CardHeader>
                                         <CardTitle className="text-lg">

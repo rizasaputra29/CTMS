@@ -36,7 +36,7 @@ export function useTaEvaluation(scheduleId: string) {
                 });
             }
 
-            data.components.forEach((component) => {
+            (data.components ?? []).forEach((component) => {
                 const key = formatScoringKey(component.id, studentId);
                 if (initialScores[key] === undefined) {
                     initialScores[key] = 0;

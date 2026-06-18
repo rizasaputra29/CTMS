@@ -15,17 +15,17 @@ const QUERY_KEY = ["admin", "dashboard"] as const;
 
 const fetchDashboard = async (): Promise<AdminDashboardResponse> => {
     const response = await api.get('/admin/dashboard');
-    return response.data;
+    return response.data?.data ?? response.data;
 };
 
 const fetchPeriods = async (): Promise<AdminPeriodsResponse> => {
     const response = await api.get('/admin/periods');
-    return response.data;
+    return response.data?.data ?? response.data;
 };
 
 const fetchGroups = async (): Promise<AdminGroupsResponse> => {
     const response = await api.get('/admin/groups', { params: { per_page: 5 } });
-    return response.data;
+    return response.data?.data ?? response.data;
 };
 
 export function useAdminDashboard() {

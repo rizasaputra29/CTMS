@@ -16,7 +16,7 @@ const fetchDashboard = async (
 ): Promise<DashboardResponse> => {
   const params = periodId ? { period_id: periodId } : undefined;
   const response = await api.get("/dosen/dashboard", { params });
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchSupervised = async (
@@ -24,12 +24,12 @@ const fetchSupervised = async (
 ): Promise<SupervisedResponse> => {
   const params = periodId ? { period_id: periodId } : undefined;
   const response = await api.get("/dosen/groups/supervised", { params });
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 const fetchEvalCount = async (): Promise<EvalCountResponse> => {
   const response = await api.get("/dosen/supervisor-evaluation/pending-count");
-  return response.data;
+  return response.data?.data ?? response.data;
 };
 
 interface UseDosenDashboardReturn {

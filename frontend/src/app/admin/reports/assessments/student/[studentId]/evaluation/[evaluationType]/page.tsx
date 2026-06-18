@@ -407,7 +407,7 @@ export default function EvaluationDetailPage() {
         csvRows.push(['EVALUATORS']);
         csvRows.push(['Evaluator Name', 'Role', 'Status', 'Score', 'Components Scored', 'Total Components']);
         
-        data.evaluators.forEach(evaluator => {
+        (data.evaluators ?? []).forEach(evaluator => {
             csvRows.push([
                 evaluator.name,
                 ROLE_LABELS[evaluator.role] || evaluator.role,
@@ -423,12 +423,12 @@ export default function EvaluationDetailPage() {
         csvRows.push([]);
         csvRows.push(['COMPONENT DETAILS']);
         
-        data.evaluators.forEach(evaluator => {
+        (data.evaluators ?? []).forEach(evaluator => {
             csvRows.push([]);
             csvRows.push(['Evaluator', evaluator.name]);
             csvRows.push(['Component', 'Weight', 'Normalized Weight', 'Score', 'Notes', 'Date']);
             
-            evaluator.components.forEach(component => {
+            (evaluator.components ?? []).forEach(component => {
                 csvRows.push([
                     `${component.component_name} (${component.component_code})`,
                     `${component.weight}%`,
@@ -441,13 +441,13 @@ export default function EvaluationDetailPage() {
         });
         
         // Add unassigned components if any
-        if (data.unassigned.total > 0) {
+        if (data.unassigned?.total > 0) {
             csvRows.push([]);
             csvRows.push([]);
             csvRows.push(['UNASSIGNED COMPONENTS']);
             csvRows.push(['Component', 'Weight', 'Score', 'Notes', 'Date']);
             
-            data.unassigned.components.forEach(component => {
+            (data.unassigned?.components ?? []).forEach(component => {
                 csvRows.push([
                     `${component.component_name} (${component.component_code})`,
                     `${component.weight}%`,

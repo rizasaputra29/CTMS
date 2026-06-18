@@ -46,7 +46,7 @@ export function useFinalizationActions(): UseFinalizationActionsReturn {
 
       if (response.data.failed_count > 0) {
         toast.error(`Failed to assign ${response.data.failed_count} group(s)`);
-        response.data.results.failed.forEach((fail) => {
+        (response.data.results?.failed ?? []).forEach((fail) => {
           toast.error(`Group ${fail.group_id}: ${fail.reason}`);
         });
       }

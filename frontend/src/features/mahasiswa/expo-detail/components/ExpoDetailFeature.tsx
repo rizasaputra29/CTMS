@@ -36,11 +36,12 @@ export function ExpoDetailFeature() {
         try {
             setLoading(true);
             const res = await api.get(`/mahasiswa/expo-events/${expoId}/detail`);
-            setData(res.data);
+            const unwrapped = res.data?.data ?? res.data;
+            setData(unwrapped);
 
             const initialScores: Record<string, number> = {};
             const initialNotes: Record<string, string> = {};
-            res.data.my_scores.forEach((s: MyScore) => {
+            (unwrapped?.my_scores ?? []).forEach((s: MyScore) => {
                 initialScores[s.period_component_id] = s.score ?? 0;
                 initialNotes[s.period_component_id] = s.notes ?? '';
             });
@@ -129,7 +130,7 @@ export function ExpoDetailFeature() {
     const calculateWeightedScore = () => {
         if (!data) return '0.00';
         let total = 0;
-        data.components.forEach(comp => {
+        (data.components ?? []).forEach(comp => {
             total += ((scores[comp.id] || 0) * comp.weight) / 100;
         });
         return total.toFixed(2);

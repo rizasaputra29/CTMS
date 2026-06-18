@@ -201,7 +201,7 @@ export default function EvaluatorDetailPage() {
         csvRows.push(['Components']);
         csvRows.push(['Component', 'Code', 'Weight', 'Normalized Weight', 'Score', 'Notes', 'Date']);
         
-        evaluator.components.forEach(component => {
+        (evaluator.components ?? []).forEach(component => {
             csvRows.push([
                 component.component_name,
                 component.component_code,
@@ -218,7 +218,7 @@ export default function EvaluatorDetailPage() {
         csvRows.push(['Calculation Breakdown']);
         csvRows.push(['Component', 'Score', 'Weight', 'Weighted Score']);
         
-        evaluator.calculation_summary.breakdown.forEach(item => {
+        (evaluator.calculation_summary?.breakdown ?? []).forEach(item => {
             csvRows.push([
                 item.component,
                 item.score.toString(),

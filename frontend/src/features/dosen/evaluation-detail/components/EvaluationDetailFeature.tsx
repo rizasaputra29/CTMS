@@ -60,10 +60,13 @@ export function EvaluationDetailFeature({
             setLoading(true)
             const isTaDefenseWithSchedule = type === 'TA_DEFENSE' && Boolean(scheduleId)
             const contextId = isTaDefenseWithSchedule ? scheduleId : evaluationId
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const response = await api.get(`/dosen/evaluation-context/${type}/${contextId}`, {
                 params: isTaDefenseWithSchedule ? { schedule_id: scheduleId } : undefined,
             })
-            const data = response.data as EvaluationContext
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const raw: any = (response.data as any)?.data ?? response.data
+            const data: EvaluationContext = raw as EvaluationContext
             setContext(data)
 
             // Determine if view-only mode (completed evaluation)
@@ -84,14 +87,15 @@ export function EvaluationDetailFeature({
             const initialScores: Record<string, number> = {}
             const initialNotes: Record<string, string> = {}
             
-            data.components.forEach((comp: AssessmentComponent) => {
-                students.forEach((student: Student) => {
-                    const key = `${comp.id}_${student.id}`
+            const comp = data.components || []
+            for (const c of comp) {
+                for (const student of students) {
+                    const key = `${c.id}_${student.id}`
                     const existing = data.existing_scores?.[key]
                     initialScores[key] = existing ? parseFloat(existing.score) : 0
                     initialNotes[key] = existing ? (existing.notes || '') : ''
-                })
-            })
+                }
+            }
             setScores(initialScores)
             setNotes(initialNotes)
         } catch (error) {
