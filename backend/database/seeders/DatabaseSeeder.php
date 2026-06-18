@@ -21,6 +21,7 @@ class DatabaseSeeder extends Seeder
             DosenHomebaseSeeder::class,
             TitleSeeder::class,
             GroupSeeder::class,
+            AssessmentComponentTemplateSeeder::class,
         ]);
     }
 }

@@ -137,7 +137,8 @@ class Period extends Model
     public function registeredStudents()
     {
         return $this->belongsToMany(User::class, 'period_registrations')
-            ->withTimestamps();
+            ->withTimestamps()
+            ->wherePivot('status', 'active');
     }
 
     /**

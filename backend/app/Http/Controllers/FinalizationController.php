@@ -1851,6 +1851,7 @@ class FinalizationController extends Controller
 
         // Validate students are registered for this period
         $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $period->id)
+            ->where('status', 'active')
             ->whereIn('user_id', $request->student_ids)
             ->pluck('user_id');
 

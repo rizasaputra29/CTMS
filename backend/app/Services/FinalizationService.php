@@ -551,9 +551,11 @@ class FinalizationService
         ];
 
         $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $periodId)
+            ->where('status', 'active')
             ->pluck('user_id');
 
         $assignedStudentIds = \App\Models\GroupMember::where('period_id', $periodId)
+            ->whereNull('deleted_at')
             ->pluck('student_id')
             ->unique();
 
@@ -649,9 +651,11 @@ class FinalizationService
     {
         // 1. Student Registration Stats (always real-time)
         $registeredStudentIds = \App\Models\PeriodRegistration::where('period_id', $periodId)
+            ->where('status', 'active')
             ->pluck('user_id');
 
         $assignedStudentIds = \App\Models\GroupMember::where('period_id', $periodId)
+            ->whereNull('deleted_at')
             ->pluck('student_id')
             ->unique();
 

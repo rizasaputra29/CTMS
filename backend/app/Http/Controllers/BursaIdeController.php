@@ -257,7 +257,19 @@ class BursaIdeController extends Controller
             return response()->json(['message' => 'Only the group leader can accept join requests.'], 403);
         }
 
+        $requester = $joinRequest->requester;
+
         $group = Group::with('period')->find($joinRequest->group_id);
+
+        // Check if requester has been flagged from this period
+        $isFlagged = PeriodRegistration::where('user_id', $requester->id)
+            ->where('period_id', $group->period_id)
+            ->where('status', 'flagged')
+            ->exists();
+
+        if ($isFlagged) {
+            return response()->json(['message' => 'Mahasiswa ini di-flag dari periode ini dan tidak dapat bergabung dengan kelompok.'], 403);
+        }
 
         if (! $group || ! in_array($group->status, self::SOLO_STATUSES)) {
             return response()->json(['message' => 'Group is not accepting members.'], 400);

@@ -383,15 +383,38 @@ class GradeConfigurationController extends Controller
     {
         $user = $request->user();
 
-        // Get student's group
-        $groupMember = \App\Models\GroupMember::with('group.period')
+        // Get the student's latest period registration (active or flagged) to determine grades period
+        $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
+            ->whereIn('status', ['active', 'flagged'])
+            ->whereHas('period')
+            ->with('period')
+            ->latest('updated_at')
+            ->first();
+
+        if (! $registration || ! $registration->period) {
+            return response()->json([
+                'message' => 'You are not registered for any period',
+                'grades' => null,
+            ], 404);
+        }
+
+        $period = $registration->period;
+
+        // Find the student's group in that period, including soft-deleted memberships for flagged students
+        $groupMember = \App\Models\GroupMember::withTrashed()
+            ->with('group.period')
             ->where('student_id', $user->id)
+            ->where('period_id', $period->id)
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'message' => 'You are not assigned to any group',
                 'grades' => null,
+                'period' => [
+                    'id' => $period->id,
+                    'name' => $period->name,
+                ],
             ], 404);
         }
 
@@ -425,8 +448,8 @@ class GradeConfigurationController extends Controller
                 'name' => $group->name,
             ],
             'period' => [
-                'id' => $group->period->id,
-                'name' => $group->period->name,
+                'id' => $period->id,
+                'name' => $period->name,
             ],
             'student' => [
                 'id' => $user->id,
@@ -443,15 +466,38 @@ class GradeConfigurationController extends Controller
     {
         $student = \App\Models\User::findOrFail($studentId);
 
-        // Get student's group
-        $groupMember = \App\Models\GroupMember::with('group.period')
+        // Get the student's latest period registration (active or flagged) to determine grades period
+        $registration = \App\Models\PeriodRegistration::where('user_id', $studentId)
+            ->whereIn('status', ['active', 'flagged'])
+            ->whereHas('period')
+            ->with('period')
+            ->latest('updated_at')
+            ->first();
+
+        if (! $registration || ! $registration->period) {
+            return response()->json([
+                'message' => 'Student is not registered for any period',
+                'grades' => null,
+            ], 404);
+        }
+
+        $period = $registration->period;
+
+        // Find the student's group in that period, including soft-deleted memberships for flagged students
+        $groupMember = \App\Models\GroupMember::withTrashed()
+            ->with('group.period')
             ->where('student_id', $studentId)
+            ->where('period_id', $period->id)
             ->first();
 
         if (! $groupMember || ! $groupMember->group) {
             return response()->json([
                 'message' => 'Student is not assigned to any group',
                 'grades' => null,
+                'period' => [
+                    'id' => $period->id,
+                    'name' => $period->name,
+                ],
             ], 404);
         }
 
@@ -470,8 +516,8 @@ class GradeConfigurationController extends Controller
                 'name' => $group->name,
             ],
             'period' => [
-                'id' => $group->period->id,
-                'name' => $group->period->name,
+                'id' => $period->id,
+                'name' => $period->name,
             ],
             'student' => [
                 'id' => $student->id,

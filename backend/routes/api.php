@@ -372,10 +372,10 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
 
         // Digital Signatures (dosen)
         Route::get('/digital-signatures', [DigitalSignatureController::class, 'mySignatures']);
-
-        // Student Flagging (dosen)
-        Route::post('/groups/{group}/flag-student', [GroupController::class, 'flagStudent']);
     });
+
+    // Student Flagging (dosen or admin)
+    Route::middleware(['role:admin,dosen'])->post('/dosen/groups/{group}/flag-student', [GroupController::class, 'flagStudent']);
 
     // ────────────────────────────────
     // Mahasiswa Routes
@@ -436,6 +436,7 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         // Period Registration
         Route::get('/periods/{periodId}/check-registration', [RegistrationController::class, 'check']);
         Route::post('/periods/register', [RegistrationController::class, 'register']);
+        Route::post('/periods/{periodId}/confirm-flag', [RegistrationController::class, 'confirmFlag']);
     });
 
     // Group 2: Restricted — only AFTER period finalization

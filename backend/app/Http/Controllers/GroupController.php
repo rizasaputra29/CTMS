@@ -62,9 +62,10 @@ class GroupController extends Controller
                 $period = Period::find($request->period_id);
             }
 
-            // 2. If no period_id, find the period the user is registered in
+            // 2. If no period_id, find the period the user is actively registered in
             if (! $period) {
                 $registration = \App\Models\PeriodRegistration::where('user_id', $user->id)
+                    ->where('status', 'active')
                     ->first();
                 if ($registration) {
                     $period = Period::find($registration->period_id);
@@ -669,10 +670,21 @@ class GroupController extends Controller
             return response()->json(['message' => 'Kelompok sudah penuh. Cari kelompok lain atau buat kelompok baru.'], 400);
         }
 
+        // Check if user has been flagged from this period
+        $isFlagged = PeriodRegistration::where('user_id', $user->id)
+            ->where('period_id', $group->period_id)
+            ->where('status', 'flagged')
+            ->exists();
+
+        if ($isFlagged) {
+            return response()->json(['message' => 'Anda di-flag dari periode ini dan tidak dapat bergabung dengan kelompok. Hubungi admin.'], 403);
+        }
+
         // Check if user is registered for the group's period
         // If not, auto-register them to maintain data consistency
         $isRegistered = PeriodRegistration::where('user_id', $user->id)
             ->where('period_id', $group->period_id)
+            ->where('status', 'active')
             ->exists();
 
         $autoRegistered = false;
@@ -1430,7 +1442,8 @@ class GroupController extends Controller
     /**
      * Flag a student from the group's period.
      *
-     * Only supervisors (supervisor_1 or supervisor_2) of this group can flag students.
+     * Admins can flag any student in the group's period.
+     * Dosen must be a supervisor (supervisor_1 or supervisor_2) of this group.
      * The student will be soft-removed from their group while preserving their scores.
      *
      * @param  Request  $request  The HTTP request containing student_id and optional reason
@@ -1438,21 +1451,24 @@ class GroupController extends Controller
      * @return JsonResponse Success response with flagging confirmation
      *
      * @throws \Illuminate\Validation\ValidationException If validation fails
-     * @throws \Illuminate\Auth\Access\AuthorizationException If user is not a supervisor
+     * @throws \Illuminate\Auth\Access\AuthorizationException If user is not authorized
      */
     public function flagStudent(Request $request, Group $group): JsonResponse
     {
         $user = Auth::user();
 
-        // Only dosen role can flag students
-        if (! $user->hasRole('dosen')) {
-            return response()->json(['message' => 'Only lecturers can flag students.'], 403);
+        // Only dosen or admin can flag students
+        if (! $user->hasRole('dosen') && ! $user->hasRole('admin')) {
+            return response()->json(['message' => 'Only lecturers or admins can flag students.'], 403);
         }
 
-        // Verify the dosen is a supervisor of this group
-        $isSupervisor = $group->supervisor_1_id === $user->id || $group->supervisor_2_id === $user->id;
-        if (! $isSupervisor) {
-            return response()->json(['message' => 'You are not a supervisor of this group.'], 403);
+        // Dosen must be a supervisor of this group, unless they are also an admin.
+        // Admins can flag any student from the admin panel without being a supervisor.
+        if (! $user->hasRole('admin') && $user->hasRole('dosen')) {
+            $isSupervisor = $group->supervisor_1_id === $user->id || $group->supervisor_2_id === $user->id;
+            if (! $isSupervisor) {
+                return response()->json(['message' => 'You are not a supervisor of this group.'], 403);
+            }
         }
 
         // Validate request
@@ -1470,9 +1486,9 @@ class GroupController extends Controller
             return response()->json(['message' => 'Group is not associated with a period.'], 400);
         }
 
-        // Call StudentFlagService to flag the student
+        // Call StudentFlagService to request flagging the student
         $flagService = app(StudentFlagService::class);
-        $flagService->flagStudent(
+        $flagService->requestFlag(
             $period,
             $student,
             $user,
@@ -1480,7 +1496,7 @@ class GroupController extends Controller
         );
 
         return response()->json([
-            'message' => 'Student flagged successfully.',
+            'message' => 'Permintaan pengeluaran mahasiswa telah dikirim. Mahasiswa harus mengkonfirmasi melalui notifikasi.',
             'student_id' => $student->id,
             'period_id' => $period->id,
         ]);

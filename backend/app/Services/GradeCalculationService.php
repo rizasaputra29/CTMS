@@ -662,12 +662,6 @@ class GradeCalculationService
      */
     private function getStudentEvaluationScore(int $studentId, int $groupId, string $evaluationType): ?float
     {
-        // Check if student is flagged from this period - flagged students cannot receive new scores
-        $flagService = app(StudentFlagService::class);
-        if (! $flagService->canBeScored($studentId, $groupId)) {
-            return null;
-        }
-
         if (! AssessmentScoreRepository::isSupportedType($evaluationType)) {
             return null;
         }
@@ -990,9 +984,9 @@ class GradeCalculationService
             return null;
         }
 
-        // Get the student's group in the latest period
+        // Get the student's group in the latest period (include soft-deleted memberships for flagged students)
         $latestGroup = \App\Models\Group::where('period_id', $latestPeriodId)
-            ->whereHas('members', fn ($q) => $q->where('student_id', $studentId))
+            ->whereHas('members', fn ($q) => $q->withTrashed()->where('student_id', $studentId))
             ->first();
 
         if (! $latestGroup) {

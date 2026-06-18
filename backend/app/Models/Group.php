@@ -100,12 +100,13 @@ class Group extends Model
 
     public function members()
     {
-        return $this->hasMany(GroupMember::class);
+        return $this->hasMany(GroupMember::class)->whereNull('deleted_at');
     }
 
     public function students()
     {
-        return $this->belongsToMany(User::class, 'group_members', 'group_id', 'student_id');
+        return $this->belongsToMany(User::class, 'group_members', 'group_id', 'student_id')
+            ->wherePivotNull('deleted_at');
     }
 
     public function bids()

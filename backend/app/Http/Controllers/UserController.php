@@ -39,10 +39,13 @@ class UserController extends Controller
             $query->where('is_active', $statusFilter === 'active');
         }
 
-        // Load registeredPeriods untuk mahasiswa
+        // Load registeredPeriods untuk mahasiswa (active registrations only,
+        // since flagged registrations are kept for audit and grades but the student
+        // is no longer an active participant).
         if ($roleFilter === 'mahasiswa' || $roleFilter === 'all') {
             $query->with(['registeredPeriods' => function ($q) {
-                $q->select('periods.id', 'periods.name');
+                $q->wherePivot('status', 'active')
+                    ->select('periods.id', 'periods.name');
             }]);
         }
 
@@ -320,6 +323,10 @@ class UserController extends Controller
             return response()->json(['message' => 'Mahasiswa tidak terdaftar pada periode ini.'], 404);
         }
 
+        if ($registration->status === 'flagged') {
+            return response()->json(['message' => 'Mahasiswa sudah di-flag dari periode ini.'], 409);
+        }
+
         // Get group memberships for affected groups tracking
         $membershipRows = GroupMember::where('student_id', $student->id)
             ->where('period_id', $period->id)
@@ -349,7 +356,7 @@ class UserController extends Controller
         try {
             $flagService = app(StudentFlagService::class);
 
-            $flagService->flagStudent(
+            $flagService->requestFlag(
                 $period,
                 $student,
                 $admin,
@@ -383,9 +390,9 @@ class UserController extends Controller
             ]);
 
             return response()->json([
-                'message' => "Mahasiswa {$student->name} berhasil dikeluarkan dari periode {$period->name}.",
+                'message' => "Permintaan pengeluaran mahasiswa {$student->name} dari periode {$period->name} telah dikirim. Mahasiswa harus mengkonfirmasi melalui notifikasi.",
                 'removed_group_memberships' => $membershipRows->count(),
-                'affected_groups' => $affectedGroupIds->values(),
+                'affected_groups' => $membershipRows->pluck('group_id')->values(),
                 'invalidated_invitations' => $invalidatedInvitationsCount,
                 'invalidated_join_requests' => $invalidatedJoinRequestsCount,
                 'kicked_student' => [
@@ -432,14 +439,15 @@ class UserController extends Controller
 
         $file = $request->file('file');
         $handle = fopen($file->getPathname(), 'r');
-        if (!$handle) {
+        if (! $handle) {
             return response()->json(['message' => 'Failed to read file.'], 400);
         }
 
         // Read and normalize header
         $header = fgetcsv($handle);
-        if (!$header) {
+        if (! $header) {
             fclose($handle);
+
             return response()->json(['message' => 'CSV file is empty or invalid.'], 400);
         }
         $header = array_map(fn ($h) => strtolower(trim($h)), $header);
@@ -468,32 +476,37 @@ class UserController extends Controller
             $nip = trim($data['nip'] ?? '');
             $password = trim($data['password'] ?? '');
 
-            if (!$name || !$email || !$role) {
+            if (! $name || ! $email || ! $role) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: name, email, and role are required.";
+
                 continue;
             }
 
-            if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            if (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: invalid email format.";
+
                 continue;
             }
 
             if (User::where('email', $email)->exists()) {
                 $skipped++;
+
                 continue;
             }
 
-            if (!in_array($role, $allowedRoles, true)) {
+            if (! in_array($role, $allowedRoles, true)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: invalid role '{$role}'.";
+
                 continue;
             }
 
             if ($role === 'mahasiswa' && (empty($nim) || strlen($nim) < 8)) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: NIM required for mahasiswa and must be at least 8 characters.";
+
                 continue;
             }
 
@@ -501,6 +514,7 @@ class UserController extends Controller
             if ($roleIds->isEmpty()) {
                 $failed++;
                 $errors[] = "Row {$rowNum}: role '{$role}' not found in database.";
+
                 continue;
             }
 
@@ -536,7 +550,7 @@ class UserController extends Controller
     public function downloadImportTemplate()
     {
         $headers = ['name', 'email', 'role', 'nim', 'nip', 'password'];
-        $csv = implode(',', $headers) . "\n";
+        $csv = implode(',', $headers)."\n";
         $csv .= "Budi Santoso,budi@example.com,mahasiswa,12345678,,\n";
         $csv .= "Dr. Siti Aminah,siti@example.com,dosen,,1987654321,\n";
         $csv .= "Admin Utama,admin@example.com,admin,,,secret123\n";
