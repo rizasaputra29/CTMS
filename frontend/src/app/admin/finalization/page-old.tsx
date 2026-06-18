@@ -156,7 +156,7 @@ export default function FinalizationPage() {
             toast.success('Bidding locked.');
             setIsLocked(true);
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to lock');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Failed to lock'));
             else toast.error('Failed to lock');
         }
     };
@@ -168,7 +168,7 @@ export default function FinalizationPage() {
             toast.success('Bidding unlocked.');
             setIsLocked(false);
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to unlock');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Failed to unlock'));
             else toast.error('Failed to unlock');
         }
     };
@@ -182,7 +182,7 @@ export default function FinalizationPage() {
             setIsFinalized(true);
             fetchData(selectedPeriod);
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to finalize');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Failed to finalize'));
             else toast.error('Failed to finalize');
         } finally {
             setSubmitting(false);
@@ -197,7 +197,7 @@ export default function FinalizationPage() {
             toast.success(`Matchmaker complete! Ghost students processed: ${res.data.stats.ghosts_processed}. Groups filled: ${res.data.stats.groups_filled}. Merged: ${res.data.stats.groups_merged}. Created: ${res.data.stats.blank_groups_created}.`);
             fetchData(selectedPeriod);
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed to run matchmaker');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Failed to run matchmaker'));
             else toast.error('Failed to run matchmaker');
         } finally {
             setSubmitting(false);
@@ -270,7 +270,7 @@ export default function FinalizationPage() {
                                 toast.success('Period reopened for registration.');
                                 setIsFinalized(false);
                             } catch (error) {
-                                if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Failed');
+                                if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Failed'));
                                 else toast.error('Failed');
                             }
                         }} className="h-10">

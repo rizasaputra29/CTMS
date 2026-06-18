@@ -211,7 +211,7 @@ export function PeriodStepperDialog({ open, onOpenChange, editingPeriod, onSucce
         } catch (error: unknown) {
             console.error('Failed to save period', error);
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to save period');
+                toast.error(api.getApiErrorMessage(error, 'Failed to save period'));
             } else {
                 toast.error('Failed to save period');
             }

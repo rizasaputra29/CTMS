@@ -61,7 +61,7 @@ export function TitleDetailFeature() {
             router.push('/mahasiswa/group');
         } catch (error) {
             if (axios.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to bid');
+                toast.error(api.getApiErrorMessage(error, 'Failed to bid'));
             } else {
                 toast.error('Failed to submit bid');
             }

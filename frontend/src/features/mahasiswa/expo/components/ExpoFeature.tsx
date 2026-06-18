@@ -42,7 +42,7 @@ export function ExpoFeature() {
             toast.success('Successfully registered for expo!');
             fetchEvents();
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Registration failed');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Registration failed'));
             else toast.error('Registration failed');
         } finally {
             setRegistering(null);
@@ -57,7 +57,7 @@ export function ExpoFeature() {
             toast.success('Successfully withdrawn from expo.');
             fetchEvents();
         } catch (error) {
-            if (api.isAxiosError(error)) toast.error(error.response?.data?.message || 'Withdrawal failed');
+            if (api.isAxiosError(error)) toast.error(api.getApiErrorMessage(error, 'Withdrawal failed'));
             else toast.error('Withdrawal failed');
         } finally {
             setWithdrawing(null);

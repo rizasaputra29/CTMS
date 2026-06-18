@@ -192,7 +192,7 @@ export function BiddingFeature() {
             toast.success('Urutan prioritas berhasil disimpan');
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Gagal menyimpan urutan');
+                toast.error(api.getApiErrorMessage(error, 'Gagal menyimpan urutan'));
             } else {
                 toast.error('Gagal menyimpan urutan');
             }
@@ -212,7 +212,7 @@ export function BiddingFeature() {
             fetchBids();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                const message = error.response?.data?.message || 'Failed to submit bid';
+                const message = api.getApiErrorMessage(error, 'Failed to submit bid');
                 setFormError('root', { type: 'manual', message });
                 toast.error(message);
             } else {
@@ -230,7 +230,7 @@ export function BiddingFeature() {
             fetchBids();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to delete bid');
+                toast.error(api.getApiErrorMessage(error, 'Failed to delete bid'));
             } else {
                 toast.error('Failed to delete bid');
             }

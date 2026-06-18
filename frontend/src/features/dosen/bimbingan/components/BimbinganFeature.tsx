@@ -100,20 +100,15 @@ export function BimbinganFeature() {
             const response = await api.get(`/dosen/documents/${docId}/download`, {
                 responseType: 'blob',
             });
-            const blobData = response.data?.data ?? response.data;
-            const blob = new Blob(
-                [blobData instanceof Blob ? blobData : blobData as string | ArrayBuffer],
-                { type: String(response.headers['content-type'] || 'application/pdf') }
-            );
+            const blob = new Blob([response.data], {
+                type: String(response.headers['content-type'] || 'application/pdf'),
+            });
             const url = window.URL.createObjectURL(blob);
             window.open(url, '_blank');
             setTimeout(() => window.URL.revokeObjectURL(url), 60000);
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to view document');
-            } else {
-                toast.error('Failed to view document');
-            }
+        } catch (error: unknown) {
+            const message = await api.getApiErrorMessageAsync(error, 'Failed to view document');
+            toast.error(message);
         }
     };
 

@@ -159,7 +159,7 @@ export function ProposeTitleFeature() {
             fetchData();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                const message = error.response?.data?.message || 'Failed to submit proposal';
+                const message = api.getApiErrorMessage(error, 'Failed to submit proposal');
                 setFormError('root', { type: 'manual', message });
                 toast.error(message);
             } else {
@@ -197,7 +197,7 @@ export function ProposeTitleFeature() {
             fetchData();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Gagal membatalkan proposal');
+                toast.error(api.getApiErrorMessage(error, 'Gagal membatalkan proposal'));
             } else {
                 toast.error('Gagal membatalkan proposal');
             }

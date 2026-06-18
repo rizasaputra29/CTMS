@@ -64,4 +64,14 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 401);
             }
         });
+
+        // Handle ModelNotFoundException for API routes (returns JSON instead of HTML)
+        $exceptions->render(function (\Illuminate\Database\Eloquent\ModelNotFoundException $e, \Illuminate\Http\Request $request) {
+            if ($request->is('api/*')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Resource not found',
+                ], 404);
+            }
+        });
     })->create();

@@ -89,7 +89,7 @@ export function ExpoDetailFeature() {
             toast.success('Self-evaluation berhasil disimpan');
             fetchDetail();
         } catch (error) {
-            toast.error(api.isAxiosError(error) ? error.response?.data?.message || 'Gagal menyimpan' : 'Gagal menyimpan');
+            toast.error(api.isAxiosError(error) ? api.getApiErrorMessage(error, 'Gagal menyimpan') : 'Gagal menyimpan');
         } finally {
             setSaving(false);
         }
@@ -120,7 +120,7 @@ export function ExpoDetailFeature() {
             toast.success('Dokumen berhasil diupload');
             fetchDetail();
         } catch (error) {
-            toast.error(api.isAxiosError(error) ? error.response?.data?.message || 'Gagal upload' : 'Gagal upload');
+            toast.error(api.isAxiosError(error) ? api.getApiErrorMessage(error, 'Gagal upload') : 'Gagal upload');
         } finally {
             setUploading(false);
             if (fileInputRef.current) fileInputRef.current.value = '';

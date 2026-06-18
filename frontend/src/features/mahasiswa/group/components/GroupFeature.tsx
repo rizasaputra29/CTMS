@@ -61,7 +61,7 @@ export function GroupFeature() {
             setNotRegistered(false);
         } catch (error: unknown) {
             if (api.isAxiosError(error)) {
-                const errorMessage = error.response?.data?.message || '';
+                const errorMessage = api.getApiErrorMessage(error, '');
                 // Check if error is about not being registered
                 if (error.response?.status === 404 || 
                     errorMessage.toLowerCase().includes('not registered') ||
@@ -143,7 +143,7 @@ export function GroupFeature() {
             fetchJoinRequests();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to accept request');
+                toast.error(api.getApiErrorMessage(error, 'Failed to accept request'));
             } else {
                 toast.error('Failed to accept request');
             }
@@ -160,7 +160,7 @@ export function GroupFeature() {
             fetchJoinRequests();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to reject request');
+                toast.error(api.getApiErrorMessage(error, 'Failed to reject request'));
             } else {
                 toast.error('Failed to reject request');
             }
@@ -197,13 +197,13 @@ export function GroupFeature() {
             window.dispatchEvent(new Event('group-created'));
         } catch (error) {
             if (api.isAxiosError(error)) {
-                const errorMessage = error.response?.data?.message || '';
+                const errorMessage = api.getApiErrorMessage(error, '');
                 if (errorMessage.toLowerCase().includes('not registered') ||
                     errorMessage.toLowerCase().includes('belum terdaftar')) {
                     toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
                     setNotRegistered(true);
                 } else {
-                    toast.error(error.response?.data?.message || 'Failed to create group');
+                    toast.error(api.getApiErrorMessage(error, 'Failed to create group'));
                 }
             } else {
                 toast.error('Failed to create group');
@@ -239,13 +239,13 @@ export function GroupFeature() {
             window.dispatchEvent(new Event('group-created'));
         } catch (error) {
             if (api.isAxiosError(error)) {
-                const errorMessage = error.response?.data?.message || '';
+                const errorMessage = api.getApiErrorMessage(error, '');
                 if (errorMessage.toLowerCase().includes('not registered') ||
                     errorMessage.toLowerCase().includes('belum terdaftar')) {
                     toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
                     setNotRegistered(true);
                 } else {
-                    toast.error(error.response?.data?.message || 'Failed to register as solo seeker');
+                    toast.error(api.getApiErrorMessage(error, 'Failed to register as solo seeker'));
                 }
             } else {
                 toast.error('Failed to register as solo seeker');
@@ -264,7 +264,7 @@ export function GroupFeature() {
             setMyGroup(null);
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to delete group');
+                toast.error(api.getApiErrorMessage(error, 'Failed to delete group'));
             } else {
                 toast.error('Failed to delete group');
             }
@@ -282,7 +282,7 @@ export function GroupFeature() {
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to leave group');
+                toast.error(api.getApiErrorMessage(error, 'Failed to leave group'));
             } else {
                 toast.error('Failed to leave group');
             }
@@ -302,7 +302,7 @@ export function GroupFeature() {
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                const message = error.response?.data?.message || 'Failed to add member';
+                const message = api.getApiErrorMessage(error, 'Failed to add member');
                 setFormError(message);
             } else {
                 setFormError('Failed to add member');
@@ -320,7 +320,7 @@ export function GroupFeature() {
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to remove member');
+                toast.error(api.getApiErrorMessage(error, 'Failed to remove member'));
             } else {
                 toast.error('Failed to remove member');
             }
@@ -337,7 +337,7 @@ export function GroupFeature() {
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Gagal menandai siap finalisasi');
+                toast.error(api.getApiErrorMessage(error, 'Gagal menandai siap finalisasi'));
             } else {
                 toast.error('Gagal menandai siap finalisasi');
             }
@@ -356,7 +356,7 @@ export function GroupFeature() {
             fetchGroup();
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Gagal membatalkan status');
+                toast.error(api.getApiErrorMessage(error, 'Gagal membatalkan status'));
             } else {
                 toast.error('Gagal membatalkan status');
             }

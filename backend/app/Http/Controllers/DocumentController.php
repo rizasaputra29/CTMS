@@ -499,7 +499,11 @@ class DocumentController extends Controller
     public function download(Request $request, string $id)
     {
         $user = Auth::user();
-        $document = Document::with('group')->findOrFail($id);
+        $document = Document::with('group')->find($id);
+
+        if (! $document) {
+            return $this->notFoundResponse('Document not found');
+        }
 
         // Check authorization based on role
         $roles = $user->roleSlugs();

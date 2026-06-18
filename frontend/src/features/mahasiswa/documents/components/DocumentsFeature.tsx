@@ -127,12 +127,11 @@ export function DocumentsFeature() {
             setUploadOpen(false);
             setFile(null);
             fetchData();
-        } catch (error) {
-            if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Upload failed');
-            } else {
-                toast.error('Upload failed');
-            }
+        } catch (error: unknown) {
+            const message = api.isAxiosError(error)
+                ? (error.response?.data?.message || error.message || 'Upload failed')
+                : 'Upload failed';
+            toast.error(message);
         } finally {
             setUploading(false);
         }
@@ -168,7 +167,7 @@ export function DocumentsFeature() {
             const response = await api.get(`/mahasiswa/documents/${docId}/download`, {
                 responseType: 'blob',
             });
-            
+
             const blob = new Blob([response.data]);
             const url = window.URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -178,9 +177,12 @@ export function DocumentsFeature() {
             link.click();
             document.body.removeChild(link);
             window.URL.revokeObjectURL(url);
-        } catch (error) {
+        } catch (error: unknown) {
             console.error('Failed to download document:', error);
-            toast.error('Failed to download document');
+            const message = api.isAxiosError(error)
+                ? (error.response?.data?.message || error.message || 'Failed to download document')
+                : 'Failed to download document';
+            toast.error(message);
         }
     };
 

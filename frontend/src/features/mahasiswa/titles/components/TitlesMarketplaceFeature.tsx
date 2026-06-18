@@ -205,7 +205,7 @@ export function TitlesMarketplaceFeature() {
             }
         } catch (error) {
             if (api.isAxiosError(error)) {
-                toast.error(error.response?.data?.message || 'Failed to send join request');
+                toast.error(api.getApiErrorMessage(error, 'Failed to send join request'));
             }
         } finally {
             setSubmitting(false);

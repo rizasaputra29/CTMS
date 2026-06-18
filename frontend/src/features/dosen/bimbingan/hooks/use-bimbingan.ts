@@ -53,8 +53,11 @@ export function useBimbingan(periodId?: string, groupId?: string) {
             queryClient.invalidateQueries({ queryKey: ['dosen-bimbingan'] });
             toast.success('Document reviewed successfully');
         },
-        onError: () => {
-            toast.error('Failed to submit review');
+        onError: (error: unknown) => {
+            const message = api.isAxiosError(error)
+                ? (error.response?.data?.message || error.message || 'Failed to submit review')
+                : 'Failed to submit review';
+            toast.error(message);
         },
     });
 
