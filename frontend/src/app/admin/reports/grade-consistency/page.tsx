@@ -114,8 +114,9 @@ export default function GradeConsistencyReportPage() {
             }
             
             const res = await api.get('/admin/reports/grade-consistency', { params });
-            setChecks(res.data.data);
-            setMeta(res.data.meta);
+            const responseData = res.data?.data ?? res.data;
+            setChecks(Array.isArray(responseData) ? responseData : []);
+            setMeta(res.data?.meta);
         } catch (error) {
             console.error('Failed to fetch grade consistency', error);
             toast.error('Failed to load grade consistency data');

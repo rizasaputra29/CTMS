@@ -18,7 +18,8 @@ export function useMahasiswaDashboard(): UseMahasiswaDashboardReturn {
     queryFn: async () => {
       // Check registration first
       const periodRes = await api.get("/mahasiswa/my-period");
-      const hasRegistration = !!periodRes.data?.period;
+      const periodData = periodRes.data?.data ?? periodRes.data;
+      const hasRegistration = !!periodData?.period;
       if (!hasRegistration) {
         window.location.href = "/mahasiswa/registration";
         return {
@@ -28,9 +29,9 @@ export function useMahasiswaDashboard(): UseMahasiswaDashboardReturn {
           workflow: null,
         };
       }
-      if (periodRes.data?.auto_registered) {
+      if (periodData?.auto_registered) {
         toast.success(
-          periodRes.data?.message ||
+          periodData?.message ||
             "Anda telah terdaftar otomatis berdasarkan grup yang sudah ada."
         );
       }
@@ -48,14 +49,14 @@ export function useMahasiswaDashboard(): UseMahasiswaDashboardReturn {
       let scheduleData: MiniCalendarEvent[] = [];
 
       if (statsRes.status === "fulfilled") {
-        statsData = statsRes.value.data;
+        statsData = statsRes.value.data?.data ?? statsRes.value.data;
         if (statsData?.workflow?.phases && statsData.workflow.phases.length > 0) {
           workflowData = statsData.workflow;
         }
       }
 
       if (groupRes.status === "fulfilled" && groupRes.value) {
-        const raw = groupRes.value.data;
+        const raw = groupRes.value.data?.data ?? groupRes.value.data;
         groupData = raw?.group || raw;
       }
 

@@ -20,11 +20,12 @@ const normalizeEvaluationStatus = (status?: string): DosenEvaluation['status'] =
 const fetchEvaluations = async (periodId?: string): Promise<DosenEvaluation[]> => {
     const periodParam = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
     const res = await api.get(`/dosen/seminar-schedules/examiner${periodParam}`);
-    const seminars: DosenEvaluationSeminarData[] = res.data.data?.seminars || [];
-    const taDefenses: DosenEvaluationSeminarData[] = res.data.data?.ta_defenses || [];
+    const responseData = res.data?.data ?? res.data;
+    const seminars: DosenEvaluationSeminarData[] = responseData?.seminars ?? [];
+    const taDefenses: DosenEvaluationSeminarData[] = responseData?.ta_defenses ?? [];
     const mapped: DosenEvaluation[] = [];
 
-    seminars.forEach((s) => {
+    (seminars ?? []).forEach((s) => {
         const myEval = s.evaluations?.[0];
         if (myEval) {
             mapped.push({
@@ -47,9 +48,9 @@ const fetchEvaluations = async (periodId?: string): Promise<DosenEvaluation[]> =
         }
     });
 
-    taDefenses.forEach((t) => {
+    (taDefenses ?? []).forEach((t) => {
         if (t.evaluations && t.evaluations.length > 0) {
-            t.evaluations.forEach((evalItem) => {
+            (t.evaluations ?? []).forEach((evalItem) => {
                 let student = t.student;
                 if (t.students && t.students.length > 0) {
                     student = t.students.find((s) => s.id === evalItem.student_id) || t.student;

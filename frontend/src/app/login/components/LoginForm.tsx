@@ -45,7 +45,8 @@ export default function LoginForm() {
 
             // Login for all users (single and multi-role) - no role selection dialog
             // Session cookie is set automatically by the server (no token needed)
-            login(res.data.data.user, res.data.data.roles);
+            const responseData = res.data?.data ?? res.data;
+            login(responseData?.user, responseData?.roles ?? []);
             toast.success('Login successful');
         } catch (err: unknown) {
             if (api.isAxiosError(err)) {

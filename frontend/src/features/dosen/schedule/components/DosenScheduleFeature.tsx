@@ -160,7 +160,7 @@ export function DosenScheduleFeature() {
 
     const scheduleStats = useMemo(() => {
         const stats: Record<string, number> = {};
-        schedules.forEach((s) => {
+        (schedules ?? []).forEach((s) => {
             stats[s.type] = (stats[s.type] || 0) + 1;
         });
         return stats;

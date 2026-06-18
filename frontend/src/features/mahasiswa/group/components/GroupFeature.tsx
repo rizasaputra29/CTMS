@@ -56,7 +56,8 @@ export function GroupFeature() {
     const fetchGroup = useCallback(async () => {
         try {
             const response = await api.get('/mahasiswa/group');
-            setMyGroup(response.data.group);
+            const data = response.data?.data ?? response.data;
+            setMyGroup(data?.group || null);
             setNotRegistered(false);
         } catch (error: unknown) {
             if (api.isAxiosError(error)) {
@@ -175,7 +176,8 @@ export function GroupFeature() {
         try {
             // First, fetch the registered period to ensure we use the correct period_id
             const periodRes = await api.get('/mahasiswa/my-period');
-            const periodId = periodRes.data?.period?.id;
+            const periodData = periodRes.data?.data ?? periodRes.data;
+            const periodId = periodData?.period?.id;
 
             if (!periodId) {
                 toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
@@ -187,7 +189,8 @@ export function GroupFeature() {
             toast.success('Group created! You are the group leader.');
 
             // Directly use the group data from response to avoid race condition
-            setMyGroup(response.data?.group || null);
+            const groupResponseData = response.data?.data ?? response.data;
+            setMyGroup(groupResponseData?.group || null);
             setNotRegistered(false);
 
             // Dispatch event to notify other components
@@ -215,7 +218,8 @@ export function GroupFeature() {
         try {
             // First, fetch the registered period to ensure we use the correct period_id
             const periodRes = await api.get('/mahasiswa/my-period');
-            const periodId = periodRes.data?.period?.id;
+            const periodData = periodRes.data?.data ?? periodRes.data;
+            const periodId = periodData?.period?.id;
 
             if (!periodId) {
                 toast.error('Anda belum terdaftar pada periode mana pun. Silakan daftar terlebih dahulu.');
@@ -227,7 +231,8 @@ export function GroupFeature() {
             toast.success('Solo Group created! You can now propose an idea to find members.');
 
             // Directly use the group data from response to avoid race condition
-            setMyGroup(response.data?.group || null);
+            const groupResponseData = response.data?.data ?? response.data;
+            setMyGroup(groupResponseData?.group || null);
             setNotRegistered(false);
 
             // Dispatch event to notify other components

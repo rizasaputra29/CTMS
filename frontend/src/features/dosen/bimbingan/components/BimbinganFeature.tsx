@@ -72,7 +72,7 @@ export function BimbinganFeature() {
 
     const groupedDocuments = useMemo(() => {
         const groupsMap = new Map<number, BimbinganDocument[]>();
-        filteredDocuments.forEach((doc) => {
+        (filteredDocuments ?? []).forEach((doc) => {
             const groupId = doc.group?.id || 0;
             if (!groupsMap.has(groupId)) groupsMap.set(groupId, []);
             groupsMap.get(groupId)!.push(doc);
@@ -100,7 +100,11 @@ export function BimbinganFeature() {
             const response = await api.get(`/dosen/documents/${docId}/download`, {
                 responseType: 'blob',
             });
-            const blob = new Blob([response.data], { type: String(response.headers['content-type'] || 'application/pdf') });
+            const blobData = response.data?.data ?? response.data;
+            const blob = new Blob(
+                [blobData instanceof Blob ? blobData : blobData as string | ArrayBuffer],
+                { type: String(response.headers['content-type'] || 'application/pdf') }
+            );
             const url = window.URL.createObjectURL(blob);
             window.open(url, '_blank');
             setTimeout(() => window.URL.revokeObjectURL(url), 60000);

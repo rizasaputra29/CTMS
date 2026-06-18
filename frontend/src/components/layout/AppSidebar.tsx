@@ -298,10 +298,16 @@ function SidebarSection({
   onOpenChange?: (open: boolean) => void;
   children: React.ReactNode;
 }) {
-  const [internalOpen, setInternalOpen] = useState(() => {
-    const saved = loadSidebarState();
-    return saved ? (saved[sectionId] ?? defaultOpen) : defaultOpen;
-  });
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = loadSidebarState();
+      if (saved && saved[sectionId] !== undefined) {
+        setInternalOpen(saved[sectionId]);
+      }
+    }
+  }, [sectionId]);
 
   const isControlled = isOpen !== undefined;
   const open = isControlled ? isOpen : internalOpen;
@@ -357,10 +363,16 @@ function SidebarCategoryCollapsible({
   isActive?: boolean;
   children: React.ReactNode;
 }) {
-  const [internalOpen, setInternalOpen] = useState(() => {
-    const saved = loadSidebarState();
-    return saved ? (saved[sectionId] ?? false) : false;
-  });
+  const [internalOpen, setInternalOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = loadSidebarState();
+      if (saved && saved[sectionId] !== undefined) {
+        setInternalOpen(saved[sectionId]);
+      }
+    }
+  }, [sectionId]);
 
   const isControlled = isOpen !== undefined;
   const open = isControlled ? isOpen : internalOpen;
@@ -493,27 +505,29 @@ export function AppSidebar() {
   });
 
   // Lifted state from renderMultiRoleSidebar (fixes Rules of Hooks violation)
-  const [openCategory, setOpenCategory] = useState<string | null>(() => {
+  const [openCategory, setOpenCategory] = useState<string | null>(null);
+
+  // Lifted state from renderSingleRoleSidebar (fixes Rules of Hooks violation)
+  const [openItem, setOpenItem] = useState<string | null>(null);
+
+  // Calculate active category/item based on pathname after hydration
+  useEffect(() => {
     const allCategories = [...navItems.admin, ...navItems.dosen];
     const activeCategory = allCategories.find((item) =>
       item.items?.some((sub) => pathname === sub.url)
     );
     if (activeCategory) {
-      return (
+      setOpenCategory(
         categoryIds[activeCategory.title] ||
         activeCategory.title.toLowerCase().replace(/\s+/g, "-")
       );
     }
-    return null;
-  });
 
-  // Lifted state from renderSingleRoleSidebar (fixes Rules of Hooks violation)
-  const [openItem, setOpenItem] = useState<string | null>(() => {
     const activeItem = roleNavItems.find((item) =>
       item.items?.some((sub) => pathname === sub.url)
     );
-    return activeItem?.title || null;
-  });
+    setOpenItem(activeItem?.title || null);
+  }, [pathname]);
 
   // Fetch unread notification count
   useEffect(() => {

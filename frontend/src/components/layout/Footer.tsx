@@ -52,7 +52,7 @@ export function Footer() {
 
         {/* Bottom Bar */}
         <div className="border-t border-zinc-800 dark:border-zinc-200 pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-zinc-500 text-sm">
+          <p className="text-zinc-500 text-sm" suppressHydrationWarning>
             © {new Date().getFullYear()} CTMS. All rights reserved.
           </p>
           <div className="flex items-center gap-6">

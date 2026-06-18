@@ -118,7 +118,8 @@ export default function StudentAssessmentDetailPage() {
                 });
                 
                 // Find the specific student from all results
-                const student = res.data.data.find((s: StudentEvaluations) => 
+                const students = (res.data?.data ?? []) as StudentEvaluations[];
+                const student = students.find((s: StudentEvaluations) =>
                     s.student_id === parseInt(studentId)
                 );
                 
