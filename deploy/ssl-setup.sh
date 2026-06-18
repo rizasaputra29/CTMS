@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # =============================================================================
-# SICATA SSL Setup Script (Let's Encrypt)
-# Run this AFTER the main deployment is working
+# SICATA SSL Setup Script (Self-signed for IP-based HTTPS)
+# Run this ONCE on the VPS to enable HTTPS
 # =============================================================================
 
 set -e  # Exit on error
@@ -17,122 +17,38 @@ echo -e "${YELLOW}=========================================="
 echo "SICATA SSL Certificate Setup"
 echo "==========================================${NC}"
 
-# IP Address (for self-signed cert since Let's Encrypt doesn't support bare IPs)
 VPS_IP="148.230.99.31"
 
-echo -e "${YELLOW}[1/4] Checking Certbot installation...${NC}"
-if ! command -v certbot &> /dev/null; then
-    echo "Certbot not found. Installing..."
-    apt update
-    apt install -y certbot python3-certbot-nginx
-fi
-
-echo -e "${YELLOW}[2/4] Note: Let's Encrypt does not support bare IP addresses.${NC}"
-echo -e "${YELLOW}       For IP-based HTTPS, we'll create a self-signed certificate.${NC}"
-echo -e "${YELLOW}       For production, use a domain name instead.${NC}"
-echo ""
-
-echo -e "${YELLOW}[3/4] Creating self-signed certificate...${NC}"
+echo -e "${YELLOW}[1/4] Creating SSL directory and self-signed certificate...${NC}"
 mkdir -p /etc/ssl/sicata
 
 # Create self-signed certificate
-openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
     -keyout /etc/ssl/sicata/privkey.pem \
     -out /etc/ssl/sicata/fullchain.pem \
-    -subj "/C=ID/ST=JawaTengah/L=Semarang/O=SICATA/CN=${VPS_IP}"
+    -subj "/C=ID/ST=JawaTengah/L=Semarang/O=SICATA/CN=${VPS_IP}" \
+    -addext "subjectAltName=IP:${VPS_IP}"
 
-echo -e "${YELLOW}[4/4] Updating Nginx configuration...${NC}"
+echo -e "${YELLOW}[2/4] Installing nginx config...${NC}"
 
-# Update nginx config with SSL
-cat > /etc/nginx/sites-available/sicata << 'NGINX_SSL'
-server {
-    listen 80;
-    listen [::]:80;
-    server_name 148.230.99.31;
-    return 301 https://$server_name$request_uri;
-}
+# Copy the nginx config from the repo
+cp /var/www/sicata/deploy/nginx-sicata.conf /etc/nginx/sites-available/sicata
 
-server {
-    listen 443 ssl http2;
-    listen [::]:443 ssl http2;
-    server_name 148.230.99.31;
-    
-    root /var/www/sicata/backend/public;
-    index index.php;
+# Remove default site if it exists
+rm -f /etc/nginx/sites-enabled/default
 
-    # SSL Configuration (Self-signed)
-    ssl_certificate /etc/ssl/sicata/fullchain.pem;
-    ssl_certificate_key /etc/ssl/sicata/privkey.pem;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
+# Enable sicata site
+ln -sf /etc/nginx/sites-available/sicata /etc/nginx/sites-enabled/sicata
 
-    # Security headers
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+# Make sure port 80 and 443 are open
+echo -e "${YELLOW}[3/4] Configuring firewall...${NC}"
+if command -v ufw &> /dev/null; then
+    ufw allow 80/tcp 2>/dev/null || true
+    ufw allow 443/tcp 2>/dev/null || true
+    echo "Firewall rules added for ports 80 and 443"
+fi
 
-    # CORS headers
-    add_header 'Access-Control-Allow-Origin' 'https://148.230.99.31:3000' always;
-    add_header 'Access-Control-Allow-Credentials' 'true' always;
-    add_header 'Access-Control-Allow-Methods' 'GET, POST, PUT, DELETE, OPTIONS' always;
-    add_header 'Access-Control-Allow-Headers' 'DNT,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization' always;
-
-    # Logging
-    access_log /var/log/nginx/sicata-access.log;
-    error_log /var/log/nginx/sicata-error.log;
-
-    # Max upload size
-    client_max_body_size 64M;
-
-    # Frontend routes (Next.js)
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    # Backend API routes
-    location /api/ {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    # Sanctum CSRF cookie endpoint
-    location /sanctum/ {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-
-    # PHP handling
-    location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
-        include fastcgi_params;
-        fastcgi_hide_header X-Powered-By;
-        fastcgi_buffers 16 16k;
-        fastcgi_buffer_size 32k;
-    }
-
-    # Deny hidden files
-    location ~ /\.(?!well-known).* {
-        deny all;
-    }
-
-    # Deny sensitive files
-    location ~* (composer\.json|composer\.lock|\.env|\.env\.example|webpack\.mix\.js|vite\.config\.) {
-        deny all;
-    }
-}
-NGINX_SSL
-
-# Test and reload nginx
+echo -e "${YELLOW}[4/4] Testing and reloading nginx...${NC}"
 nginx -t
 systemctl reload nginx
 
@@ -142,10 +58,12 @@ echo "SSL Setup Complete!"
 echo "=========================================="
 echo ""
 echo "Your application is now available at:"
-echo "  Frontend: https://${VPS_IP}:3000"
-echo "  Backend:  https://${VPS_IP}:8000"
+echo "  https://${VPS_IP}"
+echo ""
+echo "Both frontend and backend are served through"
+echo "nginx on port 443 (HTTPS)."
 echo ""
 echo "Note: You may see a security warning because"
 echo "we're using a self-signed certificate."
-echo "For production, use a domain name with Let's Encrypt."
+echo "Click 'Advanced' → 'Proceed' to continue."
 echo "==========================================${NC}"

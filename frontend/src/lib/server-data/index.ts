@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { cache } from 'react';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://148.230.99.31:8000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://148.230.99.31/api';
 
 // Server-safe API call with session cookie forwarding
 async function serverFetch(endpoint: string, options: RequestInit = {}) {

@@ -11,7 +11,7 @@ const getApiUrl = (): string => {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  return "https://148.230.99.31:8000/api";
+  return "https://148.230.99.31/api";
 };
 
 const api = axios.create({

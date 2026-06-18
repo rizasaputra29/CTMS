@@ -26,6 +26,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // CORS must be first
         $middleware->prepend(\Illuminate\Http\Middleware\HandleCors::class);
 
+        // Trust nginx reverse proxy (sets correct protocol/port)
+        $middleware->trustProxies(at: '*');
+
         // Request ID for logging
         $middleware->prepend(\App\Http\Middleware\AssignRequestId::class);
 
