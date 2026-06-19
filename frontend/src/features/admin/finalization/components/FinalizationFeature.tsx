@@ -606,6 +606,10 @@ export function FinalizationFeature() {
         label: 'PDC2 Active',
         className: 'bg-primary-100 text-primary-500 border-primary-300',
       },
+      TA_DRAFT: {
+        label: 'TA Draft',
+        className: 'bg-violet-100 text-violet-700 border-violet-300',
+      },
 
       // ⚪ Forming states (Gray)
       FORMING: {
@@ -649,6 +653,7 @@ export function FinalizationFeature() {
       READY_FOR_SEMPRO: 'Siap untuk Sidang Proposal',
       SEMPRO_DONE: 'Sidang Proposal selesai',
       PDC2_ACTIVE: 'Grup aktif di fase PDC2 (Semester 7-8)',
+      TA_DRAFT: 'Menunggu upload TA Draft',
       PDC2_READY_FOR_EXPO: 'Siap untuk EXPO',
       EXPO_REGISTERED: 'Terdaftar di EXPO',
       EXPO_DONE: 'EXPO selesai',

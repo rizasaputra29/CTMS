@@ -721,6 +721,24 @@ class SupervisorEvaluationController extends Controller
                 }
             }
 
+            // If BIMBINGAN_SEMPRO submitted, check SEMPRO completion (supervisor may submit after examiners)
+            if ($evaluationType === 'BIMBINGAN_SEMPRO') {
+                $group = Group::find($groupId);
+                if ($group && $group->status === 'READY_FOR_SEMPRO') {
+                    $schedulingService = app(\App\Services\SchedulingService::class);
+                    $schedulingService->checkAndCompleteSempro($group);
+                }
+            }
+
+            // If NILAI_DOSEN or MILESTONE submitted, check PDC2_ACTIVE → TA_DRAFT readiness
+            if (in_array($evaluationType, ['NILAI_DOSEN', 'MILESTONE'], true)) {
+                $group = Group::find($groupId);
+                if ($group && $group->status === 'PDC2_ACTIVE') {
+                    $schedulingService = app(\App\Services\SchedulingService::class);
+                    $schedulingService->tryTransitionToTaDraft($group);
+                }
+            }
+
             // Send notification if deadline has passed
             if ($deadlinePassed) {
                 try {

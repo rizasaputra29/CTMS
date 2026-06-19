@@ -364,9 +364,14 @@ class DocumentController extends Controller
         try {
             if ($phase === 'PDC1' && $group->status === 'PDC1_ACTIVE') {
                 $this->stateMachine->transition($group, 'READY_FOR_SEMPRO');
-            } elseif ($phase === 'TA_DRAFT' && $group->status === 'PDC2_ACTIVE') {
-                // TA_DRAFT approved + both supervisors evaluated → transition to PDC2_READY_FOR_EXPO
-                $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+            } elseif ($phase === 'PDC2' && $group->status === 'PDC2_ACTIVE') {
+                // PDC2 documents approved → check TA_DRAFT readiness (NILAI_DOSEN + MILESTONE + PDC2 docs)
+                $schedulingService = app(\App\Services\SchedulingService::class);
+                $schedulingService->tryTransitionToTaDraft($group);
+            } elseif ($phase === 'TA_DRAFT' && $group->status === 'TA_DRAFT') {
+                // TA_DRAFT documents approved → transition to PDC2_READY_FOR_EXPO
+                $schedulingService = app(\App\Services\SchedulingService::class);
+                $schedulingService->tryTransitionToPdc2Ready($group);
             } elseif ($phase === 'EXPO' && $group->status === 'EXPO_REGISTERED') {
                 // EXPO documents approved → check EXPO_DONE readiness
                 $schedulingService = app(\App\Services\SchedulingService::class);

@@ -54,7 +54,7 @@ const PHASE_LABELS: Record<string, string> = {
 const STATUS_ORDER = [
     'FORMING', 'FORMING_SOLO', 'READY_FOR_BIDDING', 'TITLE_PROPOSED', 'TITLE_APPROVED',
     'READY_FOR_FINALIZATION', 'KELOMPOK_FINAL', 'PDC1_ACTIVE', 'READY_FOR_SEMPRO',
-    'SEMPRO_DONE', 'PDC2_ACTIVE', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE',
+    'SEMPRO_DONE', 'PDC2_ACTIVE', 'TA_DRAFT', 'PDC2_READY_FOR_EXPO', 'EXPO_REGISTERED', 'EXPO_DONE',
     'READY_FOR_TA_INDIVIDUAL', 'TA_IN_PROGRESS', 'CLOSED', 'DISSOLVED',
 ];
 
@@ -71,6 +71,7 @@ function getStatusBadge(status: string) {
         'READY_FOR_SEMPRO': { color: 'bg-primary-100 text-primary-500', label: 'Ready Sempro' },
         'SEMPRO_DONE': { color: 'bg-primary-100 text-primary-500', label: 'Sempro Done' },
         'PDC2_ACTIVE': { color: 'bg-cyan-100 text-cyan-700', label: 'PDC2 Active' },
+        'TA_DRAFT': { color: 'bg-violet-100 text-violet-700', label: 'TA Draft' },
         'PDC2_READY_FOR_EXPO': { color: 'bg-pink-100 text-pink-700', label: 'Ready Expo' },
         'EXPO_REGISTERED': { color: 'bg-pink-100 text-pink-700', label: 'Expo Reg' },
         'EXPO_DONE': { color: 'bg-pink-100 text-pink-700', label: 'Expo Done' },

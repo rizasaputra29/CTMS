@@ -23,7 +23,7 @@ import { useSupervisedGroups } from '../hooks/use-supervised-groups';
 const statusProgress: Record<string, number> = {
     'FORMING': 0, 'FORMING_SOLO': 0, 'READY_FOR_BIDDING': 10,
     'KELOMPOK_FINAL': 20, 'PDC1_ACTIVE': 30, 'READY_FOR_SEMPRO': 40,
-    'SEMPRO_DONE': 50, 'PDC2_ACTIVE': 60, 'PDC2_READY_FOR_EXPO': 70,
+    'SEMPRO_DONE': 50, 'PDC2_ACTIVE': 60, 'TA_DRAFT': 65, 'PDC2_READY_FOR_EXPO': 70,
     'EXPO_REGISTERED': 80, 'EXPO_DONE': 90, 'READY_FOR_TA_INDIVIDUAL': 100, 'CLOSED': 100
 };
 

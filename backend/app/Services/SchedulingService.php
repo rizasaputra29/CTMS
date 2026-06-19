@@ -1094,4 +1094,178 @@ class SchedulingService
 
         return 0;
     }
+
+    /**
+     * Check if SEMPRO completion conditions are met and transition if so.
+     * Called from both examiner submission and supervisor BIMBINGAN_SEMPRO submission.
+     *
+     * Conditions:
+     *  1. All examiners must have submitted their evaluations
+     *  2. All supervisors must have submitted BIMBINGAN_SEMPRO evaluations
+     *  3. Final score >= 60 (PASS)
+     */
+    public function checkAndCompleteSempro(Group $group): bool
+    {
+        if ($group->status !== 'READY_FOR_SEMPRO') {
+            return false;
+        }
+
+        // Find SEMPRO schedule
+        $schedule = SeminarSchedule::where('group_id', $group->id)
+            ->where('type', 'SEMPRO')
+            ->where('status', 'SCHEDULED')
+            ->first();
+
+        if (! $schedule) {
+            return false;
+        }
+
+        // 1. Check all examiner evaluations submitted
+        $totalEvals = SeminarEvaluation::where('schedule_id', $schedule->id)->count();
+        $submittedEvals = SeminarEvaluation::where('schedule_id', $schedule->id)
+            ->where('status', 'SUBMITTED')
+            ->count();
+
+        if ($submittedEvals < $totalEvals) {
+            return false;
+        }
+
+        // 2. Check all supervisors submitted BIMBINGAN_SEMPRO
+        if (! $this->checkSupervisorEvaluationsComplete($schedule)) {
+            return false;
+        }
+
+        // All complete — mark schedule COMPLETED and transition group
+        $finalScore = $this->calculateFinalSeminarScore($schedule);
+        $calculatedResult = $finalScore >= 60 ? 'PASS' : 'FAIL';
+
+        $schedule->update([
+            'status' => 'COMPLETED',
+            'result' => $calculatedResult,
+            'final_score' => $finalScore,
+        ]);
+
+        if ($calculatedResult === 'PASS') {
+            $this->stateMachine->transition($group, 'SEMPRO_DONE');
+            $this->stateMachine->transition($group, 'PDC2_ACTIVE');
+        } else {
+            $this->stateMachine->transition($group, 'PDC1_ACTIVE');
+        }
+
+        Log::info("Group {$group->id} SEMPRO completed via checkAndCompleteSempro: {$calculatedResult} (score: {$finalScore})");
+
+        return true;
+    }
+
+    /**
+     * Check if PDC2_ACTIVE → TA_DRAFT transition conditions are met.
+     * Called after NILAI_DOSEN, MILESTONE submissions, or PDC2 document approval.
+     *
+     * Conditions:
+     *  1. All supervisors must have submitted NILAI_DOSEN evaluations
+     *  2. All supervisors must have submitted MILESTONE evaluations
+     *  3. All required PDC2 documents must be approved
+     */
+    public function tryTransitionToTaDraft(Group $group): bool
+    {
+        if ($group->status !== 'PDC2_ACTIVE') {
+            return false;
+        }
+
+        // 1. Check all supervisors have submitted NILAI_DOSEN
+        $supervisorIds = array_filter([
+            $group->supervisor_1_id,
+            $group->supervisor_2_id,
+        ]);
+
+        foreach (['NILAI_DOSEN', 'MILESTONE'] as $type) {
+            foreach ($supervisorIds as $supervisorId) {
+                if (! AssessmentScoreRepository::existsForGroupAndEvaluator($group->id, $supervisorId, $type)) {
+                    Log::info("TA_DRAFT blocked: missing {$type} from supervisor {$supervisorId} for group {$group->id}");
+
+                    return false;
+                }
+            }
+        }
+
+        // 2. Check all required PDC2 documents are approved
+        $requiredTypes = \App\Models\PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', 'PDC2')
+            ->where('is_required', true)
+            ->pluck('name')
+            ->toArray();
+
+        foreach ($requiredTypes as $type) {
+            $hasApproved = Document::where('group_id', $group->id)
+                ->where('phase', 'PDC2')
+                ->where('document_type', $type)
+                ->where('status', 'APPROVED')
+                ->exists();
+
+            if (! $hasApproved) {
+                Log::info("TA_DRAFT blocked: missing approved PDC2 document {$type} for group {$group->id}");
+
+                return false;
+            }
+        }
+
+        // All requirements met — transition
+        try {
+            $this->stateMachine->transition($group, 'TA_DRAFT');
+            Log::info("Group {$group->id} transitioned to TA_DRAFT");
+
+            return true;
+        } catch (\InvalidArgumentException $e) {
+            Log::error("Failed to transition group {$group->id} to TA_DRAFT: ".$e->getMessage());
+
+            return false;
+        }
+    }
+
+    /**
+     * Check if TA_DRAFT → PDC2_READY_FOR_EXPO transition conditions are met.
+     * Called after TA_DRAFT document approval.
+     *
+     * Conditions:
+     *  1. All required TA_DRAFT documents must be approved
+     */
+    public function tryTransitionToPdc2Ready(Group $group): bool
+    {
+        if ($group->status !== 'TA_DRAFT') {
+            return false;
+        }
+
+        // Check all required TA_DRAFT documents are approved
+        $requiredTypes = \App\Models\PhaseDocumentRequirement::where('period_id', $group->period_id)
+            ->where('phase', 'TA_DRAFT')
+            ->where('is_required', true)
+            ->pluck('name')
+            ->toArray();
+
+        foreach ($requiredTypes as $type) {
+            $hasApproved = Document::where('group_id', $group->id)
+                ->where('phase', 'TA_DRAFT')
+                ->where('document_type', $type)
+                ->where('status', 'APPROVED')
+                ->exists();
+
+            if (! $hasApproved) {
+                Log::info("PDC2_READY_FOR_EXPO blocked: missing approved TA_DRAFT document {$type} for group {$group->id}");
+
+                return false;
+            }
+        }
+
+        // All requirements met — transition
+        try {
+            $this->stateMachine->transition($group, 'PDC2_READY_FOR_EXPO');
+            Log::info("Group {$group->id} transitioned to PDC2_READY_FOR_EXPO");
+
+            return true;
+        } catch (\InvalidArgumentException $e) {
+            Log::error("Failed to transition group {$group->id} to PDC2_READY_FOR_EXPO: ".$e->getMessage());
+
+            return false;
+        }
+    }
 }

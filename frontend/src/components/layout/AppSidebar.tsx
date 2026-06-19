@@ -642,6 +642,7 @@ export function AppSidebar() {
       "READY_FOR_SEMPRO",
       "SEMPRO_DONE",
       "PDC2_ACTIVE",
+      "TA_DRAFT",
       "PDC2_READY_FOR_EXPO",
       "EXPO_REGISTERED",
       "EXPO_DONE",
