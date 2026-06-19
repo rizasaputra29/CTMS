@@ -98,12 +98,14 @@ export default function EditTipePenilaianPage() {
         params: { type: typeId },
       });
       
+      const responseData = res.data?.data ?? res.data;
+      
       // Set all templates from assessment bank
-      setAllTemplates(res.data.all_templates || []);
+      setAllTemplates(responseData.all_templates || []);
       
       // Set selected template IDs
       const selectedIds = new Set<number>(
-        (res.data.selected_components || []).map((c: SelectedComponent) => c.template_id)
+        (responseData.selected_components || []).map((c: SelectedComponent) => c.template_id)
       );
       setSelectedTemplateIds(selectedIds);
     } catch {

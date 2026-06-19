@@ -87,12 +87,14 @@ export default function EditPeerReviewPage() {
     try {
       const res = await api.get(`/admin/periods/${selectedPeriod}/peer-review-config`);
       
+      const responseData = res.data?.data ?? res.data;
+      
       // Set all templates from assessment bank
-      const templates = res.data.all_templates || [];
+      const templates = responseData.all_templates || [];
       setAllTemplates(templates.filter((t: Template) => t.is_active));
       
       // Set selected indicators
-      const selected = res.data.selected_indicators || [];
+      const selected = responseData.selected_indicators || [];
       setSelectedIndicators(selected);
       
       // Set selected template IDs
