@@ -28,9 +28,10 @@ async function fetchLocations(): Promise<Location[]> {
 
 async function fetchSchedulesAndGroups(periodId?: string): Promise<{ schedules: Schedule[]; groups: GroupItem[] }> {
     const query = periodId && periodId !== 'all' ? `?period_id=${periodId}` : '';
+    const groupsQuery = periodId && periodId !== 'all' ? `?period_id=${periodId}&per_page=100` : '?per_page=100';
     const [schedulesRes, groupsRes] = await Promise.all([
         api.get(`/admin/sempro/schedules${query}`),
-        api.get(`/admin/groups${query}`),
+        api.get(`/admin/groups${groupsQuery}`),
     ]);
     return {
         schedules: schedulesRes.data?.data || [],

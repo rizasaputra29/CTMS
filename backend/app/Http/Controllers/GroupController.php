@@ -60,7 +60,7 @@ class GroupController extends Controller
         $page = $request->input('page', 1);
         $perPage = $request->input('per_page', 10);
 
-        $query = Group::with(['title', 'members.student', 'period', 'supervisions.supervisor']);
+        $query = Group::with(['title', 'members.student', 'period', 'supervisor1', 'supervisor2', 'supervisions.supervisor']);
 
         if ($request->has('period_id') && $request->period_id !== 'all') {
             $query->where('period_id', $request->period_id);
