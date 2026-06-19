@@ -28,57 +28,52 @@ class S1T26Seeder extends Seeder
         $dosenRole = Role::query()->firstOrCreate(['slug' => 'dosen'], ['name' => 'Dosen']);
         $mahasiswaRole = Role::query()->firstOrCreate(['slug' => 'mahasiswa'], ['name' => 'Mahasiswa']);
 
-        // 2. Create period (always create new, with unique name)
+        // 2. Create or update period
         $baseName = 'Capstone TA S1T26';
-        $name = $baseName;
-        $counter = 2;
-        while (Period::where('name', $name)->exists()) {
-            $name = $baseName.' #'.$counter;
-            $counter++;
-        }
-
-        $period = Period::create([
-            'name' => $name,
-            'start_date' => $now->copy()->subMonths(1)->toDateString(),
-            'end_date' => $now->copy()->addMonths(6)->toDateString(),
-            'is_active' => true,
-            'is_finalized' => false,
-            'allow_solo' => false,
-            'min_group_size' => 3,
-            'max_group_size' => 4,
-            'max_supervise_load' => 6,
-            'max_supervisor_load' => 6,
-            'require_all_students_grouped' => true,
-            'bidding_start' => $now->copy()->subDays(5),
-            'bidding_end' => $now->copy()->addDays(25),
-            'bidding_reminder_at' => null,
-            'pdc1_start' => $now->copy()->addDays(30)->toDateString(),
-            'pdc1_end' => $now->copy()->addDays(45)->toDateString(),
-            'pdc1_reminder_at' => null,
-            'pdc2_start' => $now->copy()->addDays(60)->toDateString(),
-            'pdc2_end' => $now->copy()->addDays(80)->toDateString(),
-            'pdc2_reminder_at' => null,
-            'expo_date' => $now->copy()->addDays(90)->toDateString(),
-            'expo_reminder_at' => null,
-            'ta_start' => $now->copy()->addDays(95)->toDateString(),
-            'ta_end' => $now->copy()->addDays(120)->toDateString(),
-            'ta_reminder_at' => null,
-            'grade_configuration' => json_encode([
-                'pdc1' => ['SEMPRO' => 50, 'BIMBINGAN_SEMPRO' => 50],
-                'pdc2' => ['NILAI_DOSEN' => 25, 'MILESTONE' => 25, 'EXPO' => 25, 'PEER_REVIEW' => 25],
-                'ta' => ['BIMBINGAN_TA' => 50, 'SIDANG_TA' => 50],
-            ]),
-            'phase_dates' => json_encode([
-                'bidding' => ['start' => $now->copy()->subDays(5)->toDateString(), 'end' => $now->copy()->addDays(25)->toDateString()],
-                'pdc1' => ['start' => $now->copy()->addDays(30)->toDateString(), 'end' => $now->copy()->addDays(45)->toDateString()],
-                'pdc2' => ['start' => $now->copy()->addDays(60)->toDateString(), 'end' => $now->copy()->addDays(80)->toDateString()],
-                'expo' => ['start' => $now->copy()->addDays(90)->toDateString(), 'end' => $now->copy()->addDays(90)->toDateString()],
-                'ta' => ['start' => $now->copy()->addDays(95)->toDateString(), 'end' => $now->copy()->addDays(120)->toDateString()],
-            ]),
-        ]);
+        $period = Period::updateOrCreate(
+            ['name' => $baseName],
+            [
+                'start_date' => $now->copy()->subMonths(1)->toDateString(),
+                'end_date' => $now->copy()->addMonths(6)->toDateString(),
+                'is_active' => true,
+                'is_finalized' => false,
+                'allow_solo' => false,
+                'min_group_size' => 3,
+                'max_group_size' => 4,
+                'max_supervise_load' => 6,
+                'max_supervisor_load' => 6,
+                'require_all_students_grouped' => true,
+                'bidding_start' => $now->copy()->subDays(5),
+                'bidding_end' => $now->copy()->addDays(25),
+                'bidding_reminder_at' => null,
+                'pdc1_start' => $now->copy()->addDays(30)->toDateString(),
+                'pdc1_end' => $now->copy()->addDays(45)->toDateString(),
+                'pdc1_reminder_at' => null,
+                'pdc2_start' => $now->copy()->addDays(60)->toDateString(),
+                'pdc2_end' => $now->copy()->addDays(80)->toDateString(),
+                'pdc2_reminder_at' => null,
+                'expo_date' => $now->copy()->addDays(90)->toDateString(),
+                'expo_reminder_at' => null,
+                'ta_start' => $now->copy()->addDays(95)->toDateString(),
+                'ta_end' => $now->copy()->addDays(120)->toDateString(),
+                'ta_reminder_at' => null,
+                'grade_configuration' => json_encode([
+                    'pdc1' => ['SEMPRO' => 50, 'BIMBINGAN_SEMPRO' => 50],
+                    'pdc2' => ['NILAI_DOSEN' => 25, 'MILESTONE' => 25, 'EXPO' => 25, 'PEER_REVIEW' => 25],
+                    'ta' => ['BIMBINGAN_TA' => 50, 'SIDANG_TA' => 50],
+                ]),
+                'phase_dates' => json_encode([
+                    'bidding' => ['start' => $now->copy()->subDays(5)->toDateString(), 'end' => $now->copy()->addDays(25)->toDateString()],
+                    'pdc1' => ['start' => $now->copy()->addDays(30)->toDateString(), 'end' => $now->copy()->addDays(45)->toDateString()],
+                    'pdc2' => ['start' => $now->copy()->addDays(60)->toDateString(), 'end' => $now->copy()->addDays(80)->toDateString()],
+                    'expo' => ['start' => $now->copy()->addDays(90)->toDateString(), 'end' => $now->copy()->addDays(90)->toDateString()],
+                    'ta' => ['start' => $now->copy()->addDays(95)->toDateString(), 'end' => $now->copy()->addDays(120)->toDateString()],
+                ]),
+            ]
+        );
 
         $periodId = $period->id;
-        $this->command->info("Period S1T26 created/updated with ID: {$periodId}");
+        $this->command->info("Period S1T26 created/updated: {$period->name} (ID: {$periodId})");
 
         // 3. Seed dosen
         $dosenData = [
