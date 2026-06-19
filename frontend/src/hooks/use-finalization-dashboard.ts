@@ -149,8 +149,8 @@ export function useFinalizationDashboard(
       if (filters.memberCount && filters.memberCount !== 'all') {
         params.member_count = filters.memberCount;
       }
-      const response = await api.get<DashboardResponse>('/admin/finalization/dashboard', { params });
-      return response.data;
+      const response = await api.get('/admin/finalization/dashboard', { params });
+      return (response.data?.data ?? response.data) as DashboardResponse;
     },
     enabled: !!selectedPeriodId,
   });
