@@ -272,6 +272,7 @@ export function useFinalizationDashboard(
 
   const handleSelectPeriod = useCallback((periodId: number) => {
     setSelectedPeriodId(periodId);
+    setShowPeriodSelector(false);
     setFilters((prev) => ({
       ...prev,
       search: '',
