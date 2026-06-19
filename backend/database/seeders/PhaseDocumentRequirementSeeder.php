@@ -63,6 +63,8 @@ class PhaseDocumentRequirementSeeder extends Seeder
             );
         }
 
-        $this->command->info('Seeded '.count($requirements).' phase document requirements for period_id='.$periodId);
+        if ($this->command) {
+            $this->command->info('Seeded '.count($requirements).' phase document requirements for period_id='.$periodId);
+        }
     }
 }
