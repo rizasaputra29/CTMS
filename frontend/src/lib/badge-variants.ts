@@ -104,3 +104,17 @@ export function getBidStatusBadgeVariant(status: string): NonNullable<BadgeVaria
 export function getProposalStatusBadgeVariant(status: string): NonNullable<BadgeVariant> {
   return getBidStatusBadgeVariant(status);
 }
+
+/**
+ * Get badge variant for supervisor approval status on group detail
+ */
+export function getSupervisorApprovalBadgeVariant(status: string): NonNullable<BadgeVariant> {
+  switch (status) {
+    case 'APPROVED':
+      return 'supervisorApproved';
+    case 'PENDING':
+      return 'supervisorPending';
+    default:
+      return 'supervisorPending';
+  }
+}

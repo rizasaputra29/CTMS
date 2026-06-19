@@ -15,7 +15,7 @@ import {
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/utils';
 import Link from 'next/link';
-import { getGroupStatusBadgeVariant } from '@/lib/badge-variants';
+import { getGroupStatusBadgeVariant, getSupervisorApprovalBadgeVariant } from '@/lib/badge-variants';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -37,12 +37,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 const AVATAR_COLORS = [
   'bg-emerald-100 text-emerald-700 border-emerald-200',
-  'bg-sky-100 text-sky-700 border-sky-200',
+  'bg-indigo-100 text-indigo-700 border-indigo-200',
   'bg-violet-100 text-violet-700 border-violet-200',
   'bg-amber-100 text-amber-700 border-amber-200',
   'bg-rose-100 text-rose-700 border-rose-200',
-  'bg-teal-100 text-teal-700 border-teal-200',
   'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'bg-teal-100 text-teal-700 border-teal-200',
   'bg-orange-100 text-orange-700 border-orange-200',
 ];
 
@@ -270,7 +270,7 @@ export default function GroupDetailClient() {
                                         <span>Proposed by:</span>
                                         <span className="font-medium">{group.title.lecturer.name}</span>
                                     </div>
-                                    <Badge className={`${group.title.supervisor_approval_status === 'APPROVED' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'} text-xs border`}>
+                                    <Badge variant={getSupervisorApprovalBadgeVariant(group.title.supervisor_approval_status)} className="text-xs border">
                                         {group.title.supervisor_approval_status}
                                     </Badge>
                                 </div>

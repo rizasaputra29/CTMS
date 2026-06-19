@@ -37,7 +37,7 @@ type SortDir = 'asc' | 'desc';
 const getPhaseColor = (phase: string): string => {
     const colors: Record<string, string> = {
         PDC1: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-        SEMPRO: 'bg-sky-100 text-sky-700 border-sky-200',
+        SEMPRO: 'bg-indigo-100 text-indigo-700 border-indigo-200',
         PDC2: 'bg-violet-100 text-violet-700 border-violet-200',
         EXPO: 'bg-amber-100 text-amber-700 border-amber-200',
         TA: 'bg-rose-100 text-rose-700 border-rose-200',

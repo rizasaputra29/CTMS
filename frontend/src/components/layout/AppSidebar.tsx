@@ -481,28 +481,7 @@ export function AppSidebar() {
   // Compute single-role navigation items (needed for openItem initializer and renderSingleRoleSidebar)
   const currentRole = activeRole || user?.role || "mahasiswa";
   const safeRoleKey = toNavRoleKey(currentRole);
-  const roleNavItems: NavItem[] = (navItems[safeRoleKey] || []).map((item) => {
-    if (
-      currentRole === "mahasiswa" &&
-      item.title === "Evaluations" &&
-      item.items
-    ) {
-      const allowedStatusesForPeerReview = [
-        "EXPO_REGISTERED",
-        "EXPO_DONE",
-        "READY_FOR_TA_INDIVIDUAL",
-        "TA_IN_PROGRESS",
-        "CLOSED",
-      ];
-      if (!allowedStatusesForPeerReview.includes(groupStatus || "")) {
-        return {
-          ...item,
-          items: item.items.filter((i) => i.title !== "Peer Review"),
-        };
-      }
-    }
-    return item;
-  });
+  const roleNavItems: NavItem[] = navItems[safeRoleKey] || [];
 
   // Lifted state from renderMultiRoleSidebar (fixes Rules of Hooks violation)
   const [openCategory, setOpenCategory] = useState<string | null>(null);
@@ -1013,6 +992,23 @@ export function AppSidebar() {
                                   ];
                                   if (
                                     !expoStatuses.includes(groupStatus || "")
+                                  ) {
+                                    subItemDisabled = true;
+                                  }
+                                }
+                                if (
+                                  !subItemDisabled &&
+                                  subItem.title === "Peer Review"
+                                ) {
+                                  const allowedStatusesForPeerReview = [
+                                    "EXPO_REGISTERED",
+                                    "EXPO_DONE",
+                                    "READY_FOR_TA_INDIVIDUAL",
+                                    "TA_IN_PROGRESS",
+                                    "CLOSED",
+                                  ];
+                                  if (
+                                    !allowedStatusesForPeerReview.includes(groupStatus || "")
                                   ) {
                                     subItemDisabled = true;
                                   }
