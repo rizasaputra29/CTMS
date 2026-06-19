@@ -46,6 +46,7 @@ use App\Http\Controllers\TitleController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\FileController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
@@ -488,4 +489,13 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
     Route::middleware(['role:admin'])->group(function () {
         Route::apiResource('locations', LocationController::class)->except(['index']);
     });
+
+    // ────────────────────────────────
+    // File Management (S3/MinIO Storage)
+    // ────────────────────────────────
+    Route::post('/files/upload', [FileController::class, 'upload']);
+    Route::get('/files', [FileController::class, 'list']);
+    Route::get('/files/download/{path}', [FileController::class, 'download'])->where('path', '.*');
+    Route::get('/files/show/{path}', [FileController::class, 'show'])->where('path', '.*');
+    Route::delete('/files/{path}', [FileController::class, 'delete'])->where('path', '.*');
 });
