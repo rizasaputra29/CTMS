@@ -7,7 +7,6 @@ use App\Models\AssessmentComponentTemplate;
 use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\Period;
-use App\Models\PhaseDocumentRequirement;
 use App\Models\Role;
 use App\Models\Supervision;
 use App\Models\Title;
@@ -260,6 +259,7 @@ class S1T26Seeder extends Seeder
                 $studentId = $mahasiswaByNim[$member['nim']] ?? null;
                 if (! $studentId) {
                     $this->command->warn("Student NIM {$member['nim']} not found.");
+
                     continue;
                 }
 
@@ -294,7 +294,7 @@ class S1T26Seeder extends Seeder
         $this->command->info('S1T26 seeding completed successfully!');
 
         // 7. Seed phase document requirements for this period
-        $this->seedPhaseDocumentRequirements($periodId, $now);
+        (new PhaseDocumentRequirementSeeder)->run($periodId);
 
         // 8. Seed assessment components (legacy) for this period
         $this->seedAssessmentComponents($periodId, $now);
@@ -946,41 +946,6 @@ class S1T26Seeder extends Seeder
         ];
     }
 
-    private function seedPhaseDocumentRequirements(int $periodId, Carbon $now): void
-    {
-        $requirements = [
-            ['phase' => 'PDC1', 'name' => 'C100', 'description' => 'Dokumen CPL C100', 'is_required' => true],
-            ['phase' => 'PDC1', 'name' => 'C200', 'description' => 'Dokumen CPL C200', 'is_required' => true],
-            ['phase' => 'PDC1', 'name' => 'C300', 'description' => 'Dokumen CPL C300', 'is_required' => true],
-            ['phase' => 'SEMPRO', 'name' => 'PPT Presentasi', 'description' => 'Slide presentasi seminar proposal', 'is_required' => true],
-            ['phase' => 'PDC2', 'name' => 'C400', 'description' => 'Dokumen CPL C400', 'is_required' => true],
-            ['phase' => 'PDC2', 'name' => 'C500', 'description' => 'Dokumen CPL C500', 'is_required' => true],
-            ['phase' => 'PDC2', 'name' => 'HKI', 'description' => 'Dokumen Hak Kekayaan Intelektual', 'is_required' => true],
-            ['phase' => 'TA', 'name' => 'TA Draft', 'description' => 'Draft laporan tugas akhir', 'is_required' => true],
-            ['phase' => 'EXPO', 'name' => 'Absen Kehadiran Pengunjung', 'description' => 'Dokumen absensi kehadiran pengunjung expo', 'is_required' => true],
-            ['phase' => 'EXPO', 'name' => 'Nilai Pengunjung', 'description' => 'Form nilai dari pengunjung (di upload di form nilai Expo)', 'is_required' => true],
-            ['phase' => 'SIDANG', 'name' => 'TOEFL/IELTS', 'description' => 'Sertifikat bahasa Inggris TOEFL/IELTS', 'is_required' => true],
-            ['phase' => 'SIDANG', 'name' => 'Turnitin', 'description' => 'Laporan similarity Turnitin', 'is_required' => true],
-            ['phase' => 'SIDANG', 'name' => 'Bukti Nilai', 'description' => 'Dokumen bukti nilai fase sebelumnya', 'is_required' => true],
-        ];
-
-        foreach ($requirements as $req) {
-            PhaseDocumentRequirement::updateOrCreate(
-                [
-                    'period_id' => $periodId,
-                    'phase' => $req['phase'],
-                    'name' => $req['name'],
-                ],
-                [
-                    'description' => $req['description'],
-                    'is_required' => $req['is_required'],
-                ]
-            );
-        }
-
-        $this->command->info('Seeded '.count($requirements).' phase document requirements for period_id='.$periodId);
-    }
-
     private function seedAssessmentComponents(int $periodId, Carbon $now): void
     {
         $this->call(AssessmentComponentTemplateSeeder::class);
@@ -1003,6 +968,7 @@ class S1T26Seeder extends Seeder
                 $template = $templates->get($code);
                 if (! $template) {
                     $this->command->warn("Template {$code} not found, skipping.");
+
                     continue;
                 }
 

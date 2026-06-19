@@ -8,17 +8,19 @@ use Illuminate\Database\Seeder;
 
 class PhaseDocumentRequirementSeeder extends Seeder
 {
-    public function run(): void
+    public function run(?int $periodId = null): void
     {
-        $period = Period::where('is_active', true)->first();
+        if ($periodId === null) {
+            $period = Period::where('is_active', true)->latest()->first();
 
-        if (! $period) {
-            $this->command->error('No active period found. Please create an active period first.');
+            if (! $period) {
+                $this->command->error('No active period found. Please create an active period first.');
 
-            return;
+                return;
+            }
+
+            $periodId = $period->id;
         }
-
-        $periodId = $period->id;
 
         $requirements = [
             // PDC1 (3 dokumen)
