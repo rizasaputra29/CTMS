@@ -16,6 +16,7 @@ class ExpoStudentDocument extends Model
         'group_id',
         'student_id',
         'file_path',
+        'storage_location',
         'original_name',
         'status',
     ];
