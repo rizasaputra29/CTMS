@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Period;
 use App\Models\PhaseDocumentRequirement;
 use Illuminate\Database\Seeder;
 
@@ -9,7 +10,15 @@ class PhaseDocumentRequirementSeeder extends Seeder
 {
     public function run(): void
     {
-        $periodId = 1;
+        $period = Period::where('is_active', true)->first();
+
+        if (! $period) {
+            $this->command->error('No active period found. Please create an active period first.');
+
+            return;
+        }
+
+        $periodId = $period->id;
 
         $requirements = [
             // PDC1 (3 dokumen)
