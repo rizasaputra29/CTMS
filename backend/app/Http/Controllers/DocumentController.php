@@ -8,6 +8,7 @@ use App\Models\Group;
 use App\Models\GroupMember;
 use App\Models\PhaseDocumentRequirement;
 use App\Repositories\AssessmentScoreRepository;
+use App\Services\DocumentStorageService;
 use App\Services\GroupStateMachine;
 use App\Services\WorkflowService;
 use Illuminate\Http\Request;
@@ -25,10 +26,13 @@ class DocumentController extends Controller
 
     protected WorkflowService $workflowService;
 
-    public function __construct(GroupStateMachine $stateMachine, WorkflowService $workflowService)
+    protected DocumentStorageService $documentStorage;
+
+    public function __construct(GroupStateMachine $stateMachine, WorkflowService $workflowService, DocumentStorageService $documentStorage)
     {
         $this->stateMachine = $stateMachine;
         $this->workflowService = $workflowService;
+        $this->documentStorage = $documentStorage;
     }
 
     // Workflow phase order - referenced from WorkflowService
@@ -222,7 +226,12 @@ class DocumentController extends Controller
             }
         }
 
-        $path = $request->file('file')->store('documents', 'public');
+        // V6: Upload to S3 with dual-storage fallback support
+        $path = $this->documentStorage->store(
+            $request->file('file'),
+            'documents',
+            $groupMember->group_id
+        );
 
         // V5: Replace (overwrite) existing document instead of creating new version
         $existingDoc = Document::where('group_id', $groupMember->group_id)
@@ -231,14 +240,15 @@ class DocumentController extends Controller
             ->first();
 
         if ($existingDoc) {
-            // Delete old file from storage
-            if ($existingDoc->file_path && Storage::disk('public')->exists($existingDoc->file_path)) {
-                Storage::disk('public')->delete($existingDoc->file_path);
+            // Delete old file from both storages
+            if ($existingDoc->file_path) {
+                $this->documentStorage->delete($existingDoc->file_path);
             }
 
             // Update existing record (overwrite)
             $existingDoc->update([
                 'file_path' => $path,
+                'storage_location' => 's3',
                 'status' => 'SUBMITTED',
                 'feedback' => null, // Reset feedback on resubmit
             ]);
@@ -253,6 +263,7 @@ class DocumentController extends Controller
             'phase' => $request->phase,
             'document_type' => $request->document_type ?? 'GENERAL',
             'file_path' => $path,
+            'storage_location' => 's3',
             'version' => 1,
             'status' => 'SUBMITTED',
         ]);
@@ -537,16 +548,29 @@ class DocumentController extends Controller
             return $this->unauthorizedResponse('Unauthorized');
         }
 
-        // Check if file exists
-        if (! $document->file_path || ! Storage::disk('public')->exists($document->file_path)) {
+        // V6: Check both S3 and local storage for file (fallback support)
+        if (! $document->file_path) {
             return $this->notFoundResponse('File not found');
         }
 
-        // Return the file with proper headers
-        $path = Storage::disk('public')->path($document->file_path);
+        $fileData = $this->documentStorage->get($document->file_path);
+
+        if (! $fileData) {
+            return $this->notFoundResponse('File not found');
+        }
+
         $filename = basename($document->file_path);
 
-        return response()->file($path, [
+        // Return file from appropriate storage
+        if ($fileData['disk'] === 's3') {
+            return response($fileData['content'], 200, [
+                'Content-Type' => $fileData['mime_type'],
+                'Content-Disposition' => 'inline; filename="'.$filename.'"',
+            ]);
+        }
+
+        // Fallback to local storage
+        return response()->file($fileData['path'], [
             'Content-Disposition' => 'inline; filename="'.$filename.'"',
         ]);
     }

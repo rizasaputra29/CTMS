@@ -11,6 +11,7 @@ use App\Models\GroupMember;
 use App\Models\Location;
 use App\Models\PeriodAssessmentComponent;
 use App\Repositories\AssessmentScoreRepository;
+use App\Services\DocumentStorageService;
 use App\Services\ExpoService;
 use App\Services\SchedulingService;
 use Illuminate\Http\Request;
@@ -23,9 +24,12 @@ class ExpoEventController extends Controller
 
     protected ExpoService $expoService;
 
-    public function __construct(ExpoService $expoService)
+    protected DocumentStorageService $documentStorage;
+
+    public function __construct(ExpoService $expoService, DocumentStorageService $documentStorage)
     {
         $this->expoService = $expoService;
+        $this->documentStorage = $documentStorage;
     }
 
     // ────────────────────────────────
@@ -444,9 +448,13 @@ class ExpoEventController extends Controller
             'file' => 'required|file|max:10240|mimes:pdf,doc,docx,ppt,pptx',
         ]);
 
+        // V6: Upload to S3 with dual-storage fallback support
         $file = $validated['file'];
-        $fileName = 'expo_doc_'.$user->id.'_'.time().'.'.$file->getClientOriginalExtension();
-        $filePath = $file->storeAs('expo-documents', $fileName, 'public');
+        $filePath = $this->documentStorage->store(
+            $file,
+            'expo-documents',
+            'expo_doc_'.$user->id
+        );
 
         DB::beginTransaction();
         try {
@@ -456,9 +464,13 @@ class ExpoEventController extends Controller
                 ->first();
 
             if ($oldDocument) {
-                Storage::disk('public')->delete($oldDocument->file_path);
+                // Delete old file from both storages
+                if ($oldDocument->file_path) {
+                    $this->documentStorage->delete($oldDocument->file_path);
+                }
                 $oldDocument->update([
                     'file_path' => $filePath,
+                    'storage_location' => 's3',
                     'original_name' => $file->getClientOriginalName(),
                     'status' => 'SUBMITTED',
                 ]);
@@ -469,6 +481,7 @@ class ExpoEventController extends Controller
                     'group_id' => $groupMember->group_id,
                     'student_id' => $user->id,
                     'file_path' => $filePath,
+                    'storage_location' => 's3',
                     'original_name' => $file->getClientOriginalName(),
                     'status' => 'SUBMITTED',
                 ]);
@@ -490,7 +503,8 @@ class ExpoEventController extends Controller
             ], 'Document uploaded successfully.');
         } catch (\Exception $e) {
             DB::rollBack();
-            Storage::disk('public')->delete($filePath);
+            // Clean up S3 file if upload failed
+            $this->documentStorage->delete($filePath);
 
             return $this->errorResponse('Failed to upload document: '.$e->getMessage(), 500);
         }

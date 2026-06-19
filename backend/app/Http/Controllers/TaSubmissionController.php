@@ -15,6 +15,7 @@ use App\Models\PhaseDocumentRequirement;
 use App\Models\StudentPeerReviewStatus;
 use App\Models\TaSubmission;
 use App\Repositories\AssessmentScoreRepository;
+use App\Services\DocumentStorageService;
 use App\Services\GroupStateMachine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -27,9 +28,12 @@ class TaSubmissionController extends Controller
 
     protected GroupStateMachine $stateMachine;
 
-    public function __construct(GroupStateMachine $stateMachine)
+    protected DocumentStorageService $documentStorage;
+
+    public function __construct(GroupStateMachine $stateMachine, DocumentStorageService $documentStorage)
     {
         $this->stateMachine = $stateMachine;
+        $this->documentStorage = $documentStorage;
     }
 
     /**
@@ -481,10 +485,13 @@ class TaSubmissionController extends Controller
             return $this->unauthorizedResponse('Cannot upload documents at this stage.');
         }
 
-        // Handle file upload
+        // V6: Upload to S3 with dual-storage fallback support
         $file = $request->file('file');
-        $fileName = time().'_'.$file->getClientOriginalName();
-        $path = $file->storeAs('ta-documents/'.$submission->group_id.'/'.$user->id, $fileName, 'public');
+        $path = $this->documentStorage->store(
+            $file,
+            'ta-documents',
+            $submission->group_id.'/'.$user->id
+        );
 
         // Check if document already exists
         $existingDoc = Document::where('student_id', $user->id)
@@ -494,9 +501,14 @@ class TaSubmissionController extends Controller
             ->first();
 
         if ($existingDoc) {
-            // Update existing document
+            // Update existing document - delete old file from both storages
+            if ($existingDoc->file_path) {
+                $this->documentStorage->delete($existingDoc->file_path);
+            }
+
             $existingDoc->update([
                 'file_path' => $path,
+                'storage_location' => 's3',
                 'status' => 'PENDING',
                 'feedback' => null,
                 'version' => ($existingDoc->version ?? 0) + 1,
@@ -510,6 +522,7 @@ class TaSubmissionController extends Controller
                 'phase' => 'TA',
                 'document_type' => $request->document_type,
                 'file_path' => $path,
+                'storage_location' => 's3',
                 'status' => 'PENDING',
                 'feedback' => null,
                 'version' => 1,
