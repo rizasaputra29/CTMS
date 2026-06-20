@@ -27,8 +27,6 @@ import {
   PaginationContent,
   PaginationItem,
   PaginationLink,
-  PaginationNext,
-  PaginationPrevious,
 } from '@/components/ui/pagination';
 import {
   DropdownMenu,
@@ -65,6 +63,8 @@ import {
   RotateCcw,
   XCircle,
   Info,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useFinalizationDashboard } from '@/hooks/use-finalization-dashboard';
 import { useSupervisorLoad } from '@/hooks/use-supervisor-load';
@@ -808,14 +808,19 @@ export function FinalizationFeature() {
         <Pagination>
           <PaginationContent>
             <PaginationItem>
-              <PaginationPrevious
+              <PaginationLink
+                href="#"
                 onClick={() => setPage(Math.max(1, pagination.currentPage - 1))}
                 className={pagination.currentPage === 1 ? 'pointer-events-none opacity-50' : ''}
-              />
+                aria-label="Go to previous page"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </PaginationLink>
             </PaginationItem>
             {[...Array(pagination.lastPage)].map((_, i) => (
               <PaginationItem key={i}>
                 <PaginationLink
+                  href="#"
                   onClick={() => setPage(i + 1)}
                   isActive={pagination.currentPage === i + 1}
                 >
@@ -824,10 +829,14 @@ export function FinalizationFeature() {
               </PaginationItem>
             ))}
             <PaginationItem>
-              <PaginationNext
+              <PaginationLink
+                href="#"
                 onClick={() => setPage(Math.min(pagination.lastPage, pagination.currentPage + 1))}
                 className={pagination.currentPage === pagination.lastPage ? 'pointer-events-none opacity-50' : ''}
-              />
+                aria-label="Go to next page"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </PaginationLink>
             </PaginationItem>
           </PaginationContent>
         </Pagination>

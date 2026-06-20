@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\AuditLogController;
+use App\Http\Controllers\Admin\DocumentUploadController;
 use App\Http\Controllers\Admin\PhaseDocumentRequirementController;
 use App\Http\Controllers\Admin\StakeholderController;
 use App\Http\Controllers\AssessmentComponentController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\DocumentTypeController;
 use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\ExpoController;
 use App\Http\Controllers\ExpoEventController;
+use App\Http\Controllers\FileController;
 use App\Http\Controllers\FinalizationController;
 use App\Http\Controllers\GradeConfigurationController;
 use App\Http\Controllers\GradeConsistencyController;
@@ -46,7 +48,6 @@ use App\Http\Controllers\TitleController;
 use App\Http\Controllers\UserController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\FileController;
 
 Route::post('/login', [AuthController::class, 'login']);
 Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
@@ -274,6 +275,11 @@ Route::middleware(['auth:sanctum', 'add.token.cookie'])->group(function () {
         Route::get('/audit-logs', [AuditLogController::class, 'index']);
         Route::get('/audit-logs/action-types', [AuditLogController::class, 'actionTypes']);
         Route::get('/audit-logs/{id}', [AuditLogController::class, 'show']);
+
+        // Document Uploads (admin)
+        Route::get('/document-uploads', [DocumentUploadController::class, 'index']);
+        Route::get('/document-uploads/summary', [DocumentUploadController::class, 'summary']);
+        Route::get('/document-uploads/{id}/download', [DocumentUploadController::class, 'download']);
     });
 
     // ────────────────────────────────

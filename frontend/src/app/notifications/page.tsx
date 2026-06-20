@@ -44,7 +44,7 @@ export default function NotificationsPage() {
 
     const fetchNotifications = useCallback(async (p: number) => {
         try {
-            const res = await api.get(`/notifications?page=${p}&per_page=15`);
+            const res = await api.get(`/notifications?page=${p}&per_page=10`);
             const data: PaginatedNotifications = res.data;
             setNotifications(data.data || []);
             setPage(data.current_page);

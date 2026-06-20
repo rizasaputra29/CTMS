@@ -28,6 +28,13 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+} from '@/components/ui/pagination';
+import {
   Search,
   ArrowUpDown,
   Loader2,
@@ -396,48 +403,64 @@ export function DataTable<T>({
               of {pagination.total} results
             </p>
           </div>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => onPageChange(pagination.current_page - 1)}
-              disabled={pagination.current_page === 1}
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            {pageNumbers.map((page, i) =>
-              page === '...' ? (
-                <span
-                  key={`dots-${i}`}
-                  className="px-2 text-sm text-muted-foreground"
-                >
-                  ...
-                </span>
-              ) : (
-                <Button
-                  key={page}
-                  variant={
-                    pagination.current_page === page ? 'default' : 'outline'
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationLink
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPageChange(pagination.current_page - 1);
+                  }}
+                  className={
+                    pagination.current_page === 1
+                      ? 'pointer-events-none opacity-50'
+                      : ''
                   }
-                  size="sm"
-                  className="h-8 w-8 px-0"
-                  onClick={() => onPageChange(page as number)}
+                  aria-label="Go to previous page"
                 >
-                  {page}
-                </Button>
-              )
-            )}
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-8 w-8"
-              onClick={() => onPageChange(pagination.current_page + 1)}
-              disabled={pagination.current_page === pagination.last_page}
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+                  <ChevronLeft className="h-4 w-4" />
+                </PaginationLink>
+              </PaginationItem>
+              {pageNumbers.map((page, i) =>
+                page === '...' ? (
+                  <PaginationItem key={`ellipsis-${i}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      isActive={pagination.current_page === page}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onPageChange(page as number);
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                )
+              )}
+              <PaginationItem>
+                <PaginationLink
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onPageChange(pagination.current_page + 1);
+                  }}
+                  className={
+                    pagination.current_page === pagination.last_page
+                      ? 'pointer-events-none opacity-50'
+                      : ''
+                  }
+                  aria-label="Go to next page"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </PaginationLink>
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
         </div>
       )}
     </Card>

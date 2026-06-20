@@ -59,7 +59,7 @@ const fetchLogs = async (params: FetchLogsParams): Promise<{ logs: AuditLog[]; p
         pagination: {
             current_page: response.data?.pagination?.current_page || 1,
             last_page: response.data?.pagination?.last_page || 1,
-            per_page: response.data?.pagination?.per_page || 15,
+            per_page: response.data?.pagination?.per_page || 10,
             total: response.data?.pagination?.total || 0,
         },
     };
@@ -133,7 +133,7 @@ export function useAuditLogs() {
 
     return {
         logs: data?.logs || [],
-        pagination: data?.pagination || { current_page: 1, last_page: 1, per_page: 15, total: 0 },
+        pagination: data?.pagination || { current_page: 1, last_page: 1, per_page: 10, total: 0 },
         isLoading,
         actionTypes,
         periods,

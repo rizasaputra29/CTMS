@@ -67,7 +67,7 @@ class AuditLogController extends Controller
             });
         }
 
-        $perPage = $request->input('per_page', 15);
+        $perPage = $request->input('per_page', 10);
         $logs = $query->orderBy('created_at', 'desc')->paginate($perPage);
 
         return $this->paginatedResponse($logs, 'Audit logs retrieved successfully');

@@ -163,6 +163,11 @@ const navItems: Record<string, NavItem[]> = {
           icon: Users,
         },
         { title: "Reports", url: "/admin/reports", icon: BarChart3 },
+        {
+          title: "Document Uploads",
+          url: "/admin/document-uploads",
+          icon: FileText,
+        },
       ],
     },
   ],
